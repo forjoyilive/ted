@@ -13,8 +13,12 @@ The ordered list of Stages a Factory runs Tasks through, with each Stage’s set
 _Avoid_: Process, flow
 
 **Stage**:
-One step of a Workflow (for example Clarify or Validate), defined by a Stage file and settings such as whether it needs a human.
+One step of a Workflow (for example Clarify or Validate), defined by a Stage file and settings such as whether it needs a human. A holding Stage, such as Backlog, has no Stage file: no agent works on a Task while it sits there.
 _Avoid_: Step, phase, column
+
+**Backlog**:
+The holding Stage at the start of a Workflow where Tasks wait until they are started, by the human, an Automation, or the Tasks blocking them merging. Nothing runs on a Task in Backlog.
+_Avoid_: Icebox, queue
 
 **Gate**:
 A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory.
@@ -24,6 +28,18 @@ _Avoid_: Approval step, checkpoint
 The Markdown instructions an agent follows while a Task is in that Stage.
 _Avoid_: Prompt, playbook
 
+**Check**:
+A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work.
+_Avoid_: Test (when meaning the command), CI job
+
+**Finding**:
+Something Validate found wrong with a Task’s work. A blocking Finding sends the Task back to Work; a note carries forward to Review.
+_Avoid_: Issue, bug, comment
+
+**Factory setup**:
+The Run that reads a new Factory’s repos and proposes its Checks and how its product is validated, for the human to approve.
+_Avoid_: Onboarding, init
+
 **Library**:
 A user’s own Stage files and Workflow settings, which apply to all of that user’s Factories; they override TED’s defaults and are overridden by a Factory’s own files.
 _Avoid_: Templates, presets
@@ -32,33 +48,49 @@ _Avoid_: Templates, presets
 A unit of work moving through a Workflow; once code exists it corresponds to one pull request.
 _Avoid_: Ticket, issue, card, session
 
+**Priority**:
+How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
+_Avoid_: Severity, importance
+
+**Queued**:
+A started Task waiting at the start of Intake for a free slot under the machine’s or Factory’s limit on working Runs; a status, not a Stage.
+_Avoid_: Pending, ready
+
 **Task Lead**:
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
 _Avoid_: Orchestrator, manager agent
 
 **Run**:
-One agent working on a Task, from when TED starts it until it is stopped; either the Task Lead or a sub-agent. A stopped Run is kept as history and never restarted; work continues in a fresh Run.
+One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, or for Factory setup, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
+
+**Conversation**:
+A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s Comments.
+_Avoid_: Transcript, chat log
 
 **Task brief**:
 The Task Lead’s own summary of where a Task stands, kept with the Task, so a fresh Run can pick up the work.
 _Avoid_: Handoff, context file
 
 **Comment**:
-A message on a Task from the human or an agent; a comment can ask for the human’s answer, review or sign-off.
+A message on a Task, or from an Automation’s Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off or permission.
 _Avoid_: Message, note
+
+**Automation**:
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand.
+_Avoid_: Cron job, trigger
 
 **View**:
 A way of displaying a Factory’s Tasks, such as the Board or the List; changing views never changes a Task’s Stage.
 _Avoid_: Layout, mode
 
 **Board**:
-The View that shows each Task in a column for its current Stage; agents move Tasks, humans do not.
+The View that shows each Task in a column for its current Stage. Agents move Tasks between Stages; the human only reorders Tasks within a column and starts or un-starts them between Backlog and Queued.
 _Avoid_: Kanban (as a noun for the data)
 
 **List**:
 The View that shows Tasks as rows that can be sorted, grouped, and filtered.
-_Avoid_: Table, backlog
+_Avoid_: Table
 
 **Inbox**:
 The Comments waiting on the human: unanswered questions, design reviews, and sign-offs.
