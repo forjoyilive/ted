@@ -20,6 +20,10 @@ _Avoid_: Step, phase, column
 The holding Stage at the start of a Workflow where Tasks wait until they are started, by the human, an Automation, or the Tasks blocking them merging. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
 
+**Done**:
+The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged. Nothing runs on a Task in Done.
+_Avoid_: Closed, complete, shipped
+
 **Gate**:
 A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory.
 _Avoid_: Approval step, checkpoint
@@ -63,6 +67,10 @@ _Avoid_: Templates, presets
 **Task**:
 A unit of work moving through a Workflow; once code exists it corresponds to one pull request. A Task too big for one pull request is split into several Tasks, the original narrowing to the first piece while keeping its original request.
 _Avoid_: Ticket, issue, card, session, epic
+
+**Follow-up**:
+A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
+_Avoid_: Reopen, amendment, revision
 
 **Priority**:
 How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
