@@ -29,7 +29,7 @@ One step of a Workflow (for example Clarify or Validate), defined by a Stage fil
 _Avoid_: Step, phase, column
 
 **Backlog**:
-The holding Stage at the start of a Workflow where Tasks wait until they are started, by the human, an Automation, or the Tasks blocking them merging. Nothing runs on a Task in Backlog.
+The holding Stage at the start of a Workflow where Tasks wait until they are started, by the human or an Automation. A blocked Task that was created to start leaves Backlog when its last blocker merges; one created with Start now unchecked stays. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
 
 **Done**:
@@ -93,7 +93,7 @@ The status of a started Task, or of a new Automation or Planning Run, waiting fo
 _Avoid_: Pending, ready
 
 **Paused**:
-The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit, is signed out, missing or outdated, or the machine is offline; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
+The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit, is signed out, missing, outdated or using the wrong credential, or the machine is offline; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
 _Avoid_: Blocked, limited, stalled
 
 **Failed**:
@@ -125,7 +125,7 @@ The Task Lead’s own summary of where a Task stands, kept with the Task, so a f
 _Avoid_: Handoff, context file
 
 **Comment**:
-A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off, approval of proposed Tasks, or permission.
+A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off, approval of proposed Tasks, or permission. Each comment has one kind: note, question, round, review, sign-off, permission or proposal.
 _Avoid_: Message, note
 
 **Line comment**:

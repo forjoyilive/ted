@@ -4,6 +4,13 @@ Companion to `ted-v1-spec.md`. The first draft of the spec found 75 gaps (GAP-n)
 
 Updated 2026-11-08.
 
+## Settled after the spec rewrite (decided by Claude; pending Nabha’s review)
+
+- **NEW-1** Which Tasks start when their last blocker merges: a Task starts on merge if it was created to start (`--start`, Start now checked) or had already been started. Otherwise it stays in Backlog. Blocked Split and planning pieces start on merge. Spec 6.5, 6.16.
+- **NEW-2** Duplicate-source check: covers open, Done and archived Tasks in the Factory (KRI-55’s rule). This replaces the narrower wording in KRI-60’s review change. Spec 12.4.
+- **NEW-4** Original request: a collapsed row at the end of the Task brief section, with a link to the description’s history. Spec 10.7.
+- **Nudge event dots** are grey (KRI-61 follow-up), not blue.
+
 ---
 
 ## Still open
@@ -14,26 +21,10 @@ Updated 2026-11-08.
 - **Open:** whether a Comment on a Task thread can carry attachments, and whether the human can edit or delete a Comment after sending it.
 - **Spec:** 10.5.
 
-### NEW-1: Which Tasks start when their last blocker merges? (S)
-- **Status:** open.
-- **Settled:** a hand-made Task created with Start now unchecked stays in Backlog after its blocker merges; with Start now checked it starts (KRI-55, change from Nabha’s review). Blocked Split and planning pieces start when their blockers merge (KRI-19, KRI-60).
-- **Open:** an Automation-made Task with `--blocked-by` but no `--start`; a Backlog Task that gets a blocker later; a Queued Task that goes back to Backlog when a blocker is added. The spec assumes a Task starts on merge if it was created to start (`--start`, Start now) or had already been started, and stays otherwise.
-- **Spec:** 6.5, 6.16.
-
-### NEW-2: Does the duplicate-source check cover Done and archived Tasks? (S)
-- **Status:** open (conflict).
-- KRI-55 refuses a second Task when any Task already has that source: open, Done or archived. KRI-60’s change from Nabha’s review says “when an open Task in the Factory already has that source”. The spec keeps KRI-55’s wider rule, scoped to the Factory, because the narrower one would recreate a Task for every still-open Sentry or GitHub issue whose Task is Done.
-- **Spec:** 12.4.
-
 ### NEW-3: Can a queued message in a Run chat be deleted? (S)
 - **Status:** open until build.
 - **Delete** on a Queued message works only if TED, not the CLI, holds queued messages until the agent’s next step. Check this at build time; if the CLI holds them, drop Delete and keep **Send now** (KRI-63, note from Nabha’s review).
 - **Spec:** 10.6.
-
-### NEW-4: Where does Original request sit in Task details? (S)
-- **Status:** open.
-- KRI-19 keeps a collapsed **Original request** in Task details, with links to description history. KRI-63’s section order (fields, Code, Changes, Runs, Apps, Task brief) doesn’t place it, and KRI-63’s frames don’t draw it.
-- **Spec:** 10.7.
 
 ### NEW-5: Minimum supported versions (S)
 - **Status:** open until build.
