@@ -110,9 +110,12 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 
 ### 3.4 Updates
 
-- **No in-app updater in v1.** The human installs a new version by hand: replacing the app, or installing the new package. Auto-updating is later, to be done before TED has other users ([Auto-update TED itself](https://linear.app/kriyadesign/issue/KRI-79)). (Nabha’s review)
-- **Installing a new version never stops Runs.** Quitting the old app leaves agents and Apps running in their hosts, and the new daemon reattaches at launch. If an old host can’t talk to the new daemon, the daemon restarts that agent at its next idle point, resuming the same Run. (KRI-59, KRI-53)
-- Settings → General → About shows the version. (KRI-64)
+- One stable channel. The app downloads updates in the background. (KRI-20, KRI-59)
+- When one is ready, a blue chip in the sidebar footer reads “Update ready · Restart”, and the menu-bar menu shows “Restart to update to 1.4”. (KRI-59, KRI-64)
+- **Restarting never stops Runs.** It restarts the app and the daemon; agents and Apps keep running in their hosts and the new daemon reattaches. The daemon first waits for running Checks and an in-progress merge (up to 10 minutes), and the chip reads “Finishing 2 Checks…”. (KRI-59, KRI-64)
+- If the human doesn’t click, the update installs the next time every window is closed, or at the next launch. (KRI-59)
+- If an old host can’t talk to the new daemon, the daemon restarts that agent at its next idle point, resuming the same Run. (KRI-59, KRI-53)
+- A failed install, on any platform, is the warning banner “Update to 1.4 failed” with **Download**. (KRI-59)
 - Agent CLIs update separately and never silently (7.5). (KRI-54)
 
 ### 3.5 Disk use and a full disk
@@ -167,6 +170,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 | Disk full | Stops work | “Disk full · new work held · 1.4 GB free” | Open |
 | Store write failed | Stops work | “TED can’t save changes: disk full” | Open |
 | Disk almost full | Warning | “Disk almost full · 8.2 GB free” | Open |
+| Update failed to install | Warning | “Update to 1.4 failed” | Download |
 | Daily backup failed | Warning | “Today’s backup failed: <reason>” | Open |
 
 **Factory banners** (KRI-59, KRI-65, KRI-57)
@@ -186,7 +190,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 | An Automation failed 3 firings in a row | Warning | “Automation “Daily triage” failed 3 times in a row” | Open the Automation |
 
 - A deleted TED clone is cloned again before the next worktree, with no banner. If that fails, the clone-failed banner shows. (KRI-65)
-- **Not banners:** the Reconnecting bar (3.3); the full-window data screens (3.6); plan usage, a sidebar footer chip; notifications turned off in the OS, a red row in Settings → Notifications; a missing or invalid Linear key, an inline error where a URL is pasted and a red row in Settings → Integrations; drift, which sits on the Stage’s row in Factory settings (5.5); Task problems, which are Task statuses (6.6). (KRI-59, KRI-64, KRI-65)
+- **Not banners:** the Reconnecting bar (3.3); the full-window data screens (3.6); Update ready and plan usage, which are sidebar footer chips; notifications turned off in the OS, a red row in Settings → Notifications; a missing or invalid Linear key, an inline error where a URL is pasted and a red row in Settings → Integrations; drift, which sits on the Stage’s row in Factory settings (5.5); Task problems, which are Task statuses (6.6). (KRI-59, KRI-64, KRI-65)
 
 ### 3.8 Notifications
 
@@ -206,8 +210,9 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
   1. “3 waiting on you”: opens the Inbox.
   2. “5 of 6 Runs working · 2 queued”: information only.
   3. One line per app-wide problem, with a red or amber dot: opens its Fix.
-  4. Open TED, New Task… ⌘N, Settings… ⌘,
-  5. Quit TED completely ⌘Q, which asks about work running (3.1).
+  4. “Restart to update to 1.4”, when an update is ready.
+  5. Open TED, New Task… ⌘N, Settings… ⌘,
+  6. Quit TED completely ⌘Q, which asks about work running (3.1).
 - Every item is also in the app’s own menus. (KRI-59)
 - **Linux.** Electron’s tray uses StatusNotifierItem, which stock GNOME doesn’t show. So closing the window keeps TED running, as on macOS. The first time the window closes, TED sends one notification: “TED is still running in the background. Open it again from your app launcher.” Opening TED again focuses the running instance (one instance only); `ted open` does the same. Settings → General has **Show tray icon** (on). The Linux app menu holds the same items as the macOS menu-bar menu. The Inbox count shows in the window title (“TED (3)”) and on the launcher icon where supported. (KRI-59, KRI-64)
 
@@ -1001,7 +1006,7 @@ Figma: KRI-62 Board and List (Sidebar component 26:1613), Page 1 (Inbox · three
   - **All Tasks**.
   - **Factories**: one row per Factory with chevron, name, a red dot for any Failed Task, a red ⚠ for a stops-work Factory banner, and its waiting count in amber (clicking the count opens the Inbox filtered to it). The current Factory is expanded with **Board**, **List**, **Plans**, **Automations**, **Settings** indented; the open View has a grey fill. Plans and Automations get a red dot for a Failed planning chat or a failed last Automation result; Settings gets a drift count and a red dot for problems. Other Factories are collapsed; clicking one opens its last-used View (Board the first time). Rows reorder by drag. **+ Add Factory** ends the section. There is no separate Factory switcher.
   - **Settings ⌘,**, above the footer, separate from each Factory’s Settings entry. A red dot when any section has a stops-work problem.
-  - **Footer**, lines hidden when empty: “4 of 6 Runs working · 2 queued” (or “Nothing running”; click for the Working Runs popover), “1 failed” in red, “3 Runs paused” in grey, “Simulators 3 of 3 booted” then the plan-usage chip.
+  - **Footer**, lines hidden when empty: “4 of 6 Runs working · 2 queued” (or “Nothing running”; click for the Working Runs popover), “1 failed” in red, “3 Runs paused” in grey, “Simulators 3 of 3 booted”, then the plan-usage chip and the update chip.
 - Width: 210px. (KRI-8 polish pass)
 - Developer mode doesn’t add sidebar entries; Diagnostics and the log viewer live in Settings → Developer. (KRI-57)
 
@@ -1177,7 +1182,7 @@ Figma: KRI-64 First launch and Settings.
    - **Appearance:** System (default), Light, Dark. **Terminal font size** (10–20). **Profile picture:** avatar, **Change…**, **Remove**; initials if none.
    - **Startup and quitting:** **Start TED in the background when you log in** (on); Linux only, **Show tray icon** (on); **When you quit with work running** (3.1); **Stay Awake while Runs are working** (on).
    - **Editor** (9.8). **Command line:** **Install the `ted` command**. On macOS a symlink at `/usr/local/bin/ted` into the app bundle, asking for the admin password only if that folder isn’t writable. For AppImage a small `~/.local/bin/ted` script, rewritten after each update; if `~/.local/bin` isn’t on the login shell’s `PATH`, the row shows the line to add. deb and rpm show “Installed by your package”.
-   - **About:** version, Third-party licenses (including agent-orchestrator’s NOTICE).
+   - **About and updates:** version, “Update ready: TED 1.4.0. Restarting doesn’t stop Runs.”, **Check for updates**, **Restart to update**, Third-party licenses (including agent-orchestrator’s NOTICE).
 2. **Notifications:** the switches in 3.8. When the OS has notifications off for TED, a red row at the top with **Open System Settings**. (KRI-59, KRI-64)
 3. **Agents:** one card per agent kind with Health (chip, version against the minimum, path, account and plan, **Check again**, and **Copy command** / **Sign in** / **Update** when needed), **Billing** (Subscription / API key, naming the variables TED removes), and **Plan usage** bars (7.7). A card with a stops-work problem gets a red border and a chip such as “Signed out · 3 Runs paused”. Below the cards: **Restart idle Runs onto new agent versions** (on), and **Defaults for all Factories**: Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with agent, model, effort, a Default or Library tag, and **Reset to TED default**. (KRI-54, KRI-57, KRI-64, KRI-53)
 4. **Limits:** **Max working Runs on this machine** (6) and **Simulators booted at once** (3), with a live line “Now: 4 of 6 Runs working · 2 queued · 1 of 3 simulators booted”. (KRI-57, KRI-64)
@@ -1312,8 +1317,8 @@ Figma: KRI-66 Automations and Plans.
 Build tasks with no product decision left open, or with the decision recorded here.
 
 - **Start at login:** a LaunchAgent through `SMAppService` on macOS; an XDG autostart entry on Linux (3.2). (KRI-57)
-- **macOS code signing and notarization.** Signing keeps the Keychain from prompting the daemon, and auto-update will need it (KRI-79). (KRI-59, KRI-57)
-- **Linux packages:** AppImage, deb and rpm, for x64 and arm64. Each new version is installed by hand in v1 (KRI-79). Hosted apt and dnf repositories are later (KRI-74). (KRI-59, KRI-64)
+- **macOS code signing and notarization.** Signing is required for auto-update on macOS, and keeps the Keychain from prompting the daemon. (KRI-59, KRI-57)
+- **Linux packages:** AppImage, deb and rpm, for x64 and arm64. All three update through TED’s own updater (electron-updater). AppImage replaces itself with no password; deb and rpm install with `dpkg`/`rpm` and the restart chip reads “Restart to update (asks for your password)”. Hosted apt and dnf repositories are later (KRI-74). (KRI-59, KRI-64)
 - Bundled fonts: Geist Variable and Geist Mono Variable. (KRI-14)
 - Keep agent-orchestrator’s NOTICE for copied UI code and mark changed files. (ADR 0003)
 - Minimum supported versions to set at build: `claude`, `codex` and `gh` (`gh auth status --json` arrived some time after 2.49). (KRI-54, KRI-57)
