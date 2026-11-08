@@ -120,6 +120,10 @@ _Avoid_: Message, note
 A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand.
 _Avoid_: Cron job, trigger
 
+**Daemon**:
+TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.
+_Avoid_: Server, backend, service
+
 **View**:
 A way of displaying Tasks, such as the Board for one Factory or the List for one Factory or all of them; changing Views never changes a Task’s Stage.
 _Avoid_: Layout, mode
