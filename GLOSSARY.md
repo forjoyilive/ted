@@ -28,6 +28,10 @@ _Avoid_: Approval step, checkpoint
 The Markdown instructions an agent follows while a Task is in that Stage.
 _Avoid_: Prompt, playbook
 
+**Clarify depth**:
+How much questioning Clarify does on a Task: none, a few simple questions in one round, or a grilling session of several rounds that ends in the human’s sign-off. The Task Lead picks it unless the human or the Workflow sets it.
+_Avoid_: Tier, level
+
 **Check**:
 A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work.
 _Avoid_: Test (when meaning the command), CI job
@@ -37,16 +41,28 @@ Something Validate found wrong with a Task’s work. A blocking Finding sends th
 _Avoid_: Issue, bug, comment
 
 **Factory setup**:
-The Run that reads a new Factory’s repos and proposes its Checks and how its product is validated, for the human to approve.
+The first Task of a new Factory, which carries the proposed Workflow for that product through the Workflow itself: it reads the repos, asks the human how they work, and proposes Checks, Apps and Stage settings for the human to approve.
 _Avoid_: Onboarding, init
+
+**Factory notes**:
+Facts about a Factory’s product, such as how to run it, its conventions and its risky areas, given to every Run in that Factory. They never hold instructions for a Stage; those belong in Stage files.
+_Avoid_: Context file, product brief
+
+**App**:
+A program a Factory declares for running a Task’s work, such as a dev server or an iOS simulator build; each Task has at most one running instance of each App, shared by the human and agents.
+_Avoid_: Preview server, environment
+
+**Preview**:
+The one place to look at a Task’s work: the hosted preview its pull request reports, or else its running App.
+_Avoid_: Demo, staging
 
 **Library**:
 A user’s own Stage files and Workflow settings, which apply to all of that user’s Factories; they override TED’s defaults and are overridden by a Factory’s own files.
 _Avoid_: Templates, presets
 
 **Task**:
-A unit of work moving through a Workflow; once code exists it corresponds to one pull request.
-_Avoid_: Ticket, issue, card, session
+A unit of work moving through a Workflow; once code exists it corresponds to one pull request. A Task too big for one pull request is split into several Tasks, the original narrowing to the first piece while keeping its original request.
+_Avoid_: Ticket, issue, card, session, epic
 
 **Priority**:
 How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
@@ -61,8 +77,12 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Run**:
-One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, or for Factory setup, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
+One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, or for planning, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
+
+**Planning Run**:
+A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve.
+_Avoid_: Planning session, epic, map
 
 **Conversation**:
 A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s Comments.
@@ -73,7 +93,7 @@ The Task Lead’s own summary of where a Task stands, kept with the Task, so a f
 _Avoid_: Handoff, context file
 
 **Comment**:
-A message on a Task, or from an Automation’s Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off or permission.
+A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off or permission.
 _Avoid_: Message, note
 
 **Automation**:
