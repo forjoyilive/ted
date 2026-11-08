@@ -81,7 +81,7 @@ A started Task waiting at the start of Intake for a free slot under the machine�
 _Avoid_: Pending, ready
 
 **Paused**:
-The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit or is signed out, missing or outdated; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
+The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit, is signed out, missing or outdated, or the machine is offline; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
 _Avoid_: Blocked, limited, stalled
 
 **Failed**:
