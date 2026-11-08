@@ -121,17 +121,17 @@ A schedule in a Factory that starts a Run each time it fires, outside any Task, 
 _Avoid_: Cron job, trigger
 
 **View**:
-A way of displaying a Factory’s Tasks, such as the Board or the List; changing views never changes a Task’s Stage.
+A way of displaying Tasks, such as the Board for one Factory or the List for one Factory or all of them; changing Views never changes a Task’s Stage.
 _Avoid_: Layout, mode
 
 **Board**:
-The View that shows each Task in a column for its current Stage. Agents move Tasks between Stages; the human only reorders Tasks within a column and starts or un-starts them between Backlog and Queued.
+The View that shows one Factory’s Tasks, each in a column for its current Stage. Agents move Tasks between Stages; the human only reorders Tasks within a column and starts or un-starts them between Backlog and Queued.
 _Avoid_: Kanban (as a noun for the data)
 
 **List**:
-The View that shows Tasks as rows that can be sorted, grouped, and filtered.
+The View that shows Tasks, of one Factory or of every Factory, as rows that can be sorted, grouped and filtered; sorted by Priority and rank, the human can reorder, start and un-start Tasks as on the Board.
 _Avoid_: Table
 
 **Inbox**:
-The Comments waiting on the human: unanswered questions, design reviews, and sign-offs.
+The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered.
 _Avoid_: Notifications, feed
