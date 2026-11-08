@@ -8,6 +8,14 @@ TED (“Totally Excellent Development”) runs software factories: agents carry 
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline
 
+**Primary repo**:
+The first repo of a Factory, which holds the Factory’s own Workflow files and Factory notes; a repo can be the primary repo of only one Factory.
+_Avoid_: Main repo, root repo, home repo
+
+**Factory key**:
+The short code at the start of a Factory’s Task IDs, such as NB in NB-41; unique on the machine and fixed once the Factory is added.
+_Avoid_: Prefix, project key
+
 **Workflow**:
 The ordered list of Stages a Factory runs Tasks through, with each Stage’s settings.
 _Avoid_: Process, flow
