@@ -1,155 +1,186 @@
-# TED v1: designed and undesigned screens
+# TED v1: screens
 
-Sources: the Figma file `SLTyztzQXHFdz4sk3TcePk` (one page, “Page 1”, node `0:1`), the map KRI-8 and the resolution comments on KRI-10 to KRI-23 and KRI-52. Read on 2026-11-08.
+Where each v1 screen is designed. The Figma file is [TED](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED) (file key `SLTyztzQXHFdz4sk3TcePk`). Each prototype ticket has its own page; Page 1 holds the KRI-13 and KRI-23 frames. Every frame below is linked from its ticket in Linear. Read 2026-11-08, after the KRI-8 Figma consistency and polish passes.
 
-## Exists
+Shared components live on the **KRI-62 Board and List** page: the [Sidebar](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1613), Run icon, Agent avatar, Person avatar, Help (?), Tooltip, Priority and the status chips. Every page uses them.
 
-All five frames are on Page 1. All are final picks. No rejected alternatives are in Figma: the rejected layouts (KRI-13 B and C, KRI-23 B and C) exist only in the prototype branches `prototype/kri-13-inbox-and-thread` and `prototype/kri-23-apps-section`.
+## Being designed
 
-| # | Frame | Node | What it shows | Status | Ticket |
-|---|---|---|---|---|---|
-| 1 | Inbox · three panes (KRI-13) | [4:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=4-2) | Sidebar (Factory switcher “Notebook”, Inbox with count, Board, List, Factories list, footer “4 Tasks working · 1 failed”). Inbox list with three rows: Question, Design review, Sign-off. Task thread for a Task in Clarify: header (ID, “Created by you”, title, “Waiting on you” status, Stage track, activity line), events, a Task Lead Comment, and the open **Question** pinned at the bottom with three choice buttons and a text box with Send. Task details: Stage history (past with time spent, current, future greyed), Task brief as a paragraph, Code (two repos, “No pull request yet”), Runs (Task Lead · Claude · idle). | Final (layout A) | KRI-13 |
-| 2 | Apps section · Task details (KRI-23) | [13:3](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=13-3) | Same shell, Task at Review. **Sign-off card**: title, summary, ✓ checks row (typecheck, unit, e2e, lint), three screenshot tiles, “How to try it”, Preview row with Open, comment box, Request changes and Approve and merge below the box. Task details: Code with one PR per repo, **Apps** grouped by repo (Web running, iPhone shut down to free a slot, Vercel preview hosted, API running) with ↗ ■ ▶ ↻ buttons and a simulator-limit note, Task brief as Goal + Next step + Full brief button. Sidebar footer “Simulators 3 of 3 booted”. Stage history and Runs are not in this column. | Final | KRI-23 |
-| 3 | App log in the middle pane (KRI-23) | [14:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-2) | The Web App’s log replaces the thread: “← Thread” link, header with status, repo, URL, Preview / Stop / Restart, dark log body. Web row highlighted in Apps. | Final | KRI-23 |
-| 4 | Full brief in the middle pane (KRI-23) | [14:204](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-204) | The whole Task brief replaces the thread: Goal, Decisions so far, Current state, Open questions, Next step, “Updated by the Task Lead at the Review Gate · 31m ago”. | Final | KRI-23 (brief headings from KRI-17) |
-| 5 | Run iPhone with all simulators booted (KRI-23) | [14:404](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-404) | Popover over the sign-off view: “All 3 simulators are booted”, radio list of booted simulators by Task with “used … ago”, oldest selected, Cancel and “Shut down NB-40’s and run”. | Final | KRI-23 |
+| Screen | Figma page | Ticket |
+|---|---|---|
+| **Dark versions of the main screens** (dark mode is in v1: Appearance System, Light, Dark; every colour a light/dark token) | to be added to the file | KRI-64 (change from Nabha’s review) |
 
-Notes on the existing frames:
-- Frame 1 predates two KRI-23 rules: request buttons go below the comment box (frame 1 has Send inside it), and the brief shows Goal + Next step + Full brief (frame 1 shows a paragraph). Frame 1 also uses placeholder colours (KRI-13), and KRI-23 asked for higher contrast on secondary text and lines.
-- Only light mode exists. Only the Question and Sign-off request cards are drawn; Design review appears only as an Inbox row.
+---
 
-## Needed, not designed
+## Page 1: KRI-13 and KRI-23
 
-Priority: **core** = needed to build the main loop (create a Task, watch it move, answer, sign off, merge); **secondary** = a v1 feature outside the main loop; **edge** = a state of something else.
+| Screen | Frame | Ticket |
+|---|---|---|
+| Inbox · three panes (sidebar, Inbox list, Task thread with a pinned question, Task details) | [4:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=4-2) | KRI-13, updated by KRI-61 and the consistency pass |
+| Apps section in Task details, with the Review sign-off card | [13:3](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=13-3) | KRI-23 |
+| App log in the middle pane | [14:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-2) | KRI-23 |
+| Full brief in the middle pane | [14:204](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-204) | KRI-23 |
+| Run iPhone with all simulators booted (popover) | [14:404](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=14-404) | KRI-23 |
+| Tooltip open · example | [44:3235](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-3235) | KRI-8 consistency pass |
 
-### 1. App shell and navigation
-1. **Sidebar, full version**: Factory switcher menu, per-Factory entries for Plans and Automations, Add Factory, Settings, Developer mode entry, footer variants (working count, failed, queued, simulators). KRI-13, KRI-19, KRI-20. *Core.*
-2. **Command palette** over Tasks, Comments and commands. KRI-20. *Secondary.*
-3. **Dark mode** of every screen (light, dark, follow system). KRI-20, KRI-23. *Secondary.*
-4. **Linux window chrome and tray** variants. KRI-10, KRI-11. *Edge.*
+## KRI-61 Task thread
 
-### 2. Inbox list
-5. **Inbox row kinds not yet drawn**: Clarify round (“Clarify · Round 2 · 4 questions”), permission request, Automation Comment under the Automation’s name, Planning Run round and sign-off, Validate loop ask, re-sign-off. KRI-19, KRI-20, KRI-16, KRI-52. *Core.*
-6. **Read and unread rows**, and the row after it is answered (leaves the list). KRI-11. *Secondary.*
-7. **Empty Inbox**. *Secondary.*
+Ticket: [KRI-61](https://linear.app/kriyadesign/issue/KRI-61). Middle pane only, 668 wide.
 
-### 3. Request cards (pinned at the bottom of the thread)
-8. **Design review card**: screenshots, video, embedded interactive prototype, Figma link, Approve / Request changes. KRI-13. *Core.*
-9. **Clarify round card**: several questions, each with its recommended answer pre-filled, optional choice buttons and a text box; Accept all recommended; Talk it through. KRI-19. *Core.*
-10. **Talk it through**: live chat with the Task Lead on an unanswered round, ending in a summary Comment. KRI-19. *Secondary.*
-11. **Grilling sign-off card**: summary of decisions, Approve / Request changes (starts another round). KRI-19. *Core.*
-12. **Size check question**: Plan in chat / Split it / Plan it outside TED / Grill anyway. KRI-19. *Secondary.*
-13. **Split proposal sign-off**: list of pieces (title, one-line scope, blocking links). KRI-19. *Secondary.*
-14. **Permission request card**: Approve / Deny, shown in the thread, the Inbox and as a row in the Run chat; the Run shows as waiting. KRI-20. *Core.*
-15. **Validate loop ask**: each round’s blocking Findings, Try again / Back to Design / Move to Review anyway, text box. KRI-16. *Secondary.*
-16. **Re-sign-off** showing only “Changes since you approved”. KRI-52. *Secondary.*
-17. **Merge over `max_back`** question to the human. KRI-52. *Edge.*
-18. **Agent needs a simulator, all slots booted**: an Inbox Comment like a permission request (KRI-8 fog, “left for the spec”). KRI-23, KRI-8. *Edge.*
-19. **Request changes with diff line comments** drafted in the Changes panel and sent together. KRI-18. *Secondary.*
-20. **Answered request in the thread**: what a card turns into after Approve or an answer (“You approved · Task moved to Design”). KRI-11. *Core.*
-21. **Plain comment box** when nothing is waiting. KRI-13. *Core.*
+| Screen | Frame |
+|---|---|
+| Design review · pending / answered | [26:312](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-312) / [26:414](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-414) |
+| Clarify round · pending / answered / answered in Talk it through | [26:1274](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1274) / [26:1374](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1374) / [26:1444](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1444) |
+| Grilling sign-off · pending / answered | [26:1500](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1500) / [26:1564](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1564) |
+| Permission request · pending / approved, denied, withdrawn | [26:1672](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1672) / [26:1728](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1728) |
+| Simulator request · pending / answered, and freed up on its own | [26:1802](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1802) / [26:1869](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1869) |
+| Re-sign-off · Changes since you approved | [27:386](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-386) |
+| Sign-off · Merge off | [27:538](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-538) |
+| Sign-off answered · a Comment now cancels the merge | [27:482](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-482) |
+| Merge sign-off · Merge Gate | [27:596](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-596) |
+| Failed Task · FAILED ask with Send and Retry | [27:668](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-668) |
+| Task Lead went idle · ask with Nudge again | [27:728](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-728) |
+| Question · answered | [27:2431](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2431) |
+| Several open requests on one Task | [26:1928](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1928) |
+| Withdrawn and superseded requests | [26:2006](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-2006) |
+| Event lines in the thread | [27:4382](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4382) |
+| Task statuses in the thread header | [27:2011](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2011) |
+| Plain comment box · every state | [27:2342](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2342) |
+| Talk it through · Task Lead Run chat | [27:2492](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2492) |
 
-### 4. Task thread and header
-22. **Event lines**: Validate event with the ✓ checks row (click to expand output, “✓ Review · 2 notes”); “Validate sent this back to Work (round n of 5)” with Findings; Clarify depth pick; App restarts; merge-method fallback note; Stage file/layer used. KRI-16, KRI-19, KRI-12, KRI-18, KRI-52. *Core.*
-23. **Task statuses in the header** (and on cards): Working, Waiting on you (drawn), Idle, Queued, Failed, Done, plus Blocked (naming the blocker), Needs planning, Waiting for merge, Partly merged, Waiting for GitHub review. KRI-11, KRI-15, KRI-19, KRI-52. *Core.*
-24. **Attachments in Comments**: images, HTML in a sandboxed frame. KRI-20. *Secondary.*
-25. **Task actions menu**: Start, un-start, Stop, Archive, Unarchive, Delete, Follow up, set Priority, set Clarify depth. KRI-11, KRI-15, KRI-19, KRI-52. *Core.*
-26. **Delete confirm dialog** (removes Task, Runs, transcripts; leaves branch and PR). KRI-11. *Secondary.*
-27. **Archived Task view** (read-only, Unarchive). KRI-11. *Secondary.*
-28. **Done Task**: Follow up action, and the Follow up offer when typing a Comment on a Done Task. KRI-52. *Secondary.*
-29. **Comment after sign-off cancels the pending merge** (warning before sending). KRI-52. *Edge.*
-30. **Failed Task** state and what the human can do about it. KRI-11. *Edge.*
+## KRI-62 Board and List
 
-### 5. Task details column
-31. **Runs section, full**: one row per Run (Task Lead first, sub-agents, “+N”), working / idle / stopped / failed, Stop on a sub-agent, Restart, which credential the Run uses. KRI-11, KRI-20, KRI-21. *Core.*
-32. **Changes section**: changed files with +/− counts grouped by repo. KRI-20. *Core.*
-33. **Diff in the middle pane**, with line comments and Open in editor. KRI-20, KRI-18. *Core.*
-34. **Expand all**: details pane widened into one column of every diff with a sticky file index. KRI-20. *Secondary.*
-35. **Task fields**: Priority, Clarify depth (Auto/None/Few/Grill), source URL, blocked-by and blocking links, Planning Run link, Follow-up link. KRI-15, KRI-19, KRI-20, KRI-52. *Secondary.*
-36. **Original request** (collapsed) and description history. KRI-19. *Secondary.*
-37. **Cost and tokens** per Run and per Task. KRI-20. *Secondary.*
-38. **Code section PR states**: CI failing, conflicts, merged, partly merged. KRI-52. *Secondary.*
-39. **Apps row states not drawn**: starting, “Exited with code 1”, a `command` App with no Preview; Apps hidden on Linux. KRI-23. *Edge.*
-40. **Combined column**: one frame with Stage history, brief, Code, Changes, Apps and Runs together, and its scroll order (frames 1 and 2 each show part). KRI-13, KRI-23. *Core.*
+Ticket: [KRI-62](https://linear.app/kriyadesign/issue/KRI-62). Also holds the shared components.
 
-### 6. Run Conversation (chat)
-41. **Run chat in the middle pane**: streaming messages, collapsible tool-call rows, edits expandable to diffs, send and interrupt, permission request rows; opened from a Run row or a Conversation tab. KRI-20. *Core.*
-42. **Thread / Conversation switch** in the middle pane. KRI-20. *Core.*
-43. **Stopped Run** (read-only history) and the restart-onto-new-version event. KRI-11, KRI-20. *Secondary.*
-44. **Per-Task shell** (one per worktree per repo, with search). KRI-20. *Secondary.*
+| Screen | Frame |
+|---|---|
+| Board · Notebook, every column, with both banners | [27:929](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-929) |
+| Card in every status (the status colour and glyph reference) | [27:5281](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-5281) |
+| Working Runs popover / with the setup Task queued first | [27:2758](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2758) / [56:4469](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=56-4469) |
+| Board drag state, Backlog → Intake | [27:3250](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-3250) |
+| List grouped by Stage, Filter menu open | [27:7349](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-7349) |
+| List, Display menu open | [27:7874](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-7874) |
+| All Tasks grouped by Factory | [27:9783](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9783) |
+| All Tasks filtered to Queued, sorted Manual, reordering | [27:10258](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10258) |
+| List with Archived set to Only | [28:1601](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-1601) |
+| Archived Task, read-only | [28:1778](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-1778) |
+| ⌘K palette with mixed results | [28:2999](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2999) |
+| Inbox with the Factory chip | [28:3428](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-3428) |
+| Empty state: no Factories / Inbox / Board with no Tasks | [29:1808](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-1808) / [29:1879](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-1879) / [29:1968](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-1968) |
+| Empty states sheet (Inbox filtered, List, All Tasks, no matches, no archived, Plans, Automations, popover, ⌘K no results) | [29:2300](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-2300) |
+| Sidebar component | [26:1613](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-1613) |
 
-### 7. Board
-45. **Board**: columns Backlog → Intake → … → Merge → Done; cards with ID, title, Priority, Run icons, status, activity line, play button on Backlog cards, Queued cards at the top of Intake with “Queued · 2nd”, Blocked badge naming the blocker, Needs planning marker; clicking opens the Task with a back link. KRI-11, KRI-13, KRI-15, KRI-19. *Core.*
-46. **Drag states**: valid drop column lit, others dimmed, not-allowed cursor; dropping among another Priority changes Priority. KRI-15. *Secondary.*
-47. **Empty Board and empty columns**. *Edge.*
+## KRI-63 Task details
 
-### 8. List
-48. **List**: sortable, groupable, filterable rows, including Manual sort and a Needs planning filter. KRI-13, KRI-15, KRI-19. *Core.*
-49. **Sort, group and filter menus**. *Secondary.*
-50. **Empty List and no-results**. *Edge.*
+Ticket: [KRI-63](https://linear.app/kriyadesign/issue/KRI-63).
 
-### 9. Creating Tasks
-51. **Create Task dialog**: title and description or a pasted Linear URL, Start now (on by default), Priority, Clarify depth, blocked-by. KRI-15, KRI-19, KRI-20. *Core.*
-52. **Linear URL fetch**: loading, fetched (title, branch name), no API key, fetch failed. KRI-20. *Secondary.*
-53. **Duplicate source**: the existing Task is returned instead. KRI-20. *Edge.*
-54. **Setup notices on create or start**: “Setup isn’t finished…” (Start anyway / Open setup Task) and “This Factory hasn’t been set up” (Start anyway / New setup Task). KRI-22. *Secondary.*
+| Screen | Frame |
+|---|---|
+| Runs and Changes in Task details | [26:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-2) |
+| Diff in the middle pane with line comments | [26:855](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-855) |
+| Run chat in a Conversation tab | [26:2082](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=26-2082) |
+| Steering · message while working | [44:5104](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-5104) |
+| Steering · after redirect, and the thread line | [45:1181](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=45-1181), [45:1588](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=45-1588) |
+| Task actions menu, Working Task | [27:2](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-2) |
+| Task actions by status, and a Stopped header with Resume | [27:773](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-773) |
+| Archive dialog | [27:1450](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-1450) |
+| Delete dialog | [27:1732](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-1732) |
+| New Task dialog, More closed / More open with a Linear URL and a blocker | [27:3697](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-3697) / [27:4022](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4022) |
 
-### 10. Planning
-55. **Plans list** per Factory: open and finished planning chats, status, Tasks created. KRI-19. *Secondary.*
-56. **Planning chat** in the middle pane, with rounds and the Task proposal sign-off (Tasks with blocking links; Approve creates them in Backlog). KRI-19. *Secondary.* (KRI-8 leaves its visual detail to build.)
-57. **Plan entry points**: Plan on the Factory, Plan in chat from a too-big Task. KRI-19. *Secondary.*
+## KRI-64 First launch and Settings
 
-### 11. Factories: adding, setup, settings
-58. **Add Factory form**: repo picker (first is primary), refusal when a repo is already another Factory’s primary, “also used by Factory X” note, clone and GitHub access check results, Show the tutorial checkbox. KRI-22. *Core.*
-59. **Setup Task proposal** at the Design Gate: Checks and Apps each with pass/fail and duration, failures unticked with the reason, notes, Stage overrides, settings. KRI-22. *Core.*
-60. **Tutorial Comments** posted as each Stage starts on the first Factory. KRI-22. *Secondary.*
-61. **Later setup Task** proposing changes as a diff of current files. KRI-22. *Edge.*
-62. **Factory settings panel**: Stages (order, on/off, Gate, `max_back`, Clarify depth, tagged Default/Library/Factory, Override for this Factory / Reset to inherited), Checks with Run now and a “No Checks” state, Apps, Factory notes Markdown editor, repos (including `merge_method`), `lead`, reviewer, permissions, `max_working_runs`, New setup Task, warning when the Review Gate is off. KRI-12, KRI-16, KRI-20, KRI-22, KRI-52. *Core.*
-63. **Save flow**: Save and merge (default) / Save as pull request, pending and merged states. KRI-22, KRI-52. *Secondary.*
-64. **Drift row**: “Inherited version changed”, diff, Keep mine / Use inherited / Merge with an agent. KRI-22. *Secondary.*
-65. **Factory banner** suggesting a setup Task when `repos` changes or a Check’s command is missing (exit 127). KRI-22. *Edge.*
-66. **“No Checks”** on the Validate row with a New setup Task link. KRI-22. *Edge.*
+Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).
 
-### 12. Automations
-67. **Automations page** per Factory: list with schedule, last run, run history with retries. KRI-20. *Secondary.*
-68. **Automation editor**: cron or RRULE with timezone, prompt, agent, model, effort; templates (Linear, Sentry, GitHub triage). KRI-20. *Secondary.*
-69. **Automation Run view** (its chat and the Tasks it created). KRI-20. *Secondary.*
+| Screen | Frame |
+|---|---|
+| First launch · every check ready | [27:4859](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4859) |
+| First launch · Claude signed out, Codex not installed, no Git identity | [27:4946](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4946) |
+| First launch · API key found, GitHub signed out | [27:5023](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-5023) |
+| No Factories yet | [27:5090](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-5090) |
+| Settings · General | [27:8573](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8573) |
+| Settings · Notifications (off in macOS) | [27:8669](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8669) |
+| Settings · Agents, plan usage at 87% / Claude signed out and Codex at its limit | [27:8859](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8859) / [27:9065](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9065) |
+| Settings · Limits | [27:11280](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11280) |
+| Settings · Integrations | [27:11402](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11402) |
+| Settings · Library | [27:11659](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11659) |
+| Settings · Storage, disk almost full | [27:11893](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11893) |
+| Settings · Developer | [27:11964](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11964) |
+| Usage limit in a Task: Paused, banner, Run rows | [28:2607](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2607) |
+| Failed: status, Inbox ask with Retry, sidebar | [28:2848](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2848) |
+| Reconnecting to TED… | [29:2104](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-2104) |
+| This data needs TED 1.4 or later | [29:2267](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-2267) |
+| TED couldn’t update its data | [29:2285](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-2285) |
+| Updating TED’s data… | [29:2295](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-2295) |
+| Banners: stops work, warnings, stacking, disk | [30:3](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=30-3) |
+| Menu-bar menu | [30:155](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=30-155) |
+| Sidebar footer states: plan-usage chip and updates | [30:210](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=30-210) |
+| Quit dialog · only Automations on | [44:4646](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4646) |
+| App menu (Linux, no tray) | [44:4593](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4593) |
 
-### 13. App settings
-70. **TED Settings**: max working Runs (6), simulator cap (3), auto-restart idle Runs on new agent versions, Stay Awake, notification sound, theme, auto-update, Linear API key, reviewer default, Developer mode toggle, remembered quit choice. KRI-15, KRI-16, KRI-18, KRI-20, KRI-11. *Secondary.*
-71. **Library editing** (Stage files and Workflow settings, TED defaults read-only). KRI-12, KRI-22. *Secondary.*
-72. **Agent health**: Claude Code and Codex installed, signed in, version. KRI-20. *Core* (needed at first run).
+## KRI-65 Factory setup and settings
 
-### 14. Developer mode
-73. **Diagnostics**: CPU and memory per Run, process table, memory pressure, token use per Run, Copy report. KRI-20, KRI-17. *Secondary.*
-74. **Event log and raw Run output viewers**. KRI-20. *Secondary.*
+Ticket: [KRI-65](https://linear.app/kriyadesign/issue/KRI-65).
 
-### 15. System surfaces
-75. **Menu-bar / tray menu**: unread count, open TED, Quit TED completely. KRI-11, KRI-20. *Secondary.*
-76. **Quit dialog**: Keep running in the background (default, rememberable) / Stop them and quit / Cancel. KRI-11. *Secondary.*
-77. **System notification** per new Inbox item, and the Dock badge. KRI-20. *Secondary.*
-78. **OS permission asks** at the moment of need (notifications on first Inbox item; protected macOS folders when adding a repo from one). KRI-20. *Edge.*
-79. **App update waiting** for Runs to finish before restarting the daemon. KRI-11. *Edge.*
+| Screen | Frame |
+|---|---|
+| Add Factory · from a folder and a URL | [27:6546](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6546) |
+| Add Factory · access and validation errors | [27:6744](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6744) |
+| Add your first Factory · from folders, tutorial on | [27:6971](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6971) |
+| After Add Factory · cloning / clone failed | [27:9281](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9281) / [27:9406](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9406) |
+| Setup Task · design review with first-Factory tutorial | [27:9532](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9532) |
+| Factory settings · General and Repos | [27:10938](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10938) |
+| Factory settings · Workflow, with drift on Review | [27:12011](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-12011) |
+| Factory settings · Checks, Agents, Permissions, with an invalid workflow.yaml | [28:904](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-904) |
+| Factory settings · Factory notes | [28:2229](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2229) |
+| Save dialog, while removing a repo | [28:2350](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2350) |
+| Factory banners on the Board / every kind | [29:3](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-3) / [29:152](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-152) |
+| Sidebar · Factory row menu / rename in place | [29:221](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-221) / [29:395](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-395) |
+| Remove Factory dialog | [29:407](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-407) |
 
-### 16. First run and empty states
-80. **First launch**: check `claude` and `codex` installed and signed in; open the CLI’s own login in a terminal when not. KRI-21, KRI-22. *Core.*
-81. **No Factories yet** → Add Factory. *Core.*
-82. **Empty Plans and Automations lists**. *Edge.*
-83. **Daemon not reachable** or restarting. KRI-10, KRI-11. *Edge.*
+Two frame details are out of date against later decisions: the Save dialog and the removed repo card still show “open Tasks keep the repo until they’re Done”, which coordinator decision 12 replaced with a refusal; and the setup design review shows “Approve design”, corrected to **Approve** (KRI-60, KRI-65 follow-up). Check both frames before building.
 
-Counts: 83 items. Core 26, secondary 41, edge 16.
+## KRI-66 Automations and Plans
 
-## Needed but undecided
+Ticket: [KRI-66](https://linear.app/kriyadesign/issue/KRI-66).
 
-1. **Model and effort for a Run.** `lead` can name a model and Automations store model and effort, but how does the human pick model and effort for a Task’s Task Lead or a sub-agent, and can it change per Task?
-2. **App settings layout.** What sections does TED Settings have, and how does Library editing work in the UI: a Stage file editor, or only Workflow settings?
-3. **First-run sign-in.** How does TED show and fix a missing or signed-out `claude`/`codex` (embedded terminal, external terminal, instructions)? How does the user connect GitHub (rely on `gh auth`, or a token in the Keychain)? When is the Linear API key asked for?
-4. **Credential mode per Run.** KRI-21 says show which credential each Run uses and strip API keys unless the user picked API-key mode. Where is that mode chosen, and where is it shown?
-5. **Plan usage.** KRI-21 says to show plan usage because parallel Runs share one five-hour and weekly allowance. Where, and in what form?
-6. **Scope of Inbox, Board and List.** Is the Inbox across all Factories or per Factory? Is there an all-Factories Board or List? The queue is machine-wide; where does the human see it and the working-Run limit?
-7. **The Factory page.** KRI-22 puts a banner “on the Factory page”. What does clicking a Factory in the sidebar show: its Board, an overview, or settings?
-8. **Archived Tasks.** Where do archived Tasks live and how does the human find and unarchive one?
-9. **Failed Tasks.** What does Failed mean for a Task, and what can the human do: retry, restart the Task Lead, archive?
-10. **Removing a Factory.** Can a Factory be removed or renamed, and what happens to its Tasks, worktrees and `.ted/` files?
-11. **Per-Task shell placement.** Where does the shell open: middle pane, a tab beside Thread and Conversation, or a drawer?
-12. **Opening a repo by hand.** “Open in editor” is decided; which editor, and is it a setting?
+| Screen | Frame |
+|---|---|
+| Automations page · list with a failed one | [27:4642](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4642) |
+| New Automation dialog / Schedule field states | [27:6182](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6182) / [27:6432](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6432) |
+| Automation view · history | [27:7104](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-7104) |
+| Automation Run view · waiting on you | [27:9113](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9113) |
+| Plans list · every status | [27:10471](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10471) |
+| Planning chat · mid-round | [27:10728](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10728) |
+| Planning chat · proposal for approval / unchecking a row others need | [28:357](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-357) / [28:822](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-822) |
+| Planning chat · approved | [28:599](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-599) |
+| Automations · empty / Plans · empty / New planning chat | [28:1949](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-1949) / [28:2053](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2053) / [28:2131](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2131) |
+
+The Split it proposal uses the planning chat’s proposal card (KRI-60).
+
+---
+
+## Decided but not drawn
+
+No frame for these is listed on any ticket. The spec section says how each works; the builder follows the nearest drawn screen.
+
+| Screen | Nearest frame | Spec | Ticket |
+|---|---|---|---|
+| Dark versions of every screen | being designed (above) | 10.1 | KRI-64 |
+| Task shell in the middle pane | App log (14:2) | 9.8 | KRI-60 |
+| Expand all (every diff in one column) | Diff (26:855) | 9.5 | KRI-20 |
+| Diff bar with no request open (**Send to Task Lead**) | Diff (26:855) | 9.5 | KRI-63 |
+| Size check question (Plan in chat, Split it, Plan it outside TED, Grill anyway) | Question · answered (27:2431) | 6.10 | KRI-19 |
+| Validate loop ask (Try again, Back to Design, Move to Review anyway) | Failed ask (27:668) | 8.5 | KRI-16 |
+| CI stuck at Merge question | Failed ask (27:668) | 9.9 | KRI-60 |
+| Merge over `max_back` question | Failed ask (27:668) | 9.9 | KRI-52 |
+| Model unavailable question | Failed ask (27:668) | 6.6 | KRI-53 |
+| Setup notices on create or start (“Setup isn’t finished…”, “This Factory hasn’t been set up”) | New Task dialog (27:3697) | 5.3 | KRI-22 |
+| Linear URL with no key, and fetch failed, in the New Task dialog | New Task dialog (27:4022) | 6.3 | KRI-60, KRI-57 |
+| Quit dialog with active Runs | Quit dialog · only Automations on (44:4646) | 3.1 | KRI-11 |
+| Diagnostics and the event log / raw output viewer | Settings · Developer (27:11964) | 11.4 | KRI-20 |
+| Drift on a Library Stage file (Default version changed) | Workflow drift (27:12011) | 5.5 | KRI-58 |
+| Later setup Task proposing a diff of current files | Setup design review (27:9532) | 5.3 | KRI-22 |
+| Edit title and description dialog | New Task dialog (27:3697) | 6.4 | KRI-55, KRI-63 |
+| Original request and description history in Task details | Runs and Changes (26:2) | 10.7 | KRI-19 |
+| System notification and Dock badge | none | 3.8 | KRI-20, KRI-59 |
+| OS permission prompts (notifications, protected folders) | none (system UI) | 2.4 | KRI-20 |
