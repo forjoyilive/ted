@@ -88,6 +88,10 @@ _Avoid_: Blocked, limited, stalled
 The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than the agent being Paused; the human decides whether to retry.
 _Avoid_: Errored, crashed
 
+**Stopped**:
+The status of a Task whose Runs the human stopped; it stays in its Stage with its worktree until the human resumes it, which starts a fresh Task Lead Run from the Task brief. A status, not a Stage.
+_Avoid_: Paused (which is for agents that can’t run), canceled, on hold
+
 **Task Lead**:
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
 _Avoid_: Orchestrator, manager agent
