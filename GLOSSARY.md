@@ -80,6 +80,14 @@ _Avoid_: Severity, importance
 A started Task waiting at the start of Intake for a free slot under the machine’s or Factory’s limit on working Runs; a status, not a Stage.
 _Avoid_: Pending, ready
 
+**Paused**:
+The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit or is signed out, missing or outdated; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
+_Avoid_: Blocked, limited, stalled
+
+**Failed**:
+The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than the agent being Paused; the human decides whether to retry.
+_Avoid_: Errored, crashed
+
 **Task Lead**:
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
 _Avoid_: Orchestrator, manager agent
