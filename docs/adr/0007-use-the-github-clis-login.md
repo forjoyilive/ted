@@ -1,6 +1,6 @@
 # Use the GitHub CLI’s login for all GitHub access
 
-TED makes every GitHub request (watching pull requests, checks and reviews, turning on auto-merge, merging, closing pull requests, opening settings pull requests) by running the user’s installed `gh` as a child process. It never stores, reads or asks for a GitHub token, and never runs `gh auth token` or `--show-token`. Git clone, fetch and push use the user’s existing git credentials, and TED never changes the user’s git config. This keeps TED from holding credentials, in line with ADR 0004, and settles the conflict between KRI-20 (a GitHub token in the Keychain) and KRI-52 (merging with `gh` under the user’s login).
+TED makes every GitHub request (opening draft Task pull requests with `gh pr create --draft` and marking them ready with `gh pr ready`, watching pull requests, checks and reviews, turning on auto-merge, merging, closing pull requests, opening settings pull requests) by running the user’s installed `gh` as a child process. It never stores, reads or asks for a GitHub token, and never runs `gh auth token` or `--show-token`. TED, not the agent, pushes Task branches. Git clone, fetch and push use the user’s existing git credentials, and TED never changes the user’s git config. This keeps TED from holding credentials, in line with ADR 0004, and settles the conflict between KRI-20 (a GitHub token in the Keychain) and KRI-52 (merging with `gh` under the user’s login).
 
 ## Considered Options
 

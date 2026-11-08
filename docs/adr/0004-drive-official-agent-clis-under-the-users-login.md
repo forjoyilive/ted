@@ -5,7 +5,7 @@ Anthropic’s and OpenAI’s terms allow a local app to start Claude Code and Co
 Rules for building TED:
 
 - Start the user’s installed, unmodified CLIs. Never bundle, patch or wrap the binaries.
-- Leave sign-in to the CLIs (`claude login`, `codex login`) or to the user’s own API key. TED has no sign-in screen of its own and never reads, copies or stores tokens or keys.
+- Leave sign-in to the CLIs (`claude auth login`, `codex login`) or to the user’s own API key. TED has no sign-in screen of its own and never reads, copies or stores tokens or keys.
 - With a Claude subscription, use the CLI, not the Agent SDK.
 - Remove `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CODEX_API_KEY` from the environment of the agents TED starts, unless the user has chosen API-key billing for that agent. A stray key silently moves the user to API billing. (Codex reads `CODEX_API_KEY`, not `OPENAI_API_KEY`, and it overrides every other login.) Keys the CLI stores itself, or Claude’s `apiKeyHelper`, can’t be removed this way, so TED compares the credential each Run reports with the user’s choice and pauses that agent when they differ ([KRI-54](https://linear.app/kriyadesign/issue/KRI-54)).
 - Don’t pass `--bare`, and opt out if it becomes the default for `-p`; it ignores the subscription login.

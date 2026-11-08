@@ -77,7 +77,7 @@ A user’s own Stage files and Workflow settings, which apply to all of that use
 _Avoid_: Templates, presets
 
 **Task**:
-A unit of work moving through a Workflow; once code exists it corresponds to one pull request. A Task too big for one pull request is split into several Tasks, the original narrowing to the first piece while keeping its original request.
+A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several Tasks, the original narrowing to the first piece while keeping its original request.
 _Avoid_: Ticket, issue, card, session, epic
 
 **Follow-up**:
@@ -89,7 +89,7 @@ How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Tas
 _Avoid_: Severity, importance
 
 **Queued**:
-A started Task waiting at the start of Intake for a free slot under the machine’s or Factory’s limit on working Runs; a status, not a Stage.
+The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs; a queued Task waits at the start of Intake. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
@@ -113,7 +113,7 @@ One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an
 _Avoid_: Session, job
 
 **Planning Run**:
-A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve.
+A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve. The UI calls it a planning chat.
 _Avoid_: Planning session, epic, map
 
 **Conversation**:
@@ -125,11 +125,11 @@ The Task Lead’s own summary of where a Task stands, kept with the Task, so a f
 _Avoid_: Handoff, context file
 
 **Comment**:
-A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off or permission.
+A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off, approval of proposed Tasks, or permission.
 _Avoid_: Message, note
 
 **Line comment**:
-A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next Comment on the Task.
+A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next Comment on the Task. Approving doesn’t send it.
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
@@ -153,5 +153,5 @@ The View that shows Tasks, of one Factory or of every Factory, as rows that can 
 _Avoid_: Table
 
 **Inbox**:
-The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered.
+The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered.
 _Avoid_: Notifications, feed
