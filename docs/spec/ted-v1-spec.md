@@ -1,6 +1,6 @@
 # TED v1 spec (draft)
 
-Status: draft for review, 2026-11-08. Built from the map [KRI-8](https://linear.app/kriyadesign/issue/KRI-8), the resolution comments on KRI-9 to KRI-23 and KRI-52, `GLOSSARY.md`, and ADRs 0001–0005.
+Status: draft for review, 2026-11-08. Built from the map [KRI-8](https://linear.app/kriyadesign/issue/KRI-8), the resolution comments on KRI-9 to KRI-23, KRI-52 and KRI-53, `GLOSSARY.md`, and ADRs 0001–0005.
 
 How to read it:
 
@@ -111,15 +111,18 @@ Every key that has been decided:
 | Key | Where | Meaning | Source |
 |---|---|---|---|
 | `version` | any layer | Schema version, `1`. | KRI-12 |
-| `lead` | any layer | The Task Lead’s agent: `claude` or `codex`, or an object `{agent: claude, model: opus}`. One Task Lead Run spans all Stages; there is no agent per Stage. | KRI-12 |
-| `reviewer` | any layer, “next to `lead`” | `codex`, `claude` or `same`. Default: the other kind when both are installed, else `same`. | KRI-16 |
+| `lead` | any layer, merged key by key | The Task Lead’s agent: `claude` or `codex`, or an object `{agent, model, effort}`. One Task Lead Run spans all Stages; there is no agent per Stage. Default agent: Claude if installed, else Codex. | KRI-12, KRI-53 |
+| `reviewer` | any layer, “next to `lead`”, merged key by key | `codex`, `claude` or `same`, or an object `{agent, model, effort}`. Used by Validate’s reviewer and the loop check. Default: the other kind when both are installed, else `same`. | KRI-16, KRI-53 |
+| `planner` | any layer, merged key by key | Agent for Planning Runs and Clarify’s Talk it through: `claude` or `codex`, or `{agent, model, effort}`. Default agent: Claude if installed, else Codex. | KRI-53 |
+| `model` (inside `lead`, `reviewer`, `planner`) | any layer | The CLI’s alias where it has one (Claude: `opus`, `sonnet`, `haiku`, …, which track the newest version), the exact name otherwise (Codex has no aliases). Unset by default: the CLI’s own default (and any org admin default) applies. | KRI-53 |
+| `effort` (inside `lead`, `reviewer`, `planner`) | any layer | The CLI’s own levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. A level the model doesn’t support drops to the highest it allows. Unset by default: the CLI’s own default applies. | KRI-53 |
 | `repos` | Factory layer only | The Factory’s repos; first is the primary repo. `name` and `remote`, no local paths. Leave it out for a single-repo Factory. Multi-repo Factories keep it in `.ted/workflow.yaml`. | KRI-12 |
 | `repos.*.apps` | Factory | Apps for that repo (see 7.3). | KRI-18 |
 | `repos.*.merge_method` | Factory | `squash` (default), `merge` or `rebase`. | KRI-52 |
 | per-repo worktree settings | Factory | Default branch, env vars, symlinked files (e.g. `.env`), setup and teardown scripts. Key names not decided: GAP-25. | KRI-20 |
 | `order` | any layer | Ordered list of Stage ids. | KRI-12 |
 | `max_working_runs` | any layer, merged | Optional per-Factory cap on working Runs. Unset by default. | KRI-15 |
-| `permissions` | Factory | One setting that changes the agents’ permission mode. Bypass only when set here explicitly. Values not decided: GAP-9. | KRI-20 |
+| `permissions` | Factory layer only | `auto` (default) or `bypass`. Applies to every Run in the Factory. Can’t be set in the Library or TED defaults. See 5.5. | KRI-20, KRI-53 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. The settings toggle writes it. | KRI-12 |
 | `stages.<id>.gate` | any layer | `true` puts a Gate at the end of the Stage. | KRI-12 |
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage. Going over turns `back` into `ask`; the count resets when the human answers. | KRI-12 |
@@ -132,7 +135,7 @@ Every key that has been decided:
 
 Defaults: Gates on Design and Review; Validate `max_back: 5`, `loop_check: 3`; Merge `max_back: 3`. [KRI-12, KRI-16 changed KRI-12’s 3 to 5, KRI-52] Other Stages: GAP-33.
 
-Not in `workflow.yaml`: the machine’s limit on working Runs, because the file is committed and shared. [KRI-15] Model and effort for Runs other than the Task Lead: GAP-1.
+Not in `workflow.yaml`: the machine’s limit on working Runs, because the file is committed and shared. [KRI-15] Sub-agents and Automations have no key: the Task Lead picks for each sub-agent (5.2), and each Automation stores its own (9.1). [KRI-53] Effort per Stage is not in v1 (KRI-67). [KRI-53]
 
 **Open contradiction on the shape of `repos`.** KRI-12 shows `repos` as a list of `{name, remote}`. KRI-18 shows it as a map keyed by repo name with `apps` under each. KRI-12 also says to leave `repos` out for a single-repo Factory, which leaves no place for that repo’s `apps` and `merge_method`. GAP-23. The example below uses the list form and is not final.
 
@@ -140,8 +143,10 @@ Example (shape of `repos` pending GAP-23; per-repo worktree keys pending GAP-25)
 
 ```yaml
 version: 1
-lead: { agent: claude, model: opus }
-reviewer: codex
+lead: { agent: claude, model: opus, effort: high }
+reviewer: { agent: codex, effort: medium }
+planner: claude
+permissions: auto
 max_working_runs: 3
 repos:
   - name: app
@@ -188,7 +193,7 @@ Whether `backlog` and `done` appear in `order`, and whether they can move or be 
 
 - The user’s own Stage files and Workflow settings in `~/.ted/library/`. Overrides TED’s defaults; overridden by a Factory. [Glossary, KRI-12]
 - Library edits in app Settings write straight to `~/.ted/library/`, with no pull request. [KRI-22]
-- The app Settings screen edits the Library’s `reviewer`. [KRI-16]
+- The app Settings screen edits the Library’s `lead`, `reviewer` and `planner` in its Agents section (8.9). [KRI-16, KRI-53]
 - Library sharing and versioning are later (KRI-49).
 - How Library Stage files are edited in the UI: GAP-29.
 
@@ -242,6 +247,8 @@ Factory setup is a Task: the Factory’s first Task, run through the inherited W
 
 - Shows the effective Workflow: each Stage in order with its Gate, on/off state, `max_back`, and Clarify depth, each tagged **Default**, **Library** or **Factory**. [KRI-12, KRI-22]
 - Edits Stages (order, on/off, Gate, `max_back`, Clarify depth), Checks (rows with **Run now**), Apps, Factory notes (Markdown editor) and repos. [KRI-22]
+- Shows `lead`, `reviewer` and `planner` (agent, model, effort) with their inherited values and an override control for each. [KRI-53]
+- Edits `permissions`. Choosing `bypass` shows a warning that it is only for Factories whose Runs happen in an isolated machine or VM. [KRI-53]
 - Each Stage entry has **Override for this Factory** (copies the file into `.ted/`) and **Reset to inherited** (deletes the Factory copy). [KRI-12] These collect with other edits until Save. [KRI-22 changed KRI-12, where they acted at once]
 - The files on the default branch stay the source of truth. [KRI-22]
 - Edits collect until **Save**, which commits them on a branch and opens one pull request, “Update TED settings”: **Save and merge** (default) or **Save as pull request**. [KRI-22]
@@ -258,6 +265,7 @@ Factory setup is a Task: the Factory’s first Task, run through the inherited W
 
 - A Task is a unit of work moving through a Workflow. Once code exists, it corresponds to one pull request per repo it touches. [Glossary, KRI-8, KRI-13]
 - Fields decided: title, description (versioned, with the first version kept as **Original request**), Priority, hand-set rank, Clarify depth (Auto, None, Few, Grill), source URL, blocked-by links, Task brief (versioned), Stage history. [KRI-15, KRI-19, KRI-20, KRI-11]
+- **Task Lead** field: agent, model and effort, in the New Task dialog and Task details. Filled from `lead`; changeable any time. A model or effort change applies at the Run’s next idle point (waiting at a Gate or between turns) by resuming with new flags; it never interrupts a turn. An agent change starts a fresh Run from the brief. Individual sub-agents can’t be changed by hand. [KRI-53]
 - Branch: Linear’s suggested branch name when created from a Linear URL, else a slug of the title. [KRI-20] (GAP-42.)
 - Which repos a Task touches: Intake guesses. [KRI-12] (GAP-41.)
 - Creating a Task: by hand (typing, or pasting a Linear URL), by an Automation, by Split it, by a Planning Run, or as a Follow-up. The human creating Tasks by hand is the main way work enters. [KRI-20, KRI-19, KRI-52] New Task dialog: GAP-35. Editing a Task after creation: GAP-36.
@@ -300,6 +308,7 @@ A status is shown alongside the Stage; it is not a Stage. Decided statuses and m
 | Waiting for merge | Signed off with Merge turned off; the human merges on GitHub. | KRI-52 |
 | Partly merged | Multi-repo merge failed partway; Task stays in Merge. | KRI-52 |
 | Waiting for GitHub review | A required teammate review on GitHub. Not an Inbox item. | KRI-52 |
+| Model unavailable | A Run asked for a model the user’s plan doesn’t include; an Inbox Comment asks what to do (5.3). | KRI-53 |
 | Activity line | One line of free text set by the agent with `ted status "…"`. | KRI-11 |
 
 KRI-11 also listed “Done” as a status. KRI-52 later made Done a holding Stage; this spec treats Done as a Stage only. The full status model (precedence when several apply, how each looks on cards, rows and the header, usage-limit and blocked-by-permission states): GAP-34.
@@ -334,7 +343,7 @@ Run icons: one icon per Run (Task Lead first, then sub-agents, “+N” past thr
 - **Size check first.** Clarify’s first step checks whether the Task fits one pull request. If not, it asks with choices: **Plan in chat**, **Split it**, **Plan it outside TED**, **Grill anyway**. Nothing else checks size; turning Clarify off turns the check off. [KRI-19]
 - **Depth:** none, few, grilling. The Task Lead picks by default and posts its pick and why as a one-line event. The human can set it on the Task (Auto, None, Few, Grill) beforehand or change it by Comment. `stages.clarify.depth` sets a default. [KRI-19]
 - **Rounds.** A round is one Comment holding all its questions, answered in one go. Each question has its recommended answer pre-filled, optional choice buttons and a text box. The round has **Accept all recommended**. Agents post rounds with `ted ask --round <file>`; TED renders them. In the Inbox a round is one item, e.g. “Clarify · Round 2 · 4 questions”. [KRI-19]
-- **Talk it through** on an unanswered round opens a live chat with the Task Lead. When it ends, the Task Lead posts a Comment summarizing the questions and decisions. [KRI-19]
+- **Talk it through** on an unanswered round opens a live chat with the Task Lead. When it ends, the Task Lead posts a Comment summarizing the questions and decisions. [KRI-19] The chat uses the `planner` agent, model and effort. [KRI-53]
 - **Few:** one round, no sign-off; the Task moves on when answered. The Task Lead may switch to grilling (one-line event) if answers raise something bigger. [KRI-19]
 - **Grilling** ends with a sign-off Comment summarizing what was decided. Approve moves on; Request changes starts another round. It acts as a Gate that is on only at grilling depth. Decisions go under the brief’s Decisions so far. [KRI-19]
 - Wayfinder is not part of Clarify in v1 (KRI-48). [KRI-19]
@@ -420,7 +429,7 @@ Covered in 4.8. Planning Runs split the same way (8.8). [KRI-19]
 ### 5.1 Task Lead
 
 - One Task Lead per Task. It carries the Task through its Stages, may start sub-agents, and writes the Task brief at each Gate. [Glossary, KRI-8]
-- Its agent comes from `lead`. [KRI-12] Model and effort: GAP-1. Changing it on one Task: GAP-13.
+- Its agent, model and effort come from `lead`. [KRI-12, KRI-53] The Task Lead field changes them on one Task (4.1). [KRI-53]
 - **One long Run** is the default; no fresh agent per Stage. Context-heavy work (exploration, implementation, review) goes to sub-agents, and the Task Lead keeps only their final messages. [KRI-17]
 - The agents’ own compaction handles long context. `ted run handoff` is dropped from v1. [KRI-17, changed KRI-11]
 - The Run stays open and idle while it waits for the human. It does not exit after asking. [KRI-11]
@@ -428,7 +437,9 @@ Covered in 4.8. Planning Runs split the same way (8.8). [KRI-19]
 
 ### 5.2 Sub-agents
 
-- Started by the Task Lead: `ted run start --agent <kind> --prompt-file <file>`. The Task Lead picks the agent kind. [KRI-11, KRI-20] Model and effort: GAP-1. Cap per Task: GAP-14.
+- Started by the Task Lead: `ted run start --agent <kind> --model <model> --effort <level> --prompt-file <file>`. [KRI-11, KRI-20, KRI-53]
+- The Task Lead picks agent, model and effort for each sub-agent, guided by Stage files. Anything it leaves out falls back to `lead`. [KRI-11, KRI-20, KRI-53]
+- No per-Task cap on sub-agents; the machine and Factory limits on working Runs cover it. [KRI-53]
 - Share the Task’s worktree by default; `--own-worktree` separates. [KRI-11]
 - `ted run wait <id>` returns the final message. `ted run send <id>` sends follow-ups. [KRI-11]
 - Don’t receive the human’s Comments. [KRI-11]
@@ -443,9 +454,12 @@ Covered in 4.8. Planning Runs split the same way (8.8). [KRI-19]
 - **Comments into Runs:** the human’s Comments go straight into the Task Lead’s live Run, queued in the agent’s own input if it is mid-turn. A Comment counts as read once the agent has started a turn with it. Agents’ Comments count as read when the human opens them. [KRI-11]
 - **Stop** a Run. A stopped Run is read-only history, never resumed; work continues in a fresh Run. [KRI-11, Glossary]
 - **Restart:** a manual action on an idle or waiting Run, plus an automatic restart of idle Runs onto a new Claude Code or Codex version (setting, on by default). [KRI-20]
-  - **Open contradiction:** KRI-20 and the glossary say a restart resumes the same conversation (`claude --resume`, `codex resume` / `thread/resume`) and is still the same Run; TED passes `--mcp-config`, `--settings` and `--add-dir` again because Claude Code doesn’t restore them. KRI-11 says TED never resumes an old agent session, and KRI-17 and the map say a version restart starts a fresh Run from the brief. GAP-11.
-- **Fresh Task Lead Run from the brief** (plus Comments since) when there is no live session to continue: after a crash or reboot, on unarchive, when a blocker merges for a Task blocked mid-flow, on restart after Plan it outside TED, and when GitHub events arrive with no open Run. [KRI-17, KRI-15, KRI-19, KRI-20] (Version restart: GAP-11.)
-- Agent hooks for Claude Code and Codex tell TED whether a Run is working, idle, waiting or finished. [KRI-20] (GAP-15: whether TED touches the user’s agent config.)
+  - TED records each Run’s agent session ID. On a restart (new agent version, a model or effort change, a daemon restart) it resumes that session in the same worktree (`claude --resume`, `codex resume` / `thread/resume`) and passes the per-Run flags again, because Claude Code doesn’t restore them. It stays the same Run, as the glossary says. [KRI-20, KRI-53]
+  - If the resume fails (session file gone, incompatible format, crash loop), TED starts a fresh Run from the Task brief and shows it as a new Run. [KRI-53, correcting KRI-11 “never resumes an old session” and KRI-17 “a version restart starts a fresh Run”]
+- **Fresh Task Lead Run from the brief** (plus Comments since) when there is no live session to continue: after a crash, on unarchive, when a blocker merges for a Task blocked mid-flow, on restart after Plan it outside TED, when GitHub events arrive with no open Run, when a resume fails, and when the Task Lead’s agent changes. [KRI-17, KRI-15, KRI-19, KRI-20, KRI-53]
+- **Per-Run flags only.** TED passes everything as flags on each Run (`--settings`, `--mcp-config`, `-c key=value`, …) and never writes to `~/.claude` or `~/.codex`. [KRI-53]
+- Agent hooks for Claude Code and Codex tell TED whether a Run is working, idle, waiting or finished. [KRI-20] They are set through per-Run flags. [KRI-53]
+- **Model unavailable.** TED never switches models silently. When the user’s plan doesn’t include the model a Run asks for, the Run shows the status “Model unavailable” and an Inbox Comment offers **Use the default model** (this Run only) or **Change setting**. [KRI-53]
 - What makes a Run “failed”, and automatic retries: GAP-12.
 - Cost and tokens are estimated from Conversations and a price list, per Run and totalled per Task. [KRI-20] Where they show: GAP-10. Token use per Run shows in Diagnostics. [KRI-17]
 
@@ -463,7 +477,7 @@ All commands decided so far. The MCP server mirrors them. [KRI-11 unless noted]
 | `ted ask --round <file>` | Post a Clarify or planning round of structured questions. | KRI-19 |
 | `ted brief write` | Write a new version of the Task brief. | KRI-11 |
 | `ted status "…"` | Set the one-line activity text. | KRI-11 |
-| `ted run start --agent <kind> --prompt-file <file> [--own-worktree]` | Start a sub-agent. | KRI-11 |
+| `ted run start --agent <kind> [--model <model>] [--effort <level>] --prompt-file <file> [--own-worktree]` | Start a sub-agent. Unset values fall back to `lead`. | KRI-11, KRI-53 |
 | `ted run wait <id>` | Wait for a sub-agent’s final message. | KRI-11 |
 | `ted run send <id>` | Send a follow-up to a sub-agent. | KRI-11 |
 | `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>]` | Create a Task. `--source` refuses a second open or archived Task with the same source and returns the existing one. | KRI-15, KRI-20 |
@@ -476,15 +490,17 @@ All commands decided so far. The MCP server mirrors them. [KRI-11 unless noted]
 | `ted doctor` | Health checks. | KRI-20 |
 | `ted status` | Daemon status (no argument). | KRI-20 |
 
-`ted run handoff` is dropped. [KRI-17] Commands for blockers by an agent mid-flow (“adds the blocked-by link”, KRI-15) and for a sub-agent model or effort have no syntax yet: GAP-37, GAP-1.
+`ted run handoff` is dropped. [KRI-17] Commands for blockers by an agent mid-flow (“adds the blocked-by link”, KRI-15) and for a sub-agent model or effort have no syntax yet: GAP-37.
 
 Also: the daemon serves `/healthz`. [KRI-20]
 
 ### 5.5 Permission modes
 
-- Default: Claude Code `auto` mode; Codex `workspace-write` sandbox with `on-request` approvals. [KRI-20]
-- A Factory can change this with one `permissions` setting in `.ted/workflow.yaml`. Bypass only as an explicit Factory setting, never by default. [KRI-20] (GAP-9.)
+- One `permissions` setting in `.ted/workflow.yaml`: `auto` (default) or `bypass`. Factory layer only; it can’t be set in the Library. It applies to every Run in the Factory: Task Leads, sub-agents, reviewers, Automations and Planning Runs. [KRI-20, KRI-53]
+- **`auto`:** Claude Code `--permission-mode auto` with prompts routed to TED; Codex `-s workspace-write -a on-request`. Prompts and approval requests become Inbox Comments. If Claude’s auto mode isn’t available (unsupported model, or disabled by an org admin), TED uses manual mode with every prompt in the Inbox and notes it on the Run. [KRI-20, KRI-53]
+- **`bypass`:** Claude Code `bypassPermissions`; Codex `danger-full-access` with no approvals. Only for Factories whose Runs happen in an isolated machine or VM. The settings panel warns when it is chosen. [KRI-20, KRI-53]
 - A permission request is a Comment from the Run with **Approve** / **Deny**. It shows in the Task thread, the Inbox, and as a row in the chat. A Run waiting on one shows as waiting. [KRI-20]
+- Approve and Deny apply to one request. No “always allow” in v1. [KRI-53]
 
 ### 5.6 Task brief
 
@@ -502,7 +518,7 @@ At Run start TED gives the agent:
 - the original request next to the current description [KRI-19]
 - the Task brief and Comments since, for a fresh Run [KRI-11]
 
-Whether the human sees the preamble in the Conversation: GAP-15.
+The preamble TED injects shows as a collapsed first row in the Run chat. [KRI-53]
 
 ### 5.8 Terms of service (ADR 0004)
 
@@ -545,13 +561,13 @@ Whether the human sees the preamble in the Conversation: GAP-15.
 
 ### 6.4 Reviewer
 
-- `reviewer: codex | claude | same`. App Settings edits the Library value; a Factory can override. Default: the other kind when both are installed, else `same`. [KRI-16]
+- `reviewer: codex | claude | same`, or `{agent, model, effort}`. App Settings edits the Library value; a Factory can override. Default: the other kind when both are installed, else `same`. Model and effort unset by default. [KRI-16, KRI-53]
 - The reviewer reviews the diff with no Work context. [KRI-16]
-- Model and effort: GAP-1. Reviewer kind not installed or signed out: GAP-47.
+- Reviewer kind not installed or signed out: GAP-47.
 
 ### 6.5 Loop limit
 
-- `max_back: 5`. At the third send-back (`loop_check: 3`, `false` to turn off), TED itself starts a sub-agent of the reviewer kind. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. [KRI-16]
+- `max_back: 5`. At the third send-back (`loop_check: 3`, `false` to turn off), TED itself starts a sub-agent with the `reviewer` agent, model and effort. [KRI-53] It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. [KRI-16]
 - Converging: back to Work with the verdict added. Looping: ask the human now. [KRI-16]
 - The ask (at a looping verdict or at 5) lists each round’s blocking Findings and offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. [KRI-16]
 
@@ -690,7 +706,9 @@ apps:
 - **Code:** one pull request per repo.
 - **Apps** (7.3).
 - **Changes** (7.7).
+- **Task Lead** field: agent, model, effort (4.1). [KRI-53]
 - **Runs:** each Run with its icon; clicking opens its chat. Stop on sub-agents. Cost per Run and per Task (GAP-10).
+- Each Run row shows **agent · model · effort** as the CLI reports them at Run start. An unset model shows the real model name; effort the CLI doesn’t report shows “default effort”. [KRI-53]
 - Secondary Preview link when both hosted and local exist. [KRI-18]
 - Shell and Open in editor (GAP-54).
 
@@ -718,7 +736,8 @@ Decided [KRI-19]:
 - Its rounds and sign-off appear in the Inbox. Opening one shows the planning chat in the middle pane.
 - Each Factory has a **Plans** list: open and finished planning chats, with status and the Tasks they created.
 - An active Planning Run counts as one working Run toward both limits. Waiting on the human it sits idle. Stopped Planning Runs are history.
-- Model and effort: GAP-1. Ending, renaming, deleting, and which checkout it reads: GAP-73.
+- Agent, model and effort come from `planner`. [KRI-53]
+- Ending, renaming, deleting, and which checkout it reads: GAP-73.
 
 **PROPOSAL (to confirm): how they look.** Following the three-pane layout and the map’s note that visual detail is left to build:
 
@@ -729,10 +748,11 @@ Decided [KRI-19]:
 
 ### 8.9 Settings
 
-- **App Settings** decided items: max working Runs (default 6); simulator cap (default 3); automatic restart onto new agent versions (on); Stay Awake (on); theme; notification sound (off); Developer mode; Linear API key; the Library’s `reviewer`; terminal font size (10–20); “keep running in the background” remembered choice; one stable update channel. [KRI-15, KRI-18, KRI-20, KRI-16, KRI-14, KRI-11]
+- **App Settings** decided items: max working Runs (default 6); simulator cap (default 3); automatic restart onto new agent versions (on); Stay Awake (on); theme; notification sound (off); Developer mode; Linear API key; terminal font size (10–20); “keep running in the background” remembered choice; one stable update channel. [KRI-15, KRI-18, KRI-20, KRI-14, KRI-11]
+- **Agents** section: edits the Library’s `lead`, `reviewer` and `planner` (agent, model, effort). [KRI-16, KRI-53]
 - Library edits write straight to `~/.ted/library/`. [KRI-22]
-- **Factory settings panel:** 3.8.
-- Full inventory, layout, and the split between global and per-Factory: GAP-3. Model and effort settings: GAP-1. API-key billing choice: GAP-4.
+- **Factory settings panel:** 3.8. It shows the same three agent settings with inherited values and an override control. [KRI-53]
+- Full inventory, layout, and the split between global and per-Factory: GAP-3. API-key billing choice: GAP-4.
 
 ### 8.10 Developer mode and Diagnostics
 
@@ -767,7 +787,7 @@ First-run (GAP-2), empty states (GAP-56), errors and system alerts (GAP-60), the
 
 - A schedule in a Factory: cron or RRULE with a timezone, missed runs made up, run history with retries. Time triggers only; event triggers are later (KRI-25). [KRI-20]
 - Set up in an **Automations** page and with `ted automation …`. [KRI-20] (GAP-68.)
-- Each firing starts one Run outside any Task, with a stored prompt, agent, model and effort. [KRI-20] (GAP-1 for defaults and how they’re picked.)
+- Each firing starts one Run outside any Task, with a stored prompt, agent, model and effort. [KRI-20] A new Automation starts from `lead`’s values. [KRI-53]
 - It creates Tasks with `ted task create`; each new Task gets its own Task Lead. Tasks land in Backlog unless `--start`. [KRI-20, KRI-15]
 - If it needs the human, it posts Comments that show in the Inbox under the Automation’s name. [KRI-20] (GAP-69.)
 - Automation Runs count toward the limit on working Runs. [KRI-15] (GAP-70.)
@@ -829,6 +849,7 @@ From the map [KRI-8] and every issue labelled `later`:
 - `--bare` watch: [KRI-45 Watch for `--bare` becoming the default for `claude -p`](https://linear.app/kriyadesign/issue/KRI-45)
 - Inbox ideas: [KRI-46 Inbox ideas from the rejected layouts](https://linear.app/kriyadesign/issue/KRI-46)
 - Android: [KRI-47 Android emulator Apps](https://linear.app/kriyadesign/issue/KRI-47)
+- Effort per Stage: [KRI-67 Effort level per Stage](https://linear.app/kriyadesign/issue/KRI-67)
 
 Also out of scope, with no issue: open-sourcing and licensing. [KRI-8]
 

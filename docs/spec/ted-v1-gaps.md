@@ -11,10 +11,11 @@ Totals: 75 gaps. 6 large, 26 medium, 43 small. Plus 2 proposals to confirm and 6
 ## 1. First run, settings and preferences
 
 ### GAP-1: How does the human choose the model and effort level for each kind of Run? (L)
+**Resolved by KRI-53**
+- **Answer:** `{agent, model, effort}` on `lead`, `reviewer` and a new `planner`, in any layer; the Task Lead picks for sub-agents; unset means the CLI’s default.
 - **Area:** Agents and Runs; Settings. Spec 3.3, 5.1, 5.2, 6.4, 6.5, 8.8, 8.9, 9.1.
 - **Why open:** Only fragments are decided. `lead` may be `{agent: claude, model: opus}` [KRI-12], with no effort key. Automations store “agent, model and effort” per Automation [KRI-20], with no default and no form. `reviewer` is a kind only (`codex | claude | same`) [KRI-16]. Sub-agents are started with `--agent <kind>` and no model flag; “the Task Lead picks agents for sub-agents” [KRI-11, KRI-20]. The loop-check sub-agent is “of the reviewer kind” [KRI-16]. Planning Runs, the drift “Merge with an agent” Task [KRI-22], and Talk it through [KRI-19] say nothing. No ticket says whether model and effort live in `workflow.yaml` (committed, shared) or app Settings (per machine), or both, nor what happens when a named model isn’t available on the user’s plan.
 - **Screen:** yes (Settings, Automation form, maybe New Task dialog).
-- **Suggested answer:** Allow `{agent, model, effort}` wherever an agent kind is named: `lead`, `reviewer`, and a new `planner` key, each in any layer. Add `--model` and `--effort` to `ted run start`, with the Task Lead choosing from the Stage file’s guidance. Loop check inherits `reviewer`. Automations default to `lead`’s values. App Settings edits the Library values. Unset means the CLI’s own default.
 - **Size:** L
 
 ### GAP-2: What does first launch look like? (L)
@@ -71,10 +72,11 @@ Totals: 75 gaps. 6 large, 26 medium, 43 small. Plus 2 proposals to confirm and 6
 - **Size:** M
 
 ### GAP-9: What values does `permissions` take, and what does it cover? (M)
+**Resolved by KRI-53**
+- **Answer:** `auto` (default) or `bypass`, Factory layer only, covering every Run in the Factory; Approve and Deny apply to one request.
 - **Area:** Agents, `workflow.yaml`. Spec 3.3, 5.5.
 - **Why open:** KRI-20 names “one `permissions` setting” and says bypass needs an explicit Factory setting. No values, no per-agent mapping, no statement on whether it applies to sub-agents, reviewers, Automations and Planning Runs, whether it can sit in the Library, and whether a permission request can be approved “always for this Task”. No timeout for an unanswered request.
 - **Screen:** no (yaml), yes if the settings panel edits it.
-- **Suggested answer:** `permissions: default | ask | bypass`, mapped per agent kind (`default` = Claude `auto`, Codex `workspace-write` + `on-request`; `ask` = stricter; `bypass` = full). Factory layer only. Applies to all Runs in the Factory. Approve/Deny only, no “always”.
 - **Size:** M
 
 ### GAP-10: Where does the human see cost and plan usage? (M)
@@ -85,10 +87,11 @@ Totals: 75 gaps. 6 large, 26 medium, 43 small. Plus 2 proposals to confirm and 6
 - **Size:** M
 
 ### GAP-11: Does a restart onto a new agent version resume the same conversation or start a fresh Run from the brief? (M)
+**Resolved by KRI-53**
+- **Answer:** Resume the recorded session in the same worktree and stay the same Run; if the resume fails, start a fresh Run from the brief and show it as a new Run.
 - **Area:** Runs. Spec 5.3. Also a contradiction (C-1).
 - **Why open:** KRI-20 and the glossary: restart resumes the same conversation and stays the same Run. KRI-11: TED never resumes an old agent session (session files depend on the working directory and expire after about 30 days). KRI-17 (later) and the map: a version restart starts a fresh Run from the brief. The later-wins rule points to KRI-17, but the glossary (current in the repo) follows KRI-20.
 - **Screen:** no.
-- **Suggested answer:** Resume when the session file exists (manual restart and version restart of a recently idle Run); fall back to a fresh Run from the brief otherwise. Update whichever doc loses.
 - **Size:** M
 
 ### GAP-12: What makes a Run “failed”, and does TED retry? (S)
@@ -99,24 +102,27 @@ Totals: 75 gaps. 6 large, 26 medium, 43 small. Plus 2 proposals to confirm and 6
 - **Size:** S
 
 ### GAP-13: Can the human change a Task’s agent or model, on one Task or mid-Run? (S)
+**Resolved by KRI-53**
+- **Answer:** A Task Lead field (agent, model, effort) in the New Task dialog and Task details, changeable any time; model or effort changes apply at the next idle point, an agent change starts a fresh Run; sub-agents can’t be changed by hand.
 - **Area:** Agents, Tasks. Spec 5.1.
 - **Why open:** `lead` is Workflow-wide [KRI-12]. No per-Task override exists, unlike Clarify depth, which has one [KRI-19].
 - **Screen:** yes (Task field).
-- **Suggested answer:** A Task Lead field in the New Task dialog and Task details, editable until the Task starts. No switching mid-Run.
 - **Size:** S
 
 ### GAP-14: Is there a cap on sub-agents per Task? (S)
+**Resolved by KRI-53**
+- **Answer:** No per-Task cap; the machine and Factory limits cover it.
 - **Area:** Agents. Spec 5.2.
 - **Why open:** Sub-agents count toward the limit [KRI-15]; icons collapse past three [KRI-11]. One Task could still fill every slot.
 - **Screen:** no.
-- **Suggested answer:** No per-Task cap; the machine and Factory limits cover it.
 - **Size:** S
 
 ### GAP-15: Does TED touch the user’s agent configuration, and does the human see the Run preamble? (S)
+**Resolved by KRI-53**
+- **Answer:** Per-Run flags only, never writing to `~/.claude` or `~/.codex`; the preamble shows as a collapsed first row in the Run chat.
 - **Area:** Agents. Spec 5.3, 5.7.
 - **Why open:** TED relies on agent hooks [KRI-20] and passes `--mcp-config` and `--settings` on resume [KRI-20], implying per-Run config, but no ticket rules out writing to `~/.claude` or `~/.codex`. Whether the preamble and Factory notes show in the Conversation is not said.
 - **Screen:** no.
-- **Suggested answer:** Per-Run flags only; never write to the user’s agent config. The preamble shows as a collapsed first row in the chat.
 - **Size:** S
 
 ---
@@ -590,7 +596,7 @@ These are the two items the map left to the spec [KRI-8, “Not yet specified”
 
 ### Not settled (need the human)
 
-- **C-1: Version restart: resume or fresh Run.** KRI-20 and the glossary: restart resumes the same conversation and is the same Run. KRI-11: TED never resumes an old session. KRI-17 and the map: a version restart starts a fresh Run from the brief. → GAP-11.
+- **C-1: Version restart: resume or fresh Run.** **Resolved by KRI-53:** resume the session and stay the same Run; a fresh Run from the brief only when the resume fails. KRI-20 and the glossary: restart resumes the same conversation and is the same Run. KRI-11: TED never resumes an old session. KRI-17 and the map: a version restart starts a fresh Run from the brief. → GAP-11.
 - **C-2: Shape of `repos`.** KRI-12: list of `{name, remote}`, omitted for single-repo Factories. KRI-18: map keyed by repo name with `apps`. → GAP-23.
 - **C-3: Local folder or TED clone.** KRI-12: no local paths, clones in `~/.ted/`. KRI-20: asks for macOS folder access “when a repo is added from” a protected folder. → GAP-24.
 - **C-4: Custom Stages.** KRI-12: a custom Stage is a new file plus an `order` entry. KRI-50: v1 ships the built-in set only. → GAP-28.
