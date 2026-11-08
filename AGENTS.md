@@ -27,4 +27,5 @@ Used by `/wayfinder`.
 
 ## Domain docs
 
-- `GLOSSARY.md` at the repo root. Architecture decisions go in `docs/adr/`, created when the first one is needed.
+- `GLOSSARY.md` at the repo root. Architecture decisions go in `docs/adr/`.
+- The v1 spec is `docs/spec/ted-v1-spec.md`. Next to it are `ted-v1-gaps.md`, which holds the open questions, and `ted-v1-screens.md`, which maps each screen to its Figma frames.
