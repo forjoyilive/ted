@@ -124,6 +124,10 @@ _Avoid_: Handoff, context file
 A message on a Task, or from an Automation’s or Planning Run, written by the human or an agent; a comment can ask for the human’s answer, review, sign-off or permission.
 _Avoid_: Message, note
 
+**Line comment**:
+A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next Comment on the Task.
+_Avoid_: Inline comment, review comment, diff comment
+
 **Automation**:
 A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand.
 _Avoid_: Cron job, trigger
