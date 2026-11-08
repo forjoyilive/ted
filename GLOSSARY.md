@@ -12,6 +12,10 @@ _Avoid_: Project (when meaning the whole pipeline), pipeline
 The first repo of a Factory, which holds the Factory’s own Workflow files and Factory notes; a repo can be the primary repo of only one Factory.
 _Avoid_: Main repo, root repo, home repo
 
+**Local folder**:
+The user’s own clone of a repo on one machine, which TED reads only as the source of files copied into new worktrees; saved per machine, never in the Workflow.
+_Avoid_: Local path, working copy, checkout
+
 **Factory key**:
 The short code at the start of a Factory’s Task IDs, such as NB in NB-41; unique on the machine and fixed once the Factory is added.
 _Avoid_: Prefix, project key
