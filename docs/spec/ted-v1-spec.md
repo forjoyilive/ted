@@ -792,7 +792,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted status "…"` | Set the activity line. | KRI-11 |
 | `ted run start --agent <kind> [--model] [--effort] --prompt-file <file> [--name] [--own-worktree]` | Start a sub-agent. | KRI-11, KRI-53, KRI-63 |
 | `ted run wait <id>` / `ted run send <id>` | Wait for a sub-agent’s final message / send it a follow-up. | KRI-11 |
-| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>]` | Create a Task. `--source` returns the existing Task instead of a duplicate (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
+| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
 | `ted task start <id>` | Start a Task from Backlog. | KRI-15 |
 | `ted task block <id> --by <id>` / `ted task unblock` | Add or remove a blocker. | KRI-55 |
 | `ted task repos set`, `add`, `remove <name>` | Set the Task’s Repos. | KRI-58 |
@@ -1058,6 +1058,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
   - Archived: no box.
 - ⌘↵ sends from the comment box. (KRI-56)
 - **Attachments in Comments:** images, and HTML in a sandboxed frame. No artifacts gallery. (KRI-20)
+- **The human attaches files** to any Comment by dragging them onto the comment box or pasting, as in the New Task dialog. A sent Comment can’t be edited or deleted, because it goes into the live Run at once; the human corrects it with another Comment. (GAP-63, Nabha’s review)
 
 ### 10.6 Run chat and steering a Run
 
@@ -1235,7 +1236,16 @@ Figma: KRI-66 Automations and Plans.
 - Each firing starts one Run with the stored prompt, agent, model and effort. A full limit makes it wait as Queued, after Planning Runs and before Tasks (6.5). A Paused agent pauses it like any Run. (KRI-20, KRI-60)
 - **Overlap:** a firing is skipped only while the previous Run is Working, Queued or Paused, and logged as “Skipped”. While the previous Run is **Waiting on you**, the new firing starts its own Run, and the open question stays in the Inbox. Skipped firings aren’t made up. (KRI-60 change from Nabha’s review)
 - **Missed firings** (TED not running) are made up once on start, however many slots were missed, shown as “Made up”. (KRI-59, KRI-60, KRI-66)
-- **No duplicate Tasks.** Every Task an Automation creates takes the URL of the item it came from (Sentry issue, Linear issue, GitHub issue) as its source. `ted task create --source <url>` doesn’t create a second Task when a Task in the Factory already has that source, open, Done or archived (deleted Tasks don’t count). It returns the existing Task: “Already tracked as NB-51”, with its Stage. At start, TED also gives the Run the open Tasks this Automation has created, with their sources. A firing that adds nothing new shows “No new Tasks”. (KRI-60, KRI-55)
+- **No duplicate Tasks.** Every Task an Automation creates takes the URL of the item it came from (Sentry issue, Linear issue, GitHub issue) as its source. What `ted task create --source <url>` does depends on the Task in the Factory that already has that source (deleted Tasks don’t count): (KRI-60, KRI-55, Nabha’s review)
+  - **Open:** refuses and returns it: “Already tracked as NB-51”, with its Stage.
+  - **Archived without merging:** refuses. The human dropped it on purpose.
+  - **Done:** refuses, and returns the merge facts: “NB-51 is Done: merged 3 Nov, commit abc123. Use --follow-up NB-51 if it isn’t fixed.”
+  - `--follow-up NB-51` creates a Follow-up Task (9.10) that links to NB-51, shares its source, and starts with NB-51’s brief and pull requests as context. Because it shares the source, only one can be open at a time.
+- **Whether a fix held is the Automation agent’s judgement, not TED’s.** TED never reads Sentry; it hands over the merge commit and date. The Sentry template’s prompt tells the agent:
+  - Create a Follow-up only when the issue has events from a release that contains the merge commit, or when Sentry marks it regressed. Events from older releases are old builds still in use, not a failed fix. This matters most for mobile apps, where a fix can take weeks to reach users.
+  - Fall back to “events after the merge date” only for projects that don’t report releases, such as a web app deployed on every merge.
+  - Pull requests for Sentry-sourced Tasks carry `Fixes <SENTRY-SHORT-ID>` in the body, so Sentry resolves the issue in the release that ships the fix and flags it as regressed if events come back from that release or a later one.
+- At start, TED gives the Run the Tasks this Automation has created, with their sources and states. A firing that adds nothing new shows “No new Tasks”.
 - Created Tasks land in Backlog unless the prompt passes `--start`; each gets its own Task Lead. (KRI-15, KRI-20)
 - **Turning an Automation off** while its Run is open lets that Run finish; nothing more fires. (KRI-8 coordinator decision 8)
 - **Failure:** the usual resume, then Failed in history with Retry. No further automatic retry; the next firing goes ahead as scheduled. (KRI-60)

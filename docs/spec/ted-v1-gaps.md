@@ -9,17 +9,13 @@ Updated 2026-11-08.
 - **NEW-1** Which Tasks start when their last blocker merges: a Task starts on merge if it was created to start (`--start`, Start now checked) or had already been started. Otherwise it stays in Backlog. Blocked Split and planning pieces start on merge. Spec 6.5, 6.16.
 - **NEW-2** Duplicate-source check: covers open, Done and archived Tasks in the Factory (KRI-55’s rule). This replaces the narrower wording in KRI-60’s review change. Spec 12.4.
 - **NEW-4** Original request: a collapsed row at the end of the Task brief section, with a link to the description’s history. Spec 10.7.
+- **GAP-63** Comments: the human attaches files by drag and drop or paste; a sent Comment can’t be edited or deleted (Nabha’s review). Spec 10.5.
+- **Revisiting a Done Task’s source:** `--follow-up` creates a Follow-up Task; the Automation agent judges whether the fix held, by release for mobile apps (Nabha’s review). Spec 12.4.
 - **Nudge event dots** are grey (KRI-61 follow-up), not blue.
 
 ---
 
 ## Still open
-
-### GAP-63: Can the human edit or delete their own Comments, and attach files to them? (S)
-- **Status:** open, partly settled.
-- **Settled:** the New Task dialog takes attachments by drag and drop (KRI-55). Line comment drafts can be edited and deleted until sent (KRI-60). A queued message in a Run chat may have **Delete** until the agent reads it, if the build allows it (KRI-63).
-- **Open:** whether a Comment on a Task thread can carry attachments, and whether the human can edit or delete a Comment after sending it.
-- **Spec:** 10.5.
 
 ### NEW-3: Can a queued message in a Run chat be deleted? (S)
 - **Status:** open until build.
