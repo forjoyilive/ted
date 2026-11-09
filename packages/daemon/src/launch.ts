@@ -4,6 +4,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { DaemonClient, DaemonUnreachableError, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { inheritedFdsEnv } from './inherited-fds.ts'
+import { nodeEntry } from './node-entry.ts'
 
 const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
@@ -40,8 +41,9 @@ async function startDaemon(home: string): Promise<void> {
   await mkdir(paths.logs, { recursive: true })
   const log = await open(paths.daemonLog, 'a')
   const daemonMain = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const daemon = nodeEntry(daemonMain, ['--exit-when-idle'])
   // Under Electron, process.execPath is the Electron binary; plain Node ignores the variable.
-  const child = spawn(process.execPath, [daemonMain, '--exit-when-idle'], {
+  const child = spawn(daemon.command, daemon.args, {
     detached: true,
     stdio: ['ignore', log.fd, log.fd],
     env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },

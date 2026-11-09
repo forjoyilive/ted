@@ -2,6 +2,7 @@ import type {
   Attachment,
   BackupsSummary,
   Banner,
+  CommandLineStatus,
   Comment,
   CreateTaskRequest,
   DaemonEvent,
@@ -67,6 +68,9 @@ export const ted = {
     window.ted.request('restoreBackup', name) as Promise<RestoreBackupResult>,
   copyText: (text: string) => window.ted.request('copyText', text) as Promise<void>,
   downloadTed: () => window.ted.request('downloadTed') as Promise<void>,
+  getCommandLine: () => window.ted.request('getCommandLine') as Promise<CommandLineStatus>,
+  installCommandLine: () => window.ted.request('installCommandLine') as Promise<CommandLineStatus>,
+  thirdPartyLicenses: () => window.ted.request('thirdPartyLicenses') as Promise<string>,
   quit: () => window.ted.request('quit') as Promise<void>,
   getProfile: () => window.ted.request('getProfile') as Promise<Profile>,
   chooseProfilePicture: () =>

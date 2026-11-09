@@ -52,5 +52,3 @@ export type DataStatus =
       dataDir: string
       restore?: Backup
     }
-
-export const downloadUrl = 'https://github.com/forjoyilive/ted/releases/latest'

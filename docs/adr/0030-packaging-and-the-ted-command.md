@@ -1,0 +1,30 @@
+# Packaging with electron-builder from a staged JavaScript copy, and one way to start TED’s own entry files
+
+Status: accepted (KRI-122)
+
+## Context
+
+In development, Node and Electron run TED’s TypeScript directly, and pnpm links the workspace packages into `node_modules` as symlinks to folders outside it. A packaged app can’t do either: Node refuses to strip types from files under `node_modules`, and installers copy real folders. Spec 14 asks for a signed, notarized macOS app and AppImage, deb and rpm packages for x64 and arm64, with updates through electron-updater (KRI-123). Spec 11.3 and 2.3 ask for an **Install the `ted` command** row and for `ted` on every Run’s `PATH`.
+
+An AppImage mounts itself at a new path each time it starts and unmounts when its first process exits. A daemon, Run host or `ted` command started by path from inside another process’s mount would lose its files when that process ends.
+
+## Decision
+
+- **Staging.** `packages/app/scripts/stage.ts` builds `packages/app/dist/stage/`: every workspace package’s `src/` turned into JavaScript with Node’s own `stripTypeScriptTypes` (the same erasable-only transform the runtime uses), relative `.ts` imports rewritten to `.js` and `@ted/*` imports rewritten to relative paths. The layout mirrors the repo (`packages/<name>/src/`), so paths such as `../../../package.json` and the CLI path in the Run manager still hold. Third-party packages are copied as real folders into `node_modules/`, found by walking each package’s `dependencies`, `optionalDependencies` and installed `peerDependencies` from the workspace manifests (`packages/app/src/third-party.ts`); packages only the window uses (React, the Geist fonts) are bundled by Vite and not copied. `THIRD_PARTY_LICENSES.txt` is written beside it.
+- **Packaging.** `pnpm package [--mac|--linux] [--x64] [--arm64] [--dir]` runs `packages/app/scripts/package.ts`: Vite build, stage, then electron-builder 26 with `asar: false`. The macOS app uses the hardened runtime with `build/entitlements.mac.plist`; it is signed only when `CSC_LINK` (or `CSC_NAME`) is set and notarized only when the `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` variables are set. Without them it builds unsigned. The Linux executable is `ted-app`, so `/usr/bin/ted` stays free for the command. `publish` names the GitHub repository from `releaseRepo` in `packages/protocol/src/release.ts`, which is also where the Download button’s URL comes from; packaging never publishes.
+- **The `ted` command.** Every packaged copy has `resources/bin/ted`, a shell script that follows its own symlinks to the bundle and runs the app binary with `ELECTRON_RUN_AS_NODE=1` on the staged CLI. macOS **Install** links `/usr/local/bin/ted` to it, asking for the admin password through `osascript … with administrator privileges` only when the folder isn’t writable. The deb and rpm after-install scripts link `/usr/bin/ted` to it, and the after-remove script deletes the link only on a full removal. An AppImage writes `~/.local/bin/ted`, a script that runs the AppImage itself; the daemon rewrites that script at start (so after each update) when it is still TED’s. All of this is `packages/daemon/src/command-line.ts`, behind `GET /command-line` and `POST /command-line/install`, which are closed to Run tokens.
+- **Starting TED’s own entry files.** `nodeEntry` in `packages/daemon/src/node-entry.ts` is the only way to start the daemon, a Run host or the Run’s `ted` shim. Normally it runs the file with the current binary. Inside an AppImage it runs `$APPIMAGE -e <loader>`, which finds the file under the new mount’s `APPDIR`, so each long-lived process holds its own mount. The daemon and hosts delete `ELECTRON_RUN_AS_NODE` from their own environment once started, so agents and the commands they run never inherit it; the shim and the host spawn set it again explicitly.
+- **`ted open`.** The packaged app and the bundle’s `ted` script set `TED_APP_EXECUTABLE` (the app binary, or the AppImage). When the app isn’t open, `ted open` starts that executable (`open <bundle>` on macOS); in development it still says to open TED from the launcher.
+
+## Considered Options
+
+- **Bundle each entry with a bundler.** LiveStore loads its SQLite WebAssembly from files next to its modules, so a bundle needs per-package copy rules, and the packaged code would differ more from what the tests run.
+- **Ship the TypeScript and rely on type stripping.** Works only outside `node_modules`, so `@ted/*` imports would still need rewriting; shipping JavaScript avoids depending on an experimental runtime flag in the product.
+- **`pnpm deploy`.** It copies devDependency trees reached through peer dependencies (Vitest, Rolldown) and leaves the workspace packages as TypeScript under `node_modules`.
+- **asar.** Keeps files in one archive, but the daemon, hosts and CLI are separate Node processes started by path; plain folders keep them simple. Revisit if file count slows installs.
+
+## Consequences
+
+- A new runtime dependency is picked up by staging with no packaging change. A package that is imported only under a peer dependency TED doesn’t ship (`@effect/vitest`, `@effect/platform-browser`, `@effect/platform-bun`) would need adding to the walk.
+- New code that starts a TED entry file must use `nodeEntry`, or it breaks in the AppImage.
+- The release workflow (`.github/workflows/release.yml`) builds on tags and by hand, smoke-tests the packaged `ted` on each platform and uploads the files as workflow artifacts. Publishing them as a GitHub release is left to KRI-123.

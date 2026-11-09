@@ -18,6 +18,14 @@ export async function readLoginEnv(
   return { ...base, PATH: withFallbackDirs(base.PATH), GIT_TERMINAL_PROMPT: '0' }
 }
 
+export async function readLoginShellPath(
+  base: NodeJS.ProcessEnv = process.env,
+): Promise<string | undefined> {
+  const shell = base.SHELL
+  if (!shell || !path.isAbsolute(shell)) return undefined
+  return (await shellEnv(shell, base).catch(() => undefined))?.PATH
+}
+
 function shellEnv(shell: string, base: NodeJS.ProcessEnv): Promise<NodeJS.ProcessEnv> {
   return new Promise((resolve, reject) => {
     const child = execFile(

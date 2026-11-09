@@ -9,6 +9,7 @@ import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
+import { nodeEntry, shellScript } from '../node-entry.ts'
 import type { RunTokens } from '../run-token.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
 import { type HostRecord, type LaunchFile, runFiles } from './host-files.ts'
@@ -165,10 +166,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
       })
-      spawn(process.execPath, [hostMain, runDir], {
+      const host = nodeEntry(hostMain, [runDir])
+      spawn(host.command, host.args, {
         detached: true,
         stdio: 'ignore',
-        env: launch.env,
+        env: { ...launch.env, ELECTRON_RUN_AS_NODE: '1' },
         cwd: runDir,
       }).unref()
       follow(id)
@@ -321,10 +323,9 @@ function parseRecords(buffer: Buffer, end: number, offset: number, atEnd: boolea
 
 async function writeTedShim(binDir: string, cliPath: string): Promise<void> {
   await mkdir(binDir, { recursive: true })
-  const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`
   const shim = path.join(binDir, 'ted')
   const tmp = `${shim}.${process.pid}.tmp`
-  await writeFile(tmp, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(cliPath)} "$@"\n`, {
+  await writeFile(tmp, shellScript(nodeEntry(cliPath), { ELECTRON_RUN_AS_NODE: '1' }), {
     mode: 0o755,
   })
   await rename(tmp, shim)

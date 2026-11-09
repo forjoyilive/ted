@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -34,10 +34,11 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-function ted(args: string[], idleExitMs = 30_000) {
+function ted(args: string[], idleExitMs = 30_000, extraEnv: NodeJS.ProcessEnv = {}) {
   return run(process.execPath, [cliPath, ...args], {
     env: {
       ...process.env,
+      ...extraEnv,
       TED_HOME: home,
       TED_IDLE_EXIT_MS: String(idleExitMs),
       TED_CLAUDE_BIN: stubClaudePath,
@@ -395,6 +396,45 @@ describe('ted open', () => {
     await expect(ted(['open'])).rejects.toMatchObject({ code: 1 })
 
     expect(await readDaemonInfo(home)).toBeUndefined()
+  })
+
+  describe('from an installed TED', () => {
+    async function fakeApp() {
+      const launched = path.join(home, 'launched.json')
+      const app = path.join(home, 'TED app')
+      await writeFile(
+        app,
+        `#!/bin/sh\nprintf '{"args":"%s","runAsNode":"%s"}' "$*" "$ELECTRON_RUN_AS_NODE" > '${launched}'\n`,
+        { mode: 0o755 },
+      )
+      const env = { TED_APP_EXECUTABLE: app, ELECTRON_RUN_AS_NODE: '1' }
+      const read = () =>
+        readFile(launched, 'utf8').then(
+          (text) => JSON.parse(text) as unknown,
+          () => undefined,
+        )
+      return { env, read }
+    }
+
+    test('starts the app when it isn’t open', async () => {
+      await ted(['task', 'list'])
+      const app = await fakeApp()
+
+      const { stdout } = await ted(['open'], 30_000, app.env)
+
+      expect(stdout.trim()).toBe('Opening TED')
+      await expect.poll(app.read).toEqual({ args: '', runAsNode: '' })
+    })
+
+    test('starts the app when TED isn’t running at all', async () => {
+      const app = await fakeApp()
+
+      const { stdout } = await ted(['open'], 30_000, app.env)
+
+      expect(stdout.trim()).toBe('Opening TED')
+      await expect.poll(app.read).toEqual({ args: '', runAsNode: '' })
+      expect(await readDaemonInfo(home)).toBeUndefined()
+    })
   })
 })
 

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
@@ -48,6 +48,7 @@ import {
   windowTitle,
 } from './background.ts'
 import { nextReturn } from './renderer/banners.ts'
+import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
@@ -89,6 +90,14 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.restoreBackup({ name: String(name) } satisfies RestoreBackupRequest),
   copyText: async (_, text) => clipboard.writeText(String(text)),
   downloadTed: () => shell.openExternal(downloadUrl),
+  getCommandLine: (client) => client.getCommandLine(),
+  installCommandLine: (client) => client.installCommandLine(),
+  thirdPartyLicenses: async () => {
+    const root = path.resolve(import.meta.dirname, '../../..')
+    return readFile(path.join(root, 'THIRD_PARTY_LICENSES.txt'), 'utf8').catch(() =>
+      thirdPartyLicenses(root),
+    )
+  },
   quit: async () => app.quit(),
   getProfile: (client) => client.getProfile(),
   getDiagnostics: (client) => client.getDiagnostics(),
@@ -375,6 +384,7 @@ async function start(): Promise<void> {
 }
 
 app.setName('TED')
+if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
 if (process.env.TED_HOME) app.setPath('userData', path.join(tedHome(), 'electron'))
 
 if (!app.requestSingleInstanceLock()) {

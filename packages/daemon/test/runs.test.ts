@@ -114,6 +114,7 @@ describe('Runs', () => {
     process.env.HOME = fakeHome
     process.env.ANTHROPIC_API_KEY = 'sk-stray'
     process.env.ANTHROPIC_AUTH_TOKEN = 'stray-token'
+    process.env.ELECTRON_RUN_AS_NODE = '1'
     try {
       const client = await startWithStub()
       const run = await client.startRun([{ endTurn: true }], cwd)
@@ -155,6 +156,7 @@ describe('Runs', () => {
 
       expect(env.ANTHROPIC_API_KEY).toBeUndefined()
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
+      expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
       expect(env.TED_RUN).toBe(run.id)
       expect(env.TED_RUN_TOKEN).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
       expect(env.PATH?.split(':')[0]).toBe(path.join(home, 'bin'))

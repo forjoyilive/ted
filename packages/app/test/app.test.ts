@@ -739,6 +739,31 @@ describe('App Settings', () => {
     expect((await (await daemonClient()).getSettings()).profilePicture).toBeNull()
   })
 
+  test('run from source, the ted command row says only an installed copy can install it', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    const commandLine = window.getByRole('group', { name: 'Command line' })
+
+    await commandLine.getByText('Only an installed copy of TED can install it.').waitFor()
+    expect(await commandLine.getByRole('button', { name: 'Install the ted command' }).count()).toBe(
+      0,
+    )
+  })
+
+  test('About shows the version, and Third-party licenses opens with agent-orchestrator’s NOTICE', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    const about = window.getByRole('group', { name: 'About and updates' })
+    await about.getByText(/^TED \d+\.\d+\.\d+$/).waitFor()
+
+    await about.getByRole('button', { name: 'View' }).click()
+
+    const licenses = window.getByRole('dialog', { name: 'Third-party licenses' })
+    await licenses.getByText(/https:\/\/github\.com\/OrchestratorInc\/agent-orchestrator/).waitFor()
+    await licenses.getByRole('button', { name: 'Close' }).click()
+    await licenses.waitFor({ state: 'detached' })
+  })
+
   test('Developer mode shows Diagnostics and the log viewer; off, they’re hidden', async () => {
     const window = await launchApp()
     await openSettings(window)

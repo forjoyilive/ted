@@ -4,6 +4,7 @@ import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
+import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
 import { startIdleTimer } from './idle.ts'
@@ -26,6 +27,7 @@ export interface DaemonOptions {
   onDataStatus?: (status: DataStatus) => void
   integrations?: DaemonIntegrationsOptions
   onShutdown?: () => void
+  commandLine?: CommandLineOptions
 }
 
 export interface DaemonIntegrationsOptions {
@@ -122,6 +124,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
     },
   })
+  const commandLine = createCommandLine(options.commandLine)
+  commandLine
+    .refresh()
+    .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
@@ -135,6 +141,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     appStreams: new Set(),
     onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
+    commandLine,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawn } from 'node:child_process'
 import path from 'node:path'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
@@ -26,7 +27,7 @@ const usage = `Usage:
   ted help                                   Show this list of commands
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
-  ted open                                   Bring the open TED app to the front
+  ted open                                   Open TED, or bring its window to the front
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
   ted status [--task <id>] "<text>"          Set the Task's activity line
@@ -54,6 +55,7 @@ class UsageError extends Error {}
 function parse() {
   try {
     return parseArgs({
+      args: process.argv.slice(2),
       allowPositionals: true,
       strict: true,
       options: {
@@ -288,12 +290,22 @@ async function openApp(): Promise<void> {
       throw error
     },
   )
-  if (!result?.opened) {
+  if (result?.opened) return void console.log('Opened TED')
+  const app = process.env.TED_APP_EXECUTABLE
+  if (!app) {
     console.error('ted: TED isn’t open. Open it from your app launcher.')
     process.exitCode = 1
     return
   }
-  console.log('Opened TED')
+  launchApp(app)
+  console.log('Opening TED')
+}
+
+function launchApp(executable: string): void {
+  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
+  const bundle = /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(executable)?.[1]
+  const [command, args] = bundle ? ['/usr/bin/open', [bundle]] : [executable, []]
+  spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
 }
 
 async function status(): Promise<void> {

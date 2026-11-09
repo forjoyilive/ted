@@ -1,0 +1,9 @@
+agent-orchestrator
+https://github.com/OrchestratorInc/agent-orchestrator
+Copyright 2026 Untrivial
+
+Licensed under the Apache License, Version 2.0. The license text follows.
+
+TED copies parts of agent-orchestrator’s user interface code. Each copied file says so at the top and says what TED changed.
+
+agent-orchestrator ships no NOTICE file of its own (checked 2026-11-08), so this attribution stands in for it.

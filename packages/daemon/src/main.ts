@@ -5,8 +5,12 @@ import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './in
 import { closeInheritedFds } from './inherited-fds.ts'
 
 closeInheritedFds()
+delete process.env.ELECTRON_RUN_AS_NODE
 
-const { values } = parseArgs({ options: { 'exit-when-idle': { type: 'boolean' } } })
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: { 'exit-when-idle': { type: 'boolean' } },
+})
 
 let daemon: RunningDaemon | undefined
 let stopping = false
