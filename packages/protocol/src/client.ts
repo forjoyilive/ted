@@ -67,10 +67,16 @@ export interface Subscription {
 export class DaemonClient {
   readonly #info: DaemonInfo
   readonly #token: string
+  readonly #idleTimeoutMs: number
 
-  constructor(info: DaemonInfo, token: string = info.token) {
+  constructor(
+    info: DaemonInfo,
+    token: string = info.token,
+    { idleTimeoutMs = 300_000 }: { idleTimeoutMs?: number } = {},
+  ) {
     this.#info = info
     this.#token = token
+    this.#idleTimeoutMs = idleTimeoutMs
   }
 
   listTasks(): Promise<Task[]> {
@@ -400,6 +406,7 @@ export class DaemonClient {
         path: route,
         method,
         agent: agent(),
+        timeout: this.#idleTimeoutMs,
         headers: {
           authorization: `Bearer ${this.#token}`,
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
@@ -409,6 +416,9 @@ export class DaemonClient {
         ...(signal && { signal }),
       })
       req.on('response', resolve)
+      req.on('timeout', () => {
+        req.destroy(new Error(`TED's daemon sent nothing for ${this.#idleTimeoutMs} ms`))
+      })
       req.on('error', (error) => reject(unreachable(port, error)))
       req.end(payload)
     })
