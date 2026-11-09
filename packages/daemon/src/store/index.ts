@@ -1189,16 +1189,16 @@ export async function openStore({
     },
     commentsDelivered(ids, runId) {
       if (ids.length === 0) return
-      store.commit(events.commentsDelivered({ ids, runId, at: new Date().toISOString() }))
+      commit(events.commentsDelivered({ ids, runId, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
     },
     commentsRead(ids) {
       if (ids.length === 0) return
-      store.commit(events.commentsRead({ ids, at: new Date().toISOString() }))
+      commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
     },
     holdAnswer(id) {
-      store.commit(events.commentAnswerHeld({ id, at: new Date().toISOString() }))
+      commit(events.commentAnswerHeld({ id, at: new Date().toISOString() }))
     },
     heldAnswers: (taskId) =>
       store
@@ -1206,7 +1206,7 @@ export async function openStore({
         .map(toComment),
     answersDelivered(ids, runId) {
       if (ids.length === 0) return
-      store.commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
+      commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
     },
     taskLog: (taskId) =>
       store
