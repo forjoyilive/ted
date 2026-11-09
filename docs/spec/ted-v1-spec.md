@@ -1058,7 +1058,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
   - Done: typing shows **Comment only** and **Follow up**.
   - After sign-off with the merge pending: red **Send and cancel merge** (9.2).
   - Archived: no box.
-- ↵ sends from the comment box, and from the answer box of a request card (Request changes at a Gate, never Approve); ⌘↵ sends too. When the box has two buttons, ↵ presses the primary one (**Send and resume**, **Follow up**). ⇧↵ adds a new line. Nothing sends while an input method is composing, or when the text is empty. Boxes that hold a document (Edit description, New Task description, Automation prompt, Factory notes, Stage files, a Clarify round’s answers) keep ↵ as a new line. (KRI-56, KRI-204)
+- ↵ sends from the comment box, and from the answer box of a request card (Request changes at a Gate, never Approve); ⌘↵ sends too. When the box has two buttons, ↵ presses the primary one (**Send and resume**, **Follow up**). ⇧↵ adds a new line. Nothing sends while an input method is composing, or when the box holds no text and no files. Boxes that hold a document (Edit description, New Task description, Automation prompt, Factory notes, Stage files, a Clarify round’s answers) keep ↵ as a new line. (KRI-56, KRI-204)
 - **Attachments in Comments:** images, and HTML in a sandboxed frame. No artifacts gallery. (KRI-20)
 - **The human attaches files** to any Comment by dragging them onto the comment box or pasting, as in the New Task dialog. A sent Comment can’t be edited or deleted, because it goes into the live Run at once; the human corrects it with another Comment. (GAP-63, Nabha’s review)
 

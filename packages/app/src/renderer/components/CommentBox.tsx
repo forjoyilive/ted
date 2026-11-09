@@ -143,6 +143,7 @@ export function CommentBox({
         onPaste={onPaste}
         onKeyDown={sendOnEnter(
           () => void send(resumes ? 'resume' : done ? 'follow-up' : undefined),
+          (typedText) => typedText.trim() !== '' || (files.length > 0 && !cancels),
         )}
       />
       {(files.length > 0 || uploading > 0) && (

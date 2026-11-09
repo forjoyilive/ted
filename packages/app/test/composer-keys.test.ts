@@ -68,4 +68,14 @@ describe('composer keys', () => {
     expect(composing.prevented()).toBe(false)
     expect(sent).toEqual([false, true])
   })
+
+  test('a box with files may send without text when it says it is ready', () => {
+    const sent: boolean[] = []
+    const handler = sendOnEnter(
+      (command) => sent.push(command),
+      () => true,
+    )
+    handler(keyDown('').event as never)
+    expect(sent).toEqual([false])
+  })
 })

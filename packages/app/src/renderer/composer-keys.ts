@@ -16,7 +16,10 @@ export function enterAction(press: EnterPress): 'send' | 'command-send' | undefi
   return press.metaKey || press.ctrlKey ? 'command-send' : 'send'
 }
 
-export function sendOnEnter(send: (command: boolean) => void) {
+export function sendOnEnter(
+  send: (command: boolean) => void,
+  ready: (text: string) => boolean = (text) => text.trim() !== '',
+) {
   return (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const action = enterAction({
       key: event.key,
@@ -29,7 +32,7 @@ export function sendOnEnter(send: (command: boolean) => void) {
     })
     if (action === undefined) return
     event.preventDefault()
-    if (event.currentTarget.value.trim() === '') return
+    if (!ready(event.currentTarget.value)) return
     send(action === 'command-send')
   }
 }
