@@ -30,7 +30,7 @@ import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { DetailsSection } from '../components/DetailsSection.tsx'
-import { AllChanges, type DiffSeams, DiffView, type LineFocus } from '../components/DiffViews.tsx'
+import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
@@ -66,6 +66,13 @@ import {
 } from '../data.ts'
 import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
+import {
+  type ChangesView,
+  type MiddlePaneAction,
+  type MiddlePaneState,
+  middlePane,
+  middlePaneStep,
+} from '../middle-pane.ts'
 import { useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
@@ -292,52 +299,20 @@ export function TaskPanes({
   onOpenPlan: (planId: string) => void
   onFollowedUp: (followUp: Task) => void
 }) {
-  const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
-  const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
-  const [app, setApp] = useState<{ taskId: string; app: ShownApp }>()
-  const [briefFor, setBriefFor] = useState<string>()
+  const [state, setState] = useState<MiddlePaneState>({})
+  const go = (action: MiddlePaneAction) => setState((s) => middlePaneStep(s, task.id, action))
   useEffect(() => {
-    if (answeredId !== undefined) {
-      setShown(undefined)
-      setChangesView(undefined)
-      setApp(undefined)
-      setBriefFor(undefined)
-    }
+    if (answeredId !== undefined) setState((s) => middlePaneStep(s, '', { kind: 'answered' }))
   }, [answeredId])
   const changes = useTaskChanges(task)
   const brief = useTaskBrief(task.id)
-  const fullBrief = briefFor === task.id
-  const view = changesView?.taskId === task.id ? changesView.view : undefined
-  const showChanges = (next: ChangesView | undefined) => {
-    if (next !== undefined) {
-      setApp(undefined)
-      setBriefFor(undefined)
-    }
-    setChangesView(next && { taskId: task.id, view: next })
-  }
-  const shownApp = app?.taskId === task.id ? app.app : undefined
-  const openApp = (chosen: ShownApp) => {
-    setChangesView(undefined)
-    setBriefFor(undefined)
-    setShell(undefined)
-    setApp({ taskId: task.id, app: chosen })
-  }
-  const closeApp = () => setApp(undefined)
-  const openBrief = () => {
-    setChangesView(undefined)
-    setApp(undefined)
-    setShell(undefined)
-    setBriefFor(task.id)
-  }
-  const shownRun = shown?.taskId === task.id ? shown.runId : undefined
-  const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
-  const show = (runId: string | undefined) => {
-    showChanges(undefined)
-    setApp(undefined)
-    setBriefFor(undefined)
-    setShell(undefined)
-    setShown({ taskId: task.id, runId })
-  }
+  const pane = middlePane(state, task, changes !== undefined)
+  const { changes: view, app: shownApp, brief: fullBrief, run: visibleRun, all } = pane
+  const showChanges = (next: ChangesView | undefined) => go({ kind: 'changes', view: next })
+  const openApp = (chosen: ShownApp) => go({ kind: 'app', app: chosen })
+  const closeApp = () => go({ kind: 'app', app: undefined })
+  const openBrief = () => go({ kind: 'brief', open: true })
+  const show = (runId: string | undefined) => go({ kind: 'run', runId })
   const openRun = (runId: string) => {
     show(runId)
     void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
@@ -346,35 +321,20 @@ export function TaskPanes({
     if (visibleRun === runId) show(undefined)
     void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
-  const [shell, setShell] = useState<{ taskId: string; repo: string }>()
-  const liveRepos = task.repos.filter((r) => !r.removed)
-  const shellRepo =
-    shell?.taskId === task.id && liveRepos.some((r) => r.name === shell.repo)
-      ? shell.repo
-      : undefined
-  const openShell = (repo: string) => {
-    setChangesView(undefined)
-    setBriefFor(undefined)
-    setApp(undefined)
-    setShell({ taskId: task.id, repo })
-  }
+  const openShell = (repo: string) => go({ kind: 'shell', repo })
   useEffect(() => {
     const take = () => {
       const request = takeShellRequest(task.id)
       if (!request) return
       const name = request.repo ?? task.repos.find((r) => !r.removed)?.name
       if (name === undefined) return
-      setChangesView(undefined)
-      setBriefFor(undefined)
-      setApp(undefined)
-      setShell({ taskId: task.id, repo: name })
+      setState((s) => middlePaneStep(s, task.id, { kind: 'shell', repo: name }))
     }
     take()
     window.addEventListener(openShellEvent, take)
     return () => window.removeEventListener(openShellEvent, take)
   }, [task.id, task.repos])
   const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file })
-  const all = view?.kind === 'all' && changes !== undefined
   const lineComments = useLineComments(task.id)
   const drafts = lineComments.filter(isDraft)
   const seams: DiffSeams = {
@@ -417,10 +377,10 @@ export function TaskPanes({
   }
   const draftsIn = (file: ChangedFile) =>
     drafts.filter((d) => d.repo === file.repo && d.path === file.path).length
-  const covered = all || view?.kind === 'diff' || fullBrief
+  const { covered, shell: shellRepo } = pane
   return (
     <>
-      {all && (
+      {all && changes !== undefined && (
         <AllChanges
           taskId={task.id}
           changes={changes}
@@ -429,7 +389,9 @@ export function TaskPanes({
           onCollapse={back}
         />
       )}
-      {fullBrief && <FullBrief task={task} brief={brief} onBack={() => setBriefFor(undefined)} />}
+      {fullBrief && (
+        <FullBrief task={task} brief={brief} onBack={() => go({ kind: 'brief', open: false })} />
+      )}
       {view?.kind === 'diff' && (
         <DiffView
           taskId={task.id}
@@ -447,7 +409,7 @@ export function TaskPanes({
           key={`${task.id}:${shellRepo}`}
           taskId={task.id}
           repo={shellRepo}
-          onBack={() => setShell(undefined)}
+          onBack={() => go({ kind: 'shell', repo: undefined })}
         />
       ) : (
         <TaskThread
@@ -496,8 +458,6 @@ export function TaskPanes({
     </>
   )
 }
-
-type ChangesView = { kind: 'diff'; file: ChangedFile; focus?: LineFocus } | { kind: 'all' }
 
 export function TaskThread({
   task,
