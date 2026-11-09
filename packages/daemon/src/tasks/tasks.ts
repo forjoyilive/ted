@@ -95,7 +95,7 @@ import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { Sandbox } from '../sandbox.ts'
+import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type {
   LoopCheck,
   LoopVerdict,
@@ -532,10 +532,19 @@ export function createTasks(options: {
     return problem
   }
 
-  function sandboxWritable(task: StoredTask, entries: readonly FactoryRepoEntry[]): string[] {
+  function sandboxScope(
+    task: StoredTask,
+    entries: readonly FactoryRepoEntry[],
+  ): Omit<SandboxScope, 'tmp'> {
     const folder = runFolderOf(task, entries)
-    const worktrees = task.repos.filter((r) => !r.removed).map((r) => r.worktree)
-    return [...new Set([...(folder === undefined ? [] : [folder]), ...worktrees])]
+    const live = task.repos.filter((r) => !r.removed)
+    return {
+      writable: [
+        ...new Set([...(folder === undefined ? [] : [folder]), ...live.map((r) => r.worktree)]),
+      ],
+      readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
+      cache: path.join(worktreesDir, task.displayId, 'sandbox-cache'),
+    }
   }
 
   async function appTask(taskId: string): Promise<AppTask> {
@@ -554,7 +563,7 @@ export function createTasks(options: {
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
-      ...(!bypass && { sandbox: { writable: sandboxWritable(task, entries) } }),
+      ...(!bypass && { sandbox: sandboxScope(task, entries) }),
       repos: live.map((repo) => {
         const entry = repoEntry(entries, repo)
         return {
@@ -1058,7 +1067,7 @@ export function createTasks(options: {
     if (plan.length === 0) return undefined
     const sandbox = runsInBypass(resolution)
       ? undefined
-      : { sandbox: options.sandbox, writable: sandboxWritable(task, entries) }
+      : { sandbox: options.sandbox, scope: sandboxScope(task, entries) }
     if (sandbox !== undefined) await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,

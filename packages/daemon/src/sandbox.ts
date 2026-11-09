@@ -1,12 +1,14 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, realpath } from 'node:fs/promises'
+import { access, lstat, mkdir, realpath } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 
 export interface SandboxScope {
   writable: readonly string[]
+  readable: readonly string[]
   tmp: string
+  cache: string
 }
 
 export interface Sandboxed {
@@ -69,14 +71,21 @@ export function createSandbox(options: {
     async wrap(argv, scope) {
       const why = await problem()
       if (why !== undefined || ready === undefined) throw new SandboxUnavailable(why)
+      const paths = await sandboxPaths(platform, options.tedHome, scope)
       const env = options.env()
-      const home = env.HOME?.startsWith('/') ? env.HOME : homedir()
-      const paths = await sandboxPaths(platform, home, env, options.tedHome, scope)
+      const cache = (name: string) => path.join(paths.cache, name)
       const added: Record<string, string> = {
         TMPDIR: paths.tmp,
         TMP: paths.tmp,
         TEMP: paths.tmp,
-        ...(!hasName(env, 'npm_config_cache') && { npm_config_cache: path.join(home, '.npm') }),
+        XDG_CACHE_HOME: paths.cache,
+        COREPACK_HOME: corepackHome(env),
+        npm_config_cache: cache('npm'),
+        npm_config_store_dir: cache('pnpm-store'),
+        YARN_CACHE_FOLDER: cache('yarn'),
+        PIP_CACHE_DIR: cache('pip'),
+        GOCACHE: cache('go-build'),
+        GOMODCACHE: cache('go-mod'),
       }
       return platform === 'darwin'
         ? { argv: [ready, ...seatbeltArgs(paths), ...argv], env: added }
@@ -87,54 +96,29 @@ export function createSandbox(options: {
 
 interface SandboxPaths {
   writable: string[]
+  readable: string[]
   tmp: string
-  caches: string[]
-  programs: string[]
+  cache: string
   tedHome: string
-  pnpmHome?: string
   sharedTmp?: string
 }
 
 async function sandboxPaths(
   platform: NodeJS.Platform,
-  home: string,
-  env: NodeJS.ProcessEnv,
   tedHome: string,
   scope: SandboxScope,
 ): Promise<SandboxPaths> {
-  const pnpmHome = env.PNPM_HOME?.startsWith('/')
-    ? env.PNPM_HOME
-    : platform === 'darwin'
-      ? path.join(home, 'Library', 'pnpm')
-      : path.join(
-          env.XDG_DATA_HOME?.startsWith('/')
-            ? env.XDG_DATA_HOME
-            : path.join(home, '.local', 'share'),
-          'pnpm',
-        )
-  const caches = [
-    ...(platform === 'darwin' ? [path.join(home, 'Library', 'Caches')] : []),
-    path.join(home, '.cache'),
-    path.join(home, '.npm'),
-    path.join(pnpmHome, 'store'),
-  ]
-  const programs = [
-    env.COREPACK_HOME?.startsWith('/')
-      ? env.COREPACK_HOME
-      : path.join(home, '.cache', 'node', 'corepack'),
-    path.join(home, '.cache', 'ms-playwright'),
-    path.join(home, '.cache', 'puppeteer'),
-    ...(platform === 'darwin' ? [path.join(home, 'Library', 'Caches', 'ms-playwright')] : []),
-  ]
   const daemonTmp = await real(tmpdir())
   const sharedTmp = platform === 'darwin' ? '/private/tmp' : undefined
+  const home = await real(tedHome)
+  const given = path.resolve(tedHome)
+  const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
   return {
-    writable: await Promise.all(scope.writable.map(real)),
+    writable: await Promise.all(scope.writable.map((dir) => plain(dir))),
+    readable: await Promise.all(scope.readable.map((dir) => plain(dir))),
     tmp: await real(scope.tmp),
-    caches: await Promise.all(caches.map(real)),
-    programs: await Promise.all(programs.map(real)),
-    tedHome: await real(tedHome),
-    ...(platform === 'darwin' && { pnpmHome: await real(pnpmHome) }),
+    cache: await plain(scope.cache, true),
+    tedHome: home,
     ...(sharedTmp !== undefined && !inside(sharedTmp, daemonTmp) && { sharedTmp }),
   }
 }
@@ -148,17 +132,15 @@ function seatbeltArgs(paths: SandboxPaths): string[] {
         return `(subpath (param "${prefix}${i}"))`
       })
       .join(' ')
-  const pnpmProbe =
-    paths.pnpmHome !== undefined && !/["\\]/.test(paths.pnpmHome)
-      ? `(regex #"^${escapeRegex(paths.pnpmHome)}/_tmp_[0-9a-f_]+(/_tmp_[0-9a-f_]+)?$")`
-      : ''
+  const own = [...paths.writable, paths.tmp, paths.cache]
   const profile = [
     '(version 1)',
     '(allow default)',
     '(deny file-write*)',
-    `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${param('C', paths.caches)} ${pnpmProbe} ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
-    `(deny file-write* ${param('P', paths.programs)} ${param('H', [paths.tedHome])})`,
-    `(allow file-write* ${param('W', [...paths.writable, paths.tmp])})`,
+    `(allow file-write* (literal "/dev/null") (literal "/dev/zero") (literal "/dev/ptmx") (literal "/dev/dtracehelper") (regex #"^/dev/tty") (regex #"^/dev/fd/") ${paths.sharedTmp === undefined ? '' : `(subpath "${paths.sharedTmp}")`})`,
+    `(deny file-write* file-read-data file-read-xattr ${param('H', [paths.tedHome])})`,
+    `(allow file-read-data file-read-xattr ${param('R', [...paths.readable, ...own])})`,
+    `(allow file-write* ${param('W', own)})`,
     '(deny appleevent-send)',
     '(deny mach-lookup (global-name-prefix "com.apple.coreservices.") (global-name-prefix "com.apple.lsd") (global-name "com.apple.CoreServices.coreservicesd"))',
     '(deny user-preference-write)',
@@ -182,19 +164,54 @@ function bwrapArgs(paths: SandboxPaths, env: NodeJS.ProcessEnv): string[] {
     paths.tmp,
     '/tmp',
     ...runtime.flatMap((dir) => ['--tmpfs', dir]),
-    ...paths.caches.flatMap((dir) => ['--bind-try', dir, dir]),
-    ...paths.programs.flatMap((dir) => ['--ro-bind-try', dir, dir]),
-    '--ro-bind',
+    '--tmpfs',
     paths.tedHome,
-    paths.tedHome,
-    ...[...paths.writable, paths.tmp].flatMap((dir) => ['--bind', dir, dir]),
+    ...paths.readable.flatMap((dir) => ['--ro-bind', dir, dir]),
+    ...[...paths.writable, paths.tmp, paths.cache].flatMap((dir) => ['--bind', dir, dir]),
     '--unsetenv',
     'DBUS_SESSION_BUS_ADDRESS',
   ]
 }
 
-function escapeRegex(text: string): string {
-  return text.replace(/[.^$*+?()[\]{}|]/g, '\\$&')
+function corepackHome(env: NodeJS.ProcessEnv): string {
+  if (env.COREPACK_HOME?.startsWith('/')) return env.COREPACK_HOME
+  const cache = env.XDG_CACHE_HOME?.startsWith('/')
+    ? env.XDG_CACHE_HOME
+    : path.join(env.HOME?.startsWith('/') ? env.HOME : homedir(), '.cache')
+  return path.join(cache, 'node', 'corepack')
+}
+
+async function plainFolder(
+  home: string,
+  given: string,
+  dir: string,
+  create: boolean,
+): Promise<string> {
+  const resolved = path.resolve(dir)
+  const relative = inside(given, resolved)
+    ? path.relative(given, resolved)
+    : inside(home, resolved)
+      ? path.relative(home, resolved)
+      : undefined
+  const parts = relative?.split(path.sep).filter((part) => part !== '') ?? []
+  if (relative === undefined || parts.length === 0 || parts.includes('..')) {
+    throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
+  }
+  let current = home
+  for (const [i, part] of parts.entries()) {
+    current = path.join(current, part)
+    let found = await lstat(current).catch(() => undefined)
+    if (!found && create && i === parts.length - 1) {
+      await mkdir(current, { mode: 0o700 })
+      found = await lstat(current)
+    }
+    if (!found?.isDirectory() || found.isSymbolicLink()) {
+      throw new SandboxUnavailable(
+        `${current} isn’t a plain folder, so TED won’t sandbox a command in it`,
+      )
+    }
+  }
+  return current
 }
 
 async function real(file: string): Promise<string> {
@@ -204,10 +221,6 @@ async function real(file: string): Promise<string> {
 function inside(folder: string, file: string): boolean {
   const relative = path.relative(folder, file)
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
-}
-
-function hasName(env: NodeJS.ProcessEnv, name: string): boolean {
-  return Object.keys(env).some((key) => key.toLowerCase() === name.toLowerCase())
 }
 
 async function onPath(name: string, searchPath: string | undefined): Promise<string | undefined> {

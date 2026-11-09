@@ -27,7 +27,7 @@ import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
-import type { Sandbox } from '../sandbox.ts'
+import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
@@ -61,7 +61,7 @@ export interface AppTask {
   displayId: string
   factoryId: string
   repos: AppRepo[]
-  sandbox?: { writable: string[] }
+  sandbox?: Omit<SandboxScope, 'tmp'>
 }
 
 export interface SimulatorOptions {
@@ -611,11 +611,13 @@ export function createApps(options: AppsOptions): Apps {
     await removeInside(dir, 'tmp')
     const tmp = appFiles(dir).tmp
     await mkdir(tmp, { mode: 0o700 })
-    const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], {
-      writable: task.sandbox.writable,
-      tmp,
-    })
-    return { shell: wrapped.argv, env: wrapped.env }
+    try {
+      const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], { ...task.sandbox, tmp })
+      return { shell: wrapped.argv, env: wrapped.env }
+    } catch (error) {
+      if (error instanceof SandboxUnavailable) return { problem: error.message }
+      throw error
+    }
   }
 
   async function hostAlive(dir: string): Promise<boolean> {

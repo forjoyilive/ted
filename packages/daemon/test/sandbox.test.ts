@@ -1,6 +1,15 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -11,13 +20,23 @@ const execFileAsync = promisify(execFile)
 
 let tedHome: string
 let worktree: string
+let clone: string
 let tmp: string
 let outside: string
 
+const scope = () => ({
+  writable: [worktree],
+  readable: [clone],
+  cache: path.join(tedHome, 'worktrees', 'NB-1', 'sandbox-cache'),
+  tmp,
+})
+
 beforeEach(async () => {
   tedHome = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-home-'))
-  worktree = path.join(tedHome, 'worktrees', 'NB-1')
+  worktree = path.join(tedHome, 'worktrees', 'NB-1', 'widgets')
+  clone = path.join(tedHome, 'repos', 'k', 'widgets')
   await mkdir(worktree, { recursive: true })
+  await mkdir(clone, { recursive: true })
   tmp = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-tmp-'))
   outside = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-outside-'))
 })
@@ -28,7 +47,7 @@ afterEach(async () => {
 
 async function inSandbox(script: string) {
   const sandbox = createSandbox({ tedHome, env: () => process.env })
-  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], { writable: [worktree], tmp })
+  const { argv, env } = await sandbox.wrap(['/bin/sh', '-c'], scope())
   const [command, ...args] = argv
   return execFileAsync(command, [...args, script], {
     cwd: worktree,
@@ -43,15 +62,53 @@ async function inSandbox(script: string) {
 }
 
 const tryWrite = (file: string) => `echo x > '${file}' 2>/dev/null && echo wrote || echo refused`
+const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read || echo refused`
 
 describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
-  test('a sandboxed command writes in its worktree and its own temp folder', async () => {
+  test('a sandboxed command writes its worktree, its own temp folder and the Task’s caches', async () => {
+    await writeFile(path.join(clone, 'HEAD'), 'ref')
     const result = await inSandbox(
-      `${tryWrite(path.join(worktree, 'a.txt'))}; echo x > "$TMPDIR/b.txt" && echo wrote; echo "$TMPDIR"`,
+      [
+        tryWrite(path.join(worktree, 'a.txt')),
+        'echo x > "$TMPDIR/b.txt" && echo wrote',
+        'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
+        tryRead(path.join(clone, 'HEAD')),
+        'echo "$TMPDIR"',
+      ].join('; '),
     )
-    expect(result.stdout.split('\n').slice(0, 2)).toEqual(['wrote', 'wrote'])
+    expect(result.stdout.split('\n').slice(0, 4)).toEqual(['wrote', 'wrote', 'wrote', 'read'])
     expect(await readFile(path.join(worktree, 'a.txt'), 'utf8')).toBe('x\n')
     expect(result.stdout).toContain(path.basename(tmp))
+  })
+
+  test('git reads the worktree through the Task’s clone', async () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileAsync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', ...args], {
+        cwd,
+      })
+    await git(clone, 'init', '-q', '-b', 'main')
+    await writeFile(path.join(clone, 'a.txt'), 'a')
+    await git(clone, 'add', '.')
+    await git(clone, 'commit', '-qm', 'first')
+    await rm(worktree, { recursive: true })
+    await git(clone, 'worktree', 'add', '-q', '-b', 'task', worktree)
+    const result = await inSandbox('echo b > b.txt; git status --porcelain; git log --format=%s')
+    expect(result.stdout.trim().split('\n')).toEqual(['?? b.txt', 'first'])
+  })
+
+  test('it can’t read TED_HOME’s keys or another Task’s worktree', async () => {
+    const other = path.join(tedHome, 'worktrees', 'NB-2', 'widgets')
+    await mkdir(other, { recursive: true })
+    await writeFile(path.join(other, 'secret.txt'), 'secret')
+    await writeFile(path.join(tedHome, 'daemon.json'), '{"token":"x"}')
+    const result = await inSandbox(
+      [
+        tryRead(path.join(tedHome, 'daemon.json')),
+        tryRead(path.join(other, 'secret.txt')),
+        `ls '${tedHome}' >/dev/null 2>&1 && echo listed || echo refused`,
+      ].join('; '),
+    )
+    expect(result.stdout.trim().split('\n')).toEqual(['refused', 'refused', 'refused'])
   })
 
   test('it can’t write the rest of TED_HOME, the daemon’s temp folder or the home folder', async () => {
@@ -64,10 +121,12 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
           tryWrite(path.join(tedHome, 'run-token.key')),
           tryWrite(path.join(outside, 'c.txt')),
           tryWrite(homeFile),
+          tryWrite(path.join(homedir(), '.npm', `ted-${randomUUID()}`)),
           `ln -s /etc '${path.join(worktree, 'link')}' && ${tryWrite(path.join(worktree, 'link', 'x'))}`,
         ].join('; '),
       )
       expect(result.stdout.trim().split('\n')).toEqual([
+        'refused',
         'refused',
         'refused',
         'refused',
@@ -99,6 +158,48 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
   })
 })
 
+describe('the folders a sandbox opens', () => {
+  test('a worktree swapped for a link to somewhere else is refused', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+    })
+    await rename(worktree, `${worktree}.bak`)
+    await symlink(tedHome, worktree)
+    await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(/isn’t a plain folder/)
+  })
+
+  test('a folder outside TED_HOME is refused', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+    })
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), writable: [outside] }),
+    ).rejects.toThrow(/isn’t inside TED’s folder/)
+  })
+
+  test('on Linux, TED_HOME is hidden and only the Task’s folders come back', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => ({ PATH: '/usr/bin:/bin' }),
+      platform: 'linux',
+      program: '/usr/bin/true',
+    })
+    const { argv } = await sandbox.wrap(['/bin/sh', '-c'], scope())
+    const home = await realpath(tedHome)
+    const real = await realpath(worktree)
+    expect(argv.join(' ')).toContain(`--tmpfs ${home}`)
+    expect(argv.join(' ')).toContain(`--ro-bind ${await realpath(clone)}`)
+    expect(argv.join(' ')).toContain(`--bind ${real} ${real}`)
+    expect(argv.indexOf(home)).toBeLessThan(argv.indexOf(real))
+  })
+})
+
 describe('a missing sandbox', () => {
   test('is a problem, and wrapping refuses instead of running unsandboxed', async () => {
     const sandbox = createSandbox({
@@ -107,9 +208,7 @@ describe('a missing sandbox', () => {
       program: path.join(outside, 'no-such-sandbox'),
     })
     expect(await sandbox.problem()).toMatch(/can’t sandbox Checks and Apps/)
-    await expect(sandbox.wrap(['/bin/sh', '-c'], { writable: [worktree], tmp })).rejects.toThrow(
-      SandboxUnavailable,
-    )
+    await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(SandboxUnavailable)
   })
 
   test('bwrap missing from PATH on Linux names the package to install', async () => {

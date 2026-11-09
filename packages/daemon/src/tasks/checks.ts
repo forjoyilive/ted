@@ -5,7 +5,7 @@ import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
-import { type Sandbox, SandboxUnavailable } from '../sandbox.ts'
+import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
 import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
@@ -92,7 +92,7 @@ export async function runChecks(input: {
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: { sandbox: Sandbox; writable: readonly string[] }
+  sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'> }
   signal?: AbortSignal
   onStart: (position: number) => void
   onFinish: (
@@ -138,14 +138,14 @@ export async function runChecks(input: {
 async function runCheck(
   input: Parameters<typeof runWorktreeCommand>[0] & {
     shell: [string, ...string[]]
-    sandbox?: { sandbox: Sandbox; writable: readonly string[] }
+    sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'> }
   },
 ): Promise<CommandResult> {
   const { sandbox, ...command } = input
   if (sandbox === undefined) return runWorktreeCommand(command)
   const tmp = await mkdtemp(path.join(tmpdir(), 'ted-check-'))
   try {
-    const wrapped = await sandbox.sandbox.wrap(input.shell, { writable: sandbox.writable, tmp })
+    const wrapped = await sandbox.sandbox.wrap(input.shell, { ...sandbox.scope, tmp })
     return await runWorktreeCommand({
       ...command,
       shell: wrapped.argv,

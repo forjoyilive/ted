@@ -661,12 +661,17 @@ describe('the Checks’ sandbox', () => {
     `      - { name: Escape, run: "${targets.map((t) => `touch '${t}' 2>/dev/null`).join('; ')}; touch stub-inside; echo done" }`
 
   test.runIf(process.platform === 'darwin')(
-    'a Check an agent starts writes its worktree but not TED_HOME or the home folder',
+    'a Check an agent starts writes its worktree, but can’t write TED_HOME or the home folder or read daemon.json',
     async () => {
       const homeFile = path.join(homedir(), `.ted-check-escape-${randomUUID()}`)
       const targets = [path.join(home, 'planted'), homeFile, path.join(scratch, 'out')]
       try {
-        await workflow(escapeCheck(targets))
+        await workflow(
+          [
+            escapeCheck(targets),
+            `      - { name: Peek, run: "cat '${path.join(home, 'daemon.json')}' >/dev/null 2>&1 && echo leaked || echo hidden" }`,
+          ].join('\n'),
+        )
         const client = await startTed()
         const task = await startTask(
           client,
@@ -678,7 +683,15 @@ describe('the Checks’ sandbox', () => {
         )
         const [run] = await finishedRuns(client, task, 1)
         expect(run?.trigger).toBe('agent')
-        expect(states(run)).toEqual([['Escape', 'passed']])
+        expect(states(run)).toEqual([
+          ['Escape', 'passed'],
+          ['Peek', 'passed'],
+        ])
+        const peek = await client.ok<{ text: string }>(
+          'GET',
+          `/check-runs/${run?.id}/checks/1/output`,
+        )
+        expect(peek.text.trim()).toBe('hidden')
         expect(await readFile(await worktreeFile(client, task, 'stub-inside'), 'utf8')).toBe('')
         for (const file of targets) await expect(readFile(file), file).rejects.toThrow()
       } finally {
