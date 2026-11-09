@@ -18,7 +18,7 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 6. Check the change against the Task’s description and the Design brief. Look for missing cases, broken behaviour and leftover debugging code.
 7. Try the change by hand, always against this Task’s own `TED_HOME` (`node_modules/.cache/ted-home` in the worktree), never `~/.ted` or `~/.ted-dev`:
    - For a change in `packages/app`, start TED Dev with `ted run-app "TED Dev"`, open each changed screen in light and dark mode, and attach a screenshot of each with `ted comment --attach`. Judge them against the Design brief and the Figma file named in `AGENTS.md`.
-   - For a change in `packages/daemon`, `packages/cli` or `packages/protocol`, run the changed `ted` commands with `TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>` and paste the output into your note.
+   - For a change in `packages/daemon`, `packages/cli` or `packages/protocol`, run the changed `ted` commands with `env -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>` and paste the output into your note. Keep Task-control commands such as `ted comment`, `ted checks` and `ted outcome` in the normal Run environment.
 8. Sort every Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
 
 ## Done when

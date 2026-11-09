@@ -15,6 +15,7 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 
 - `pnpm install`, then `pnpm typecheck`, `pnpm lint` and `pnpm test`.
 - `pnpm app` builds the renderer and opens TED Dev from source; `pnpm ted <args>` runs the CLI from source.
+- For isolated CLI trials, use `env -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>`. Keep TED’s Task-control commands in the normal Run environment.
 - In a Task, always set `TED_HOME` to the Task’s own folder, `node_modules/.cache/ted-home` in the worktree, which the TED Dev App already uses. Never use `~/.ted` (the installed TED that runs this Factory) or `~/.ted-dev`.
 
 ## Where things live
