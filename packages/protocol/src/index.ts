@@ -243,6 +243,19 @@ export {
   type SubAgentWait,
 } from './run.ts'
 export {
+  type CommentHit,
+  type FactoryHit,
+  foldText,
+  matchesTerms,
+  type SearchField,
+  type SearchResults,
+  type SearchTaskState,
+  searchLimits,
+  searchTerms,
+  snippetAround,
+  type TaskHit,
+} from './search.ts'
+export {
   type Appearance,
   appearances,
   defaultMachineSettings,

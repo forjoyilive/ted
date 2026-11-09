@@ -37,6 +37,7 @@ import {
   readOptionalJson,
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
+import { searchRoutes } from './routes/search.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import type { Caller } from './tasks/tasks.ts'
 
@@ -144,6 +145,7 @@ const routes: Route[] = [
   ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,
+  ...searchRoutes,
 ]
 
 const drainTimeoutMs = 10_000
