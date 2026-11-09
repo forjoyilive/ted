@@ -1,3 +1,4 @@
+import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { CommandLineStatus } from './command-line.ts'
@@ -41,6 +42,8 @@ import type {
 import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
+
+const agent = new Agent({ keepAlive: false })
 
 export class DaemonRequestError extends Error {
   readonly status: number
@@ -149,12 +152,11 @@ export class DaemonClient {
     file: { name: string; mediaType: string },
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<Attachment> {
-    const res = await this.#fetch('POST', '/attachments', bytes, undefined, {
+    const res = await this.#send('POST', '/attachments', bytes, undefined, {
       'content-type': file.mediaType || 'application/octet-stream',
       'x-ted-name': encodeURIComponent(file.name),
     })
-    if (!res.ok) throw await requestError(res)
-    return (await res.json()) as Attachment
+    return (await this.#json(res)) as Attachment
   }
 
   setLocalFolder(key: string, path: string): Promise<Factory> {
@@ -323,74 +325,103 @@ export class DaemonClient {
   ): Promise<Subscription> {
     const controller = new AbortController()
     const route = app ? '/events?app=1' : '/events'
-    const res = await this.#fetch('GET', route, undefined, controller.signal)
-    if (!res.ok || !res.body) throw await requestError(res)
-    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+    const res = await this.#send('GET', route, undefined, controller.signal)
+    if (!isOk(res)) throw await requestError(res, this.#info.port)
+    res.setEncoding('utf8')
 
     const ready = Promise.withResolvers<void>()
     let opened = false
-    const open = () => {
-      opened = true
-      ready.resolve()
-    }
-    void (async () => {
-      let buffer = ''
-      for (;;) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer = dispatch(buffer + value, onEvent, open)
+    let buffer = ''
+    res.on('data', (chunk: string) => {
+      try {
+        buffer = dispatch(buffer + chunk, onEvent, () => {
+          opened = true
+          ready.resolve()
+        })
+      } catch (error) {
+        ready.reject(error)
+        res.destroy()
       }
+    })
+    res.on('error', () => undefined)
+    res.on('close', () => {
       ready.reject(new DaemonUnreachableError('the daemon closed the event stream'))
-    })()
-      .catch(ready.reject)
-      .finally(() => {
-        if (opened && !controller.signal.aborted) onClose?.()
-      })
+      if (opened && !controller.signal.aborted) onClose?.()
+    })
     await ready.promise
 
     return { close: () => controller.abort() }
   }
 
   async #request<T>(method: string, route: string, body?: unknown): Promise<T> {
-    const res = await this.#fetch(method, route, body)
-    if (!res.ok) throw await requestError(res)
-    return (await res.json()) as T
+    return (await this.#json(await this.#send(method, route, body))) as T
   }
 
-  async #fetch(
+  async #json(res: IncomingMessage): Promise<unknown> {
+    if (!isOk(res)) throw await requestError(res, this.#info.port)
+    return JSON.parse(await readText(res, this.#info.port))
+  }
+
+  #send(
     method: string,
     route: string,
     body?: unknown,
     signal?: AbortSignal,
     rawHeaders?: Record<string, string>,
-  ): Promise<Response> {
+  ): Promise<IncomingMessage> {
+    const port = this.#info.port
     const raw = body instanceof Uint8Array
-    try {
-      return await fetch(`http://127.0.0.1:${this.#info.port}${route}`, {
+    const payload =
+      body === undefined ? undefined : raw ? (body as Uint8Array) : JSON.stringify(body)
+    return new Promise((resolve, reject) => {
+      const req = httpRequest({
+        host: '127.0.0.1',
+        port,
+        path: route,
         method,
+        agent,
         headers: {
           authorization: `Bearer ${this.#token}`,
-          ...(body !== undefined && !raw && { 'content-type': 'application/json' }),
+          ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
+          ...(payload !== undefined && { 'content-length': Buffer.byteLength(payload) }),
           ...rawHeaders,
         },
-        ...(body !== undefined && {
-          body: raw ? (body as Uint8Array<ArrayBuffer>) : JSON.stringify(body),
-        }),
         ...(signal && { signal }),
       })
-    } catch (error) {
-      throw new DaemonUnreachableError(`can't reach TED's daemon on port ${this.#info.port}`, {
-        cause: error,
-      })
-    }
+      req.on('response', resolve)
+      req.on('error', (error) => reject(unreachable(port, error)))
+      req.end(payload)
+    })
   }
 }
 
-async function requestError(res: Response): Promise<DaemonRequestError> {
-  const payload = (await res.json().catch(() => ({}))) as { error?: string }
-  return new DaemonRequestError(res.status, payload.error ?? `HTTP ${res.status}`)
+function unreachable(port: number, cause: unknown): DaemonUnreachableError {
+  return new DaemonUnreachableError(`can't reach TED's daemon on port ${port}`, { cause })
 }
 
+function isOk(res: IncomingMessage): boolean {
+  const status = res.statusCode ?? 0
+  return status >= 200 && status < 300
+}
+
+async function readText(res: IncomingMessage, port: number): Promise<string> {
+  res.setEncoding('utf8')
+  let text = ''
+  try {
+    for await (const chunk of res) text += chunk
+  } catch (error) {
+    throw unreachable(port, error)
+  }
+  return text
+}
+
+async function requestError(res: IncomingMessage, port: number): Promise<DaemonRequestError> {
+  const status = res.statusCode ?? 0
+  const payload = await readText(res, port)
+    .then((text) => JSON.parse(text) as { error?: string })
+    .catch(() => ({}) as { error?: string })
+  return new DaemonRequestError(status, payload.error ?? `HTTP ${status}`)
+}
 function dispatch(
   buffer: string,
   onEvent: (event: DaemonEvent) => void,

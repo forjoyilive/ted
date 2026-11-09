@@ -71,6 +71,7 @@ import {
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
+import { handleUncaught } from './uncaught.ts'
 
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
@@ -215,6 +216,14 @@ async function choosePicture(): Promise<string | undefined> {
 
 const platform = process.platform as Platform
 const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
+
+process.on('uncaughtException', (error) => {
+  handleUncaught(error, {
+    hidden: hiddenWindow,
+    log: console.error,
+    show: (title, detail) => dialog.showErrorBox(title, detail),
+  })
+})
 
 const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
