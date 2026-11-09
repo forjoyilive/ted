@@ -17,6 +17,8 @@ import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
+import { startStubLinear } from './fixtures/stub-linear.ts'
 import {
   api,
   assistantTexts,
@@ -54,7 +56,9 @@ afterEach(async () => {
 
 let free = 500e9
 
-async function startTed(options: { addFactory?: boolean } = {}) {
+async function startTed(
+  options: { addFactory?: boolean; linear?: Parameters<typeof startDaemon>[0]['linear'] } = {},
+) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -62,6 +66,7 @@ async function startTed(options: { addFactory?: boolean } = {}) {
     codexBin: stubCodexPath,
     automations: { now: () => clock, checkEveryMs: 50 },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
+    ...(options.linear && { linear: options.linear }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -441,6 +446,61 @@ describe('Automations', () => {
     )
     const next = await client.ok<RunWithConversation>('GET', `/runs/${rows[0]?.runId}`)
     expect(next.run.prompt).toContain(`- NB-1 · Crash in parser · open, in Backlog · source ${url}`)
+  })
+
+  test('an Automation imports Linear issues through the CLI', async () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const url = 'https://linear.app/acme/issue/NB-42/search'
+    const linear = await startStubLinear({
+      [key]: {
+        name: 'Nabha',
+        workspace: { name: 'Acme', urlKey: 'acme' },
+        issues: [{ identifier: 'NB-42', title: 'Search', description: 'Fix search', priority: 2 }],
+      },
+    })
+    try {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+      const client = await startTed({
+        linear: { apiUrl: linear.url, keyring: stubKeyring(stubKeyringFile(home)) },
+      })
+      const automation = await create(client, {
+        name: 'Pull new Linear issues assigned to me',
+        agent: 'codex',
+        prompt: steps(
+          { run: ['ted', 'task', 'create', '--source', url, 'Search'] },
+          { run: ['ted', 'task', 'create', '--source', url, 'Duplicate'] },
+          { run: ['ted', 'task', 'create', '--factory', 'XX', '--source', url, 'Else'] },
+          { endTurn: true },
+        ),
+      })
+      clock = Date.parse('2026-11-09T09:00:05Z')
+      const [row] = await waitForHistory(
+        client,
+        automation.id,
+        (rows) => rows[0]?.result.kind === 'created' || rows[0]?.result.kind === 'no-new-tasks',
+        'the Linear import to finish',
+      )
+      const results = await commandResults(client, row?.runId ?? '')
+      expect(results[0]).toMatchObject({ code: 0, stdout: 'Created NB-1  Search\n', stderr: '' })
+      expect(results[1]).toMatchObject({
+        code: 1,
+        stderr: 'ted: Already tracked as NB-1 · Backlog\n',
+      })
+      expect(results[2]?.stderr).toBe(
+        'ted: this Automation creates Tasks only in NB, its own Factory\n',
+      )
+      const tasks = await client.ok<Task[]>('GET', '/tasks')
+      expect(tasks).toHaveLength(1)
+      expect(tasks[0]).toMatchObject({
+        stage: 'backlog',
+        createdBy: 'automation',
+        priority: 'high',
+        source: { url, linear: { identifier: 'NB-42', description: 'Fix search' } },
+      })
+      expect(row?.result.kind).toBe('created')
+    } finally {
+      await linear.close()
+    }
   })
 
   test('a Task Lead can’t create Tasks with ted task create', async () => {
