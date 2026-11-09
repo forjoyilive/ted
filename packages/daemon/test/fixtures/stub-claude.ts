@@ -34,6 +34,7 @@ interface StubHealth {
   resumeWaitsFor?: string
   apiKeySource?: string
   authMethod?: string
+  interruptEndsAfterMs?: number
 }
 
 function stubHealth(): StubHealth {
@@ -308,6 +309,7 @@ for (;;) {
   }
   if (interrupted) {
     interrupted = false
+    await sleep(stubHealth().interruptEndsAfterMs ?? 0)
     emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
   }
 }

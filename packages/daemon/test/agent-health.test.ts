@@ -38,8 +38,10 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-const setStub = (agent: 'claude' | 'codex', state: { version?: string; signedIn?: boolean }) =>
-  writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
+const setStub = (
+  agent: 'claude' | 'codex',
+  state: { version?: string; signedIn?: boolean; authMethod?: string },
+) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
 async function start(options: { codex?: boolean } = {}) {
   daemon = await startDaemon({
@@ -110,6 +112,20 @@ describe('Agent health', () => {
       fix: { label: 'Install', command: 'npm install -g @openai/codex' },
     })
     expect(await agentBanner(client, 'codex')).toBeUndefined()
+  })
+
+  test('a CLI signed in with an API key under Subscription offers a subscription sign-in', async () => {
+    await setStub('claude', { authMethod: 'console' })
+    const client = await start()
+
+    const claude = await waitUntil(async () => {
+      const h = await healthOf(client, 'claude')
+      return h?.state === 'wrong-credential' ? h : undefined
+    }, 'Claude Code to report an API key')
+    expect(claude.fix).toEqual({ label: 'Sign in', command: 'claude auth login' })
+
+    await client.ok('POST', '/agents/claude/fix')
+    expect(opened).toEqual(['claude auth login'])
   })
 
   test('an agent below the minimum version is too old and offers its update command', async () => {

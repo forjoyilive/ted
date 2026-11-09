@@ -27,6 +27,14 @@ export function CommentBox({ task }: { task: Task }) {
 
   const resumes = state === 'stopped'
 
+  if (state === 'archived') {
+    return (
+      <p className={styles.readOnly} data-state={state}>
+        Archived Tasks are read-only. Unarchive to comment.
+      </p>
+    )
+  }
+
   async function send(andResume = false) {
     if (!typed || sending) return
     setSending(true)

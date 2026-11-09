@@ -11,6 +11,7 @@ import {
   settingsStopsWork,
 } from './banners.ts'
 import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
+import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
@@ -20,7 +21,7 @@ import {
   useAnswered,
   useBanners,
   useConnection,
-  useFactories,
+  useFactoryList,
   useInbox,
   useSettings,
   useSlots,
@@ -45,6 +46,7 @@ import { Board } from './views/Board.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
+import { NoFactories } from './views/NoFactories.tsx'
 import { Stub } from './views/OtherViews.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
@@ -97,10 +99,10 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
   )
 }
 
-export function App() {
+export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
-  const factories = useFactories()
+  const { factories, loaded: factoriesLoaded } = useFactoryList()
   const settings = useSettings()
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
@@ -108,6 +110,12 @@ export function App() {
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [addFactoryOpen, setAddFactoryOpen] = useState(false)
+  const addFactoryPending = useRef(addFactoryFirst)
+  useEffect(() => {
+    if (!factoriesLoaded || !addFactoryPending.current) return
+    addFactoryPending.current = false
+    setAddFactoryOpen(true)
+  }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen = newTaskOpen || addFactoryOpen
   const openNewTask = () => setNewTaskOpen(true)
@@ -195,6 +203,18 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || runsOpen || !task || task.archived) return
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key !== 'Backspace' || isTyping(event.target)) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent(archiveTaskEvent, { detail: task.id }))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, runsOpen, task])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (dialogOpen || settingsOpen || event.altKey || event.shiftKey) return
       const command = event.metaKey || event.ctrlKey
       const newTask = command
@@ -271,6 +291,10 @@ export function App() {
       />
     )
     const { screen } = navigation
+    const noFactories = factoriesLoaded && factories.length === 0 && tasks.length === 0
+    if (screen.kind === 'inbox' && noFactories && !opened && inbox.length === 0) {
+      return <NoFactories onAddFactory={() => setAddFactoryOpen(true)} />
+    }
     if (screen.kind === 'inbox') {
       const openInbox = (change: { factoryId?: string | undefined; answered?: boolean }) => {
         const factoryId = 'factoryId' in change ? change.factoryId : screen.factoryId

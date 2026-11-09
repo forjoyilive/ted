@@ -25,6 +25,7 @@ export interface MachineSettings {
   startAtLogin: boolean
   stayAwake: boolean
   listViews: Readonly<Record<string, ListView>>
+  firstLaunchDone: boolean
   billing: Readonly<Record<AgentKind, Billing>>
 }
 
@@ -39,6 +40,7 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   listViews: {},
+  firstLaunchDone: false,
   billing: { claude: 'subscription', codex: 'subscription' },
 }
 
