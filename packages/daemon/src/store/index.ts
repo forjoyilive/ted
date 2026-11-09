@@ -34,9 +34,11 @@ import {
   defaultMachineSettings,
   type Effort,
   type Factory,
+  type GitHubWait,
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type MergeMethod,
   type PermissionMode,
   type Priority,
   type Round,
@@ -379,6 +381,20 @@ export interface TedStore {
   ): void
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
+  pullRequestWaiting(taskId: string, name: string, on: GitHubWait | undefined): void
+  autoMergeEnabled(
+    taskId: string,
+    name: string,
+    input: { method: MergeMethod; requested: MergeMethod },
+  ): void
+  pullRequestMerged(
+    taskId: string,
+    name: string,
+    input: { method?: MergeMethod; requested?: MergeMethod; noCi: boolean; byTed: boolean },
+  ): void
+  branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
+  pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
@@ -712,6 +728,16 @@ export async function openStore({
             url: row.url,
             base: row.base,
             state: row.state as TaskPullRequest['state'],
+            ...(row.mergedAt !== null && {
+              merged: {
+                at: row.mergedAt,
+                ...(row.mergeMethod !== null && { method: row.mergeMethod as MergeMethod }),
+                noCi: row.mergedWithoutCi === true,
+              },
+            }),
+            ...(row.autoMerge !== null && { autoMerge: row.autoMerge as MergeMethod }),
+            ...(row.waitingOn !== null && { waiting: row.waitingOn as GitHubWait }),
+            ...(row.signedOffCommit !== null && { signedOff: row.signedOffCommit }),
           },
         }),
     }
@@ -770,6 +796,12 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
+  const isMerged = (taskId: string): boolean =>
+    taskRow(taskId)?.stage === 'done' &&
+    store
+      .query(queryDb(pullRequests.where({ taskId })))
+      .every((row) => row.number === null || row.state === 'merged')
+
   const blockerRows = (taskId: string) =>
     store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
 
@@ -781,7 +813,7 @@ export async function openStore({
       return {
         blockerId: row.blockerId,
         displayId: blocker ? `${factoryKey(blocker.factoryId)}-${blocker.number}` : row.blockerId,
-        merged: blocker?.stage === 'done',
+        merged: isMerged(row.blockerId),
         ...(row.setByRunId !== null && { setByRunId: row.setByRunId }),
         at: row.at,
       }
@@ -845,10 +877,13 @@ export async function openStore({
     const repos = reposOf(row.id)
     const waitingOn = blockedBy.flatMap((id) => {
       const blocker = taskRow(id)
-      return blocker && blocker.stage !== 'done'
-        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
-        : []
+      return blocker && !isMerged(id) ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`] : []
     })
+    const github =
+      stage === 'merge'
+        ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
+            ?.waiting
+        : undefined
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -879,6 +914,7 @@ export async function openStore({
       ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(github !== undefined && { github }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1686,6 +1722,67 @@ export async function openStore({
     },
     pullRequestClosed(taskId, name) {
       commit(events.pullRequestClosed({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pullRequestWaiting(taskId, name, on) {
+      commit(
+        events.pullRequestWaitChanged({
+          taskId,
+          name,
+          on: on ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    autoMergeEnabled(taskId, name, { method, requested }) {
+      commit(
+        events.pullRequestAutoMergeEnabled({
+          taskId,
+          name,
+          method,
+          requested,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    pullRequestMerged(taskId, name, { method, requested, noCi, byTed }) {
+      commit(
+        events.pullRequestMerged({
+          taskId,
+          name,
+          method: method ?? null,
+          requested: requested ?? null,
+          noCi,
+          byTed,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    branchRebased(taskId, name, { commit: rebased, onto }) {
+      commit(
+        events.taskBranchRebased({
+          taskId,
+          name,
+          commit: rebased,
+          onto,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    isMerged: (taskId) => isMerged(taskId),
+    pullRequestSignedOff(taskId, name, signedOff) {
+      commit(
+        events.pullRequestSignedOff({
+          taskId,
+          name,
+          commit: signedOff ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
       updatedTask(taskId)
     },
     setLocalFolder(repo, path) {

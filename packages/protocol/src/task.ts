@@ -206,11 +206,19 @@ export interface TaskPush {
   ciSignals: CiSignal[]
 }
 
+export const mergeMethods = ['squash', 'merge', 'rebase'] as const
+
+export type MergeMethod = (typeof mergeMethods)[number]
+
 export interface TaskPullRequest {
   number: number
   url: string
   base: string
-  state: 'draft' | 'ready' | 'closed'
+  state: 'draft' | 'ready' | 'merged' | 'closed'
+  merged?: { at: string; method?: MergeMethod; noCi: boolean }
+  autoMerge?: MergeMethod
+  waiting?: GitHubWait
+  signedOff?: string
 }
 
 export interface ArchiveTaskRequest {

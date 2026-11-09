@@ -6,14 +6,23 @@ Hand the human a change they can sign off on quickly.
 
 ## Steps
 
-1. Review the change with fresh eyes. Start reviewer sub-agents if your agent has them: one for correctness and edge cases, one for tests, one for security when the change touches input, files, processes or credentials.
-2. Fix what the reviewers confirm, commit, and run the repo’s checks again.
-3. Post a note for the human with three parts: what changed, how it was checked, and what to try by hand.
+1. Review the change with fresh eyes. Start reviewer sub-agents if your agent has them, each with no Work context and only the diff against the base branch. Suggested reviewers:
+   - **Correctness:** “Read this diff as a senior engineer seeing it for the first time. List bugs, missed edge cases and behaviour that doesn’t match the Task description. Cite file and line for each.”
+   - **Tests:** “Check that the tests in this diff fail without the change and pass with it, and that they cover the edge cases. List untested behaviour.”
+   - **Security,** when the change touches input, files, processes, network or credentials: “Look for injection, path traversal, secrets in logs or output, and unsafe use of shell commands. Rate each finding.”
+2. Fix what the reviewers confirm, commit, and run the repo’s checks again with `ted checks`.
+3. Write the Task brief with `ted brief write`. Under Current state, say what changed, how it was checked (the Checks, the reviewers, any screenshots or recordings from Validate), and a “How to try it” list of steps for trying it by hand. Then run `ted outcome advance`: TED posts the sign-off to the human and marks the pull requests ready for review.
 
 ## Done when
 
-The review findings are fixed or answered and the note is posted. Then report the outcome.
+The review findings are fixed or answered, the brief is written, and the sign-off is posted.
+
+## If the human asks for changes
+
+Decide whether the fix belongs in Work or in Design, put the human’s request in a Findings file, and run `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back here for a new sign-off.
 
 ## Ask the human when
 
 A reviewer finding needs a decision about what the Task should deliver.
+
+TED never approves the pull request on GitHub, and neither do you.

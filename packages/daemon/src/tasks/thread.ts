@@ -78,6 +78,13 @@ function copyLine(data: Record<string, unknown>): string | undefined {
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
+function methodNote(data: Record<string, unknown>): string {
+  const method = text(data.method)
+  const requested = text(data.requested)
+  if (method === '' || requested === '' || method === requested) return ''
+  return ` · ${requested} isn’t allowed on GitHub, so TED used ${method}`
+}
+
 function leadFailedLine(data: Record<string, unknown>): string {
   if (data.resumeFailed === true)
     return 'Resume failed · started a fresh Task Lead Run from the brief'
@@ -368,6 +375,27 @@ export function threadEvents(
           text: 'You steered the Task Lead in its Conversation',
           runId: text(data.runId),
         })
+        break
+      case 'v1.PullRequestMerged': {
+        const name = text(data.name)
+        if (data.byTed !== true) {
+          add(entry, 'done', `The pull request for ${name} merged on GitHub`)
+          break
+        }
+        const line =
+          data.noCi === true ? `No CI on ${name} · merged without waiting` : `Merged ${name}`
+        add(entry, 'done', `${line}${methodNote(data)}`)
+        break
+      }
+      case 'v1.PullRequestAutoMergeEnabled':
+        add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
+        break
+      case 'v1.TaskBranchRebased':
+        add(
+          entry,
+          'run',
+          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+        )
         break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')
