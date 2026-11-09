@@ -77,12 +77,21 @@ function ancestors(entries: ProcessEntry[]): Set<number> {
   return chain
 }
 
-export async function findMarked(name: string, value: string): Promise<MarkedProcess[]> {
-  const pattern = new RegExp(`(^|\\s)${name}=${value.replace(/[^\w-]/g, '\\$&')}(\\s|$)`)
+export type Marker = readonly [name: string, value: string]
+
+const markerPattern = ([name, value]: Marker) =>
+  new RegExp(`(^|\\s)${name}=${value.replace(/[^\w-]/g, '\\$&')}(\\s|$)`)
+
+export async function findMarked(
+  name: string,
+  value: string,
+  also: readonly Marker[] = [],
+): Promise<MarkedProcess[]> {
+  const patterns = [[name, value] as const, ...also].map(markerPattern)
   const entries = await listProcesses()
   const own = ancestors(entries)
   return entries
-    .filter((entry) => !own.has(entry.pid) && pattern.test(entry.command))
+    .filter((entry) => !own.has(entry.pid) && patterns.every((p) => p.test(entry.command)))
     .map(({ pid, pgid, command }) => ({ pid, pgid, command }))
 }
 
@@ -92,10 +101,14 @@ function signal(pid: number): void {
   } catch {}
 }
 
-export async function killMarked(name: string, value: string): Promise<MarkedProcess[]> {
+export async function killMarked(
+  name: string,
+  value: string,
+  also: readonly Marker[] = [],
+): Promise<MarkedProcess[]> {
   const killed = new Map<number, MarkedProcess>()
   for (let round = 0; round < 20; round++) {
-    const found = await findMarked(name, value)
+    const found = await findMarked(name, value, also)
     if (found.length === 0) break
     for (const proc of found) {
       killed.set(proc.pid, proc)

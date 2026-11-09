@@ -116,7 +116,8 @@ export async function waitForExit(pid: number, timeoutMs = 10_000): Promise<void
 }
 
 export async function removeHome(home: string): Promise<void> {
-  await killMarked('TED_HOME', home)
+  const file = process.env.TED_TEST_FILE
+  if (file) await killMarked('TED_HOME', home, [['TED_TEST_FILE', file]])
   await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
