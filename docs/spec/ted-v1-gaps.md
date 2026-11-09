@@ -8,6 +8,7 @@ Updated 2026-11-08.
 
 - **NEW-1** Which Tasks start when their last blocker merges: a Task starts on merge if it was created to start (`--start`, Start now checked) or had already been started. Otherwise it stays in Backlog. Blocked Split and planning pieces start on merge. Spec 6.5, 6.16.
 - **NEW-2** Duplicate-source check: covers open, Done and archived Tasks in the Factory (KRI-55’s rule). This replaces the narrower wording in KRI-60’s review change. Spec 12.4.
+- **NEW-3** Deleting a queued Run-chat message: keep **Delete**. Both CLIs take a message at once and can’t drop one, so TED holds queued messages itself and delivers each at the agent’s next tool-call boundary: on Codex’s `item/completed` with `turn/steer`, on Claude Code through a `PostToolUse` hook that waits while TED writes the message. Tested on Claude Code 2.1.319 and Codex 0.160.0 (KRI-80, `docs/research/kri-80/`). Spec 10.6.
 - **NEW-4** Original request: a collapsed row at the end of the Task brief section, with a link to the description’s history. Spec 10.7.
 - **GAP-63** Comments: the human attaches files by drag and drop or paste; a sent Comment can’t be edited or deleted (Nabha’s review). Spec 10.5.
 - **Revisiting a Done Task’s source:** `--follow-up` creates a Follow-up Task; the Automation agent judges whether the fix held, by release for mobile apps (Nabha’s review). Spec 12.4.
@@ -16,11 +17,6 @@ Updated 2026-11-08.
 ---
 
 ## Still open
-
-### NEW-3: Can a queued message in a Run chat be deleted? (S)
-- **Status:** open until build.
-- **Delete** on a Queued message works only if TED, not the CLI, holds queued messages until the agent’s next step. Check this at build time; if the CLI holds them, drop Delete and keep **Send now** (KRI-63, note from Nabha’s review).
-- **Spec:** 10.6.
 
 ### NEW-5: Minimum supported versions (S)
 - **Status:** open until build.
