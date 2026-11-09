@@ -1,7 +1,7 @@
 import { mkdir, open, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
-import { worktreeCommandEnv } from '../command-env.ts'
+import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
@@ -87,6 +87,7 @@ export async function runChecks(input: {
   checks: readonly RunnableCheck[]
   taskDisplayId: string
   libraryDir: string
+  env: NodeJS.ProcessEnv
   logFor: (position: number) => string
   signal?: AbortSignal
   onStart: (position: number) => void
@@ -108,9 +109,9 @@ export async function runChecks(input: {
         : await runWorktreeCommand({
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
-            env: checkEnv(input.taskDisplayId, env ?? {}),
+            env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
             log,
-            shell: [loginShell(), '-lc'],
+            shell: [loginShell(input.env), '-lc'],
             ...(input.signal !== undefined && { signal: input.signal }),
           })
     if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
@@ -129,16 +130,12 @@ export async function runChecks(input: {
   return { outcome: 'passed', notFound }
 }
 
-export function loginShell(): string {
-  const shell = process.env.SHELL
-  return shell && path.isAbsolute(shell) ? shell : '/bin/sh'
-}
-
 export function checkEnv(
   taskDisplayId: string,
   repoEnv: Record<string, string>,
+  base: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  return worktreeCommandEnv(repoEnv, { CI: '1', TED_TASK: taskDisplayId })
+  return worktreeCommandEnv(repoEnv, { CI: '1', TED_TASK: taskDisplayId }, base)
 }
 
 async function checkSettings(

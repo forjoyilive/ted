@@ -3,12 +3,12 @@ import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/prom
 import path from 'node:path'
 import type { CheckTry, CheckTryOutput, CheckTryRequest, DaemonEvent } from '@ted/protocol'
 import type { Banners } from './banners.ts'
-import { worktreeCommandEnv } from './command-env.ts'
+import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import * as git from './git.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
-import { defaultCheckTimeout, loginShell, readOutput } from './tasks/checks.ts'
+import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
 import { copyFiles, durationMs, runWorktreeCommand } from './tasks/worktree.ts'
@@ -233,9 +233,9 @@ export function createCheckTries(options: {
             timeoutMs: durationMs(request.timeout ?? defaultCheckTimeout),
           },
           cwd: prepared.worktree,
-          env: worktreeCommandEnv(entry.env, { CI: '1' }),
+          env: worktreeCommandEnv(entry.env, { CI: '1' }, options.env?.() ?? process.env),
           log,
-          shell: [loginShell(), '-lc'],
+          shell: [loginShell(options.env?.() ?? process.env), '-lc'],
           signal: abort.signal,
         })
         finished = {

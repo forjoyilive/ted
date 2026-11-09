@@ -978,6 +978,7 @@ export function createTasks(options: {
         checks: plan,
         taskDisplayId: task.displayId,
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
+        env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
         signal: stopping.signal,
         onStart: (position) => store.checkStarted(checkRun.id, position),
