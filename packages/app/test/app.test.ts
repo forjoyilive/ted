@@ -683,6 +683,12 @@ describe('TED app', () => {
     await ted('task', 'start', 'NB-1')
 
     await header.getByText('Working', { exact: true }).waitFor()
+    const ring = header.getByText('Working', { exact: true }).locator('svg')
+    const spin = () => ring.evaluate((svg) => getComputedStyle(svg).animationName)
+    expect(await spin()).not.toBe('none')
+    await window.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await spin()).toBe('none')
+    await window.emulateMedia({ reducedMotion: null })
     await header.getByText('· Running Checks · Tests (2 of 3)').waitFor()
     await header.getByRole('img', { name: 'Claude Code, working' }).waitFor()
     await writeFile(go(1), '')
