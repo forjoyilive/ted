@@ -54,6 +54,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
   }
 
+  setActivity(ref: string, text: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/activity`, { text })
+  }
+
   reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
   }

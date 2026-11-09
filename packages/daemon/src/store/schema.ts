@@ -30,6 +30,8 @@ export const tasks = State.SQLite.table({
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
+    activity: State.SQLite.text({ nullable: true }),
+    activityEntries: State.SQLite.integer({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -111,6 +113,7 @@ export const stageEntries = State.SQLite.table({
     stageFileLayer: State.SQLite.text({ nullable: true }),
     stageFilePath: State.SQLite.text({ nullable: true }),
     layers: State.SQLite.text(),
+    order: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -138,6 +141,16 @@ export const banners = State.SQLite.table({
     dismissedUntil: State.SQLite.text({ nullable: true }),
   },
 })
+
+const stageEnteredFields = {
+  id: Schema.String,
+  taskId: Schema.String,
+  stage: Schema.String,
+  stageFileLayer: Schema.NullOr(Schema.String),
+  stageFilePath: Schema.NullOr(Schema.String),
+  layers: Schema.String,
+  at: Schema.String,
+}
 
 const runStartedFields = {
   id: Schema.String,
@@ -246,13 +259,19 @@ export const events = {
   }),
   taskStageEntered: Events.synced({
     name: 'v1.TaskStageEntered',
+    schema: Schema.Struct(stageEnteredFields),
+  }),
+  taskStageEnteredV2: Events.synced({
+    name: 'v2.TaskStageEntered',
+    schema: Schema.Struct({ ...stageEnteredFields, order: Schema.String }),
+  }),
+  taskActivitySet: Events.synced({
+    name: 'v1.TaskActivitySet',
     schema: Schema.Struct({
-      id: Schema.String,
       taskId: Schema.String,
-      stage: Schema.String,
-      stageFileLayer: Schema.NullOr(Schema.String),
-      stageFilePath: Schema.NullOr(Schema.String),
-      layers: Schema.String,
+      text: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      stageEntries: Schema.Number,
       at: Schema.String,
     }),
   }),
@@ -327,6 +346,9 @@ const materializers = State.SQLite.materializers(events, {
   'v1.RunSessionIdentified': ({ runId, sessionId }) =>
     runs.update({ sessionId }).where({ id: runId }),
   'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
+    tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
   'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
   'v1.AppearanceChanged': ({ appearance }) =>
