@@ -299,12 +299,26 @@ describe('Offline', () => {
       'the offline banner to clear',
     )
     expect((await healthOf(client, 'claude'))?.state).toBe('ready')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(
+      (await linesOf(client, runId)).some((line) => line.includes('Carry on where you left off')),
+    ).toBe(false)
     await writeFile(go, '')
     await waitUntil(
       async () => (await getTask(client, task.id))?.status?.kind !== 'paused' || undefined,
       'the Task to carry on',
     )
     expect((await getTask(client, task.id))?.leadRunId).toBe(runId)
+    await waitUntil(
+      async () =>
+        (await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).run.state === 'idle' ||
+        undefined,
+      'the turn to end',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(
+      (await linesOf(client, runId)).some((line) => line.includes('Carry on where you left off')),
+    ).toBe(false)
   })
 })
 
@@ -360,7 +374,7 @@ describe('Billing and credentials', () => {
   })
 
   test('a Run that reports an API key under Subscription pauses its kind until billing changes', async () => {
-    await setStub('claude', { apiKeySource: 'apiKeyHelper' })
+    await setStub('claude', { apiKeySource: 'apiKeyHelper', interruptEndsAfterMs: 1500 })
     const client = await start()
     const go = path.join(scratch, 'go')
     const task = await startTask(

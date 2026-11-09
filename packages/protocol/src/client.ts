@@ -52,6 +52,7 @@ import type {
   CancelMergeRequest,
   Comment,
   CreateTaskRequest,
+  DeleteTaskRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -180,6 +181,14 @@ export class DaemonClient {
 
   archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
+  }
+
+  unarchiveTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, {})
+  }
+
+  async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {
+    await this.#request('POST', `/tasks/${encodeURIComponent(ref)}/delete`, options)
   }
 
   getSlots(): Promise<RunSlots> {

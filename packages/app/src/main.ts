@@ -17,6 +17,7 @@ import {
   agentKinds,
   type Banner,
   type BannerActionInput,
+  blockedChoices,
   type CheckRepoRequest,
   type ClarifyDepth,
   type CreateFactoryRequest,
@@ -134,11 +135,21 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
     client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId, options) =>
-    client.archiveTask(String(taskId), {
-      closePullRequests:
-        (options as { closePullRequests?: unknown } | undefined)?.closePullRequests === true,
-    }),
+  archiveTask: (client, taskId, options) => {
+    const given = options as { closePullRequests?: unknown; blocked?: unknown } | undefined
+    const blocked = blockedChoices.find((c) => c === given?.blocked)
+    return client.archiveTask(String(taskId), {
+      closePullRequests: given?.closePullRequests === true,
+      ...(blocked !== undefined && { blocked }),
+    })
+  },
+  unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  deleteTask: (client, taskId, options) => {
+    const blocked = blockedChoices.find(
+      (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
+    )
+    return client.deleteTask(String(taskId), { ...(blocked !== undefined && { blocked }) })
+  },
   openPullRequest: async (client, taskId, repoName) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.url
@@ -293,6 +304,8 @@ process.on('uncaughtException', (error) => {
 
 const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
 delete process.env.TED_APP_TOKEN
+const skipFirstLaunch = !app.isPackaged && process.env.TED_SKIP_FIRST_LAUNCH === '1'
+delete process.env.TED_SKIP_FIRST_LAUNCH
 
 const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
@@ -318,7 +331,9 @@ const sendToRenderer = (event: unknown) => window?.webContents.send('ted:event',
 function applySettings(next: MachineSettings): void {
   settings = next
   nativeTheme.themeSource = next.appearance
-  if (next.startAtLogin !== loginItemApplied) void applyLoginItem(next.startAtLogin)
+  if (next.firstLaunchDone && next.startAtLogin !== loginItemApplied) {
+    void applyLoginItem(next.startAtLogin)
+  }
 }
 
 function applyLoginItem(enabled: boolean): Promise<void> {
@@ -531,7 +546,12 @@ async function createWindow(): Promise<void> {
 
 async function loadState(): Promise<void> {
   if (!client) return
-  applySettings(await client.getSettings())
+  const loaded = await client.getSettings()
+  applySettings(
+    skipFirstLaunch && !loaded.firstLaunchDone
+      ? await client.updateSettings({ firstLaunchDone: true })
+      : loaded,
+  )
   const [activity, banners]: [Activity, Banner[]] = await Promise.all([
     client.getActivity(),
     client.listBanners(),

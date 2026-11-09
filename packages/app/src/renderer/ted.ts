@@ -3,6 +3,7 @@ import type {
   AgentHealth,
   AgentKind,
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
   BackupsSummary,
   Banner,
@@ -17,6 +18,7 @@ import type {
   CreateTaskRequest,
   DaemonEvent,
   DataStatus,
+  DeleteTaskRequest,
   Diagnostics,
   Factory,
   FactoryBoard,
@@ -124,8 +126,11 @@ export const ted = {
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>
     window.ted.request('setPriority', taskId, priority) as Promise<Task>,
-  archiveTask: (taskId: string, options: { closePullRequests?: boolean } = {}) =>
+  archiveTask: (taskId: string, options: ArchiveTaskRequest = {}) =>
     window.ted.request('archiveTask', taskId, options) as Promise<Task>,
+  unarchiveTask: (taskId: string) => window.ted.request('unarchiveTask', taskId) as Promise<Task>,
+  deleteTask: (taskId: string, options: DeleteTaskRequest = {}) =>
+    window.ted.request('deleteTask', taskId, options) as Promise<void>,
   openPullRequest: (taskId: string, repoName: string) =>
     window.ted.request('openPullRequest', taskId, repoName) as Promise<void>,
   blockTask: (taskId: string, by: string) =>

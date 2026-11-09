@@ -142,6 +142,35 @@
   outline-offset: 2px;
 }
 
+.archivedBar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 22px;
+  background: var(--surface-neutral);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.archivedAction {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.archivedAction:disabled {
+  opacity: 0.5;
+}
+
+.archivedError {
+  color: var(--status-destructive);
+}
+
 .taskHeader {
   display: flex;
   flex-shrink: 0;
@@ -505,4 +534,12 @@
 
 .runState[data-state='waiting'] {
   color: var(--status-waiting-fg);
+}
+
+.deletedBlocker {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
 }

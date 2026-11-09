@@ -188,10 +188,13 @@ export async function volumeName(dir: string, platform = process.platform): Prom
   return name ? name : mount
 }
 
+type RunCommand = (file: string, args: string[]) => Promise<unknown>
+
 export async function excludeFromTimeMachine(
   dirs: readonly string[],
   platform = process.platform,
+  runCommand: RunCommand = run,
 ): Promise<void> {
   if (platform !== 'darwin' || dirs.length === 0) return
-  await run('tmutil', ['addexclusion', ...dirs])
+  await runCommand('tmutil', ['addexclusion', ...dirs])
 }

@@ -1,4 +1,4 @@
-import type { GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
+import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { ago, useNow } from '../requests.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
@@ -39,7 +39,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'stopped':
       return 'Stopped'
     case 'blocked':
-      return `Blocked by ${status.by}`
+      return `Blocked by ${status.ended ? `${status.ended} ` : ''}${status.by}`
     case 'queued':
       return `Queued · ${'place' in status ? ordinal(status.place) : status.hold}`
     case 'waiting-for-github':
@@ -70,19 +70,33 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
   }
 }
 
-function BlockedBy({ by, onOpenTask }: { by: string; onOpenTask: (ref: string) => void }) {
+function BlockedBy({
+  by,
+  ended,
+  onOpenTask,
+}: {
+  by: string
+  ended?: BlockerEnded | undefined
+  onOpenTask: (ref: string) => void
+}) {
   return (
     <StatusChip tone="neutral" glyph="blocked">
-      Blocked by
-      <button type="button" className={styles.link} onClick={() => onOpenTask(by)}>
-        {by}
-      </button>
+      {ended ? `Blocked by ${ended}` : 'Blocked by'}
+      {ended === 'deleted' ? (
+        <span>{by}</span>
+      ) : (
+        <button type="button" className={styles.link} onClick={() => onOpenTask(by)}>
+          {by}
+        </button>
+      )}
     </StatusChip>
   )
 }
 
 function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: string) => void }) {
-  if (marker.kind === 'blocked-by') return <BlockedBy by={marker.by} onOpenTask={onOpenTask} />
+  if (marker.kind === 'blocked-by') {
+    return <BlockedBy by={marker.by} ended={marker.ended} onOpenTask={onOpenTask} />
+  }
   return <span className={styles.marker}>Needs planning</span>
 }
 
@@ -111,7 +125,7 @@ export function TaskStatusChips({
         <Marker key={marker.kind} marker={marker} onOpenTask={onOpenTask} />
       ))}
       {status?.kind === 'blocked' ? (
-        <BlockedBy by={status.by} onOpenTask={onOpenTask} />
+        <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} />
       ) : (
         status && (
           <StatusChip {...look(status)}>

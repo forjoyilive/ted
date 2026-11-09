@@ -92,7 +92,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   function fixFor(kind: AgentKind, state: AgentHealthState): FixCommand | undefined {
     const spec = agents.get(kind).health
     if (state === 'not-installed') return { label: 'Install', command: spec.install }
-    if (state === 'signed-out') return { label: 'Sign in', command: spec.signIn }
+    if (state === 'signed-out' || state === 'wrong-credential') {
+      return { label: 'Sign in', command: spec.signIn }
+    }
     if (state === 'too-old') return { label: 'Update', command: spec.update }
     return undefined
   }

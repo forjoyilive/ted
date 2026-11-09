@@ -47,3 +47,14 @@
   color: var(--status-warning-text);
   font-size: var(--text-13);
 }
+
+.readOnly {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}

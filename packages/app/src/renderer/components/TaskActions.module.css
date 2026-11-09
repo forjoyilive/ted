@@ -136,10 +136,6 @@
   color: var(--text-caption);
 }
 
-.danger {
-  color: var(--status-destructive);
-}
-
 .tick {
   width: 12px;
   color: var(--accent-text);
