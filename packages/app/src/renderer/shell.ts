@@ -25,18 +25,3 @@ export function takeShellRequest(taskId: string): OpenShellRequest | undefined {
   pending = undefined
   return request
 }
-
-export function isShellShortcut(event: {
-  key: string
-  code?: string
-  ctrlKey: boolean
-  metaKey: boolean
-  altKey: boolean
-}): boolean {
-  return (
-    event.ctrlKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    (event.key === '`' || event.code === 'Backquote')
-  )
-}

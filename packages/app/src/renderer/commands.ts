@@ -62,8 +62,6 @@ export interface Command {
   choices?: (context: CommandContext) => CommandChoice[]
 }
 
-export const shellShortcuts: readonly string[] = ['⌃`']
-
 const taskEvent = (name: string, task: Task | undefined) => {
   if (task) window.dispatchEvent(new CustomEvent(name, { detail: task.id }))
 }
@@ -236,7 +234,7 @@ export function taskCommands(task: Task): Command[] {
       id: 'shell',
       label: 'Open shell',
       scope: 'task',
-      shortcuts: shellShortcuts,
+      shortcuts: keysFor('shell'),
       keywords: 'terminal worktree',
       run: () => openTaskShell(task),
     })
