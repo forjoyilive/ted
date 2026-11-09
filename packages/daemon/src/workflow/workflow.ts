@@ -32,6 +32,17 @@ export async function preambleText(): Promise<string> {
   return (await readFile(new URL('preamble.md', defaults), 'utf8')).trim()
 }
 
+export async function subAgentPreamble(): Promise<string> {
+  return (await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim()
+}
+
+export async function subAgentPrompt(displayId: string, instructions: string): Promise<string> {
+  return [
+    await subAgentPreamble(),
+    `# Your instructions from the Task Lead of ${displayId}\n\n${instructions.trim()}`,
+  ].join('\n\n')
+}
+
 export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,

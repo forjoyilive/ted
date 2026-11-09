@@ -101,8 +101,11 @@ export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | '
 export interface TaskRun {
   id: string
   agent: AgentKind
+  role: 'lead' | 'sub-agent'
+  name: string
   state: RunState
   paused?: string
+  onSubAgents?: boolean
 }
 
 export interface TaskSource {

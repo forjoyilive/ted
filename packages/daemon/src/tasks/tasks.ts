@@ -20,6 +20,9 @@ import type {
   Run,
   RunSlots,
   StageId,
+  StartSubAgentRequest,
+  SubAgent,
+  SubAgentWait,
   Task,
   TaskBrief,
   TaskDefaults,
@@ -70,7 +73,8 @@ import {
   tedSettingsCheck,
 } from './checks.ts'
 import { placeBetween } from './order.ts'
-import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
+import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import { createSubAgents } from './sub-agents.ts'
 import { threadEvents } from './thread.ts'
 import {
   type CommandResult,
@@ -125,6 +129,10 @@ export interface Tasks {
   checkRun(id: string, caller: Caller): Promise<CheckRunReport>
   checkOutput(id: string, position: number): Promise<{ text: string; log: string }>
   wake(factoryId?: string): void
+  startSubAgent(ref: string, caller: Caller, input: StartSubAgentRequest): Promise<SubAgent>
+  waitForSubAgent(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
+  sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
+  stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   close(): Promise<void>
 }
 
@@ -216,10 +224,15 @@ export function createTasks(options: {
   async function slotUse(factoryIds: readonly string[]) {
     const all = store.listTasks()
     const holders = all.flatMap((task) => {
-      const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
+      const working = task.runs.filter(
+        (r) => r.state === 'working' && r.paused === undefined && !r.onSubAgents,
+      )
+      const startingSubAgents = subAgents.starting(task.id)
+      const runs = working.length + startingSubAgents
+      const subAgentRuns = working.filter((r) => r.role === 'sub-agent').length + startingSubAgents
       const settingUp = task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
-      return slots > 0 ? [{ task, runs, settingUp, slots }] : []
+      return slots > 0 ? [{ task, runs, subAgentRuns, settingUp, slots }] : []
     })
     const byFactory: Record<string, number> = {}
     for (const { task, slots } of holders) {
@@ -239,8 +252,16 @@ export function createTasks(options: {
   }
 
   const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
-  const ready = () =>
-    runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId))
+  const ready = (): QueueEntry[] =>
+    queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+    ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
+
+  function subAgentRunnable(id: string): boolean {
+    const request = store.subAgentRequests().find((r) => r.id === id)
+    return request !== undefined && store.agentPauses()[request.agent] === undefined
+  }
 
   function heldReady(): QueueEntry[] {
     const paused = store.agentPauses()
@@ -262,6 +283,7 @@ export function createTasks(options: {
     const heldIds = new Set(held.map((h) => h.id))
     for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
       if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
@@ -296,33 +318,50 @@ export function createTasks(options: {
     const factoryIds = store.listFactories().map((f) => f.id)
     const { use, holders, all } = await slotUse(factoryIds)
     const byId = new Map(all.map((t) => [t.id, t]))
-    const queue = store.queue().flatMap((entry, i) => {
-      const task = byId.get(entry.id)
-      return task
-        ? [
-            {
-              kind: 'task' as const,
-              place: i + 1,
-              taskId: task.id,
-              displayId: task.displayId,
-              title: task.title,
-              factoryId: task.factoryId,
-              priority: task.priority,
-            },
-          ]
-        : []
+    const requests = new Map(store.subAgentRequests().map((r) => [r.id, r]))
+    const ordered = queueOrder<QueueEntry>([...subAgents.queued(), ...store.queue()])
+    const queue = ordered.flatMap((entry): RunSlots['queue'] => {
+      const request = requests.get(entry.id)
+      const task = byId.get(request?.taskId ?? entry.id)
+      if (!task) return []
+      if (request) {
+        return [
+          {
+            kind: 'sub-agent',
+            place: 0,
+            runId: request.id,
+            name: request.name,
+            taskId: task.id,
+            displayId: task.displayId,
+            factoryId: task.factoryId,
+          },
+        ]
+      }
+      return [
+        {
+          kind: 'task',
+          place: 0,
+          taskId: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          factoryId: task.factoryId,
+          priority: task.priority,
+        },
+      ]
     })
+    for (const [i, entry] of queue.entries()) entry.place = i + 1
     return {
       limit: use.limit,
       working: use.working,
       queued: queue.length,
-      holders: holders.map(({ task, runs, settingUp }) => ({
+      holders: holders.map(({ task, runs, subAgentRuns, settingUp }) => ({
         kind: 'task' as const,
         taskId: task.id,
         displayId: task.displayId,
         title: task.title,
         factoryId: task.factoryId,
         runs,
+        subAgents: subAgentRuns,
         settingUp,
       })),
       queue,
@@ -533,6 +572,28 @@ export function createTasks(options: {
       codex: agents.installed('codex'),
     }).lead
 
+  const subAgents = createSubAgents({
+    store,
+    runs,
+    agents,
+    find: (ref) => find(ref),
+    async leadFor(task) {
+      if (task.lead) return task.lead
+      return leadFrom((await resolveWorkflow(factoryOf(task), { fetch: false })).workflow.settings)
+    },
+    async envFor(task, repo) {
+      const recorded = store.recordedSetup(task.id, repo.name)?.env
+      if (recorded) return recorded
+      const factory = factoryOf(task)
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      return primaryRepoWorktree(resolution.workflow, factory).env
+    },
+    clonePathFor: (task) => clonePath(reposDir, factoryOf(task)),
+    worktreesDir,
+    pump: () => void pump(),
+    inBackground: (what, work) => inBackground(what, work),
+  })
+
   const sameChoice = (lead: TaskLead, run: Run) =>
     lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
 
@@ -702,9 +763,20 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
-    if (task.leadRunId) await runs.stop(task.leadRunId)
+    subAgents.dropFor(task.id)
+    await Promise.all(
+      store
+        .taskRunList(task.id)
+        .filter((r) => r.state !== 'finished')
+        .map((r) => runs.stop(r.id)),
+    )
     const factory = factoryOf(task)
     const clone = clonePath(reposDir, factory)
+    for (const worktree of subAgents.ownWorktrees(task)) {
+      await git.removeWorktree(clone, worktree).catch((error: unknown) => {
+        console.error(`couldn’t remove a sub-agent worktree of ${task.displayId}:`, error)
+      })
+    }
     const settings = primaryRepoWorktree(resolution.workflow, factory)
     const removed: {
       name: string
@@ -1038,7 +1110,12 @@ export function createTasks(options: {
     const { author } = request
     if (author.kind !== 'run') return false
     if (author.runId === runId) return true
-    return task.leadRunId === runId && store.getRun(author.runId)?.taskId === task.id
+    const authorRun = store.getRun(author.runId)
+    return (
+      task.leadRunId === runId &&
+      authorRun?.taskId === task.id &&
+      authorRun.parentRunId === undefined
+    )
   }
 
   function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
@@ -1134,6 +1211,7 @@ export function createTasks(options: {
     settingUp.get(taskId)?.abort()
     await beginning.get(taskId)?.catch(() => undefined)
     settingUp.get(taskId)?.abort()
+    subAgents.dropFor(taskId)
     const task = find(taskId)
     await Promise.all(task.runs.map((run) => runs.stop(run.id)))
     if (!task.repos.some((r) => !r.removed) && !task.worktree) return
@@ -1625,6 +1703,14 @@ export function createTasks(options: {
         return humanComment(find(ref), body)
       }
       const { task, runId } = ownTask(ref, caller)
+      if (store.getRun(runId)?.parentRunId !== undefined) {
+        if (choices.length > 0 || supersedes !== undefined) {
+          throw new RequestError(
+            403,
+            'a sub-agent can post only plain notes; tell the Task Lead what to ask in your final message',
+          )
+        }
+      }
       if (supersedes === undefined) {
         return store.postComment({
           taskId: task.id,
@@ -1996,8 +2082,14 @@ export function createTasks(options: {
       }
     },
 
+    startSubAgent: (ref, caller, input) => subAgents.request(ref, caller, input),
+    waitForSubAgent: (runId, caller, timeoutMs) => subAgents.wait(runId, caller, timeoutMs),
+    sendSubAgent: (runId, caller, text) => subAgents.send(runId, caller, text),
+    stopSubAgent: (runId, caller) => subAgents.stop(runId, caller),
+
     async close() {
       closed = true
+      subAgents.close()
       unsubscribe()
       stopPumping()
       await pumping

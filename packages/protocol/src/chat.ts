@@ -35,11 +35,12 @@ export type ChatItem =
   | { kind: 'human'; id: string; text: string; at: string; sent: boolean }
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
 
-export type RunRole = 'lead' | 'run'
+export type RunRole = 'lead' | 'sub-agent' | 'run'
 
 export interface RunSummary {
   id: string
   taskId?: string
+  parentRunId?: string
   name: string
   role: RunRole
   agent: AgentKind
@@ -48,6 +49,9 @@ export interface RunSummary {
   credential?: string
   tokens?: number
   state: RunState
+  paused?: string
+  onSubAgents?: boolean
+  failed?: boolean
   startedAt: string
   current: boolean
 }

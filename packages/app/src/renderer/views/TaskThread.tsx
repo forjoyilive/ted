@@ -23,7 +23,8 @@ import {
   RequestCard,
   WaitingRow,
 } from '../components/RequestCard.tsx'
-import { RunChat, runMeta } from '../components/RunChat.tsx'
+import { RunChat } from '../components/RunChat.tsx'
+import { RunsSection } from '../components/RunsSection.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
@@ -479,37 +480,13 @@ export function TaskDetails({
         )}
       </dl>
       <CodeSection task={task} />
-      <RunsSection task={task} onOpenRun={onOpenRun} />
+      <TaskRuns task={task} onOpenRun={onOpenRun} />
     </aside>
   )
 }
 
-function RunsSection({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
-  const runs = useTaskRuns(task.id)
-  if (runs.length === 0) return null
-  return (
-    <section className={styles.runsSection} aria-label="Runs">
-      <h2 className={styles.sectionHeading}>Runs</h2>
-      <ul className={styles.runList}>
-        {runs.map((run) => (
-          <li key={run.id}>
-            <button type="button" className={styles.runRow} onClick={() => onOpenRun(run.id)}>
-              <AgentAvatar agent={run.agent} />
-              <span className={styles.runText}>
-                <span className={styles.runName}>
-                  {run.current || run.state !== 'finished' ? run.name : `Earlier ${run.name}`}
-                </span>
-                <span className={styles.runMeta}>{runMeta(run)}</span>
-              </span>
-              <span className={styles.runState} data-state={run.state}>
-                {run.state}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
+function TaskRuns({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
+  return <RunsSection runs={useTaskRuns(task.id)} onOpenRun={onOpenRun} />
 }
 
 function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {

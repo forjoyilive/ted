@@ -49,6 +49,13 @@ const usage = `Usage:
                                              without --file)
   ted brief show                             Show the latest Task brief
   ted status [--task <id>] "<text>"          Set the Task's activity line
+  ted run start [--agent claude|codex] [--model <name>] [--effort <level>] --prompt-file <file>
+                [--name <name>] [--own-worktree]
+                                             Start a sub-agent on this Task (Task Lead only);
+                                             prints its Run ID
+  ted run wait <id>                          Wait for a sub-agent's final message and print it
+  ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
+  ted run stop <id>                          Stop a sub-agent
   ted task create [--factory <key>] [--start] [--source <url>] "<title>"
                                              Create a Task (--start starts it); a Linear URL
                                              as the source fills it in from Linear
@@ -93,6 +100,8 @@ function parse() {
         findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        'own-worktree': { type: 'boolean' },
+        'prompt-file': { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
@@ -202,6 +211,21 @@ try {
       }),
     )
     console.log(result.message)
+  } else if (group === 'run' && command === 'start' && rest.length === 0) {
+    await startSubAgent()
+  } else if (group === 'run' && command === 'wait' && rest.length === 1) {
+    await waitForSubAgent(rest[0] ?? '')
+  } else if (group === 'run' && command === 'send' && rest.length >= 1) {
+    const [id = '', ...words] = rest
+    const text = words.join(' ') || (await readStdin())
+    if (text.trim() === '') throw new UsageError('give the message as text or on stdin')
+    const sub = await withDaemon(home, (client) => client.sendSubAgent(id, text))
+    console.log(
+      `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
+    )
+  } else if (group === 'run' && command === 'stop' && rest.length === 1) {
+    const sub = await withDaemon(home, (client) => client.stopSubAgent(rest[0] ?? ''))
+    console.log(`Stopped sub-agent “${printable(sub.name)}”`)
   } else if (group === 'checks' && command === undefined) {
     const ref = taskRef()
     const name = options.name
@@ -369,6 +393,55 @@ try {
     process.exitCode = 2
   } else {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}
+
+async function startSubAgent(): Promise<void> {
+  const ref = taskRef()
+  const { agent, model, effort, name } = options
+  const file = options['prompt-file']
+  if (file === undefined)
+    throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
+  if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
+    throw new UsageError('--agent must be claude or codex')
+  }
+  if (effort !== undefined && !efforts.includes(effort as Effort)) {
+    throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
+  }
+  const prompt = await readFile(path.resolve(file), 'utf8')
+  if (prompt.trim() === '') throw new UsageError('the prompt file is empty')
+  const sub = await withDaemon(home, (client) =>
+    client.startSubAgent(ref, {
+      prompt,
+      ...(agent !== undefined && { agent: agent as AgentKind }),
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort: effort as Effort }),
+      ...(name !== undefined && { name }),
+      ...(options['own-worktree'] && { ownWorktree: true }),
+    }),
+  )
+  const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'
+  console.log(`Started sub-agent “${printable(sub.name)}” (Run ${sub.id}), ${when}.`)
+  console.log(`Run \`ted run wait ${sub.id}\` for its final message.`)
+}
+
+async function waitForSubAgent(id: string): Promise<void> {
+  const result = await withDaemon(home, async (client) => {
+    for (;;) {
+      const current = await client.waitForSubAgent(id)
+      if (current.done) return current
+    }
+  })
+  if (result.message !== undefined) process.stdout.write(`${printable(result.message).trimEnd()}\n`)
+  if (result.state === 'failed') {
+    console.error(`ted: sub-agent “${printable(result.name)}” failed`)
+    if (result.error !== undefined) console.error(printable(result.error))
+    process.exitCode = 1
+  } else if (result.state === 'stopped') {
+    console.error(
+      `ted: sub-agent “${printable(result.name)}” was stopped${result.error ? `: ${printable(result.error)}` : ''}`,
+    )
     process.exitCode = 1
   }
 }

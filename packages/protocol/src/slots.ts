@@ -7,18 +7,29 @@ export interface SlotHolder {
   title: string
   factoryId: string
   runs: number
+  subAgents: number
   settingUp: boolean
 }
 
-export interface QueuedForSlot {
-  kind: 'task'
-  place: number
-  taskId: string
-  displayId: string
-  title: string
-  factoryId: string
-  priority: Priority
-}
+export type QueuedForSlot =
+  | {
+      kind: 'task'
+      place: number
+      taskId: string
+      displayId: string
+      title: string
+      factoryId: string
+      priority: Priority
+    }
+  | {
+      kind: 'sub-agent'
+      place: number
+      runId: string
+      name: string
+      taskId: string
+      displayId: string
+      factoryId: string
+    }
 
 export interface FactorySlots {
   factoryId: string

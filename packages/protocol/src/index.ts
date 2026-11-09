@@ -152,7 +152,12 @@ export {
   type RunProblem,
   type RunState,
   type RunWithConversation,
+  type SendSubAgentRequest,
   type StartDevRunRequest,
+  type StartSubAgentRequest,
+  type SubAgent,
+  type SubAgentState,
+  type SubAgentWait,
 } from './run.ts'
 export {
   type Appearance,

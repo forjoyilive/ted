@@ -30,7 +30,7 @@ export interface RunManagerOptions {
 }
 
 export interface RunObserver {
-  finished?(run: Run): void
+  finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
 }
@@ -40,6 +40,9 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   prompt: string
   cwd: string
   taskId?: string
+  id?: string
+  parentRunId?: string
+  name?: string
   env?: Record<string, string>
   resume?: string
 }
@@ -67,6 +70,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const following = new Map<string, Promise<void>>()
   const observers = new Set<RunObserver>()
+  const stopRequested = new Set<string>()
   let closed = false
   let shuttingDown = false
   const refuseWhileShuttingDown = () => {
@@ -82,12 +86,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
-  function tell(what: 'finished' | 'authFailed', runId: string): void {
+  function tell(what: 'finished' | 'authFailed', runId: string, lastLines: string[] = []): void {
     const run = store.getRun(runId)
     if (!run) return
+    const stopped = stopRequested.delete(runId)
     for (const observer of observers) {
       try {
-        observer[what]?.(run)
+        if (what === 'finished') observer.finished?.(run, { stopped, lastLines })
+        else observer.authFailed?.(run)
       } catch (error) {
         console.error(`a Run observer failed:`, error)
       }
@@ -140,6 +146,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let authFailed = false
     let problem: RunProblem | undefined
     const accepted: string[] = []
+    const errors: string[] = []
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({
@@ -154,6 +161,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
       } else if (record.t === 'exit') state = 'finished'
+      else if (record.t === 'err') errors.push(record.line)
     }
     if (hostGone) state = 'finished'
     store.recordRunOutput(runId, {
@@ -165,7 +173,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     })
     if (accepted.length > 0) tellAccepted(runId, accepted)
     if (authFailed) tell('authFailed', runId)
-    if (state === 'finished') tell('finished', runId)
+    if (state === 'finished') tell('finished', runId, errors.slice(-20))
     return state === 'finished'
   }
 
@@ -189,10 +197,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const manager: RunManager = {
-    async start({ agent: kind, prompt, cwd, taskId, env = {}, model, effort, resume }) {
+    async start({
+      agent: kind,
+      prompt,
+      cwd,
+      taskId,
+      env = {},
+      model,
+      effort,
+      resume,
+      id = randomUUID(),
+      parentRunId,
+      name,
+    }) {
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
-      const id = randomUUID()
       const runDir = path.join(runsDir, id)
       await mkdir(runDir, { mode: 0o700 })
       const launch = agent.launch({
@@ -222,6 +241,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(taskId !== undefined && { taskId }),
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
+        ...(parentRunId !== undefined && { parentRunId }),
+        ...(name !== undefined && { name }),
       })
       const host = nodeEntry(hostMain, [runDir])
       spawn(host.command, host.args, {
@@ -270,6 +291,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     async stop(runId) {
       const done = following.get(runId)
       if (!done) return
+      stopRequested.add(runId)
       const runDir = path.join(runsDir, runId)
       const timeout = sleep(stopGraceMs).then(() => 'timeout' as const)
       let start = await startRecord(runDir)

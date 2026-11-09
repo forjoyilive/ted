@@ -114,9 +114,28 @@ export const runs = State.SQLite.table({
     prompt: State.SQLite.text(),
     cwd: State.SQLite.text(),
     taskId: State.SQLite.text({ nullable: true }),
+    parentRunId: State.SQLite.text({ nullable: true }),
+    name: State.SQLite.text({ nullable: true }),
+    failure: State.SQLite.text({ nullable: true }),
     state: State.SQLite.text(),
     readOffset: State.SQLite.integer(),
     startedAt: State.SQLite.text(),
+  },
+})
+
+export const subAgentRequests = State.SQLite.table({
+  name: 'subAgentRequests',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    parentRunId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    agent: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    prompt: State.SQLite.text(),
+    ownWorktree: State.SQLite.boolean({ default: false }),
+    at: State.SQLite.text(),
   },
 })
 
@@ -895,6 +914,40 @@ export const events = {
     name: 'v1.ConversationTabClosed',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
   }),
+  runStartedV4: Events.synced({
+    name: 'v4.RunStarted',
+    schema: Schema.Struct({
+      ...runStartedFields,
+      taskId: Schema.NullOr(Schema.String),
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      parentRunId: Schema.NullOr(Schema.String),
+      name: Schema.NullOr(Schema.String),
+    }),
+  }),
+  subAgentRequested: Events.synced({
+    name: 'v1.SubAgentRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      parentRunId: Schema.String,
+      name: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      prompt: Schema.String,
+      ownWorktree: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  subAgentRequestDropped: Events.synced({
+    name: 'v1.SubAgentRequestDropped',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  runFailed: Events.synced({
+    name: 'v1.RunFailed',
+    schema: Schema.Struct({ runId: Schema.String, error: Schema.String, at: Schema.String }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -955,6 +1008,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
+  'v4.RunStarted': (args) => {
+    const logged = runStarted(args)
+    return { ...logged, data: { ...logged.data, parentRunId: args.parentRunId, name: args.name } }
+  },
   'v1.TaskLeadSet': (args) =>
     task(args, { agent: args.agent, model: args.model, effort: args.effort }),
   'v1.TaskWorktreeCreated': (args) =>
@@ -1129,6 +1186,13 @@ const materializers = counted(
         runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
       'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
       'v3.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+      'v4.RunStarted': (run) => [
+        runs.insert({ ...run, state: 'working', readOffset: 0 }),
+        subAgentRequests.delete().where({ id: run.id }),
+      ],
+      'v1.SubAgentRequested': (request) => subAgentRequests.insert(request),
+      'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
+      'v1.RunFailed': ({ runId, error }) => runs.update({ failure: error }).where({ id: runId }),
       'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
         runs
           .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
@@ -1250,6 +1314,7 @@ const state = State.SQLite.makeState({
     taskAttachments,
     taskSources,
     runs,
+    subAgentRequests,
     conversationEntries,
     runMessages,
     conversationTabs,
