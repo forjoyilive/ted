@@ -7,6 +7,7 @@ import { openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
 let dir: string
+const repo = { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] }
 const agentStages = [...agentStageIds]
 
 beforeEach(async () => {
@@ -18,8 +19,6 @@ afterEach(async () => {
 })
 
 describe('TedStore', () => {
-  const repo = { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] }
-
   test('creates Tasks with a stable ID and numbered display IDs', async () => {
     const store = await openStore({ directory: dir })
     try {
