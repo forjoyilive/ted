@@ -302,6 +302,37 @@ export function threadEvents(
         )
         break
       }
+      case 'v3.TaskArchived': {
+        const closing = Array.isArray(data.closing) ? data.closing.map(String) : []
+        const branches = typeof data.branches === 'number' ? data.branches : 0
+        add(
+          entry,
+          'edit',
+          [
+            'TED archived this Task',
+            text(data.why),
+            ...(closing.length > 0 ? [`closed ${joinAnd(closing)} on GitHub`] : []),
+            ...(branches === 1 ? ['kept the branch'] : branches > 1 ? ['kept the branches'] : []),
+          ]
+            .filter((part) => part !== '')
+            .join(' · '),
+        )
+        break
+      }
+      case 'v1.LinearIssueMoved':
+        if (text(data.state) !== '') {
+          add(entry, 'quiet', `Moved ${text(data.identifier)} to ${text(data.state)} in Linear`)
+        }
+        break
+      case 'v1.LinearPullRequestsLinked': {
+        const count = Array.isArray(data.urls) ? data.urls.length : 0
+        add(
+          entry,
+          'quiet',
+          `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.identifier)} in Linear`,
+        )
+        break
+      }
       case 'v1.TaskUnarchived':
         add(
           entry,

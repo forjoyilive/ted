@@ -700,6 +700,16 @@ function answerLine(
           text: 'Withdrawn · the App stopped before you answered',
         }
       }
+      if ('linear' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text:
+            answer.linear === 'reopened'
+              ? 'Withdrawn · the Linear issue was reopened before you answered'
+              : 'Withdrawn · the Task merged before you answered',
+        }
+      }
       if ('ciReported' in answer) {
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · CI reported before you answered' }
       }

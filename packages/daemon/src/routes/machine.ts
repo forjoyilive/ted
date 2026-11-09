@@ -232,6 +232,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
+  linearSync: onOff('linearSync'),
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'billing must be an object of billing by agent')

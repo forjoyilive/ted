@@ -170,6 +170,7 @@ import {
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
+import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
 import {
   chooseMethod,
   ciState,
@@ -408,7 +409,8 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
-  linear?: Pick<Linear, 'issueFor'>
+  linear?: Pick<Linear, 'issueFor'> & Partial<LinearSyncApi>
+  linearSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -607,6 +609,25 @@ export function createTasks(options: {
       everyMs: mergePollMs,
       refs: watchedPullRequests,
       onRead: reactToGitHub,
+      inBackground: (what, work) => inBackground(what, work),
+    })
+  const linearApi = options.linear
+  const linearSync =
+    linearApi?.issueStates &&
+    linearApi.teamStates &&
+    linearApi.moveIssue &&
+    linearApi.linkUrl &&
+    createLinearSync({
+      store,
+      linear: {
+        issueStates: linearApi.issueStates,
+        teamStates: linearApi.teamStates,
+        moveIssue: linearApi.moveIssue,
+        linkUrl: linearApi.linkUrl,
+      },
+      everyMs: options.linearSyncMs ?? 60_000,
+      closed: (taskId, issue) => linearIssueClosed(taskId, issue),
+      settled: (taskId, why) => withdrawLinearQuestions(taskId, why),
       inBackground: (what, work) => inBackground(what, work),
     })
   const sources: QueueSource[] = []
@@ -1291,7 +1312,7 @@ export function createTasks(options: {
   }
 
   function holdsMerge(taskId: string): boolean {
-    return openRequests(taskId).some((c) => !isCiStuck(c))
+    return openRequests(taskId).some((c) => !isCiStuck(c) && !isLinearQuestion(c))
   }
 
   function hostOfPullRequest(url: string): string {
@@ -4383,7 +4404,54 @@ export function createTasks(options: {
     return work
   }
 
-  function archiveNow(task: StoredTask, closePullRequests: boolean): Task {
+  function hasLiveRun(task: StoredTask): boolean {
+    return (
+      liveLead(task) !== undefined ||
+      checking.has(task.id) ||
+      starting.has(task.id) ||
+      task.runs.some((r) => r.state !== 'finished')
+    )
+  }
+
+  function linearQuestions(taskId: string): Comment[] {
+    return openRequests(taskId).filter(isLinearQuestion)
+  }
+
+  async function linearIssueClosed(taskId: string, issue: LinearClosed): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stage === 'done' || deleting.has(taskId)) return
+    const marked = `${issue.identifier} was marked ${issue.state} in Linear`
+    const pastSignOff = task.stage === 'merge'
+    if (!pastSignOff && !hasLiveRun(task)) {
+      settleDependents(task.id, 'unblock')
+      archiveNow(task, false, marked)
+      wake()
+      return
+    }
+    if (linearQuestions(taskId).length > 0) return
+    store.postComment({
+      taskId,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: marked,
+      body: pastSignOff
+        ? `Someone marked ${issue.identifier} ${issue.state} in Linear after you signed off on this Task. TED keeps going until you choose.`
+        : `Someone marked ${issue.identifier} ${issue.state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
+      choices: [linearArchiveChoice, linearKeepChoice],
+    })
+  }
+
+  function withdrawLinearQuestions(taskId: string, why: 'reopened' | 'done'): void {
+    for (const question of linearQuestions(taskId)) {
+      store.answerComment(question.id, {
+        kind: 'withdrawn',
+        at: new Date().toISOString(),
+        linear: why,
+      })
+    }
+  }
+
+  function archiveNow(task: StoredTask, closePullRequests: boolean, why?: string): Task {
     const closing = closePullRequests
       ? task.repos.flatMap((r) =>
           r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
@@ -4391,7 +4459,11 @@ export function createTasks(options: {
             : [],
         )
       : []
-    const archived = store.archiveTask(task.id, { closing, branches: task.repos.length })
+    const archived = store.archiveTask(task.id, {
+      closing,
+      branches: task.repos.length,
+      ...(why !== undefined && { why }),
+    })
     options.planning?.()?.taskGone(task.id, 'archived')
     if (closing.length > 0) pullRequestWork(task.id, 'close')
     inBackground(`archive ${task.displayId}`, () => clearing(task.id))
@@ -6171,6 +6243,20 @@ export function createTasks(options: {
           const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
           if (answered) return answered
         }
+        if (isLinearQuestion(comment) && choice !== undefined) {
+          const answered = answerRequest(task, comment, {
+            kind: 'answered',
+            at,
+            choice,
+            ...(text !== '' && { text }),
+          })
+          if (choice === linearArchiveChoice && !find(task.id).archived) {
+            settleDependents(task.id, 'unblock')
+            archiveNow(find(task.id), false)
+            wake()
+          }
+          return answered
+        }
         if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
           const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
           const run = liveLead(find(task.id))
@@ -6640,6 +6726,7 @@ export function createTasks(options: {
       unsubscribe()
       stopPumping()
       watch?.close()
+      linearSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)
@@ -6723,6 +6810,19 @@ function textOf(error: unknown): string {
 function conflictFindings(target: { repo: string; number: number; base: string }): string {
   return `${target.repo}#${target.number} conflicts with ${target.base}, so TED couldn’t rebase it. Rebase onto origin/${target.base} and resolve the conflicts; the Task then comes back through Validate for a short re-sign-off.`
 }
+const linearArchiveChoice = 'Archive'
+const linearKeepChoice = 'Keep going'
+
+function isLinearQuestion(comment: Comment): boolean {
+  return (
+    comment.author.kind === 'ted' &&
+    comment.kind === 'question' &&
+    comment.title?.endsWith(' in Linear') === true &&
+    comment.choices?.includes(linearArchiveChoice) === true &&
+    comment.choices.includes(linearKeepChoice)
+  )
+}
+
 const idleTitle = 'The Task Lead stopped without saying why'
 const nudgeAgainChoice = 'Nudge again'
 
