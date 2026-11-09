@@ -35,7 +35,7 @@ afterEach(async () => {
 
 async function start() {
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  return api(daemon.port, daemon.appToken)
+  return api(daemon.port, { appKey: daemon.appToken })
 }
 
 describe('Diagnostics', () => {

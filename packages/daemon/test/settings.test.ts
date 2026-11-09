@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
-  DaemonClient,
+  type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
   readDaemonInfo,
@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
-import { makeTempHome, rawRequest } from './helpers.ts'
+import { appClient, appHeaders, makeTempHome, rawRequest } from './helpers.ts'
 
 const picture =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
@@ -161,7 +161,7 @@ describe('settings and Factories over the daemon API', () => {
   async function client(): Promise<DaemonClient> {
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    return new DaemonClient(info, daemon?.appToken)
+    return appClient(info, daemon?.appToken)
   }
 
   test('a client reads and changes Appearance, and subscribers hear the change', async () => {
@@ -199,12 +199,13 @@ describe('settings and Factories over the daemon API', () => {
     ['a body that is not an object', ['dark']],
   ])('refuses %s', async (_, body) => {
     daemon = await startDaemon({ home, version: '9.9.9' })
-    const token = daemon.appToken
-
     const res = await rawRequest(daemon.port, {
       method: 'PATCH',
       path: '/settings',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: {
+        ...appHeaders(daemon.appToken, 'PATCH', '/settings', JSON.stringify(body)),
+        'content-type': 'application/json',
+      },
       body: JSON.stringify(body),
     })
 

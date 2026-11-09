@@ -19,4 +19,5 @@ export async function readDaemonInfo(home: string): Promise<DaemonInfo | undefin
 
 export interface CallerInfo {
   kind: 'app' | 'file' | 'run'
+  proof?: string
 }

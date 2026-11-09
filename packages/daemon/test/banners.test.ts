@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type Banner,
-  DaemonClient,
+  type DaemonClient,
   type DaemonEvent,
   type Factory,
   readDaemonInfo,
@@ -15,6 +15,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import {
+  appClient,
   commitToOrigin,
   killRunHosts,
   makeOriginRepo,
@@ -231,7 +232,7 @@ describe('banners over the daemon API', () => {
   async function client(): Promise<DaemonClient> {
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    return new DaemonClient(info, daemon?.appToken)
+    return appClient(info, daemon?.appToken)
   }
 
   async function start() {

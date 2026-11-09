@@ -216,7 +216,7 @@ describe('the command line over HTTP', () => {
       version: '9.9.9',
       commandLine: { platform: 'darwin', ...copy, env: {}, systemBinDir },
     })
-    const app = api(daemon.port, daemon.appToken)
+    const app = api(daemon.port, { appKey: daemon.appToken })
     const target = path.join(systemBinDir, 'ted')
 
     expect(await app.call('GET', '/command-line')).toEqual({

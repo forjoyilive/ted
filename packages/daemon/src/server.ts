@@ -2,8 +2,21 @@ import { timingSafeEqual } from 'node:crypto'
 import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { CallerInfo, DaemonEvent, RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
+import {
+  type AppAuth,
+  bodyHash,
+  type CallerInfo,
+  type DaemonEvent,
+  daemonProof,
+  equalHex,
+  parseAppAuth,
+  type RestoreBackupRequest,
+  requestMac,
+  type ShutdownRequest,
+} from '@ted/protocol'
+import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
@@ -36,7 +49,15 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'GET',
     path: /^\/caller$/,
-    handle: async ({ caller }) => [200, { kind: caller.kind } satisfies CallerInfo],
+    async handle({ req, caller }, { appToken }) {
+      const nonce = parseAppAuth(req.headers.authorization)?.nonce
+      const info: CallerInfo = {
+        kind: caller.kind,
+        ...(caller.kind === 'app' &&
+          nonce !== undefined && { proof: daemonProof(appToken, nonce) }),
+      }
+      return [200, info]
+    },
   },
   {
     method: 'GET',
@@ -152,8 +173,13 @@ async function handle(
     return sendJson(res, 200, { status: 'ok', version: options.version })
   }
 
-  const caller = identify(req.headers.authorization, options)
+  const signed = parseAppAuth(req.headers.authorization)
+  const body = signed && (await readSignedBody(req))
+  const caller = signed
+    ? signedByApp(signed, req.method ?? '', url, body ?? Buffer.alloc(0), options)
+    : identify(req.headers.authorization, options)
   if (!caller) throw new HttpError(401, 'missing or wrong token')
+  const request = body ? replay(req, body) : req
 
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
@@ -171,7 +197,7 @@ async function handle(
   if (reply) sendJson(res, ...reply)
 
   function context(params: string[]): RequestContext {
-    return { req, res, params, caller: caller as Caller }
+    return { req: request, res, params, caller: caller as Caller }
   }
 }
 
@@ -203,7 +229,7 @@ function send(res: http.ServerResponse, event: DaemonEvent): void {
 }
 
 function streamEvents(
-  req: http.IncomingMessage,
+  _req: http.IncomingMessage,
   res: http.ServerResponse,
   { data, idle, keepaliveMs, appStreams }: BaseOptions,
   app: boolean,
@@ -215,7 +241,7 @@ function streamEvents(
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
   const release = idle?.hold()
-  req.on('close', () => {
+  res.on('close', () => {
     clearInterval(keepalive)
     unsubscribe()
     appStreams.delete(res)
@@ -223,9 +249,47 @@ function streamEvents(
   })
 }
 
+const appAuthWindowMs = 60_000
+
+async function readSignedBody(req: http.IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length
+    if (size > maxAttachmentBytes + 1024 * 1024) throw new HttpError(413, 'body too large')
+    chunks.push(chunk as Buffer)
+  }
+  return Buffer.concat(chunks)
+}
+
+function signedByApp(
+  auth: AppAuth,
+  method: string,
+  url: string,
+  body: Buffer,
+  { appToken, appNonces }: BaseOptions,
+): Caller | undefined {
+  const now = Date.now()
+  if (Math.abs(now - auth.at) > appAuthWindowMs) return undefined
+  if (!equalHex(auth.mac, requestMac(appToken, auth, method, url, bodyHash(body)))) return undefined
+  for (const [nonce, at] of appNonces) {
+    if (now - at > 2 * appAuthWindowMs) appNonces.delete(nonce)
+  }
+  if (appNonces.has(auth.nonce)) return undefined
+  appNonces.set(auth.nonce, now)
+  return { kind: 'app' }
+}
+
+function replay(req: http.IncomingMessage, body: Buffer): http.IncomingMessage {
+  return Object.assign(Readable.from(body.length === 0 ? [] : [body]), {
+    headers: req.headers,
+    method: req.method,
+    url: req.url,
+  }) as unknown as http.IncomingMessage
+}
+
 function identify(authorization: string | undefined, options: BaseOptions): Caller | undefined {
   const given = authorization?.replace(/^Bearer /, '') ?? ''
-  if (equalSecrets(given, options.appToken)) return { kind: 'app' }
   if (equalSecrets(given, options.token)) return { kind: 'file' }
   const runId = options.runTokens.verify(given)
   return runId === undefined ? undefined : { kind: 'run', runId }

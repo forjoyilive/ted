@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { appendFile, mkdir, open } from 'node:fs/promises'
+import { appendFile, mkdir, open, rm } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import {
@@ -41,8 +41,8 @@ export async function withDaemon<T>(
         if (appToken === undefined) {
           return await call(new DaemonClient(info, process.env.TED_RUN_TOKEN || info.token))
         }
-        const client = new DaemonClient(info, appToken)
-        if (await knowsApp(client)) return await call(client)
+        const client = new DaemonClient(info, '', { appKey: appToken })
+        if (await provesApp(client)) return await call(client)
         await handOver(home, info, deadline)
         child = undefined
         continue
@@ -76,16 +76,16 @@ async function anotherDaemonStarting(home: string): Promise<boolean> {
   }
 }
 
-async function knowsApp(client: DaemonClient): Promise<boolean> {
+async function provesApp(client: DaemonClient): Promise<boolean> {
   try {
-    return (await client.caller()).kind === 'app'
+    return await client.provesAppKey()
   } catch (error) {
     if (error instanceof DaemonRequestError) return false
     throw error
   }
 }
 
-async function keepsRunsOnShutdown(info: DaemonInfo): Promise<boolean> {
+async function shutdownKeepsRuns(info: DaemonInfo): Promise<boolean> {
   try {
     await new DaemonClient(info).caller()
     return true
@@ -95,7 +95,22 @@ async function keepsRunsOnShutdown(info: DaemonInfo): Promise<boolean> {
   }
 }
 
-function terminate(pid: number): boolean {
+async function askToStop(home: string, info: DaemonInfo): Promise<boolean> {
+  if (!(await shutdownKeepsRuns(info))) return terminateLockHolder(home, info.pid)
+  return new DaemonClient(info).shutdown({ keepRuns: true }).then(
+    () => true,
+    (error: unknown) => {
+      if (error instanceof DaemonUnreachableError) return true
+      if (error instanceof DaemonRequestError) return false
+      throw error
+    },
+  )
+}
+
+async function terminateLockHolder(home: string, pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false
+  const { lockHolders } = await import('./lock.ts')
+  if (!(await lockHolders(tedPaths(home).daemonLock)).includes(pid)) return false
   try {
     process.kill(pid, 'SIGTERM')
     return true
@@ -105,22 +120,21 @@ function terminate(pid: number): boolean {
 }
 
 async function handOver(home: string, info: DaemonInfo, deadline: number): Promise<void> {
-  const asked = (await keepsRunsOnShutdown(info))
-    ? await new DaemonClient(info).shutdown({ keepRuns: true }).then(
-        () => true,
-        (error: unknown) => {
-          if (error instanceof DaemonUnreachableError) return true
-          if (error instanceof DaemonRequestError) return false
-          throw error
-        },
-      )
-    : terminate(info.pid)
+  const asked = await askToStop(home, info)
   do {
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError('TED’s daemon didn’t stop to hand over to the app')
     }
     await sleep(retryDelayMs)
   } while (asked && (await anotherDaemonStarting(home)))
+  if (!(await anotherDaemonStarting(home))) await removeIfUnchanged(home, info)
+}
+
+async function removeIfUnchanged(home: string, info: DaemonInfo): Promise<void> {
+  const now = await readDaemonInfo(home).catch(() => undefined)
+  if (now?.port === info.port && now.pid === info.pid && now.token === info.token) {
+    await rm(tedPaths(home).daemonInfo, { force: true })
+  }
 }
 
 async function startDaemon(home: string, appToken?: string): Promise<ChildProcess> {

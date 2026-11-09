@@ -179,7 +179,6 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
-    fileToken: true,
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null

@@ -273,6 +273,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     version: options.version,
     token,
     appToken,
+    appNonces: new Map(),
     data,
     keepaliveMs: options.keepaliveMs ?? 30_000,
     agents,

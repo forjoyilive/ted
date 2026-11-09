@@ -1,5 +1,6 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import { daemonProof, equalHex, newNonce, signRequest } from './app-auth.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
@@ -72,16 +73,28 @@ export interface Subscription {
 export class DaemonClient {
   readonly #info: DaemonInfo
   readonly #token: string
+  readonly #appKey: string | undefined
   readonly #idleTimeoutMs: number
 
   constructor(
     info: DaemonInfo,
     token: string = info.token,
-    { idleTimeoutMs = 300_000 }: { idleTimeoutMs?: number } = {},
+    { idleTimeoutMs = 300_000, appKey }: { idleTimeoutMs?: number; appKey?: string } = {},
   ) {
     this.#info = info
     this.#token = token
+    this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  async provesAppKey(): Promise<boolean> {
+    if (this.#appKey === undefined) return false
+    const nonce = newNonce()
+    const res = await this.#send('GET', '/caller', undefined, undefined, undefined, nonce)
+    const { kind, proof } = (await this.#json(res)) as CallerInfo
+    return (
+      kind === 'app' && proof !== undefined && equalHex(proof, daemonProof(this.#appKey, nonce))
+    )
   }
 
   listTasks(): Promise<Task[]> {
@@ -478,6 +491,7 @@ export class DaemonClient {
     body?: unknown,
     signal?: AbortSignal,
     rawHeaders?: Record<string, string>,
+    nonce?: string,
   ): Promise<IncomingMessage> {
     const port = this.#info.port
     const raw = body instanceof Uint8Array
@@ -492,7 +506,10 @@ export class DaemonClient {
         agent: agent(),
         timeout: this.#idleTimeoutMs,
         headers: {
-          authorization: `Bearer ${this.#token}`,
+          authorization:
+            this.#appKey === undefined
+              ? `Bearer ${this.#token}`
+              : signRequest(this.#appKey, method, route, payload, nonce),
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
           ...(payload !== undefined && { 'content-length': Buffer.byteLength(payload) }),
           ...rawHeaders,

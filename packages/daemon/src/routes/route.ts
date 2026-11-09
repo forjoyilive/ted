@@ -13,6 +13,7 @@ export interface BaseOptions {
   version: string
   token: string
   appToken: string
+  appNonces: Map<string, number>
   data: Data
   idle?: IdleTimer
   keepaliveMs: number

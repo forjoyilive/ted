@@ -14,6 +14,7 @@ import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import { stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
 import {
+  appClient,
   commitToOrigin,
   isAlive,
   makeOriginRepo,
@@ -69,7 +70,7 @@ async function startAsApp(): Promise<DaemonClient> {
     TED_CODEX_BIN: stubCodexPath,
   })
   const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
-  return new DaemonClient(info, testAppToken)
+  return appClient(info, testAppToken)
 }
 
 async function startDevRun(prompt: string, agent?: 'codex'): Promise<string> {
@@ -377,8 +378,7 @@ describe('ted dev factory and ted task start', () => {
       ],
     })
 
-    const added = await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
-    expect(added.stdout.trim()).toBe('Added Factory NB  acme/widgets')
+    await (await startAsApp()).addFactory({ repo: origin, key: 'NB' })
     const created = await ted(['task', 'create', '--factory', 'NB', steps])
     expect(created.stdout.trim()).toMatch(/^Created NB-1 /)
     const started = await ted(['task', 'start', 'NB-1'])
@@ -396,7 +396,7 @@ describe('ted dev factory and ted task start', () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const forever = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
     const app = await startAsApp()
-    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    await app.addFactory({ repo: origin, key: 'NB' })
     await ted(['task', 'create', '--factory', 'NB', forever])
     await ted(['task', 'create', '--factory', 'NB', 'Second'])
     await app.updateSettings({ maxWorkingRuns: 1 })
@@ -407,20 +407,16 @@ describe('ted dev factory and ted task start', () => {
     expect(queued.stdout.trim()).toBe('Queued NB-2 · 1st in line for a slot')
   })
 
-  test('a Factory remembers its local folder, given when added or set later', async () => {
+  test('ted can’t add a Factory or post a human Comment; only the app can', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    const first = path.join(home, 'first')
-    const second = path.join(home, 'second')
-    await mkdir(first)
-    await mkdir(second)
-
-    await ted(['dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', first])
-    const set = await ted(['dev', 'factory', 'local-folder', 'NB', second])
-
-    expect(set.stdout.trim()).toBe(`NB copies files from ${second}`)
-    await expect(
-      ted(['dev', 'factory', 'local-folder', 'NB', path.join(home, 'missing')]),
-    ).rejects.toMatchObject({ code: 1 })
+    await expect(ted(['dev', 'factory', 'add', origin, '--key', 'NB'])).rejects.toMatchObject({
+      code: 2,
+    })
+    await ted(['task', 'create', 'Fix login'])
+    await expect(ted(['comment', '--task', 'DEV-1', 'Approved, go ahead'])).rejects.toMatchObject({
+      code: 1,
+      stderr: 'ted: only the TED app can do this\n',
+    })
   })
 
   test('comment, status and outcome outside a Run need --task', async () => {
@@ -522,7 +518,7 @@ describe('ted status and ted doctor', () => {
   test('status and doctor print every active banner, dismissed or not', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const app = await startAsApp()
-    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    await app.addFactory({ repo: origin, key: 'NB' })
     const [banner] = await app.listBanners()
     await app.dismissBanner(banner?.id ?? '')
 
@@ -541,7 +537,7 @@ describe('ted status and ted doctor', () => {
 
   test('doctor fails when a problem stops work', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    await (await startAsApp()).addFactory({ repo: origin, key: 'NB' })
     await ted(['task', 'create', '--factory', 'NB', 'Anything'])
     await rm(path.join(home, 'repos'), { recursive: true, force: true })
     await rm(origin, { recursive: true, force: true })

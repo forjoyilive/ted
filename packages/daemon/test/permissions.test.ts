@@ -48,7 +48,7 @@ async function start(workflow = 'version: 1\n') {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
   })
-  const client = api(daemon.port, daemon.appToken)
+  const client = api(daemon.port, { appKey: daemon.appToken })
   const fileToken = api(daemon.port, await tokenFor(home))
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)

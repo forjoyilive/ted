@@ -2,14 +2,14 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DaemonClient, type IntegrationsHealth, readDaemonInfo } from '@ted/protocol'
+import { type IntegrationsHealth, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { createIntegrations, type Integrations } from '../src/integrations.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import { terminalScript } from '../src/terminal.ts'
-import { makeTempHome, rawRequest, stubClaudePath } from './helpers.ts'
+import { appClient, appHeaders, makeTempHome, rawRequest, stubClaudePath } from './helpers.ts'
 
 const stubGh = fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url))
 
@@ -398,7 +398,7 @@ describe('integrations over HTTP', () => {
     })
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    const ted = new DaemonClient(info, daemon?.appToken)
+    const ted = appClient(info, daemon?.appToken)
 
     const health: IntegrationsHealth = await ted.getIntegrations()
     expect(health.github.cli.state).toBe('ready')
@@ -411,7 +411,12 @@ describe('integrations over HTTP', () => {
     const bad = await rawRequest(daemon.port, {
       method: 'POST',
       path: '/integrations/fix',
-      headers: { authorization: `Bearer ${daemon.appToken}` },
+      headers: appHeaders(
+        daemon.appToken,
+        'POST',
+        '/integrations/fix',
+        JSON.stringify({ fix: 'rm' }),
+      ),
       body: JSON.stringify({ fix: 'rm' }),
     })
     expect(bad.status).toBe(400)

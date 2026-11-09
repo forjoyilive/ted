@@ -47,7 +47,7 @@ async function start(version: string, statuses: DataStatus[] = []) {
     claudeBin: stubClaudePath,
     onDataStatus: (status) => statuses.push(status),
   })
-  return api(daemon.port, daemon.appToken)
+  return api(daemon.port, { appKey: daemon.appToken })
 }
 
 async function stop(): Promise<void> {
@@ -197,7 +197,7 @@ describe('store migrations', () => {
       claudeBin: stubClaudePath,
       onShutdown: () => shutdowns++,
     })
-    const closed = api(daemon.port, daemon.appToken)
+    const closed = api(daemon.port, { appKey: daemon.appToken })
 
     expect((await closed.call('GET', '/data-status')).body).toMatchObject({ state: 'needs-newer' })
     expect((await closed.call('POST', '/app/open')).body).toEqual({ opened: false })
@@ -226,11 +226,11 @@ describe('store migrations', () => {
           if (status.state !== 'updating' || shutdown) return
           shutdown = (async () => {
             const info = await readDaemonInfo(home)
-            return api(info?.port ?? 0, 'app-token').call('POST', '/shutdown')
+            return api(info?.port ?? 0, { appKey: 'app-token' }).call('POST', '/shutdown')
           })()
         },
       })
-      ted = api(daemon.port, daemon.appToken)
+      ted = api(daemon.port, { appKey: daemon.appToken })
 
       expect((await shutdown)?.status).toBe(200)
       expect((await ted.getRun(run.id)).run.state).toBe('finished')

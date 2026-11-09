@@ -6,6 +6,17 @@ export {
   workRunning,
 } from './activity.ts'
 export {
+  type AppAuth,
+  appAuthScheme,
+  bodyHash,
+  daemonProof,
+  equalHex,
+  newNonce,
+  parseAppAuth,
+  requestMac,
+  signRequest,
+} from './app-auth.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerActionInput,

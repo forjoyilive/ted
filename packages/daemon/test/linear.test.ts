@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
-  DaemonClient,
+  type DaemonClient,
   DaemonRequestError,
   findLinearUrl,
   parseLinearUrl,
@@ -15,6 +15,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { readStubKeyring, stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from './fixtures/stub-linear.ts'
 import {
+  appClient,
   hostRecords,
   killRunHosts,
   makeOriginRepo,
@@ -87,7 +88,7 @@ async function start(keyring: Record<string, unknown> = {}): Promise<DaemonClien
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info, daemon?.appToken)
+  return appClient(info, daemon?.appToken)
 }
 
 const failure = (promise: Promise<unknown>) =>

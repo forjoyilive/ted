@@ -1,11 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { holdAwakeWithOs, stayAwakeCommand } from '../src/stay-awake.ts'
-import { api, isAlive, killRunHosts, makeTempHome, stubClaudePath } from './helpers.ts'
+import { api, appClient, isAlive, killRunHosts, makeTempHome, stubClaudePath } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -39,7 +39,10 @@ async function start() {
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return { ted: new DaemonClient(info, daemon.appToken), raw: api(daemon.port, daemon.appToken) }
+  return {
+    ted: appClient(info, daemon.appToken),
+    raw: api(daemon.port, { appKey: daemon.appToken }),
+  }
 }
 
 const gate = (name: string) => path.join(cwd, name)

@@ -40,7 +40,7 @@ afterEach(async () => {
 
 async function startWithStub() {
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  return api(daemon.port, daemon.appToken)
+  return api(daemon.port, { appKey: daemon.appToken })
 }
 
 interface StubRecord {
@@ -173,7 +173,7 @@ describe('Runs', () => {
     const run = await client.startRun(
       [
         { run: ['ted', 'task', 'list'] },
-        { run: ['ted', 'dev', 'run', 'start', 'x'] },
+        { run: ['ted', 'task', 'start', 'DEV-9'] },
         { endTurn: true },
       ],
       cwd,
@@ -269,7 +269,7 @@ describe('Runs across daemon restarts', () => {
       TED_CLAUDE_BIN: stubClaudePath,
     })
     const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
-    return api(info.port, testAppToken)
+    return api(info.port, { appKey: testAppToken })
   }
 
   test('killing and restarting the daemon mid-turn loses no output and the Run keeps going', async () => {

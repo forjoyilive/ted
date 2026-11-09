@@ -32,7 +32,7 @@ const usage = `Usage:
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
   ted open                                   Open TED, or bring its window to the front
-  ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
+  ted comment "<text>"                       Post a note on the Run’s Task (reads stdin if no text)
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
@@ -63,9 +63,6 @@ const usage = `Usage:
   ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
                                              when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
-  ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
-                                             Add a one-repo Factory (development only)
-  ted dev factory local-folder <key> <dir>   Set the folder new worktrees copy files from
   ted dev run show <run-id>                  Show a Run's state and Conversation
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
@@ -87,8 +84,6 @@ function parse() {
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
-        key: { type: 'string' },
-        'local-folder': { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
@@ -315,26 +310,6 @@ try {
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
-  } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
-    const repo = rest[1] ?? ''
-    const key = options.key
-    if (key === undefined) throw new UsageError('give the Factory key with --key')
-    const folder = options['local-folder']
-    const localFolder = folder === undefined ? undefined : path.resolve(folder)
-    const factory = await withDaemon(home, (client) =>
-      client.addFactory({ repo, key, ...(localFolder !== undefined && { localFolder }) }),
-    )
-    console.log(`Added Factory ${factory.key}  ${factory.repo}`)
-  } else if (
-    group === 'dev' &&
-    command === 'factory' &&
-    rest[0] === 'local-folder' &&
-    rest.length === 3
-  ) {
-    const key = rest[1] ?? ''
-    const folder = path.resolve(rest[2] ?? '')
-    const factory = await withDaemon(home, (client) => client.setLocalFolder(key, folder))
-    console.log(`${factory.key} copies files from ${factory.localFolder?.path ?? folder}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'show' && rest.length === 2) {
     const id = rest[1] ?? ''
     console.log(formatRun(await withDaemon(home, (client) => client.getRun(id))))

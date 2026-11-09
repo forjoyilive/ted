@@ -53,7 +53,7 @@ async function start(version: string, statuses: DataStatus[] = []) {
     claudeBin: stubClaudePath,
     onDataStatus: (status) => statuses.push(status),
   })
-  return api(daemon.port, daemon.appToken)
+  return api(daemon.port, { appKey: daemon.appToken })
 }
 
 async function storeWithTasks(): Promise<Task[]> {

@@ -54,7 +54,7 @@ async function withDaemon(
 ): Promise<void> {
   const daemon = await startDaemon({ home, version })
   try {
-    await work(api(daemon.port, daemon.appToken))
+    await work(api(daemon.port, { appKey: daemon.appToken }))
   } finally {
     await daemon.stop()
   }

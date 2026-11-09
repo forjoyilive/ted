@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { makeTempHome, rawRequest, tokenFor } from './helpers.ts'
+import { appHeaders, makeTempHome, rawRequest, tokenFor } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -137,6 +137,9 @@ describe('the token in daemon.json and the app’s token', () => {
     ['archive a Task', 'POST', '/tasks/DEV-1/archive', {}],
     ['install the ted command', 'POST', '/command-line/install', {}],
     ['stop the daemon and its Runs', 'POST', '/shutdown', {}],
+    ['post a Comment as the human', 'POST', '/tasks/DEV-1/comments', { body: 'Approved' }],
+    ['add a Factory', 'POST', '/dev/factories', { repo: '/tmp/evil/repo', key: 'EV' }],
+    ['change a Factory’s local folder', 'PUT', '/factories/NB/local-folder', { path: '/' }],
   ])('daemon.json’s token can’t %s', async (_, method, route, body) => {
     daemon = await startDaemon({ home, version: '9.9.9' })
 
@@ -174,5 +177,20 @@ describe('the token in daemon.json and the app’s token', () => {
 
     expect(res.status).toBe(200)
     await expect.poll(() => shutdowns).toBe(1)
+  })
+
+  test('the app’s key signs each request and is never sent itself', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const body = JSON.stringify({ maxWorkingRuns: 3 })
+    const signed = appHeaders(daemon.appToken, 'PATCH', '/settings', body)
+    const patch = (headers: Record<string, string>, text = body) =>
+      rawRequest(daemon?.port ?? 0, { method: 'PATCH', path: '/settings', headers, body: text })
+
+    expect((await patch({ authorization: `Bearer ${daemon.appToken}` })).status).toBe(401)
+    expect((await patch(signed, JSON.stringify({ maxWorkingRuns: 99 }))).status).toBe(401)
+    expect((await patch(signed)).status).toBe(200)
+    expect((await patch(signed)).status).toBe(401)
+    const other = appHeaders(daemon.appToken, 'PATCH', '/tasks', body)
+    expect((await patch(other)).status).toBe(401)
   })
 })

@@ -104,7 +104,7 @@ test('an idle daemon stays up while a Run is live, and exits once it finishes', 
     })
     const exited = once(child, 'exit')
     const port = await waitForPort()
-    const client = api(port, testAppToken)
+    const client = api(port, { appKey: testAppToken })
     const finish = path.join(cwd, 'finish')
     await client.startRun([{ waitFor: finish }, { exit: 0 }], cwd)
 
