@@ -1,12 +1,20 @@
-import type { RepoSettingsInput } from '@ted/protocol/factory-settings'
+import type { FactorySettingsView, RepoSettingsInput } from '@ted/protocol/factory-settings'
 import { describe, expect, test } from 'vitest'
 import {
   changeCount,
   editedFields,
+  lastRunText,
+  lastValidLine,
   missingCopies,
   remoteFor,
+  settingsChanges,
+  settingsDraft,
+  stageEdited,
+  unsavedChanges,
   unsavedLine,
+  unsavedSummary,
 } from '../src/renderer/factory-settings.ts'
+import { markdownBlocks, markdownSpans } from '../src/renderer/markdown.ts'
 
 const app: RepoSettingsInput = {
   was: 'app',
@@ -66,5 +74,148 @@ describe('Factory settings save bar', () => {
     expect(missingCopies(['.env', 'config/master.key'])).toBe(
       '.env and config/master.key won’t be copied into new worktrees until you locate it.',
     )
+  })
+})
+
+const view: FactorySettingsView = {
+  factoryId: 'f1',
+  repo: 'kriya/app',
+  defaultBranch: 'main',
+  source: 'file',
+  version: 'v1',
+  repos: [{ ...app, was: 'app', primary: true }],
+  problems: [],
+  github: { ready: true },
+  stages: [
+    { id: 'backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
+    { id: 'design', inOrder: true, enabled: true, gate: true, maxBack: 3, from: 'ted' },
+    {
+      id: 'review',
+      inOrder: true,
+      enabled: true,
+      gate: true,
+      maxBack: 3,
+      from: 'ted',
+      inherited: { layer: 'ted', text: '# Review\n' },
+    },
+  ],
+  ignoredStageFiles: [],
+  checks: [{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }],
+  tries: [],
+  agents: [
+    { role: 'lead', inherited: { agent: 'claude' }, inheritedFrom: 'ted', from: 'ted' },
+    {
+      role: 'reviewer',
+      own: { agent: 'codex' },
+      inherited: { agent: 'claude' },
+      inheritedFrom: 'ted',
+      from: 'factory',
+    },
+    { role: 'planner', inherited: { agent: 'claude' }, inheritedFrom: 'ted', from: 'ted' },
+  ],
+  permissions: 'auto',
+  machineMaxWorkingRuns: 6,
+  notes: '',
+}
+
+describe('Factory settings draft', () => {
+  test('an untouched draft has nothing to save', () => {
+    const loaded = settingsDraft(view)
+    expect(unsavedChanges(settingsDraft(view), loaded)).toEqual({ count: 0, files: [] })
+    expect(settingsChanges(settingsDraft(view), loaded)).toEqual({ repos: loaded.repos })
+  })
+
+  test('turning the Design Gate off, adding a Check and overriding review.md count per file', () => {
+    const loaded = settingsDraft(view)
+    const draft = settingsDraft(view)
+    draft.stages.design = { enabled: true, gate: false, maxBack: 3 }
+    draft.checks.push({ name: 'Unit tests', run: 'npm test' })
+    draft.stageFiles.review = '# Review\n'
+    const changes = settingsChanges(draft, loaded)
+    expect(changes.stages).toEqual({ design: { gate: false } })
+    expect(changes.checks).toHaveLength(2)
+    expect(changes.stageFiles).toEqual({ review: '# Review\n' })
+    const unsaved = unsavedChanges(draft, loaded)
+    expect(unsaved).toEqual({ count: 3, files: ['.ted/workflow.yaml', '.ted/stages/review.md'] })
+    expect(unsavedSummary(unsaved)).toBe('3 unsaved changes to 2 files in .ted/')
+    expect([...stageEdited(draft, loaded, 'review')]).toEqual(['file'])
+  })
+
+  test('notes alone name .ted/notes.md, and resetting an agent sends null', () => {
+    const loaded = settingsDraft(view)
+    const draft = settingsDraft(view)
+    draft.notes = '# Notebook\n'
+    draft.agents.reviewer = null
+    draft.maxWorkingRuns = '3'
+    const changes = settingsChanges(draft, loaded)
+    expect(changes.agents).toEqual({ reviewer: null })
+    expect(changes.maxWorkingRuns).toBe(3)
+    expect(changes.notes).toBe('# Notebook\n')
+    const notesOnly = settingsDraft(view)
+    notesOnly.notes = 'x'
+    expect(unsavedSummary(unsavedChanges(notesOnly, loaded))).toBe(
+      '1 unsaved change to .ted/notes.md',
+    )
+  })
+
+  test('a Check’s last run reads like the Checks table', () => {
+    const now = Date.parse('2026-11-09T12:00:00Z')
+    const base = { factoryId: 'f1', name: 'Tests', repo: 'app', startedAt: '2026-11-09T10:00:00Z' }
+    expect(
+      lastRunText(
+        { ...base, state: 'passed', durationMs: 38_000, finishedAt: '2026-11-09T10:00:38Z' },
+        now,
+      ),
+    ).toBe('✓ 38s · 1h ago')
+    expect(
+      lastRunText(
+        { ...base, state: 'failed', exitCode: 1, finishedAt: '2026-11-09T11:00:00Z' },
+        now,
+      ),
+    ).toBe('✗ Exit 1 · 1h ago')
+    expect(lastRunText({ ...base, state: 'running', startedAt: '2026-11-09T11:58:56Z' }, now)).toBe(
+      'Running · 1m 04s',
+    )
+    expect(lastRunText({ ...base, state: 'failed', exitCode: 1, setupFailed: true }, now)).toBe(
+      '✗ Setup failed · 2h ago',
+    )
+  })
+
+  test('the invalid-file notice says which version TED is using', () => {
+    expect(
+      lastValidLine(
+        {
+          file: '.ted/workflow.yaml',
+          line: 12,
+          column: 18,
+          message: 'x',
+          url: 'https://github.com/kriya/app/blob/main/.ted/workflow.yaml#L12',
+          lastValid: { version: '3f9c2e1', at: '2026-11-07T11:00:00Z' },
+        },
+        Date.parse('2026-11-09T12:00:00Z'),
+      ),
+    ).toBe(
+      'TED is using the last valid version, from 3f9c2e1, 2 days ago. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.',
+    )
+  })
+})
+
+describe('Factory notes preview', () => {
+  test('reads headings, lists, paragraphs and code', () => {
+    expect(
+      markdownBlocks('# Notebook\n\n## Repos\n- app: Expo\n- api: Rails\n\nRun `npm ci` first.\n'),
+    ).toEqual([
+      { kind: 'heading', level: 1, text: 'Notebook' },
+      { kind: 'heading', level: 2, text: 'Repos' },
+      { kind: 'list', ordered: false, items: ['app: Expo', 'api: Rails'] },
+      { kind: 'paragraph', text: 'Run `npm ci` first.' },
+    ])
+    expect(markdownSpans('Run `npm ci` **first**.')).toEqual([
+      { kind: 'text', text: 'Run ' },
+      { kind: 'code', text: 'npm ci' },
+      { kind: 'text', text: ' ' },
+      { kind: 'strong', text: 'first' },
+      { kind: 'text', text: '.' },
+    ])
   })
 })

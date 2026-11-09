@@ -19,6 +19,7 @@ import {
   type BannerActionInput,
   blockedChoices,
   type CheckRepoRequest,
+  type CheckTryRequest,
   type ClarifyDepth,
   type CreateFactoryRequest,
   type CreateTaskRequest,
@@ -82,6 +83,8 @@ import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
 
+const githubLink =
+  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
@@ -193,13 +196,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   saveFactorySettings: (client, factoryId, request) =>
     client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  tryCheck: (client, factoryId, request) =>
+    client.tryCheck(String(factoryId), request as CheckTryRequest),
+  stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),
+  checkTryOutput: (client, factoryId, name) =>
+    client.checkTryOutput(String(factoryId), String(name)),
   setRepoLocalFolder: (client, factoryId, repoName, folder) =>
     client.setRepoLocalFolder(String(factoryId), String(repoName), String(folder)),
   clearRepoLocalFolder: (client, factoryId, repoName) =>
     client.clearRepoLocalFolder(String(factoryId), String(repoName)),
   openOnGitHub: async (_, target) => {
     const url = String(target)
-    if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+)?$/.test(url)) {
+    if (!githubLink.test(url)) {
       throw new Error('That isn’t a GitHub repo or pull request link')
     }
     await shell.openExternal(url)

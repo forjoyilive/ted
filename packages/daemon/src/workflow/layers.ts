@@ -48,6 +48,14 @@ export async function readGitLayer(
   return { files, version: version.slice(0, 7) }
 }
 
+export function stageFileHash(text: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest('hex')
+    .slice(0, 7)
+}
+
 export function contentVersion(files: LayerFiles): string {
   const hash = createHash('sha256')
   for (const [name, text] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {

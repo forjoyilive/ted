@@ -1,7 +1,11 @@
 import {
+  type AgentChoiceInput,
+  type AgentStageId,
   type AppInput,
   type AppKind,
+  agentRoles,
   appKinds,
+  type CheckInput,
   type FactorySettingsChanges,
   type RepoSettingsInput,
   type WorkflowProblem,
@@ -149,6 +153,22 @@ export function inputProblems(
       add(`${label}: two Apps have the same name.`)
     }
   }
+  const checks = changes.checks ?? []
+  for (const check of checks) {
+    if (check.name.trim() === '') add('Every Check needs a name.')
+    else if (check.run.trim() === '') add(`The Check ${check.name.trim()} needs a command.`)
+    const timeout = check.timeout?.trim() ?? ''
+    if (timeout !== '' && !/^\d+[smh]$/.test(timeout)) {
+      add(`The Check ${check.name.trim()}’s timeout must be a duration such as 30s, 15m or 1h.`)
+    }
+  }
+  if (new Set(checks.map((c) => c.name.trim())).size !== checks.length) {
+    add('Two Checks have the same name.')
+  }
+  const limit = changes.maxWorkingRuns
+  if (typeof limit === 'number' && (!Number.isInteger(limit) || limit < 1)) {
+    add('The limit on working Runs must be a whole number above 0.')
+  }
   return problems
 }
 
@@ -156,6 +176,7 @@ export function applyChanges(
   text: string | undefined,
   changes: FactorySettingsChanges,
   current: readonly RepoSettingsInput[],
+  basedOn: Partial<Record<AgentStageId, string | null>> = {},
 ): string {
   const doc =
     text === undefined || text.trim() === '' ? new Document({ version: 1 }) : parseDocument(text)
@@ -198,7 +219,137 @@ export function applyChanges(
       return true
     })
   }
+
+  for (const [id, stage] of Object.entries(changes.stages ?? {})) {
+    if (!stage) continue
+    const fields: [string, unknown][] = [
+      ['enabled', stage.enabled],
+      ['gate', stage.gate],
+      ['max_back', stage.maxBack],
+      ['depth', stage.depth],
+    ]
+    if (fields.every(([, value]) => value === undefined)) continue
+    const map = stageMap(doc, root, id)
+    for (const [key, value] of fields) if (value !== undefined) setKeepingStyle(map, key, value)
+  }
+  for (const [id, hash] of Object.entries(basedOn)) {
+    if (hash === undefined) continue
+    if (hash === null) {
+      const stages: unknown = root.get('stages', true)
+      const map = isMap(stages) ? stages.get(id, true) : undefined
+      if (isMap(map)) {
+        map.delete('based_on')
+        if (map.items.length === 0) (stages as unknown as YAMLMap).delete(id)
+      }
+      if (isMap(stages) && stages.items.length === 0) root.delete('stages')
+    } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
+  }
+  if (changes.checks !== undefined) writeChecks(doc, root, changes.checks)
+  for (const role of agentRoles) {
+    const choice = changes.agents?.[role]
+    if (choice === undefined) continue
+    if (choice === null) root.delete(role)
+    else writeAgent(doc, root, role, choice)
+  }
+  if (changes.permissions !== undefined) setRoot(root, 'permissions', changes.permissions)
+  if (changes.maxWorkingRuns === null) root.delete('max_working_runs')
+  else if (changes.maxWorkingRuns !== undefined) {
+    setRoot(root, 'max_working_runs', changes.maxWorkingRuns)
+  }
   return keepOriginalStyle(text, doc.toString({ lineWidth: 0, flowCollectionPadding: false }))
+}
+
+const rootOrder = [
+  'version',
+  'lead',
+  'reviewer',
+  'planner',
+  'permissions',
+  'max_working_runs',
+  'repos',
+  'order',
+  'stages',
+]
+
+function setRoot(root: YAMLMap, key: string, value: unknown): void {
+  if (root.has(key)) return void setKeepingStyle(root, key, value)
+  root.set(key, value)
+  const rank = rootOrder.indexOf(key)
+  const added = root.items.pop()
+  if (!added) return
+  const before = root.items.findIndex((pair) => {
+    const other = rootOrder.indexOf(scalarKey(pair.key))
+    return other === -1 || other > rank
+  })
+  if (before === -1) root.items.push(added)
+  else root.items.splice(before, 0, added)
+}
+
+function stageMap(doc: Document, root: YAMLMap, id: string): YAMLMap {
+  let stages: unknown = root.get('stages', true)
+  if (!isMap(stages)) {
+    stages = doc.createNode({})
+    setRoot(root, 'stages', stages)
+  }
+  const stagesMap = stages as YAMLMap
+  const found = stagesMap.get(id, true)
+  if (isMap(found)) return found
+  const map = doc.createNode({}) as YAMLMap
+  stagesMap.set(id, map)
+  return map
+}
+
+function writeChecks(doc: Document, root: YAMLMap, checks: readonly CheckInput[]): void {
+  const stages: unknown = root.get('stages', true)
+  const validate = isMap(stages) ? stages.get('validate', true) : undefined
+  const node = isMap(validate) ? validate.get('checks', true) : undefined
+  const old = isSeq(node) ? (node.items as unknown[]) : []
+  if (checks.length === 0) {
+    if (isMap(validate)) {
+      validate.delete('checks')
+      if (validate.items.length === 0) (stages as unknown as YAMLMap).delete('validate')
+    }
+    return
+  }
+  const flow = old.length === 0 || old.some((item) => isMap(item) && item.flow === true)
+  const items = checks.map((check) => {
+    const found = check.was === undefined ? undefined : old[check.was]
+    const map = isMap(found) ? found : (doc.createNode({}) as YAMLMap)
+    if (!isMap(found)) map.flow = flow
+    setKeepingStyle(map, 'name', check.name.trim())
+    setKeepingStyle(map, 'run', check.run.trim())
+    setOrDelete(map, 'repo', check.repo?.trim() || undefined)
+    setOrDelete(map, 'timeout', check.timeout?.trim() || undefined)
+    return map
+  })
+  if (isSeq(node)) node.items = items
+  else {
+    const seq = new YAMLSeq()
+    seq.items = items
+    setKeepingStyle(stageMap(doc, root, 'validate'), 'checks', seq)
+  }
+}
+
+function writeAgent(doc: Document, root: YAMLMap, role: string, choice: AgentChoiceInput): void {
+  const fields = (['agent', 'model', 'effort'] as const).flatMap((key) => {
+    const value = choice[key]?.trim()
+    return value ? [[key, value] as const] : []
+  })
+  if (fields.length === 0) return void root.delete(role)
+  const [first] = fields
+  if (fields.length === 1 && first?.[0] === 'agent') return void setRoot(root, role, first[1])
+  const existing = root.get(role, true)
+  if (isMap(existing)) {
+    for (const pair of [...existing.items]) {
+      const key = scalarKey(pair.key)
+      if (!fields.some(([k]) => k === key)) existing.delete(key)
+    }
+    for (const [key, value] of fields) setKeepingStyle(existing, key, value)
+    return
+  }
+  const map = doc.createNode(Object.fromEntries(fields)) as YAMLMap
+  map.flow = true
+  setRoot(root, role, map)
 }
 
 const unpadded = (line: string) => line.replace(/([[{]) +/g, '$1').replace(/ +([\]}])/g, '$1')
@@ -330,7 +481,18 @@ const keyOrder = [
   'kind',
   'run',
   'url',
+  'repo',
   'timeout',
+  'agent',
+  'model',
+  'effort',
+  'enabled',
+  'gate',
+  'max_back',
+  'depth',
+  'loop_check',
+  'checks',
+  'based_on',
 ]
 
 function setKeepingStyle(map: YAMLMap, key: string, value: unknown): void {

@@ -4,6 +4,7 @@ import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
+import { createCheckTries } from './check-tries.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
@@ -55,6 +56,7 @@ export interface DaemonOptions {
   stallAfterMs?: number
   online?: DaemonOnlineOptions
   limitProbeMs?: number
+  scratchMaxAgeMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -223,8 +225,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
+      const checkTries = createCheckTries({
+        store,
+        banners,
+        workflows,
+        reposDir: paths.repos,
+        scratchDir: paths.scratch,
+        emit,
+        ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
+      })
       const factorySettings = createFactorySettings({
         store,
+        checkTries,
+        installed: (kind) => agents.installed(kind),
         gh: integrations.gh,
         workflows,
         reposDir: paths.repos,
@@ -322,7 +335,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         storage,
         factories,
         factorySettings,
+        checkTries,
         async close() {
+          await checkTries.close()
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)

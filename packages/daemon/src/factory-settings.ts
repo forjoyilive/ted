@@ -2,18 +2,33 @@ import { createHash, randomBytes } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type {
-  FactorySettingsChanges,
-  FactorySettingsView,
-  IntegrationsHealth,
-  RepoSettingsInput,
-  RepoSettingsView,
-  SaveSettingsRequest,
-  SaveSettingsResult,
-  SettingsPreview,
-  SettingsSource,
-  WorkflowProblem,
+import {
+  type AgentChoiceInput,
+  type AgentKind,
+  type AgentRowView,
+  type AgentStageId,
+  agentRoles,
+  agentStageIds,
+  type CheckView,
+  type ClarifyDepth,
+  type Effort,
+  type FactorySettingsChanges,
+  type FactorySettingsView,
+  type FileChange,
+  type IntegrationsHealth,
+  type InvalidSettings,
+  type LayerKind,
+  type RepoSettingsInput,
+  type RepoSettingsView,
+  type SaveSettingsRequest,
+  type SaveSettingsResult,
+  type SettingsPreview,
+  type SettingsSource,
+  type StageId,
+  type StageRowView,
+  type WorkflowProblem,
 } from '@ted/protocol'
+import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import type { Factories } from './factory-setup.ts'
@@ -30,9 +45,12 @@ import {
   readPullRequests,
 } from './tasks/merge.ts'
 import { parsePullRequestUrl } from './tasks/pull-requests.ts'
+import { resolveAgentChoices } from './workflow/agent-choices.ts'
 import {
+  type CheckedLayer,
   checkLayer,
   githubRepoOf,
+  type LayerFiles,
   maxFactoryRepos,
   type WorkflowSettings,
 } from './workflow/check.ts'
@@ -43,9 +61,9 @@ import {
   inputProblems,
   isRepo,
   repoSettingsFrom,
-  workflowFile,
 } from './workflow/edit.ts'
-import { readGitLayer } from './workflow/layers.ts'
+import { readGitLayer, stageFileHash } from './workflow/layers.ts'
+import { resolveWorkflow } from './workflow/resolve.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface FactorySettings {
@@ -61,19 +79,29 @@ export interface FactorySettingsOptions {
   reposDir: string
   health: () => Promise<IntegrationsHealth | undefined>
   factories: Pick<Factories, 'checkRepo' | 'approveRepos'>
+  checkTries: Pick<CheckTries, 'list'>
+  installed: (agent: AgentKind) => boolean
   mergeTries?: number
   mergeWaitMs?: number
 }
 
 interface Base {
   commit: string
+  current: LayerFiles
+  files: LayerFiles
   text: string | undefined
   source: SettingsSource
   version: string
   settings: WorkflowSettings | undefined
   problems: WorkflowProblem[]
   repos: RepoSettingsInput[]
+  inherited: CheckedLayer[]
 }
+
+const knownFile = (file: string) =>
+  file === 'workflow.yaml' ||
+  file === 'notes.md' ||
+  agentStageIds.some((id) => file === `stages/${id}.md`)
 
 export const settingsTitle = 'Update TED settings'
 
@@ -99,42 +127,37 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     }
     const commit = await git.revParse(clone, `origin/${factory.defaultBranch}`)
     const layer = await readGitLayer(clone, commit)
-    const files = layer?.files ?? {}
-    const checked = checkLayer({ kind: 'factory', files, primaryRepo: factory.repo })
-    const current = files['workflow.yaml']
-    let text: string | undefined
+    const current = layer?.files ?? {}
+    const checked = checkLayer({ kind: 'factory', files: current, primaryRepo: factory.repo })
+    let files: LayerFiles
     let source: SettingsSource
-    let settings: WorkflowSettings | undefined
     if (checked.valid) {
-      text = typeof current === 'string' ? current : undefined
-      source = text === undefined ? 'none' : 'file'
-      settings = checked.settings
+      files = current
+      source = typeof current['workflow.yaml'] === 'string' ? 'file' : 'none'
     } else {
       const last = store.lastValidWorkflowLayer(`factory:${factory.id}`)
-      const lastText = last?.files['workflow.yaml']
-      text = typeof lastText === 'string' ? lastText : undefined
-      source = text === undefined ? 'none' : 'last-valid'
-      settings =
-        text === undefined
-          ? undefined
-          : checkLayer({
-              kind: 'factory',
-              files: { 'workflow.yaml': text },
-              primaryRepo: factory.repo,
-            }).settings
+      files = last?.files ?? {}
+      source = typeof files['workflow.yaml'] === 'string' ? 'last-valid' : 'none'
     }
-    const version = createHash('sha256')
-      .update(`${source}\0${text ?? ''}`)
-      .digest('hex')
-      .slice(0, 12)
+    const shown = checkLayer({ kind: 'factory', files, primaryRepo: factory.repo })
+    const workflowText = files['workflow.yaml']
+    const text = typeof workflowText === 'string' ? workflowText : undefined
+    const settings = text === undefined ? undefined : shown.settings
+    const hash = createHash('sha256').update(`${source}\0`)
+    for (const [name, value] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
+      if (knownFile(name)) hash.update(`${name}\0${value ?? '\0unreadable'}\0`)
+    }
     return {
       commit,
+      current,
+      files,
       text,
       source,
-      version,
+      version: hash.digest('hex').slice(0, 12),
       settings,
       problems: checked.problems,
       repos: repoSettingsFrom(settings, factory.repos),
+      inherited: await workflows.inherited(),
     }
   }
 
@@ -174,16 +197,133 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     return { path: folder, found, copies }
   }
 
-  function edited(base: Base, factory: StoredFactory, changes: FactorySettingsChanges) {
+  function edited(
+    base: Base,
+    factory: StoredFactory,
+    changes: FactorySettingsChanges,
+  ): { problems: WorkflowProblem[]; files: Record<string, string | null> } {
     const problems = inputProblems(changes, base.repos)
-    if (problems.length > 0) return { problems, text: base.text ?? '' }
-    const text = applyChanges(base.text, changes, base.repos)
-    const checked = checkLayer({
-      kind: 'factory',
-      files: { 'workflow.yaml': text },
-      primaryRepo: factory.repo,
+    if (problems.length > 0) return { problems, files: {} }
+    const inherited = resolveWorkflow(base.inherited)
+    const basedOn: Partial<Record<AgentStageId, string | null>> = {}
+    const after: LayerFiles = Object.fromEntries(
+      Object.entries(base.files).filter(([name]) => knownFile(name)),
+    )
+    for (const [id, text] of Object.entries(changes.stageFiles ?? {}) as [
+      AgentStageId,
+      string | null | undefined,
+    ][]) {
+      if (text === undefined) continue
+      const file = `stages/${id}.md`
+      if (text === null) {
+        if (after[file] !== undefined) basedOn[id] = null
+        delete after[file]
+        continue
+      }
+      if (typeof after[file] !== 'string') {
+        const from = inherited.stageFile(id)
+        if (from) basedOn[id] = stageFileHash(from.text)
+      }
+      after[file] = text
+    }
+    if (changes.notes !== undefined) {
+      if (changes.notes.trim() === '') delete after['notes.md']
+      else after['notes.md'] = changes.notes
+    }
+    after['workflow.yaml'] = applyChanges(base.text, changes, base.repos, basedOn)
+    const checked = checkLayer({ kind: 'factory', files: after, primaryRepo: factory.repo })
+    const errors = checked.problems.filter((p) => p.severity === 'error')
+    if (errors.length > 0) return { problems: errors, files: {} }
+    const writes: Record<string, string | null> = {}
+    const names = new Set([...Object.keys(after), ...Object.keys(base.current)])
+    for (const name of [...names].filter(knownFile).sort(fileOrder)) {
+      const next = after[name] ?? null
+      const before = base.current[name]
+      if (before === undefined && next === null) continue
+      if (next !== before) writes[`.ted/${name}`] = next
+    }
+    return { problems: [], files: writes }
+  }
+
+  function turnsOnBypass(base: Base, changes: FactorySettingsChanges): boolean {
+    return changes.permissions === 'bypass' && base.settings?.permissions !== 'bypass'
+  }
+
+  function fileChanges(base: Base, files: Record<string, string | null>): FileChange[] {
+    return Object.entries(files).map(([file, text]) => {
+      const before = base.current[file.slice('.ted/'.length)]
+      return fileChange(file, typeof before === 'string' ? before : '', text ?? '')
     })
-    return { problems: checked.problems.filter((p) => p.severity === 'error'), text }
+  }
+
+  function stageRows(base: Base): StageRowView[] {
+    const own = checkLayer({ kind: 'factory', files: base.files })
+    const inherited = resolveWorkflow(base.inherited)
+    const full = resolveWorkflow([...base.inherited, own])
+    const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
+    return ids.map((id) => {
+      const stage = full.settings.stages[id]
+      const agent = id !== 'backlog' && id !== 'done' ? id : undefined
+      const inOrder = agent === undefined || full.order.includes(agent)
+      const file = agent ? full.stageFile(agent) : undefined
+      const from = agent ? inherited.stageFile(agent) : undefined
+      const factoryFile = agent ? own.stageFiles[agent] : undefined
+      const basedOn = own.settings.stages[id]?.based_on
+      return {
+        id,
+        inOrder,
+        enabled: inOrder && (id === 'done' || stage?.enabled !== false),
+        gate: stage?.gate === true,
+        ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
+        ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        from: file?.layer ?? 'ted',
+        ...(factoryFile !== undefined && { factoryFile }),
+        ...(from &&
+          from.layer !== 'factory' && { inherited: { layer: from.layer, text: from.text } }),
+        ...(basedOn !== undefined && { basedOn }),
+      }
+    })
+  }
+
+  function agentRows(base: Base): AgentRowView[] {
+    const inherited = resolveWorkflow(base.inherited).settings
+    const library = base.inherited.find((l) => l.kind === 'library')?.settings
+    const resolved = resolveAgentChoices(inherited, {
+      claude: options.installed('claude'),
+      codex: options.installed('codex'),
+    })
+    return agentRoles.map((role) => {
+      const own = base.settings?.[role]
+      const shown = { ...inherited[role], agent: inherited[role]?.agent ?? resolved[role].agent }
+      const inheritedFrom: LayerKind = library?.[role] ? 'library' : 'ted'
+      return {
+        role,
+        ...(own && { own: choiceInput(own) }),
+        inherited: choiceInput(shown),
+        inheritedFrom,
+        from: own ? 'factory' : inheritedFrom,
+      }
+    })
+  }
+
+  async function invalid(factory: StoredFactory, base: Base): Promise<InvalidSettings | undefined> {
+    const error = base.problems.find((p) => p.severity === 'error')
+    if (!error) return undefined
+    const last = store.lastValidWorkflowLayer(`factory:${factory.id}`)
+    const at = last
+      ? await git
+          .commitDate(clonePath(reposDir, factory), last.version)
+          .catch(() => last.acceptedAt)
+      : undefined
+    const url = `https://github.com/${factory.repo}/blob/${encodeURIComponent(factory.defaultBranch)}/${error.file}${error.line > 0 ? `#L${error.line}` : ''}`
+    return {
+      file: error.file,
+      line: error.line,
+      column: error.column,
+      message: error.message,
+      url,
+      ...(last && at !== undefined && { lastValid: { version: last.version, at } }),
+    }
   }
 
   function sideEffects(base: Base, changes: FactorySettingsChanges): string[] {
@@ -297,6 +437,15 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           }
         }),
       )
+      const checks: CheckView[] = (base.settings?.stages.validate?.checks ?? []).map((c, was) => ({
+        was,
+        name: c.name,
+        run: c.run,
+        ...(c.repo !== undefined && { repo: c.repo }),
+        ...(c.timeout !== undefined && { timeout: c.timeout }),
+      }))
+      const notes = base.files['notes.md']
+      const problem = await invalid(factory, base)
       return {
         factoryId: factory.id,
         repo: factory.repo,
@@ -306,22 +455,37 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         repos,
         problems: base.problems,
         github: await github(),
+        stages: stageRows(base),
+        ignoredStageFiles: Object.keys(base.current)
+          .filter((name) => name.startsWith('stages/') && !knownFile(name))
+          .map((name) => `.ted/${name}`),
+        checks,
+        tries: await options.checkTries.list(factory.id),
+        agents: agentRows(base),
+        permissions: base.settings?.permissions === 'bypass' ? 'bypass' : 'auto',
+        ...(base.settings?.max_working_runs !== undefined && {
+          maxWorkingRuns: base.settings.max_working_runs,
+        }),
+        machineMaxWorkingRuns: store.settings().maxWorkingRuns,
+        notes: typeof notes === 'string' ? notes : '',
+        ...(problem && { invalid: problem }),
       }
     },
 
     async preview(factoryId, changes) {
       const factory = find(factoryId)
       const base = await load(factory, false)
-      const { problems, text } = edited(base, factory, changes)
+      const { problems, files } = edited(base, factory, changes)
       return {
-        files: problems.length > 0 ? [] : [fileChange(workflowFile, base.text ?? '', text)],
+        files: fileChanges(base, files),
         problems,
         sideEffects: sideEffects(base, changes),
-        valid: problems.length === 0 && text !== (base.text ?? ''),
+        valid: problems.length === 0 && Object.keys(files).length > 0,
+        turnsOnBypass: turnsOnBypass(base, changes),
       }
     },
 
-    async save(factoryId, { changes, mode, version }) {
+    async save(factoryId, { changes, mode, version, confirmBypass }) {
       const factory = find(factoryId)
       const account = await github()
       if (!account.ready) throw new RequestError(409, account.problem ?? 'GitHub isn’t ready.')
@@ -337,13 +501,19 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             'The TED settings changed on GitHub after this page loaded. Discard your changes to see them, then edit again.',
           )
         }
-        const { problems, text } = edited(base, factory, changes)
+        const { problems, files } = edited(base, factory, changes)
         const first = problems[0]
         if (first) {
           const at = first.line > 0 ? ` (line ${first.line})` : ''
           throw new RequestError(400, `${first.message}${at}`)
         }
-        if (text === (base.text ?? '')) throw new RequestError(400, 'There’s nothing to save.')
+        if (Object.keys(files).length === 0) throw new RequestError(400, 'There’s nothing to save.')
+        if (turnsOnBypass(base, changes) && confirmBypass !== true) {
+          throw new RequestError(
+            409,
+            'This save turns on Bypass for every Run in the Factory. Confirm it in the Save dialog.',
+          )
+        }
         const added = changes.repos.filter((r) => r.was === undefined).map((r) => r.repo)
         for (const repo of added) {
           const check = await options.factories.checkRepo({
@@ -356,7 +526,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         const branch = `ted/settings-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`
         const commit = await git.commitAndPush(clone, {
           base: base.commit,
-          files: { [workflowFile]: text },
+          files,
           message: settingsTitle,
           branch,
           url: factory.cloneUrl,
@@ -376,7 +546,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             '--body-file',
             '-',
           ],
-          { input: pullRequestBody(sideEffects(base, changes)) },
+          { input: pullRequestBody(sideEffects(base, changes), turnsOnBypass(base, changes)) },
         )
         const pullRequest = parsePullRequestUrl(out)
         if (!pullRequest) throw new RequestError(502, 'GitHub didn’t return the pull request.')
@@ -443,13 +613,35 @@ export function storedRepos(
   return wanted
 }
 
-function pullRequestBody(effects: string[]): string {
+function pullRequestBody(effects: string[], bypass: boolean): string {
   return [
     'TED settings changed from Factory settings.',
+    ...(bypass
+      ? [
+          '**This turns on Bypass:** every Run in this Factory runs without permission prompts. Only for Factories whose Runs happen in an isolated machine or VM.',
+        ]
+      : []),
     ...effects.map((e) => `- ${e}`),
     '---',
     'Opened by TED.',
   ].join('\n\n')
+}
+
+function fileOrder(a: string, b: string): number {
+  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : name === 'notes.md' ? 2 : 1)
+  return rank(a) - rank(b) || a.localeCompare(b)
+}
+
+function choiceInput(choice: {
+  agent?: string
+  model?: string
+  effort?: string
+}): AgentChoiceInput {
+  return {
+    ...(choice.agent !== undefined && { agent: choice.agent }),
+    ...(choice.model !== undefined && { model: choice.model }),
+    ...(choice.effort !== undefined && { effort: choice.effort as Effort }),
+  }
 }
 
 function same(a: string, b: string): boolean {
