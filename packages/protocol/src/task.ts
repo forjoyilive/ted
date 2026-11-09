@@ -418,6 +418,34 @@ export interface Comment {
   readAt?: string
   failed?: { runId: string }
   attachments?: Attachment[]
+  design?: DesignReview
+}
+
+export interface DesignFile {
+  hash: string
+  name: string
+  caption?: string
+}
+
+export interface DesignReview {
+  summary?: string
+  screenshots?: DesignFile[]
+  video?: DesignFile
+  prototype?: DesignFile
+  figma?: { url: string; label?: string }
+  worthYourEye?: string[]
+}
+
+export type DesignFileInput = AttachmentRef & { caption?: string }
+
+export interface DesignReviewInput {
+  title?: string
+  summary?: string
+  screenshots?: DesignFileInput[]
+  video?: DesignFileInput
+  prototype?: DesignFileInput
+  figma?: { url: string; label?: string }
+  worthYourEye?: string[]
 }
 
 export interface CommentGate {
@@ -521,7 +549,13 @@ export interface SetActivityRequest {
 }
 
 export type ReportOutcomeRequest =
-  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments; changes?: string }
+  | {
+      outcome: 'advance'
+      skip?: boolean
+      judged?: ValidateJudgments
+      changes?: string
+      design?: DesignReviewInput
+    }
   | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
   | { outcome: 'ask'; question: string; choices?: string[] }
 

@@ -166,6 +166,8 @@ export const ted = {
     window.ted.request('deleteTask', taskId, options) as Promise<void>,
   openPullRequest: (taskId: string, repoName: string) =>
     window.ted.request('openPullRequest', taskId, repoName) as Promise<void>,
+  openFigmaLink: (taskId: string, commentId: string) =>
+    window.ted.request('openFigmaLink', taskId, commentId) as Promise<void>,
   blockTask: (taskId: string, by: string) =>
     window.ted.request('blockTask', taskId, by) as Promise<Task>,
   unblockTask: (taskId: string, by: string) =>

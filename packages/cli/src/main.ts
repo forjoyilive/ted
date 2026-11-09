@@ -14,6 +14,8 @@ import {
   type ClarifyDepth,
   DaemonClient,
   DaemonUnreachableError,
+  type DesignFileInput,
+  type DesignReviewInput,
   type Effort,
   efforts,
   type Factory,
@@ -54,6 +56,9 @@ const usage = `Usage:
                                              (--skip: the Stage had nothing to do; skips its Gate)
                 [--changes "<one line>"]       On a re-sign-off, say what changed since the human
                                              approved
+                [--design <file>]              At Design, post the design review: a JSON file with
+                                             screenshots, a video, a prototype, a Figma link and
+                                             Worth your eye (see the Design Stage file)
   ted outcome back --to <Stage> --findings <file>
                                              Send the Task back to an earlier Stage
                 At Validate, both take [--review pass|fail] [--review-notes <n>]
@@ -114,6 +119,7 @@ function parse() {
         attach: { type: 'string', multiple: true },
         agent: { type: 'string' },
         'default-model': { type: 'boolean' },
+        design: { type: 'string' },
         effort: { type: 'string' },
         model: { type: 'string' },
         name: { type: 'string' },
@@ -169,6 +175,10 @@ async function readStdin(): Promise<string> {
 }
 
 const mediaTypes: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.m4v': 'video/mp4',
+  '.webm': 'video/webm',
+  '.mov': 'video/quicktime',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -299,14 +309,17 @@ try {
     const skip = options.skip === true
     const judged = judgments()
     const changes = options.changes
-    const result = await withDaemon(home, (client) =>
-      client.reportOutcome(ref, {
+    const review = options.design === undefined ? undefined : await readDesign(options.design)
+    const result = await withDaemon(home, async (client) => {
+      const design = review && (await uploadDesign(client, ref, review))
+      return client.reportOutcome(ref, {
         outcome: 'advance',
         ...(skip && { skip }),
         ...(judged && { judged }),
         ...(changes !== undefined && { changes }),
-      }),
-    )
+        ...(design && { design }),
+      })
+    })
     console.log(result.message)
   } else if (group === 'outcome' && command === 'back' && rest.length === 0) {
     const ref = taskRef()
@@ -857,6 +870,75 @@ function summarize(line: string): string {
   )
   const kind = [message.type, message.subtype, message.hook_name].filter(Boolean).join(' ')
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
+}
+
+interface DesignFileSpec {
+  path: string
+  caption?: string
+}
+
+interface DesignSpec extends Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'> {
+  screenshots?: DesignFileSpec[]
+  video?: DesignFileSpec
+  prototype?: DesignFileSpec
+}
+
+function fileSpec(value: unknown, what: string): DesignFileSpec {
+  if (typeof value === 'string') return { path: value }
+  const { path: file, caption } = (value ?? {}) as Record<string, unknown>
+  if (typeof file !== 'string' || (caption !== undefined && typeof caption !== 'string')) {
+    throw new UsageError(`the design file’s ${what} needs a path, as text or as { "path": … }`)
+  }
+  return { path: file, ...(caption !== undefined && { caption }) }
+}
+
+async function readDesign(file: string): Promise<DesignSpec> {
+  const text = await readFile(path.resolve(file), 'utf8')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error) {
+    throw new UsageError(
+      `the design file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
+    )
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new UsageError('the design file must hold a JSON object')
+  }
+  const { screenshots, video, prototype, ...rest } = parsed as Record<string, unknown>
+  if (screenshots !== undefined && !Array.isArray(screenshots)) {
+    throw new UsageError('the design file’s screenshots must be a list')
+  }
+  return {
+    ...(rest as Omit<DesignReviewInput, 'screenshots' | 'video' | 'prototype'>),
+    ...(screenshots && { screenshots: screenshots.map((s) => fileSpec(s, 'screenshot')) }),
+    ...(video !== undefined && { video: fileSpec(video, 'video') }),
+    ...(prototype !== undefined && { prototype: fileSpec(prototype, 'prototype') }),
+  }
+}
+
+async function uploadDesign(
+  client: DaemonClient,
+  ref: string,
+  { screenshots, video, prototype, ...rest }: DesignSpec,
+): Promise<DesignReviewInput> {
+  const upload = async ({ path: file, caption }: DesignFileSpec): Promise<DesignFileInput> => {
+    const bytes = new Uint8Array(await readFile(path.resolve(file)))
+    const saved = await client.uploadTaskAttachment(
+      ref,
+      { name: path.basename(file), mediaType: mediaTypeOf(file) },
+      bytes,
+    )
+    return { ...saved, ...(caption !== undefined && { caption }) }
+  }
+  const shots = []
+  for (const shot of screenshots ?? []) shots.push(await upload(shot))
+  return {
+    ...rest,
+    ...(shots.length > 0 && { screenshots: shots }),
+    ...(video && { video: await upload(video) }),
+    ...(prototype && { prototype: await upload(prototype) }),
+  }
 }
 
 async function readRound(file: string): Promise<RoundInput> {

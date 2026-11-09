@@ -19,7 +19,6 @@ import {
   isModelName,
   type PostCommentRequest,
   priorities,
-  type ReportOutcomeRequest,
   type ResumeTaskRequest,
   type RoundInput,
   type RoundQuestion,
@@ -33,7 +32,12 @@ import {
 } from '@ted/protocol'
 import type { Attachments } from '../attachments.ts'
 import { RequestError as HttpError } from '../errors.ts'
-import type { CreateTaskInput } from '../tasks/tasks.ts'
+import type {
+  CreateTaskInput,
+  DesignSubmission,
+  DesignSubmissionFile,
+  OutcomeInput,
+} from '../tasks/tasks.ts'
 import { type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
@@ -449,8 +453,8 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/outcome$/,
     runToken: true,
-    async handle({ req, params: [ref = ''], caller }, { tasks }) {
-      const outcome = outcomeRequest(await readJson(req))
+    async handle({ req, params: [ref = ''], caller }, { tasks, attachments }) {
+      const outcome = await outcomeRequest(await readJson(req), attachments)
       return [200, await tasks.reportOutcome(ref, caller, outcome)]
     },
   },
@@ -713,7 +717,7 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
   return { question: text, ...(options && { choices: options }), recommended: pick }
 }
 
-function outcomeRequest(body: unknown): ReportOutcomeRequest {
+async function outcomeRequest(body: unknown, attachments: Attachments): Promise<OutcomeInput> {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const judged = judgments(request.judged)
   if (request.outcome === 'advance') {
@@ -721,11 +725,17 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
     if ([...changes].length > 300) {
       throw new HttpError(400, 'the changes summary is limited to 300 characters')
     }
+    const design =
+      request.design === undefined ? undefined : await designReview(request.design, attachments)
+    if (design && request.skip === true) {
+      throw new HttpError(400, 'a skipped Design has no design review')
+    }
     return {
       outcome: 'advance',
       ...(request.skip === true && { skip: true }),
       ...(judged && { judged }),
       ...(changes !== '' && { changes }),
+      ...(design && { design }),
     }
   }
   if (request.outcome === 'back') {
@@ -744,6 +754,120 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
     return { outcome: 'ask', question, ...(choices && { choices }) }
   }
   throw new HttpError(400, 'outcome must be advance, back or ask')
+}
+
+const maxScreenshots = 12
+const maxWorthYourEye = 10
+const imageTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']
+const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime']
+
+function shortText(value: unknown, what: string, limit: number): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string') throw new HttpError(400, `${what} must be text`)
+  const text = oneLine(value)
+  if ([...text].length > limit) {
+    throw new HttpError(400, `${what} is limited to ${limit} characters`)
+  }
+  return text === '' ? undefined : text
+}
+
+async function designFile(
+  value: unknown,
+  role: string,
+  types: readonly string[],
+  attachments: Attachments,
+): Promise<DesignSubmissionFile> {
+  if (typeof value !== 'object' || value === null) {
+    throw new HttpError(400, `the ${role} needs a hash and a name`)
+  }
+  const { hash, name, mediaType, caption } = value as Record<string, unknown>
+  if (typeof hash !== 'string' || typeof name !== 'string') {
+    throw new HttpError(400, `the ${role} needs a hash and a name`)
+  }
+  const file = await attachments.find({
+    hash,
+    name,
+    mediaType: typeof mediaType === 'string' ? mediaType : '',
+  })
+  if (!types.includes(file.mediaType)) {
+    throw new HttpError(400, `${file.name} can’t be the ${role}; ${roleTypes[role] ?? ''}`)
+  }
+  const text = shortText(caption, `the ${role}’s caption`, 80)
+  return { ...file, ...(text !== undefined && { caption: text }) }
+}
+
+const roleTypes: Record<string, string> = {
+  screenshot: 'a screenshot is a PNG, JPEG, GIF, WebP or SVG image',
+  video: 'the video is an MP4, WebM or QuickTime file',
+  prototype: 'the prototype is an HTML file',
+}
+
+function figmaLink(value: unknown): DesignSubmission['figma'] {
+  if (value === undefined) return undefined
+  const { url, label } = (typeof value === 'object' && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >
+  const parsed = typeof url === 'string' && URL.canParse(url) ? new URL(url) : undefined
+  const host = parsed?.protocol === 'https:' ? parsed.hostname : ''
+  if (!parsed || (host !== 'figma.com' && !host.endsWith('.figma.com'))) {
+    throw new HttpError(400, 'the Figma link must be an https://www.figma.com/ URL')
+  }
+  const text = shortText(label, 'the Figma link’s label', 120)
+  return { url: parsed.href, ...(text !== undefined && { label: text }) }
+}
+
+async function designReview(value: unknown, attachments: Attachments): Promise<DesignSubmission> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'design must be an object')
+  }
+  const input = value as Record<string, unknown>
+  const title = shortText(input.title, 'the design review’s title', 200)
+  const summary = typeof input.summary === 'string' ? input.summary.trim() : undefined
+  if (input.summary !== undefined && summary === undefined) {
+    throw new HttpError(400, 'the summary must be text')
+  }
+  if (summary !== undefined && [...summary].length > 1000) {
+    throw new HttpError(400, 'the summary is limited to 1000 characters')
+  }
+  if (input.screenshots !== undefined && !Array.isArray(input.screenshots)) {
+    throw new HttpError(400, 'screenshots must be a list')
+  }
+  const shots = (input.screenshots as unknown[] | undefined) ?? []
+  if (shots.length > maxScreenshots) {
+    throw new HttpError(400, `a design review shows at most ${maxScreenshots} screenshots`)
+  }
+  const screenshots = await Promise.all(
+    shots.map((shot) => designFile(shot, 'screenshot', imageTypes, attachments)),
+  )
+  const video =
+    input.video === undefined
+      ? undefined
+      : await designFile(input.video, 'video', videoTypes, attachments)
+  const prototype =
+    input.prototype === undefined
+      ? undefined
+      : await designFile(input.prototype, 'prototype', ['text/html'], attachments)
+  const figma = figmaLink(input.figma)
+  if (input.worthYourEye !== undefined && !Array.isArray(input.worthYourEye)) {
+    throw new HttpError(400, 'worthYourEye must be a list')
+  }
+  const points = ((input.worthYourEye as unknown[] | undefined) ?? []).flatMap((point) => {
+    const text = shortText(point, 'each Worth your eye point', 300)
+    return text === undefined ? [] : [text]
+  })
+  if (points.length > maxWorthYourEye) {
+    throw new HttpError(400, `Worth your eye holds at most ${maxWorthYourEye} points`)
+  }
+  return {
+    ...(title !== undefined && { title }),
+    ...(summary !== undefined && summary !== '' && { summary }),
+    ...(screenshots.length > 0 && { screenshots }),
+    ...(video && { video }),
+    ...(prototype && { prototype }),
+    ...(figma && { figma }),
+    ...(points.length > 0 && { worthYourEye: points }),
+  }
 }
 
 function judgments(value: unknown): ValidateJudgments | undefined {

@@ -297,6 +297,139 @@ describe('TED app', () => {
     expect(sent.attachments?.map((a) => a.name)).toEqual(['dropped.png', 'notes.txt'])
   })
 
+  test('the design review card shows screenshots, the video, a runnable sandboxed prototype, the Figma link and Worth your eye', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work]\n',
+    })
+    await addFactory(origin, 'NB')
+    const files = path.join(home, 'design')
+    await mkdir(files)
+    const at = (name: string) => path.join(files, name)
+    await writeFile(at('welcome.png'), Buffer.from(onePixelPng, 'base64'))
+    await writeFile(at('walkthrough.webm'), 'not really a video')
+    await writeFile(
+      at('onboarding.html'),
+      [
+        '<p id="step">Step 1 of 2</p>',
+        '<script>',
+        'const next = document.createElement("button")',
+        'next.textContent = "Next"',
+        'next.addEventListener("click", () => {',
+        '  document.getElementById("step").textContent = "Step 2 of 2"',
+        '})',
+        'document.body.append(next)',
+        '</script>',
+      ].join('\n'),
+    )
+    await writeFile(
+      at('brief.md'),
+      '## Goal\n\nOnboarding design: two steps\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nReady.\n\n## Open questions\n\nNone.\n\n## Next step\n\nBuild.\n',
+    )
+    await writeFile(
+      at('design.json'),
+      JSON.stringify({
+        summary: 'Merged the welcome and sync screens into one.',
+        screenshots: [{ path: at('welcome.png'), caption: 'Step 1 · Welcome' }],
+        video: { path: at('walkthrough.webm'), caption: 'Walkthrough · 0:42' },
+        prototype: at('onboarding.html'),
+        figma: { url: 'https://www.figma.com/design/abc/Onboarding', label: 'Onboarding v2' },
+        worthYourEye: ['Skipping sign-in on step 1.', 'The notification ask waits.'],
+      }),
+    )
+    const steps = JSON.stringify({
+      steps: [
+        {
+          everyMessage: [
+            { run: ['ted', 'brief', 'write', '--file', at('brief.md')] },
+            { run: ['ted', 'outcome', 'advance', '--design', at('design.json')] },
+            { endTurn: true },
+          ],
+        },
+        { run: ['ted', 'outcome', 'advance'] },
+        { endTurn: true },
+      ],
+    })
+    await ted('task', 'create', '--factory', 'NB', '--start', steps)
+    const window = await launchApp()
+    await app?.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Design review' })
+    await card.waitFor({ timeout: 40_000 })
+
+    await card.getByRole('heading', { name: 'Onboarding design: two steps' }).waitFor()
+    await card.getByText('Merged the welcome and sync screens into one.').waitFor()
+    await card.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
+    await card.getByRole('button', { name: 'Play Walkthrough · 0:42' }).click()
+    const player = window.getByRole('dialog', { name: 'Walkthrough · 0:42' })
+    await player.locator('video').waitFor()
+    await player.press('Escape')
+    await player.waitFor({ state: 'detached' })
+
+    const prototype = card.getByRole('region', { name: 'Prototype' })
+    await prototype.getByText('onboarding.html · interactive · sandboxed').waitFor()
+    const frame = prototype.locator('iframe[title="onboarding.html"]')
+    expect(await frame.getAttribute('sandbox')).toBe('allow-scripts')
+    const inside = frame.contentFrame()
+    await inside.getByRole('button', { name: 'Next' }).click()
+    await inside.getByText('Step 2 of 2').waitFor()
+    expect(
+      await inside.locator('body').evaluate(async () => {
+        const parentReach = (() => {
+          try {
+            return typeof self.parent.document
+          } catch {
+            return 'blocked'
+          }
+        })()
+        const fetched = await fetch(location.href).then(
+          () => 'fetched',
+          () => 'blocked',
+        )
+        return [parentReach, fetched]
+      }),
+    ).toEqual(['blocked', 'blocked'])
+    await prototype.getByRole('button', { name: 'Restart' }).click()
+    await frame.contentFrame().getByText('Step 1 of 2').waitFor()
+    await prototype.getByRole('button', { name: 'Open full size ↗' }).click()
+    const full = window.getByRole('dialog', { name: 'onboarding.html' })
+    await full
+      .locator('iframe[title="onboarding.html"]')
+      .contentFrame()
+      .getByText('Step 1 of 2')
+      .waitFor()
+    await full.press('Escape')
+    await full.waitFor({ state: 'detached' })
+
+    const figma = card.getByRole('group', { name: 'Figma' })
+    await figma.getByText('Onboarding v2').waitFor()
+    await figma.getByRole('button', { name: 'Open ↗' }).click()
+    await expect
+      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .toEqual(['https://www.figma.com/design/abc/Onboarding'])
+
+    const worth = card.getByRole('region', { name: 'Worth your eye' })
+    expect(await worth.getByRole('listitem').allTextContents()).toEqual([
+      'Skipping sign-in on step 1.',
+      'The notification ask waits.',
+    ])
+
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Keep the Skip link.')
+    await card.getByRole('button', { name: 'Approve' }).click()
+    const answered = thread.getByRole('region', { name: 'Design review, answered' })
+    await answered.getByText('You approved').waitFor()
+    await answered.getByText('“Keep the Skip link.”').waitFor()
+  }, 90_000)
+
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {

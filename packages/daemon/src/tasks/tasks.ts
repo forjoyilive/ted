@@ -18,6 +18,8 @@ import type {
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
+  DesignFile,
+  DesignReview,
   EditTaskRequest,
   Effort,
   FactoryBoard,
@@ -188,6 +190,24 @@ export interface CreateTaskInput
   start?: boolean
 }
 
+export type DesignSubmissionFile = Attachment & { caption?: string }
+
+export interface DesignSubmission {
+  title?: string
+  summary?: string
+  screenshots?: DesignSubmissionFile[]
+  video?: DesignSubmissionFile
+  prototype?: DesignSubmissionFile
+  figma?: { url: string; label?: string }
+  worthYourEye?: string[]
+}
+
+type AdvanceRequest = Extract<ReportOutcomeRequest, { outcome: 'advance' }>
+
+export type OutcomeInput =
+  | Exclude<ReportOutcomeRequest, { outcome: 'advance' }>
+  | (Omit<AdvanceRequest, 'design'> & { design?: DesignSubmission })
+
 export interface Tasks {
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
@@ -227,7 +247,7 @@ export interface Tasks {
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
   setActivity(ref: string, caller: Caller, text: string): Task
-  reportOutcome(ref: string, caller: Caller, outcome: ReportOutcomeRequest): Promise<OutcomeResult>
+  reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
   brief(ref: string, caller: Caller): TaskBrief
@@ -300,6 +320,16 @@ export function createTasks(options: {
   const stoppingForBlockers = new Set<string>()
   const sendingComments = new Set<string>()
   const runUploads = new Set<string>()
+  const checkOwnFiles = (task: StoredTask, files: readonly Attachment[]) => {
+    const known = new Set(store.taskFiles(task.id).map((a) => a.hash))
+    const foreign = files.find((a) => !known.has(a.hash) && !runUploads.has(`${task.id}:${a.hash}`))
+    if (foreign) {
+      throw new RequestError(
+        403,
+        `${foreign.name} isn’t on ${task.displayId}; attach your own files with ted comment --attach`,
+      )
+    }
+  }
   const commentText = (comment: Comment): string => {
     const files = comment.attachments ?? []
     return [
@@ -4781,16 +4811,7 @@ export function createTasks(options: {
         return humanComment(task, body, attachments)
       }
       const { task, runId } = ownTask(ref, caller)
-      const known = new Set(store.taskFiles(task.id).map((a) => a.hash))
-      const foreign = attachments.find(
-        (a) => !known.has(a.hash) && !runUploads.has(`${task.id}:${a.hash}`),
-      )
-      if (foreign) {
-        throw new RequestError(
-          403,
-          `${foreign.name} isn’t on ${task.displayId}; attach your own files with ted comment --attach`,
-        )
-      }
+      checkOwnFiles(task, attachments)
       if (task.leadRunId !== runId) {
         if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
@@ -5080,6 +5101,12 @@ export function createTasks(options: {
         if (outcome.judged !== undefined && task.stage !== 'validate') {
           throw new RequestError(400, 'only Validate reports the review and visual results')
         }
+        if (outcome.outcome === 'advance' && outcome.design) {
+          if (task.stage !== 'design') {
+            throw new RequestError(400, 'only Design posts a design review')
+          }
+          checkOwnFiles(task, designFiles(outcome.design))
+        }
         if (pendingLoopCheck(task.id)) {
           throw new RequestError(
             409,
@@ -5179,6 +5206,14 @@ export function createTasks(options: {
             (stage === 'clarify' && current.clarifyDepth === 'grilling')) &&
           outcome.skip !== true
         if (!gate) {
+          if (outcome.design) {
+            store.postComment({
+              taskId: task.id,
+              body: designNote(outcome.design, briefGoal(store.latestBrief(task.id)?.text ?? '')),
+              author: { kind: 'run', runId },
+              attachments: designFiles(outcome.design),
+            })
+          }
           const next = workflow.next(stage) as AgentStageId | 'done'
           if (stage === 'validate') {
             judge(current, 'passed', outcome.judged)
@@ -5212,13 +5247,15 @@ export function createTasks(options: {
         const changes = leadsToMerge
           ? await signOffChanges(current, outcome.changes?.trim())
           : undefined
+        const design = outcome.design
         const request = store.postComment({
           taskId: task.id,
           kind: stage === 'design' ? 'review' : 'signoff',
-          title: briefGoal(brief.text) ?? name,
+          title: design?.title ?? briefGoal(brief.text) ?? name,
           body: brief.text,
           author: { kind: 'run', runId },
           gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
+          ...(design && { attachments: designFiles(design), design: storedDesign(design) }),
         })
         if (stage === 'validate') pullRequestWork(task.id, 'again')
         if (stage === 'review' || workflow.next(stage) === 'merge') {
@@ -5422,6 +5459,45 @@ function reasonIn(text: string): string {
 
 function latest(a: string, b: string): string {
   return a > b ? a : b
+}
+
+function designFiles(design: DesignSubmission): Attachment[] {
+  const files = [
+    ...(design.screenshots ?? []),
+    ...(design.video ? [design.video] : []),
+    ...(design.prototype ? [design.prototype] : []),
+  ]
+  return files
+    .filter((f, i) => files.findIndex((g) => g.hash === f.hash && g.name === f.name) === i)
+    .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+}
+
+function designNote(design: DesignSubmission, goal: string | undefined): string {
+  const title = design.title ?? goal
+  return [
+    ...(title !== undefined ? [title] : []),
+    ...(design.summary !== undefined ? [design.summary] : []),
+    ...(design.worthYourEye
+      ? [`Worth your eye:\n${design.worthYourEye.map((p) => `- ${p}`).join('\n')}`]
+      : []),
+    ...(design.figma ? [`Figma: ${design.figma.url}`] : []),
+  ].join('\n\n')
+}
+
+function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {
+  const file = ({ hash, name, caption }: DesignSubmissionFile): DesignFile => ({
+    hash,
+    name,
+    ...(caption !== undefined && { caption }),
+  })
+  return {
+    ...(design.summary !== undefined && { summary: design.summary }),
+    ...(design.screenshots && { screenshots: design.screenshots.map(file) }),
+    ...(design.video && { video: file(design.video) }),
+    ...(design.prototype && { prototype: file(design.prototype) }),
+    ...(design.figma && { figma: design.figma }),
+    ...(design.worthYourEye && { worthYourEye: design.worthYourEye }),
+  }
 }
 
 function gateName(comment: Comment): string {

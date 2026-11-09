@@ -290,6 +290,7 @@ export const comments = State.SQLite.table({
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
     failedRunId: State.SQLite.text({ nullable: true }),
+    design: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -744,6 +745,10 @@ export const events = {
       mediaType: Schema.String,
       position: Schema.Number,
     }),
+  }),
+  commentDesignAttached: Events.synced({
+    name: 'v1.CommentDesignAttached',
+    schema: Schema.Struct({ commentId: Schema.String, design: Schema.String }),
   }),
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
@@ -2012,6 +2017,8 @@ const materializers = counted(
         commentAttachments
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.CommentDesignAttached': ({ commentId, design }) =>
+        comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
       'v1.TaskFollowedUp': ({ taskId, at }) =>

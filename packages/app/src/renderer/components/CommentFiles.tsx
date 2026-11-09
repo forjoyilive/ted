@@ -9,7 +9,7 @@ const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'
 export const showsInline = (a: Attachment) => imageTypes.has(a.mediaType)
 export const isHtml = (a: Attachment) => a.mediaType === 'text/html'
 
-function useBytes({ hash, name }: Attachment): { data?: string; error?: string } {
+export function useBytes({ hash, name }: Attachment): { data?: string; error?: string } {
   const [state, setState] = useState<{ data?: string; error?: string }>({})
   useEffect(() => {
     let current = true
@@ -38,7 +38,7 @@ function ImageFile({ attachment }: { attachment: Attachment }) {
   )
 }
 
-function decode(data: string): string {
+export function decode(data: string): string {
   const binary = atob(data)
   const bytes = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)

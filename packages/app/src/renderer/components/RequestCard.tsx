@@ -24,6 +24,7 @@ import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
+import { DesignReviewContent } from './DesignReview.tsx'
 import { Help } from './Help.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -331,7 +332,14 @@ export function RequestCard({
       {request.kind === 'signoff' && request.stage === 'review' && (
         <ConfirmationRow request={request} task={task} />
       )}
-      {request.gate && request.stage === 'clarify' ? (
+      {request.design ? (
+        <DesignReviewContent
+          design={request.design}
+          files={request.attachments ?? []}
+          taskId={task.id}
+          commentId={request.id}
+        />
+      ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (
         !short &&
@@ -378,13 +386,15 @@ export function RequestCard({
             placeholder={
               request.permission
                 ? 'Comment, or say why you’re denying…'
-                : request.failed
-                  ? 'Or tell the Task Lead what to change, then Retry…'
-                  : actionChoice !== undefined
-                    ? 'Comment, or tell the Task Lead what to do next…'
-                    : request.kind === 'question' && request.choices
-                      ? 'Or write your own answer…'
-                      : 'Comment to the Task Lead…'
+                : request.design
+                  ? 'Comment, or say what to change…'
+                  : request.failed
+                    ? 'Or tell the Task Lead what to change, then Retry…'
+                    : actionChoice !== undefined
+                      ? 'Comment, or tell the Task Lead what to do next…'
+                      : request.kind === 'question' && request.choices
+                        ? 'Or write your own answer…'
+                        : 'Comment to the Task Lead…'
             }
             value={text}
             onChange={(event) => setText(event.target.value)}

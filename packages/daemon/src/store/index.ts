@@ -33,6 +33,7 @@ import {
   type CopySkip,
   type DaemonEvent,
   type DescriptionVersion,
+  type DesignReview,
   defaultMachineSettings,
   type Effort,
   type Factory,
@@ -336,6 +337,7 @@ export interface NewComment {
   round?: Round
   gate?: NonNullable<Comment['gate']>
   attachments?: readonly Attachment[]
+  design?: DesignReview
 }
 
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
@@ -1270,6 +1272,7 @@ export async function openStore({
     permission,
     answerHeld: _,
     failedRunId,
+    design,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -1289,6 +1292,7 @@ export async function openStore({
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+    ...(design !== null && { design: JSON.parse(design) as DesignReview }),
     ...withFiles(row.id),
   })
 
@@ -1469,6 +1473,7 @@ export async function openStore({
       round,
       gate,
       attachments = [],
+      design,
     }: NewComment,
     createdAt: string,
   ) => {
@@ -1490,7 +1495,7 @@ export async function openStore({
       round === undefined
         ? events.commentPostedV2(fields)
         : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
-    const attached = attachments.map(({ hash, name, size, mediaType }, position) =>
+    const files = attachments.map(({ hash, name, size, mediaType }, position) =>
       events.commentAttachmentAdded({
         commentId: id,
         taskId,
@@ -1501,6 +1506,12 @@ export async function openStore({
         position,
       }),
     )
+    const attached = [
+      ...files,
+      ...(design === undefined
+        ? []
+        : [events.commentDesignAttached({ commentId: id, design: JSON.stringify(design) })]),
+    ]
     return { id, event, attached }
   }
   const repoAt = (taskId: string, cwd: string) => {
