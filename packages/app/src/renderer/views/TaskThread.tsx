@@ -26,7 +26,7 @@ import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
-import { AllChanges, DiffView, type LineFocus } from '../components/DiffViews.tsx'
+import { AllChanges, type DiffSeams, DiffView, type LineFocus } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
@@ -58,6 +58,7 @@ import {
   useTaskRuns,
   useThreadEvents,
 } from '../data.ts'
+import { openInEditor } from '../editor.ts'
 import { useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
@@ -323,10 +324,19 @@ export function TaskPanes({
   const all = view?.kind === 'all' && changes !== undefined
   const lineComments = useLineComments(task.id)
   const drafts = lineComments.filter(isDraft)
-  const seams = useDiffComments(
-    task.id,
-    lineComments.filter((c) => isDraft(c) || !c.outdated),
-  )
+  const seams: DiffSeams = {
+    ...useDiffComments(
+      task.id,
+      lineComments.filter((c) => isDraft(c) || !c.outdated),
+    ),
+    onOpenInEditor: (file, line) =>
+      openInEditor({
+        taskId: task.id,
+        repo: file.repo,
+        file: file.path,
+        ...(line !== undefined && { line, column: 1 }),
+      }),
+  }
   const comments = useComments(task.id)
   const requestOpen = comments.some((c) => c.kind !== 'note' && c.answer === undefined)
   const back = () => showChanges(undefined)

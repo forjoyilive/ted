@@ -206,3 +206,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.editorProblem {
+  color: var(--status-failed-fg);
+  font-size: var(--text-13);
+}

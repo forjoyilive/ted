@@ -180,4 +180,28 @@ describe('Task shell', () => {
       return settings.editorCommand === 'my-editor --line {line} {path}' || undefined
     }, 'the custom command to be saved')
   })
+
+  test('Open in editor in a diff opens the file at its first changed line', async () => {
+    const worktree = await startedTask()
+    await writeFile(path.join(worktree, 'README.md'), '# widgets\nsecond line\n')
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon')
+    await appClient(info, process.env.TED_APP_TOKEN).updateSettings({ editor: 'code' })
+    const window = await launchApp()
+    await openTask(window)
+
+    const changes = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Changes' })
+    await changes.getByRole('button', { name: /^README\.md/ }).click()
+    const diff = window.getByRole('region', { name: 'Diff' })
+    await diff.getByRole('row', { name: /second line/ }).waitFor()
+    await diff.getByRole('button', { name: /Open in editor/ }).click()
+
+    const line = await waitUntil(async () => {
+      const text = await readFile(editorLog(), 'utf8').catch(() => '')
+      return text.split('\n').find((l) => l !== '')
+    }, 'VS Code to open the file')
+    expect(line).toBe(`code [${worktree}] [--goto] [${worktree}/README.md:2:1]`)
+  })
 })

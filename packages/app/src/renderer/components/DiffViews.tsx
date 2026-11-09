@@ -11,7 +11,7 @@ import { ChevronIcon } from './icons.tsx'
 export interface DiffSeams {
   after?: (file: ChangedFile) => RowExtra | undefined
   gutter?: (file: ChangedFile) => Gutter | undefined
-  onOpenInEditor?: (file: ChangedFile) => void
+  onOpenInEditor?: (file: ChangedFile, line: number | undefined) => Promise<unknown>
 }
 
 function useFileDiffs(
@@ -54,17 +54,40 @@ function FilePath({ path }: { path: string }) {
   )
 }
 
-function OpenInEditor({ file, seams }: { file: ChangedFile; seams: DiffSeams }) {
+function firstChangedLine(diff: FileDiff | undefined): number | undefined {
+  const rows = diff?.hunks.flatMap((h) => h.rows) ?? []
+  return (rows.find((r) => r.kind === 'added') ?? rows.find((r) => r.new !== undefined))?.new
+}
+
+function OpenInEditor({
+  file,
+  line,
+  seams,
+}: {
+  file: ChangedFile
+  line: number | undefined
+  seams: DiffSeams
+}) {
+  const [problem, setProblem] = useState<string>()
   const open = seams.onOpenInEditor
   return (
-    <Button
-      size="small"
-      disabled={!open}
-      title={open ? undefined : 'Opening files in an editor isn’t set up yet.'}
-      onClick={() => open?.(file)}
-    >
-      Open in editor ↗
-    </Button>
+    <>
+      {problem !== undefined && (
+        <span className={styles.editorProblem} role="alert">
+          {problem}
+        </span>
+      )}
+      <Button
+        size="small"
+        disabled={!open}
+        onClick={() => {
+          setProblem(undefined)
+          open?.(file, line).catch((error: unknown) => setProblem(readableError(error)))
+        }}
+      >
+        Open in editor ↗
+      </Button>
+    </>
   )
 }
 
@@ -141,7 +164,11 @@ export function DiffView({
           >
             <ChevronIcon open />
           </button>
-          <OpenInEditor file={current} seams={seams} />
+          <OpenInEditor
+            file={current}
+            line={focus?.side === 'new' ? focus.line : firstChangedLine(diff)}
+            seams={seams}
+          />
         </div>
         <p className={styles.against}>
           Task branch against its merge-base with {current.baseBranch}, {current.repo}’s base
@@ -256,7 +283,7 @@ function RepoDiffs({
           <span className={styles.repoChip}>{file.repo}</span>
           <DiffCounts added={file.added} removed={file.removed} />
           <span className={styles.spacer} />
-          <OpenInEditor file={file} seams={seams} />
+          <OpenInEditor file={file} line={firstChangedLine(diff)} seams={seams} />
         </header>
         {diff && (
           <FileDiffBody diff={diff} after={seams.after?.(file)} gutter={seams.gutter?.(file)} />
