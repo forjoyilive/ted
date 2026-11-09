@@ -1232,7 +1232,7 @@ describe('App Settings', () => {
   test('run from source, the ted command row says only an installed copy can install it', async () => {
     const window = await launchApp()
     await openSettings(window)
-    const commandLine = window.getByRole('group', { name: 'Command line' })
+    const commandLine = window.getByRole('group', { name: 'Editor and command line' })
 
     await commandLine.getByText('Only an installed copy of TED can install it.').waitFor()
     expect(await commandLine.getByRole('button', { name: 'Install the ted command' }).count()).toBe(

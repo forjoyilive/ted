@@ -296,6 +296,21 @@ export {
   terminalFontSizes,
   workingRunLimits,
 } from './settings.ts'
+export {
+  type EditorChoice,
+  type EditorId,
+  editorIds,
+  editorNames,
+  editorPlaceholders,
+  type FoundEditor,
+  maxShellInputChars,
+  type OpenInEditorRequest,
+  type ShellOutput,
+  type ShellOutputQuery,
+  type ShellSize,
+  shellSizeLimits,
+  type TaskShell,
+} from './shell.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
   diskFullHold,

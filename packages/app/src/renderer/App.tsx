@@ -13,6 +13,7 @@ import {
 import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
 import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
+import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -41,6 +42,7 @@ import {
   settingsSectionIds,
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { hasWorktree, isShellShortcut, openTaskShell } from './shell.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
@@ -228,6 +230,17 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       if (!task || !action) return
       event.preventDefault()
       runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, runsOpen, task])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || runsOpen || !isShellShortcut(event)) return
+      if (!task || task.archived || !hasWorktree(task)) return
+      event.preventDefault()
+      openTaskShell(task)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -524,6 +537,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const dialogs = (
     <>
+      <EditorPickerHost />
       {addFactoryOpen && (
         <AddFactoryDialog
           factories={factories}

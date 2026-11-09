@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type {
@@ -188,6 +188,13 @@ export interface CreateTaskInput
   start?: boolean
 }
 
+export interface WorktreeAccess {
+  taskId: string
+  repo: string
+  worktree: string
+  env: NodeJS.ProcessEnv
+}
+
 export interface Tasks {
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
@@ -236,6 +243,7 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   setRepos(ref: string, caller: Caller, request: SetTaskReposRequest): Promise<TaskReposResult>
   repoSetup(ref: string, repo: string, caller: Caller): Promise<RepoSetupReport>
   runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
@@ -5253,6 +5261,33 @@ export function createTasks(options: {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
+    },
+
+    async worktreeAccess(ref, name) {
+      const task = find(ref)
+      const repo = task.repos.find((r) => r.name === name && !r.removed)
+      if (!repo) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
+      const real = await realpath(repo.worktree).catch(() => undefined)
+      const root = await realpath(worktreesDir).catch(() => worktreesDir)
+      if (real === undefined || !(await stat(real)).isDirectory()) {
+        throw new RequestError(409, `${task.displayId}’s worktree for ${name} isn’t on disk`)
+      }
+      if (!real.startsWith(`${root}${path.sep}`)) {
+        throw new RequestError(
+          409,
+          `${task.displayId}’s worktree for ${name} isn’t in TED’s folder`,
+        )
+      }
+      const env =
+        store.recordedSetup(task.id, repo.name)?.env ??
+        repoEntry(await entriesOf(factoryOf(task)), repo)?.env ??
+        {}
+      return {
+        taskId: task.id,
+        repo: repo.name,
+        worktree: repo.worktree,
+        env: commandEnv(task, env),
+      }
     },
 
     async runChecks(ref, caller, only) {
