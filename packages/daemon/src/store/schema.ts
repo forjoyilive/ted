@@ -141,6 +141,10 @@ export const events = {
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
   }),
+  runSessionIdentified: Events.synced({
+    name: 'v1.RunSessionIdentified',
+    schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
+  }),
 }
 
 const materializers = State.SQLite.materializers(events, {
@@ -159,6 +163,8 @@ const materializers = State.SQLite.materializers(events, {
     ),
   ],
   'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+  'v1.RunSessionIdentified': ({ runId, sessionId }) =>
+    runs.update({ sessionId }).where({ id: runId }),
 })
 
 const state = State.SQLite.makeState({

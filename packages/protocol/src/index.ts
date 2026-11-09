@@ -8,13 +8,14 @@ export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
-export type {
-  AgentKind,
-  ConversationEntry,
-  Run,
-  RunState,
-  RunWithConversation,
-  StartDevRunRequest,
+export {
+  type AgentKind,
+  agentKinds,
+  type ConversationEntry,
+  type Run,
+  type RunState,
+  type RunWithConversation,
+  type StartDevRunRequest,
 } from './run.ts'
 export type {
   Comment,

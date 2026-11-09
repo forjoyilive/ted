@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { Comment, Outcome, Task } from '@ted/protocol'
+import type { AgentKind, Comment, Outcome, Task } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
@@ -25,8 +25,9 @@ export function createTasks(options: {
   runs: RunManager
   reposDir: string
   worktreesDir: string
+  leadAgent: (task: Task) => AgentKind
 }): Tasks {
-  const { store, runs, reposDir, worktreesDir } = options
+  const { store, runs, reposDir, worktreesDir, leadAgent } = options
   const starting = new Set<string>()
   const finishing = new Set<Promise<void>>()
 
@@ -99,6 +100,7 @@ export function createTasks(options: {
         })
         store.startTask({ taskId: task.id, stage, branch, worktree })
         await runs.start({
+          agent: leadAgent(task),
           prompt,
           cwd: worktree,
           taskId: task.id,
