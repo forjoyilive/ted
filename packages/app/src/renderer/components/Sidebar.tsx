@@ -34,6 +34,7 @@ interface SidebarProps {
   onOpenPlanUsage?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: (factoryId?: string) => void
+  onSearch: () => void
   onAddFactory: () => void
   onRemoveFactory?: (factory: Factory) => void
 }
@@ -137,6 +138,7 @@ export function Sidebar({
   onOpenPlanUsage,
   dispatch,
   onNewTask,
+  onSearch,
   onAddFactory,
   onRemoveFactory,
 }: SidebarProps) {
@@ -162,7 +164,7 @@ export function Sidebar({
   return (
     <nav className={styles.sidebar} aria-label="Sidebar">
       <div className={styles.top}>
-        <button type="button" className={styles.search} onClick={() => open({ kind: 'search' })}>
+        <button type="button" className={styles.search} onClick={onSearch}>
           <SearchIcon className={styles.searchIcon} />
           <span className={styles.searchLabel}>Search</span>
           <span className={styles.shortcut}>⌘K</span>

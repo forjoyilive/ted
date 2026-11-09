@@ -17,7 +17,6 @@ export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
   | { kind: 'factory'; factoryId: string; view: FactoryView }
-  | { kind: 'search' }
 
 export interface Navigation {
   screen: Screen

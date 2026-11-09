@@ -4,6 +4,7 @@ import path from 'node:path'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
+import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
 import { createEnvironment } from './command-env.ts'
@@ -63,6 +64,13 @@ export interface DaemonOptions {
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
+  automations?: DaemonAutomationsOptions
+}
+
+export interface DaemonAutomationsOptions {
+  now?: () => number
+  checkEveryMs?: number
+  graceMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -302,7 +310,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
-      wake = () => tasks.wake()
+      const automationOptions = options.automations ?? {}
+      const automations = createAutomations({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        banners,
+        workflows,
+        queue: tasks,
+        ...(idle && { idle }),
+        ...automationOptions,
+      })
+      wake = () => {
+        tasks.wake()
+        automations.check()
+      }
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
       const excludeFromBackups =
@@ -336,6 +360,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         store,
         banners,
         tasks,
+        automations,
         factories,
         checkTries,
         storage: () => storage,
@@ -360,6 +385,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        automations,
         runs,
         conversations,
         tasks,
@@ -375,6 +401,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         checkTries,
         library,
         async close() {
+          automations.close()
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()

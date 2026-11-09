@@ -19,6 +19,24 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+export type {
+  AnswerAutomationRequest,
+  Automation,
+  AutomationDetail,
+  AutomationInput,
+  AutomationNow,
+  AutomationRequest,
+  AutomationResult,
+  AutomationRun,
+  AutomationTaskLink,
+  AutomationTemplate,
+  AutomationTemplateId,
+  AutomationTrigger,
+  CreateAutomationRequest,
+  EditAutomationRequest,
+  SchedulePreview,
+} from './automation.ts'
+export { automationTemplateIds } from './automation.ts'
 export {
   type Banner,
   type BannerAction,
@@ -242,6 +260,31 @@ export {
   type SubAgentState,
   type SubAgentWait,
 } from './run.ts'
+export {
+  type AutomationSchedule,
+  checkSchedule,
+  describeSchedule,
+  isTimeZone,
+  nextFirings,
+  scheduleFromExpression,
+  shortestIntervalMinutes,
+  type Weekday,
+  weekdays,
+} from './schedule.ts'
+export {
+  type AutomationHit,
+  type CommentHit,
+  type FactoryHit,
+  foldText,
+  matchesTerms,
+  type SearchField,
+  type SearchResults,
+  type SearchTaskState,
+  searchLimits,
+  searchTerms,
+  snippetAround,
+  type TaskHit,
+} from './search.ts'
 export {
   type Appearance,
   appearances,

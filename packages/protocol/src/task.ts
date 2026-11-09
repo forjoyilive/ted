@@ -332,6 +332,7 @@ export interface CreateTaskRequest {
   blockedBy?: string[]
   attachments?: Pick<Attachment, 'hash' | 'name' | 'mediaType'>[]
   source?: string
+  followUp?: string
   start?: boolean
 }
 
