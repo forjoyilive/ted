@@ -7,6 +7,7 @@ import { openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
 let dir: string
+const repo = { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] }
 const agentStages = [...agentStageIds]
 
 beforeEach(async () => {
@@ -138,7 +139,7 @@ describe('TedStore', () => {
       { stage: 'merge', enabled: false },
     ] as const
     const entry = { layers: [], order: [...order] }
-    first.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
+    first.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry, repo })
     first.changeStage(task.id, 'work', entry)
     await first.close()
 
@@ -193,7 +194,14 @@ describe('TedStore', () => {
     try {
       const task = await store.createTask({ title: 'Fix login' })
       const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
-      store.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
+      store.startTask({
+        taskId: task.id,
+        stage: 'intake',
+        branch: 'b',
+        worktree: '/w',
+        entry,
+        repo,
+      })
       const seen: DaemonEvent[] = []
       store.subscribe((event) => seen.push(event))
 
