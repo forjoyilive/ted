@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, rename, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -26,10 +26,20 @@ export interface RunManagerOptions {
   cliPath?: string
 }
 
+export interface StartRunInput {
+  prompt: string
+  cwd: string
+  taskId?: string
+  env?: Record<string, string>
+}
+
 export interface RunManager {
-  start(input: { prompt: string; cwd: string }): Promise<Run>
+  start(input: StartRunInput): Promise<Run>
+  stop(runId: string): Promise<void>
   close(): Promise<void>
 }
+
+const stopGraceMs = 10_000
 
 export async function startRunManager(options: RunManagerOptions): Promise<RunManager> {
   const { home, store, agent, tokens } = options
@@ -84,7 +94,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
   return {
-    async start({ prompt, cwd }) {
+    async start({ prompt, cwd, taskId, env = {} }) {
       const id = randomUUID()
       const runDir = path.join(runsDir, id)
       await mkdir(runDir, { mode: 0o700 })
@@ -95,6 +105,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         runDir,
         env: {
           ...process.env,
+          ...env,
           TED_HOME: home,
           TED_RUN: id,
           TED_RUN_TOKEN: tokens.issue(id),
@@ -112,7 +123,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       await writeFile(runFiles(runDir).launch, JSON.stringify(launchFile), { mode: 0o600 })
 
-      const run = store.startRun({ id, agent: agent.kind, sessionId, prompt, cwd })
+      const run = store.startRun({
+        id,
+        agent: agent.kind,
+        sessionId,
+        prompt,
+        cwd,
+        ...(taskId !== undefined && { taskId }),
+      })
       spawn(process.execPath, [hostMain, runDir], {
         detached: true,
         stdio: 'ignore',
@@ -122,11 +140,46 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       follow(id)
       return run
     },
+    async stop(runId) {
+      const done = following.get(runId)
+      if (!done) return
+      const runDir = path.join(runsDir, runId)
+      const timeout = sleep(stopGraceMs).then(() => 'timeout' as const)
+      let start = await startRecord(runDir)
+      for (let waited = 0; !start && waited < stopGraceMs; waited += pollMs) {
+        await sleep(pollMs)
+        start = await startRecord(runDir)
+      }
+      if (!start) throw new Error(`Run ${runId}'s host never started`)
+      if (!isLockHeld(runFiles(runDir).lock)) return void (await done)
+      signal(start.hostPid, 'SIGTERM')
+      if ((await Promise.race([done, timeout])) === 'timeout') {
+        signal(start.agentPid, 'SIGKILL')
+        signal(start.hostPid, 'SIGKILL')
+        await done
+      }
+    },
     async close() {
       closed = true
       await Promise.all(following.values())
     },
   }
+}
+
+async function startRecord(
+  runDir: string,
+): Promise<Extract<HostRecord, { t: 'start' }> | undefined> {
+  const log = await readFile(runFiles(runDir).log, 'utf8').catch(() => '')
+  const first = log.slice(0, log.indexOf('\n'))
+  if (first === '') return undefined
+  const record = JSON.parse(first) as HostRecord
+  return record.t === 'start' ? record : undefined
+}
+
+function signal(pid: number | null, name: NodeJS.Signals): void {
+  try {
+    if (pid !== null) process.kill(pid, name)
+  } catch {}
 }
 
 interface RecordBatch {

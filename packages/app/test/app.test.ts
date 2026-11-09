@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, readlink, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -10,9 +10,13 @@ import { readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
+const stubClaudePath = fileURLToPath(
+  new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
+)
 const electronPath = createRequire(import.meta.url)('electron') as string
 const run = promisify(execFile)
 
@@ -35,10 +39,16 @@ afterEach(async () => {
     process.kill(info.pid, 'SIGTERM')
     await waitForExit(info.pid)
   }
+  await killRunHosts(home)
   await rm(home, { recursive: true, force: true })
 })
 
-const env = () => ({ ...process.env, TED_HOME: home, TED_IDLE_EXIT_MS: '30000' })
+const env = () => ({
+  ...process.env,
+  TED_HOME: home,
+  TED_IDLE_EXIT_MS: '30000',
+  TED_CLAUDE_BIN: stubClaudePath,
+})
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
@@ -92,6 +102,30 @@ describe('TED app', () => {
     await ted('task', 'create', 'Fix login')
 
     await window.getByText('DEV-1 Fix login').waitFor({ timeout: 1_000 })
+  })
+
+  test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const steps = JSON.stringify({
+      steps: [
+        { run: ['ted', 'comment', 'Halfway there'] },
+        { waitFor: path.join(home, 'go') },
+        { run: ['ted', 'outcome', 'advance'] },
+        { waitFor: 'never-appears' },
+      ],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    const task = window.getByRole('listitem').filter({ hasText: 'NB-1' })
+    await task.getByText('Backlog').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await task.getByText('Work', { exact: true }).waitFor()
+    await task.getByText('Halfway there').waitFor()
+    await writeFile(path.join(home, 'go'), '')
+    await task.getByText('Done', { exact: true }).waitFor()
   })
 
   test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {

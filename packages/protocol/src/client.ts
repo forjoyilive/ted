@@ -1,7 +1,8 @@
 import type { DaemonInfo } from './daemon-info.ts'
 import type { DaemonEvent } from './events.ts'
+import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
-import type { CreateTaskRequest, Task } from './task.ts'
+import type { Comment, CreateTaskRequest, Outcome, Task } from './task.ts'
 
 export class DaemonUnreachableError extends Error {}
 
@@ -32,6 +33,26 @@ export class DaemonClient {
 
   createTask(input: CreateTaskRequest): Promise<Task> {
     return this.#request('POST', '/tasks', input)
+  }
+
+  startTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  }
+
+  listComments(ref: string): Promise<Comment[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/comments`)
+  }
+
+  postComment(ref: string, body: string): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
+  }
+
+  reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
+  }
+
+  addFactory(input: AddFactoryRequest): Promise<Factory> {
+    return this.#request('POST', '/dev/factories', input)
   }
 
   startDevRun(input: StartDevRunRequest): Promise<Run> {

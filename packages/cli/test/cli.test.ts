@@ -9,6 +9,9 @@ import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
+
+import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
 )
@@ -26,6 +29,7 @@ afterEach(async () => {
     process.kill(info.pid, 'SIGTERM')
     await waitForExit(info.pid)
   }
+  await killRunHosts(home)
   await rm(home, { recursive: true, force: true })
 })
 
@@ -73,7 +77,7 @@ describe('ted task', () => {
     expect(isAlive(await daemonPid())).toBe(true)
 
     const listed = await ted(['task', 'list'])
-    expect(listed.stdout.trim()).toBe('DEV-1  Fix login')
+    expect(listed.stdout.trim()).toBe('DEV-1  Backlog  Fix login')
   })
 
   test('Tasks are still there after the daemon restarts', async () => {
@@ -86,7 +90,10 @@ describe('ted task', () => {
     const listed = await ted(['task', 'list'])
 
     expect(await daemonPid()).not.toBe(firstPid)
-    expect(listed.stdout.trim().split('\n')).toEqual(['DEV-1  Fix login', 'DEV-2  Add dark mode'])
+    expect(listed.stdout.trim().split('\n')).toEqual([
+      'DEV-1  Backlog  Fix login',
+      'DEV-2  Backlog  Add dark mode',
+    ])
   })
 
   test('ted recovers when the daemon was killed and left daemon.json behind', async () => {
@@ -97,7 +104,7 @@ describe('ted task', () => {
 
     const listed = await ted(['task', 'list'])
 
-    expect(listed.stdout.trim()).toBe('DEV-1  Fix login')
+    expect(listed.stdout.trim()).toBe('DEV-1  Backlog  Fix login')
   })
 
   test('a daemon that ted started exits once idle', async () => {
@@ -166,5 +173,45 @@ describe('ted dev run', () => {
       code: 1,
       stderr: 'ted: no such Run\n',
     })
+  })
+})
+
+describe('ted help', () => {
+  test('lists the commands a Task Lead uses', async () => {
+    const { stdout } = await ted(['help'])
+    expect(stdout).toContain('ted comment')
+    expect(stdout).toContain('ted outcome advance')
+    expect(stdout).toContain('ted help')
+  })
+})
+
+describe('ted dev factory and ted task start', () => {
+  test('adds a Factory, creates a Task in it, starts it, and the Task Lead takes it to Done', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const steps = JSON.stringify({
+      steps: [
+        { run: ['ted', 'comment', 'On it'] },
+        { run: ['ted', 'outcome', 'advance'] },
+        { waitFor: 'never-appears' },
+      ],
+    })
+
+    const added = await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    expect(added.stdout.trim()).toBe('Added Factory NB  acme/widgets')
+    const created = await ted(['task', 'create', '--factory', 'NB', steps])
+    expect(created.stdout.trim()).toMatch(/^Created NB-1 /)
+    const started = await ted(['task', 'start', 'NB-1'])
+    expect(started.stdout.trim()).toMatch(/^Started NB-1 on branch ted\/nb-1-/)
+
+    let listed = ''
+    for (let i = 0; i < 100 && !listed.includes('Done'); i++) {
+      listed = (await ted(['task', 'list'])).stdout
+      await sleep(100)
+    }
+    expect(listed).toMatch(/^NB-1 {2}Done {2}/)
+  })
+
+  test('comment and outcome outside a Run need --task', async () => {
+    await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
   })
 })

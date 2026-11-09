@@ -1,15 +1,19 @@
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   type ConversationEntry,
   type Run,
   type RunWithConversation,
   readDaemonInfo,
 } from '@ted/protocol'
+
+const execFileAsync = promisify(execFile)
 
 export async function makeTempHome(): Promise<{ home: string; cleanup: () => Promise<void> }> {
   const home = await mkdtemp(path.join(tmpdir(), 'ted-home-'))
@@ -124,4 +128,34 @@ export function assistantTexts(conversation: ConversationEntry[]): string[] {
     if (message.type !== 'assistant') return []
     return (message.message?.content ?? []).flatMap((c) => (c.text === undefined ? [] : [c.text]))
   })
+}
+
+export async function makeOriginRepo(parent: string): Promise<string> {
+  const origin = path.join(parent, 'acme', 'widgets.git')
+  const work = path.join(parent, 'seed')
+  const git = (cwd: string, ...args: string[]) =>
+    execFileAsync('git', args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Test',
+        GIT_AUTHOR_EMAIL: 'test@example.com',
+        GIT_COMMITTER_NAME: 'Test',
+        GIT_COMMITTER_EMAIL: 'test@example.com',
+      },
+    })
+  await mkdir(origin, { recursive: true })
+  await git(origin, 'init', '--bare', '--initial-branch=main')
+  await mkdir(work, { recursive: true })
+  await git(work, 'init', '--initial-branch=main')
+  await writeFile(path.join(work, 'README.md'), '# widgets\n')
+  await git(work, 'add', 'README.md')
+  await git(work, 'commit', '-m', 'first')
+  await git(work, 'push', origin, 'main')
+  return origin
+}
+
+export async function refsOf(repo: string): Promise<string> {
+  const { stdout } = await execFileAsync('git', ['for-each-ref'], { cwd: repo })
+  return stdout
 }

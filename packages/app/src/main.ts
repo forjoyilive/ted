@@ -3,8 +3,9 @@ import { withDaemon } from '@ted/daemon/launch'
 import { type DaemonClient, type DaemonEvent, tedHome } from '@ted/protocol'
 import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 
-const requests: Record<string, (client: DaemonClient) => Promise<unknown>> = {
+const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
+  listComments: (client, taskId) => client.listComments(String(taskId)),
 }
 
 let window: BrowserWindow | undefined
@@ -16,10 +17,10 @@ async function start(): Promise<void> {
     return client
   })
 
-  ipcMain.handle('ted:request', (_event, name: string) => {
+  ipcMain.handle('ted:request', (_event, name: string, ...args: unknown[]) => {
     const request = Object.hasOwn(requests, name) ? requests[name] : undefined
     if (!request) throw new Error(`unknown request ${name}`)
-    return request(client)
+    return request(client, ...args)
   })
 
   window = new BrowserWindow({

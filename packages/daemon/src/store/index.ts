@@ -1,10 +1,20 @@
 import { randomUUID } from 'node:crypto'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb } from '@livestore/livestore'
-import type { AgentKind, ConversationEntry, DaemonEvent, Run, RunState, Task } from '@ted/protocol'
-import { conversationEntries, events, runs, schema, tasks } from './schema.ts'
+import type {
+  AgentKind,
+  Comment,
+  ConversationEntry,
+  DaemonEvent,
+  Factory,
+  Run,
+  RunState,
+  StageId,
+  Task,
+} from '@ted/protocol'
+import { comments, conversationEntries, events, factories, runs, schema, tasks } from './schema.ts'
 
-const placeholderFactory = { id: 'dev', key: 'DEV' }
+export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
 export interface RunOutput {
   toOffset: number
@@ -12,9 +22,25 @@ export interface RunOutput {
   state?: RunState
 }
 
+export interface StoredFactory extends Factory {
+  cloneUrl: string
+}
+
+export interface StoredTask extends Task {
+  worktree?: string
+}
+
 export interface TedStore {
-  createTask(input: { title: string }): Promise<Task>
+  addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
+  listFactories(): StoredFactory[]
+  getFactory(id: string): StoredFactory | undefined
+  createTask(input: { title: string; factoryId?: string }): Promise<Task>
   listTasks(): Task[]
+  getTask(ref: string): StoredTask | undefined
+  startTask(input: { taskId: string; stage: StageId; branch: string; worktree: string }): Task
+  changeStage(taskId: string, stage: StageId): Task
+  postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
+  listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
   startRun(input: {
     id: string
@@ -22,6 +48,7 @@ export interface TedStore {
     sessionId: string
     prompt: string
     cwd: string
+    taskId?: string
   }): Run
   recordRunOutput(runId: string, output: RunOutput): void
   getRun(id: string): Run | undefined
@@ -39,52 +66,125 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     disableDevtools: true,
   })
 
+  const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
-  const toTask = (row: typeof tasks.Type): Task => ({
-    ...row,
-    displayId: `${placeholderFactory.key}-${row.number}`,
-  })
+  const listFactories = (): StoredFactory[] => [...store.query(allFactories)]
+  const factoryKey = (factoryId: string) =>
+    factoryId === placeholderFactory.id
+      ? placeholderFactory.key
+      : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
 
-  const toRun = ({ readOffset: _, ...row }: typeof runs.Type): Run => ({
+  const leadRunId = (taskId: string) =>
+    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
+
+  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
+    const lead = leadRunId(row.id)
+    return {
+      ...row,
+      stage: row.stage as StageId,
+      displayId: `${factoryKey(row.factoryId)}-${row.number}`,
+      ...(branch !== null && { branch }),
+      ...(worktree !== null && { worktree }),
+      ...(lead !== undefined && { leadRunId: lead }),
+    }
+  }
+
+  const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
+
+  const toRun = ({ readOffset: _, taskId, ...row }: typeof runs.Type): Run => ({
     ...row,
     agent: row.agent as AgentKind,
     state: row.state as RunState,
+    ...(taskId !== null && { taskId }),
   })
 
-  const listTasks = () => store.query(allTasks).map(toTask)
+  const toComment = ({ authorRunId, ...row }: typeof comments.Type): Comment => ({
+    ...row,
+    kind: 'note',
+    author: { kind: 'run', runId: authorRunId },
+  })
+
+  const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
+  const listTasks = () => store.query(allTasks).map(toTask)
 
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
     for (const listener of listeners) listener(event)
   }
 
+  const updatedTask = (taskId: string): Task => {
+    const row = taskRow(taskId)
+    if (!row) throw new Error(`no Task ${taskId}`)
+    const task = toPublicTask(toTask(row))
+    emit({ type: 'task-updated', task })
+    return task
+  }
+
   return {
-    async createTask({ title }) {
-      const number = Math.max(0, ...listTasks().map((t) => t.number)) + 1
+    addFactory(input) {
+      const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
+      store.commit(events.factoryAdded(row))
+      return row
+    },
+    listFactories,
+    getFactory: (id) => listFactories().find((f) => f.id === id),
+    async createTask({ title, factoryId = placeholderFactory.id }) {
+      const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
+      const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
       const row = {
         id: randomUUID(),
-        factoryId: placeholderFactory.id,
+        factoryId,
         number,
         title,
         createdAt: new Date().toISOString(),
       }
       store.commit(events.taskCreated(row))
-      const task = toTask(row)
+      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
       emit({ type: 'task-created', task })
       return task
     },
-    listTasks,
+    listTasks: () => listTasks().map(toPublicTask),
+    getTask(ref) {
+      const row = taskRow(ref)
+      return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
+    },
+    startTask({ taskId, stage, branch, worktree }) {
+      store.commit(
+        events.taskStarted({ taskId, stage, branch, worktree, at: new Date().toISOString() }),
+      )
+      return updatedTask(taskId)
+    },
+    changeStage(taskId, stage) {
+      store.commit(events.taskStageChanged({ taskId, stage, at: new Date().toISOString() }))
+      return updatedTask(taskId)
+    },
+    postComment({ taskId, body, authorRunId }) {
+      const row = {
+        id: randomUUID(),
+        taskId,
+        kind: 'note',
+        body,
+        authorRunId,
+        createdAt: new Date().toISOString(),
+      }
+      store.commit(events.commentPosted(row))
+      const comment = toComment(row)
+      emit({ type: 'comment-posted', comment })
+      return comment
+    },
+    listComments: (taskId) =>
+      store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun(input) {
-      const row = { ...input, startedAt: new Date().toISOString() }
-      store.commit(events.runStarted(row))
-      return { ...row, state: 'working' }
+    startRun({ taskId, ...input }) {
+      const row = { ...input, taskId: taskId ?? null, startedAt: new Date().toISOString() }
+      store.commit(events.runStartedV2(row))
+      return toRun({ ...row, state: 'working', readOffset: 0 })
     },
     recordRunOutput(runId, { toOffset, entries, state }) {
       const current = runRow(runId)

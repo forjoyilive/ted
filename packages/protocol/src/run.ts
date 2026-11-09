@@ -8,6 +8,7 @@ export interface Run {
   sessionId: string
   prompt: string
   cwd: string
+  taskId?: string
   state: RunState
   startedAt: string
 }

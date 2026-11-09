@@ -8,6 +8,7 @@ import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { openStore } from './store/index.ts'
+import { createTasks } from './tasks/tasks.ts'
 
 export interface DaemonOptions {
   home: string
@@ -39,6 +40,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     tokens: runTokens,
     ...(idle && { idle }),
   })
+  const tasks = createTasks({
+    store,
+    runs,
+    reposDir: paths.repos,
+    worktreesDir: paths.worktrees,
+  })
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
@@ -47,6 +54,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     keepaliveMs: options.keepaliveMs ?? 30_000,
     runs,
     runTokens,
+    tasks,
+    reposDir: paths.repos,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }
@@ -63,6 +72,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         server.close(() => resolve())
         server.closeAllConnections()
       })
+      await tasks.close()
       await runs.close()
       await store.close()
       lock.release()

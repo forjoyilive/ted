@@ -12,4 +12,4 @@ Rules for building TED:
 ## Consequences
 
 - This prevents mistakes, not attacks (spec 2.3): an agent runs as the same user and can read `daemon.json` and the key.
-- Today only `GET /tasks` is open to Runs.
+- Open to Runs today: `GET /tasks`, posting a Comment on the Run’s own Task, and reporting an outcome as that Task’s Task Lead (ADR 0016).

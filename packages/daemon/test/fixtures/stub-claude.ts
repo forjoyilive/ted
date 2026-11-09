@@ -65,6 +65,15 @@ for await (const line of createInterface({ input: process.stdin })) {
   emit({ type: 'user', message: message.message })
   hook('UserPromptSubmit')
   emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
-  const { steps } = JSON.parse(message.message.content) as { steps: Step[] }
-  for (const step of steps) await runStep(step)
+  for (const step of stepsIn(message.message.content)) await runStep(step)
+}
+
+function stepsIn(content: string): Step[] {
+  for (const candidate of [content, ...content.split('\n')]) {
+    try {
+      const parsed = JSON.parse(candidate) as { steps?: Step[] }
+      if (Array.isArray(parsed.steps)) return parsed.steps
+    } catch {}
+  }
+  return []
 }

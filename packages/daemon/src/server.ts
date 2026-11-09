@@ -2,11 +2,20 @@ import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
-import type { CreateTaskRequest, StartDevRunRequest } from '@ted/protocol'
+import type {
+  AddFactoryRequest,
+  CreateTaskRequest,
+  PostCommentRequest,
+  ReportOutcomeRequest,
+  StartDevRunRequest,
+} from '@ted/protocol'
+import { RequestError as HttpError } from './errors.ts'
+import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
 import type { RunTokens } from './run-token.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
+import type { Caller, Tasks } from './tasks/tasks.ts'
 
 export interface ServerOptions {
   version: string
@@ -16,9 +25,9 @@ export interface ServerOptions {
   keepaliveMs: number
   runs: RunManager
   runTokens: RunTokens
+  tasks: Tasks
+  reposDir: string
 }
-
-type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
 
 interface RequestContext {
   req: http.IncomingMessage
@@ -35,14 +44,6 @@ interface Route {
 }
 
 const maxBodyBytes = 1024 * 1024
-
-class HttpError extends Error {
-  readonly status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
 
 const routes: Route[] = [
   {
@@ -62,11 +63,58 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks$/,
-    async handle({ req }, { store }) {
+    async handle({ req }, { tasks }) {
       const body = (await readJson(req)) as Partial<CreateTaskRequest> | null
       const title = typeof body?.title === 'string' ? body.title.trim() : ''
       if (title === '') throw new HttpError(400, 'title is required')
-      return [201, await store.createTask({ title })]
+      const factory = typeof body?.factory === 'string' ? body.factory : undefined
+      return [201, await tasks.create({ title, ...(factory !== undefined && { factory }) })]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/start$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/comments$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.listComments(task.id)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/comments$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<PostCommentRequest> | null
+      const text = typeof body?.body === 'string' ? body.body.trim() : ''
+      if (text === '') throw new HttpError(400, 'body is required')
+      return [201, tasks.comment(ref, caller, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/outcome$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
+      if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
+      return [200, tasks.reportOutcome(ref, caller, body.outcome)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/dev\/factories$/,
+    async handle({ req }, { store, reposDir }) {
+      const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
+      const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
+      const key = typeof body?.key === 'string' ? body.key.trim() : ''
+      if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
+      return [201, await addFactory({ store, reposDir }, { repo, key })]
     },
   },
   {
@@ -132,7 +180,8 @@ async function handle(
     if (caller.kind === 'run' && !route.runToken) {
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
-    const reply = await route.handle({ req, res, params: match.slice(1), caller }, options)
+    const params = match.slice(1).map(decodeParam)
+    const reply = await route.handle({ req, res, params, caller }, options)
     if (reply) sendJson(res, ...reply)
     return
   }
@@ -162,6 +211,14 @@ function identify(authorization: string | undefined, options: ServerOptions): Ca
   if (equalSecrets(given, options.token)) return { kind: 'daemon' }
   const runId = options.runTokens.verify(given)
   return runId === undefined ? undefined : { kind: 'run', runId }
+}
+
+function decodeParam(param: string): string {
+  try {
+    return decodeURIComponent(param)
+  } catch {
+    throw new HttpError(400, 'malformed path')
+  }
 }
 
 function isLoopbackHost(host: string | undefined): boolean {
