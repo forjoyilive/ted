@@ -532,6 +532,62 @@ describe('TED app', () => {
     await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
   }, 90_000)
 
+  test('the thread opens at its newest messages, keeps its place across tabs, and never yanks a scrolled-up reader', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await addFactory(origin, 'NB')
+    const steps = [{ say: 'Started.' }, { waitFor: path.join(home, 'never') }]
+    await ted('task', 'create', '--factory', 'NB', '--start', JSON.stringify({ steps }))
+    const client = await daemonClient()
+    for (let n = 1; n <= 12; n++) {
+      const lines = Array.from({ length: 6 }, (_, i) => `Detail ${n}.${i} of the sync work.`)
+      await client.postComment('NB-1', [`Note ${n}`, ...lines].join('\n\n'))
+    }
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('working')
+
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const scroller = thread.locator('[data-scroller]')
+    await scroller.getByText(/Detail 12\.5 of/).waitFor()
+    const gap = () =>
+      scroller.evaluate((e) => Math.round(e.scrollHeight - e.scrollTop - e.clientHeight))
+    const top = () => scroller.evaluate((e) => Math.round(e.scrollTop))
+    await expect.poll(gap).toBeLessThan(2)
+    expect(await top()).toBeGreaterThan(200)
+
+    await scroller.evaluate((e) => {
+      e.scrollTop = 150
+    })
+    await expect.poll(top).toBe(150)
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('button', { name: /Task Lead/ })
+      .click()
+    await window.getByRole('region', { name: 'Run chat' }).waitFor()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await scroller.getByText(/Detail 12\.5 of/).waitFor()
+    await expect.poll(top).toBe(150)
+
+    await client.postComment('NB-1', 'The newest note')
+    await scroller.getByText('The newest note').waitFor()
+    expect(await top()).toBe(150)
+    const jump = thread.getByRole('button', { name: 'New messages ↓' })
+    await jump.click()
+    await expect.poll(gap).toBeLessThan(2)
+    await jump.waitFor({ state: 'detached' })
+
+    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await scroller.getByText('The newest note').waitFor()
+    await expect.poll(gap).toBeLessThan(2)
+  }, 90_000)
+
   test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
     await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
     const steps = [
