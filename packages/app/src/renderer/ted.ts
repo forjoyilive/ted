@@ -1,3 +1,4 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   Attachment,
   BackupsSummary,
@@ -17,6 +18,7 @@ import type {
   Run,
   RunFixRequest,
   RunFixResult,
+  RunSlots,
   StageEntry,
   Task,
   TaskDefaults,
@@ -24,7 +26,10 @@ import type {
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 
-export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
+export type TedEvent =
+  | DaemonEvent
+  | { type: 'menu-command'; command: MenuCommand }
+  | { type: 'connection'; connection: DaemonConnection }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -51,6 +56,9 @@ export const ted = {
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
+  startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
+  moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
@@ -84,6 +92,9 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
+  restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
+  copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
   getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>

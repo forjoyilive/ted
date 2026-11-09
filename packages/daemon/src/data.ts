@@ -180,7 +180,16 @@ export function createData(options: DataOptions): Data {
     await writeStoreMeta(paths.store, { lastOpenedBy: version, lastOpenedAt: now().toISOString() })
     if (rebuilding) await removeStaleStateFiles(paths.store)
     const started = await options.startServices(store, emit)
-    services = { store, ...started, unsubscribe: store.subscribe(emit) }
+    const unsubscribeStore = store.subscribe(emit)
+    const unsubscribeTasks = started.tasks.subscribe(emit)
+    services = {
+      store,
+      ...started,
+      unsubscribe: () => {
+        unsubscribeStore()
+        unsubscribeTasks()
+      },
+    }
     setStatus({ state: 'ready' })
     await takeDaily()
   }

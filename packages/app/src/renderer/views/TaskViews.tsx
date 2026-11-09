@@ -35,13 +35,23 @@ interface TaskViewProps {
   onOpen: (task: Task) => void
   onNewTask: () => void
   banners?: ReactNode
+  capLine?: string | undefined
 }
 
-function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void }) {
+function ViewHeader({
+  title,
+  capLine,
+  onNewTask,
+}: {
+  title: string
+  capLine?: string | undefined
+  onNewTask: () => void
+}) {
   return (
     <header className={styles.header}>
       <h1 className={styles.title}>{title}</h1>
       <span className={styles.headerSpacer} />
+      {capLine !== undefined && <span className={styles.capLine}>{capLine}</span>}
       <Button size="small" variant="quiet" onClick={onNewTask}>
         <PlusIcon />
         New Task
@@ -50,10 +60,18 @@ function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void
   )
 }
 
-export function TaskList({ title, tasks, factories, onOpen, onNewTask, banners }: TaskViewProps) {
+export function TaskList({
+  title,
+  tasks,
+  factories,
+  onOpen,
+  onNewTask,
+  banners,
+  capLine,
+}: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
-      <ViewHeader title={title} onNewTask={onNewTask} />
+      <ViewHeader title={title} capLine={capLine} onNewTask={onNewTask} />
       {banners}
       <div className={styles.body}>
         {tasks.length === 0 ? (
@@ -96,6 +114,7 @@ export function Board({
   onOpenTask,
   onNewTask,
   banners,
+  capLine,
 }: TaskViewProps & { onOpenTask: (ref: string) => void }) {
   const stages: string[] = [
     ...stageOrder,
@@ -104,7 +123,7 @@ export function Board({
 
   return (
     <section className={styles.pane} aria-label={title}>
-      <ViewHeader title={title} onNewTask={onNewTask} />
+      <ViewHeader title={title} capLine={capLine} onNewTask={onNewTask} />
       {banners}
       <div className={styles.board}>
         {stages.map((stage) => {

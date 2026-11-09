@@ -2,11 +2,13 @@ import type { AgentStageId, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
+import { Button } from '../components/Button.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useComments, useStageEntries } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
+import { ted } from '../ted.ts'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -45,6 +47,17 @@ export function TaskThread({
         <div className={styles.headerRow}>
           <h1 className={styles.taskTitle}>{task.title}</h1>
           <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+          {task.status?.kind === 'queued' && task.runs.length === 0 && (
+            <Button
+              size="small"
+              variant="quiet"
+              onClick={() =>
+                void ted.moveToBacklog(task.id).catch((error: unknown) => console.error(error))
+              }
+            >
+              Move to Backlog
+            </Button>
+          )}
         </div>
         <div className={styles.headerRow}>
           <StageTrack

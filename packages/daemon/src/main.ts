@@ -1,11 +1,17 @@
+import { mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { tedHome, tedVersion } from '@ted/protocol'
+import { tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
+import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 
 closeInheritedFds()
 delete process.env.ELECTRON_RUN_AS_NODE
+
+const paths = tedPaths(tedHome())
+mkdirSync(paths.logs, { recursive: true, mode: 0o700 })
+logConsoleTo(openRollingLog(paths.daemonLog, tedLogLimits))
 
 const { values } = parseArgs({
   args: process.argv.slice(2),

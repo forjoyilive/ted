@@ -14,6 +14,7 @@ import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
+import type { RunSlots } from './slots.ts'
 import type {
   Attachment,
   Comment,
@@ -66,6 +67,14 @@ export class DaemonClient {
 
   useDefaultModel(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
+  }
+
+  moveToBacklog(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  getSlots(): Promise<RunSlots> {
+    return this.#request('GET', '/slots')
   }
 
   listComments(ref: string): Promise<Comment[]> {
@@ -218,7 +227,7 @@ export class DaemonClient {
 
   async subscribe(
     onEvent: (event: DaemonEvent) => void,
-    { app = false }: { app?: boolean } = {},
+    { app = false, onClose }: { app?: boolean; onClose?: () => void } = {},
   ): Promise<Subscription> {
     const controller = new AbortController()
     const route = app ? '/events?app=1' : '/events'
@@ -227,15 +236,24 @@ export class DaemonClient {
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
 
     const ready = Promise.withResolvers<void>()
+    let opened = false
+    const open = () => {
+      opened = true
+      ready.resolve()
+    }
     void (async () => {
       let buffer = ''
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
-        buffer = dispatch(buffer + value, onEvent, ready.resolve)
+        buffer = dispatch(buffer + value, onEvent, open)
       }
       ready.reject(new DaemonUnreachableError('the daemon closed the event stream'))
-    })().catch(ready.reject)
+    })()
+      .catch(ready.reject)
+      .finally(() => {
+        if (opened && !controller.signal.aborted) onClose?.()
+      })
     await ready.promise
 
     return { close: () => controller.abort() }

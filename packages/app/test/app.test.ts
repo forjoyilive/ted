@@ -10,7 +10,12 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { hostRecords, killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import {
+  commitToOrigin,
+  hostRecords,
+  killRunHosts,
+  makeOriginRepo,
+} from '../../daemon/test/helpers.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -51,8 +56,12 @@ const env = () => ({
   TED_HIDDEN_WINDOW: '1',
 })
 
-async function launchApp(): Promise<Page> {
-  app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
+async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
+  app = await electron.launch({
+    executablePath: electronPath,
+    args: [appDir],
+    env: { ...env(), ...extraEnv },
+  })
   const window = await app.firstWindow()
   await window.emulateMedia({ colorScheme: null })
   await sidebar(window).waitFor()
@@ -886,6 +895,218 @@ describe('banners', () => {
     await nav.getByRole('img', { name: 'A problem stops work' }).waitFor({ state: 'detached' })
   })
 })
+
+describe('Working Runs', () => {
+  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+
+  async function twoTasksOneSlot(): Promise<Page> {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', forever())
+    await ted('task', 'create', '--factory', 'NB', 'Second Task')
+    const window = await launchApp()
+    await (await daemonClient()).updateSettings({ maxWorkingRuns: 1 })
+    return window
+  }
+
+  test('the sidebar footer counts working and queued Runs live and opens the popover', async () => {
+    const window = await twoTasksOneSlot()
+    const footer = sidebar(window).locator('footer')
+    await footer.getByText('Nothing running').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+    await ted('task', 'start', 'NB-2')
+    await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
+
+    const popover = window.getByRole('dialog', { name: 'Working Runs' })
+    await popover.getByText('1 of 1 slots on this Mac').waitFor()
+    const working = popover.getByRole('region', { name: 'Working' })
+    await working.getByText('NB-1', { exact: true }).waitFor()
+    await working.getByText('widgets · Task Lead').waitFor()
+    await working.getByText('1 Run', { exact: true }).waitFor()
+    const queued = popover.getByRole('region', { name: 'Queued' })
+    await queued.getByText('1st', { exact: true }).waitFor()
+    await queued.getByText('NB-2 · Second Task').waitFor()
+    await queued.getByText('widgets · None').waitFor()
+
+    await popover.getByRole('button', { name: 'Open in List →' }).click()
+    await window.getByRole('heading', { name: 'All Tasks', level: 1 }).waitFor()
+    expect(await popover.count()).toBe(0)
+  })
+
+  test('with nothing working the popover says so', async () => {
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'Nothing running' }).click()
+    const popover = window.getByRole('dialog', { name: 'Working Runs' })
+    await popover.getByText('No Runs working. Nothing queued.').waitFor()
+    await window.keyboard.press('Escape')
+    await popover.waitFor({ state: 'detached' })
+  })
+
+  test('S starts the open Backlog Task, and Move to Backlog takes a queued one back', async () => {
+    const window = await twoTasksOneSlot()
+    await ted('task', 'start', 'NB-1')
+    await openAllTasks(window)
+    await taskRow(window, 'NB-2').click()
+    const header = window.getByRole('region', { name: 'Task thread' }).locator('header')
+    await header.getByText('· Not started').waitFor()
+
+    await window.keyboard.press('s')
+    await header.getByText('Queued · 1st', { exact: true }).waitFor()
+
+    await header.getByRole('button', { name: 'Move to Backlog' }).click()
+    await header.getByText('· Not started').waitFor()
+    expect((await (await daemonClient()).getSlots()).queued).toBe(0)
+  })
+
+  test('a Factory at its cap shows it in the Board and List header', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', forever())
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const board = window.getByRole('region', { name: 'widgets' })
+    await board.getByRole('heading', { name: 'widgets', level: 1 }).waitFor()
+    expect(await board.getByText('1 of 1 working').count()).toBe(0)
+
+    await ted('task', 'start', 'NB-1')
+
+    await board.getByText('1 of 1 working').waitFor()
+    await sidebar(window).getByRole('button', { name: 'List' }).click()
+    await window.getByRole('region', { name: 'widgets' }).getByText('1 of 1 working').waitFor()
+  })
+
+  test('Settings · Limits changes the limit and shows what is working now', async () => {
+    const window = await twoTasksOneSlot()
+    await ted('task', 'start', 'NB-1')
+    await ted('task', 'start', 'NB-2')
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Limits', exact: true }).click()
+    await window.getByText('Now: 1 of 1 Runs working · 1 queued').waitFor()
+
+    await window.getByRole('button', { name: 'More working Runs' }).click()
+
+    await window.getByText('Now: 2 of 2 Runs working').waitFor()
+    expect((await (await daemonClient()).getSettings()).maxWorkingRuns).toBe(2)
+  })
+})
+
+describe('daemon crashes', () => {
+  const reconnecting = (window: Page) =>
+    window.getByRole('status', { name: 'Reconnecting to TED…' })
+
+  async function killDaemon(): Promise<number> {
+    const pid = await daemonPid()
+    process.kill(pid, 'SIGKILL')
+    await waitForExit(pid)
+    return pid
+  }
+
+  async function waitForNewDaemon(old: number): Promise<number> {
+    await expect
+      .poll(
+        async () => {
+          const info = await readDaemonInfo(home)
+          return info !== undefined && info.pid !== old && isAlive(info.pid)
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true)
+    return daemonPid()
+  }
+
+  test('killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const steps = JSON.stringify({
+      steps: [
+        { waitFor: path.join(home, 'go') },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+        { run: ['ted', 'outcome', 'advance'] },
+      ],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '1500,0,0' })
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await ted('task', 'start', 'NB-1')
+    await details.getByText('Intake', { exact: true }).waitFor()
+    await expect.poll(async () => (await runHostPids()).length).toBe(2)
+    const hosts = await runHostPids()
+
+    const old = await killDaemon()
+
+    await reconnecting(window).waitFor()
+    await reconnecting(window)
+      .getByText('Runs keep going. Actions are off until TED is back.')
+      .waitFor()
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
+    expect(hosts.every(isAlive)).toBe(true)
+
+    await waitForNewDaemon(old)
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(
+      false,
+    )
+    await writeFile(path.join(home, 'go'), '')
+    await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
+  })
+
+  test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
+    await app?.evaluate(({ clipboard }) => {
+      const record = globalThis as unknown as { copied: string[] }
+      record.copied = []
+      clipboard.writeText = async (text: string) => {
+        record.copied.push(text)
+      }
+    })
+    const recorded = () => app?.evaluate(() => globalThis as unknown as { copied: string[] })
+
+    await waitForNewDaemon(await killDaemon())
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await waitForNewDaemon(await killDaemon())
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    const last = await killDaemon()
+
+    const banner = window.getByRole('region', { name: 'Problems' }).getByRole('alert')
+    await banner.getByText('TED’s background process keeps stopping').waitFor()
+    expect(await reconnecting(window).count()).toBe(0)
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
+    await sleep(500)
+    expect(await daemonPid()).toBe(last)
+
+    await banner.getByRole('button', { name: 'Restart' }).click()
+    await window.getByRole('menuitem', { name: 'Copy report' }).click()
+    await expect.poll(async () => (await recorded())?.copied.length).toBe(1)
+    const [report] = (await recorded())?.copied ?? []
+    expect(report).toContain('crash report')
+    expect(report).toMatch(/TED daemon .* listening on/)
+    expect(report).toContain('starting TED’s daemon')
+
+    await banner.getByRole('button', { name: 'Restart' }).click()
+    await window.getByRole('menuitem', { name: 'Restart TED in the background' }).click()
+
+    await banner.waitFor({ state: 'detached', timeout: 20_000 })
+    await waitForNewDaemon(last)
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(
+      false,
+    )
+  })
+})
+
+async function runHostPids(): Promise<number[]> {
+  const pids: number[] = []
+  for (const id of await readdir(path.join(home, 'runs')).catch(() => [])) {
+    const start = (await hostRecords(home, id)).find((r) => r.t === 'start')
+    for (const pid of [start?.agentPid, start?.hostPid]) if (typeof pid === 'number') pids.push(pid)
+  }
+  return pids
+}
 
 describe('running in the background', () => {
   async function startRun(steps: unknown[]): Promise<string> {
