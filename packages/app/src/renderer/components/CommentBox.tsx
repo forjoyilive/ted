@@ -134,6 +134,7 @@ export function CommentBox({
       )}
       <textarea
         className={styles.box}
+        data-comment-box
         aria-label="Comment"
         placeholder={placeholders[state] ?? 'Comment to the Task Lead…'}
         value={text}

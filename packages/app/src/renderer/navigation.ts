@@ -96,6 +96,65 @@ export function currentFactoryId(
   return state.lastFactoryId
 }
 
+type Place = Pick<Navigation, 'screen' | 'taskId' | 'requestId' | 'settings'>
+
+export interface History {
+  now: Navigation
+  back: readonly Place[]
+  forward: readonly Place[]
+}
+
+export type HistoryAction = NavigationAction | { type: 'back' } | { type: 'forward' }
+
+const historyLimit = 100
+
+export function startHistory(now: Navigation): History {
+  return { now, back: [], forward: [] }
+}
+
+function placeOf({ screen, taskId, requestId, settings }: Navigation): Place {
+  return {
+    screen,
+    ...(taskId !== undefined && { taskId }),
+    ...(requestId !== undefined && { requestId }),
+    ...(settings !== undefined && { settings }),
+  }
+}
+
+function samePlace(a: Place, b: Place): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
+function goTo(state: Navigation, place: Place): Navigation {
+  const { taskId: _, requestId: __, settings: ___, ...rest } = state
+  const { screen } = place
+  return {
+    ...rest,
+    ...place,
+    ...(screen.kind === 'factory' && {
+      lastFactoryId: screen.factoryId,
+      lastViews: { ...state.lastViews, [screen.factoryId]: screen.view },
+    }),
+  }
+}
+
+export function withHistory(history: History, action: HistoryAction): History {
+  const here = placeOf(history.now)
+  if (action.type === 'back' || action.type === 'forward') {
+    const from = action.type === 'back' ? history.back : history.forward
+    const target = from.at(-1)
+    if (target === undefined) return history
+    const rest = from.slice(0, -1)
+    const now = goTo(history.now, target)
+    return action.type === 'back'
+      ? { now, back: rest, forward: [...history.forward, here] }
+      : { now, back: [...history.back, here], forward: rest }
+  }
+  const now = navigate(history.now, action)
+  if (samePlace(placeOf(now), here)) return { ...history, now }
+  return { now, back: [...history.back, here].slice(-historyLimit), forward: [] }
+}
+
 export function backLink(state: Navigation): string | undefined {
   if (state.taskId === undefined) return undefined
   const { screen } = state

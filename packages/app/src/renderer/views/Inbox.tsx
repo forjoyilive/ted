@@ -117,6 +117,7 @@ export function Inbox({
                   <button
                     type="button"
                     className={styles.row}
+                    data-nav-item
                     aria-current={request.id === selected ? 'true' : undefined}
                     onClick={() => onOpen(item)}
                   >
