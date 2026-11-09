@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -92,7 +91,7 @@ export async function runChecks(input: {
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'> }
+  sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'>; tmpRoot: string }
   signal?: AbortSignal
   onStart: (position: number) => void
   onFinish: (
@@ -138,12 +137,13 @@ export async function runChecks(input: {
 async function runCheck(
   input: Parameters<typeof runWorktreeCommand>[0] & {
     shell: [string, ...string[]]
-    sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'> }
+    sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'>; tmpRoot: string }
   },
 ): Promise<CommandResult> {
   const { sandbox, ...command } = input
   if (sandbox === undefined) return runWorktreeCommand(command)
-  const tmp = await mkdtemp(path.join(tmpdir(), 'ted-check-'))
+  await mkdir(sandbox.tmpRoot, { recursive: true, mode: 0o700 })
+  const tmp = await mkdtemp(path.join(sandbox.tmpRoot, 'tmp-'))
   try {
     const wrapped = await sandbox.sandbox.wrap(input.shell, { ...sandbox.scope, tmp })
     return await runWorktreeCommand({

@@ -27,7 +27,7 @@ let outside: string
 const scope = () => ({
   writable: [worktree],
   readable: [clone],
-  cache: path.join(tedHome, 'worktrees', 'NB-1', 'sandbox-cache'),
+  cache: path.join(tedHome, 'sandbox', 'NB-1', 'cache'),
   tmp,
 })
 
@@ -37,12 +37,13 @@ beforeEach(async () => {
   clone = path.join(tedHome, 'repos', 'k', 'widgets')
   await mkdir(worktree, { recursive: true })
   await mkdir(clone, { recursive: true })
-  tmp = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-tmp-'))
+  tmp = path.join(tedHome, 'sandbox', 'NB-1', 'tmp-1')
+  await mkdir(tmp, { recursive: true })
   outside = await mkdtemp(path.join(tmpdir(), 'ted-sandbox-outside-'))
 })
 
 afterEach(async () => {
-  for (const dir of [tedHome, tmp, outside]) await rm(dir, { recursive: true, force: true })
+  for (const dir of [tedHome, outside]) await rm(dir, { recursive: true, force: true })
 })
 
 async function inSandbox(script: string) {
@@ -180,6 +181,22 @@ describe('the folders a sandbox opens', () => {
     })
     const both = await Promise.all([1, 2].map(() => sandbox.wrap(['/bin/sh', '-c'], scope())))
     expect(both).toHaveLength(2)
+  })
+
+  test('no open folder sits inside another writable one', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+    })
+    const taskFolder = path.dirname(worktree)
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), writable: [taskFolder, worktree] }),
+    ).rejects.toThrow(/sits inside/)
+    await expect(
+      sandbox.wrap(['/bin/sh', '-c'], { ...scope(), cache: path.join(worktree, 'cache') }),
+    ).rejects.toThrow(/sits inside/)
   })
 
   test('a folder outside TED_HOME is refused', async () => {

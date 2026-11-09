@@ -500,6 +500,7 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
@@ -535,18 +536,12 @@ export function createTasks(options: {
     return problem
   }
 
-  function sandboxScope(
-    task: StoredTask,
-    entries: readonly FactoryRepoEntry[],
-  ): Omit<SandboxScope, 'tmp'> {
-    const folder = runFolderOf(task, entries)
+  function sandboxScope(task: StoredTask): Omit<SandboxScope, 'tmp'> {
     const live = task.repos.filter((r) => !r.removed)
     return {
-      writable: [
-        ...new Set([...(folder === undefined ? [] : [folder]), ...live.map((r) => r.worktree)]),
-      ],
+      writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
-      cache: path.join(worktreesDir, task.displayId, 'sandbox-cache'),
+      cache: path.join(sandboxDir, task.displayId, 'cache'),
     }
   }
 
@@ -566,7 +561,7 @@ export function createTasks(options: {
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
-      ...(!bypass && { sandbox: sandboxScope(task, entries) }),
+      ...(!bypass && { sandbox: sandboxScope(task) }),
       repos: live.map((repo) => {
         const entry = repoEntry(entries, repo)
         return {
@@ -1089,7 +1084,11 @@ export function createTasks(options: {
     if (plan.length === 0) return undefined
     const sandbox = runsInBypass(resolution)
       ? undefined
-      : { sandbox: options.sandbox, scope: sandboxScope(task, entries) }
+      : {
+          sandbox: options.sandbox,
+          scope: sandboxScope(task),
+          tmpRoot: path.join(sandboxDir, task.displayId),
+        }
     if (sandbox !== undefined) await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,
@@ -2806,6 +2805,7 @@ export function createTasks(options: {
     }
     if (task.repos.length === 0 && task.worktree) await git.removeWorktree(clone, task.worktree)
     await rm(path.join(worktreesDir, task.displayId), { recursive: true, force: true })
+    await removeInside(sandboxDir, task.displayId)
     for (const { name, teardown } of removed) store.worktreeRemoved(task.id, name, teardown)
   }
 
@@ -4608,6 +4608,7 @@ export function createTasks(options: {
       ),
     )
     await gone(worktreesDir, task.displayId)
+    await gone(sandboxDir, task.displayId)
     const stillUsed = store.filesInUse()
     await Promise.all(
       files

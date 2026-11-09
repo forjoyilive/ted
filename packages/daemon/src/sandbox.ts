@@ -113,11 +113,24 @@ async function sandboxPaths(
   const home = await real(tedHome)
   const given = path.resolve(tedHome)
   const plain = (dir: string, create = false) => plainFolder(home, given, dir, create)
+  const writable = await Promise.all(scope.writable.map((dir) => plain(dir)))
+  const readable = await Promise.all(scope.readable.map((dir) => plain(dir)))
+  const tmp = await plain(scope.tmp)
+  const cache = await plain(scope.cache, true)
+  const open = [...writable, tmp, cache]
+  for (const dir of [...open, ...readable]) {
+    const outer = open.find((other) => other !== dir && inside(other, dir))
+    if (outer !== undefined) {
+      throw new SandboxUnavailable(
+        `${dir} sits inside ${outer}, so TED won’t sandbox a command with both open`,
+      )
+    }
+  }
   return {
-    writable: await Promise.all(scope.writable.map((dir) => plain(dir))),
-    readable: await Promise.all(scope.readable.map((dir) => plain(dir))),
-    tmp: await real(scope.tmp),
-    cache: await plain(scope.cache, true),
+    writable,
+    readable,
+    tmp,
+    cache,
     tedHome: home,
     ...(sharedTmp !== undefined && !inside(sharedTmp, daemonTmp) && { sharedTmp }),
   }
@@ -198,10 +211,10 @@ async function plainFolder(
     throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
   }
   let current = home
-  for (const [i, part] of parts.entries()) {
+  for (const part of parts) {
     current = path.join(current, part)
     let found = await lstat(current).catch(() => undefined)
-    if (!found && create && i === parts.length - 1) {
+    if (!found && create) {
       await mkdir(current, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'EEXIST') throw error
       })
