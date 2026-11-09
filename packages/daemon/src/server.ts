@@ -1,7 +1,9 @@
 import { timingSafeEqual } from 'node:crypto'
+import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { stripVTControlCharacters } from 'node:util'
 import {
   type AddFactoryRequest,
@@ -639,10 +641,13 @@ const routes: Route[] = [
   },
 ]
 
+const drainTimeoutMs = 10_000
+
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
     options.idle?.reset()
-    handle(req, res, options).catch((error: unknown) => {
+    handle(req, res, options).catch(async (error: unknown) => {
+      await drain(req)
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
       if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
       console.error(
@@ -1063,6 +1068,16 @@ async function readJson(req: http.IncomingMessage): Promise<unknown> {
   } catch {
     throw new HttpError(400, 'body is not JSON')
   }
+}
+
+async function drain(req: http.IncomingMessage): Promise<void> {
+  if (req.complete || req.destroyed) return
+  req.resume()
+  await Promise.race([
+    once(req, 'end'),
+    once(req, 'close'),
+    sleep(drainTimeoutMs, undefined, { ref: false }),
+  ]).catch(() => undefined)
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
