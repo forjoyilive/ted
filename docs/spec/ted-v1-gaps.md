@@ -23,8 +23,8 @@ Updated 2026-11-08.
 - **Spec:** 10.6.
 
 ### NEW-5: Minimum supported versions (S)
-- **Status:** open until build.
-- The minimum versions of `claude`, `codex` and `gh` are set at build (KRI-54, KRI-57).
+- **Status:** settled (KRI-81).
+- `claude` 2.1.111, `codex` 0.128.0, `gh` 2.81.0. Sources in `docs/research/kri-81-min-versions.md`.
 - **Spec:** 14.
 
 ### NEW-6: Before shipping to other people (S)
