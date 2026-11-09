@@ -853,6 +853,7 @@ describe('TED app frame', () => {
 
   test('a Help (?) shows its note in a tooltip on hover', async () => {
     const window = await launchApp()
+    await ted('task', 'create', 'Fix login')
 
     await window.getByRole('button', { name: 'Help' }).hover()
 
