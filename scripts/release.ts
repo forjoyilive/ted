@@ -101,7 +101,7 @@ function install(): void {
   step('Copy', 'ditto', [built, installed])
 }
 
-function main(): void {
+async function main(): Promise<void> {
   if (process.argv.includes('--install')) {
     install()
     return
@@ -126,7 +126,7 @@ function main(): void {
   if (hasPassed(git('rev-parse', 'HEAD'))) {
     console.log('\n== Checks already passed on this commit; skipping them')
     step('Install', 'pnpm', ['install', '--frozen-lockfile'])
-  } else if (!checkAndRecord()) {
+  } else if (!(await checkAndRecord())) {
     fail('checks failed')
   }
   if (linux) linuxCi()
@@ -143,4 +143,4 @@ function main(): void {
   console.log(`\nTED ${version} is tagged, pushed and installed in ${installed}.`)
 }
 
-if (import.meta.main) main()
+if (import.meta.main) await main()
