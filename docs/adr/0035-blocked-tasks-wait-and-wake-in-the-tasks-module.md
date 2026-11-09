@@ -1,6 +1,6 @@
 # Blocked Tasks wait and wake in the Tasks module
 
-A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replaces one and records which Run set it (null for the human); `v1.TaskBlockerRemoved` deletes one. The old `v1.TaskBlockerAdded` keeps its materializer. A blocker counts as merged when its Task is in Done, until the Merge Stage exists (KRI-130).
+A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replaces one and records which Run set it (null for the human); `v1.TaskBlockerRemoved` deletes one. The old `v1.TaskBlockerAdded` keeps its materializer. A blocker counts as merged when its Task is in Done and every pull request it opened has merged (ADR NNNN-ted-merges-pull-requests-at-the-merge-stage).
 
 **Adding a blocker** (`POST /tasks/:id/blockers`, `ted task block`) is refused when it would make a cycle; the error names the cycle, `NB-1 → NB-3 → NB-2 → NB-1`, where each Task waits for the next. Then, by the Task’s state:
 
@@ -22,5 +22,4 @@ A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replace
 ## Consequences
 
 - Removing the last blocker by hand from a Task waiting mid-flow queues a fresh Run for it, because Resume (KRI-101) doesn’t exist yet. KRI-101 may change this to leave it for the human.
-- The Merge ticket (KRI-130) changes what “merged” means in `TedStore.blockers`.
 - Archiving or deleting a Task that blocks others comes with the Archive ticket.

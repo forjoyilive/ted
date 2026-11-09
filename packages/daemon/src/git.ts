@@ -257,3 +257,68 @@ export async function pushBranch(
   }
   return commit
 }
+
+export async function fetchBranch(
+  worktree: string,
+  options: { url: string; branch: string; haves?: string[]; timeoutMs?: number },
+): Promise<string> {
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-fetch-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const fetched = 'refs/ted/fetched'
+  const run = (args: string[], env: NodeJS.ProcessEnv, timeout?: number) =>
+    execFileAsync('git', args, {
+      cwd: scratch,
+      env,
+      maxBuffer: 16 * 1024 * 1024,
+      ...(timeout !== undefined && { timeout }),
+    })
+  try {
+    await run(['init', '--bare', '--quiet', gitDir], worktreeCommandEnv({}, { GIT_DIR: gitDir }))
+    const env = worktreeCommandEnv(
+      {},
+      { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects },
+    )
+    for (const [i, have] of (options.haves ?? []).entries()) {
+      await run(['update-ref', `refs/ted/have-${i}`, have], env).catch(() => undefined)
+    }
+    await run(
+      [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'protocol.ext.allow=never',
+        'fetch',
+        '--no-tags',
+        '--quiet',
+        '--',
+        options.url,
+        `+refs/heads/${options.branch}:${fetched}`,
+      ],
+      env,
+      options.timeoutMs ?? 5 * 60_000,
+    )
+    const { stdout } = await run(['rev-parse', '--verify', `${fetched}^{commit}`], env)
+    return stdout.trim()
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? ''
+    const reason = stderr
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`git fetch failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function headCommit(worktree: string): Promise<string> {
+  return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+}
+
+export async function moveBranchTo(worktree: string, commit: string): Promise<void> {
+  await git(worktree, ...noHooks, '-c', 'core.hooksPath=/dev/null', 'reset', '--keep', commit)
+}

@@ -45,6 +45,7 @@ export interface DaemonOptions {
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
   nudgeAfterMs?: number
+  mergePollMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -204,6 +205,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         gh: integrations.gh,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
+        ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
       })
       wake = () => tasks.wake()
       disk.start()

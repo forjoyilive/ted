@@ -1,5 +1,6 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type {
   AgentStageId,
   AnswerRequest,
@@ -11,8 +12,10 @@ import type {
   CommentAnswer,
   DaemonEvent,
   FactoryBoard,
+  GitHubWait,
   InboxItem,
   LinearIssue,
+  MergeMethod,
   MoveTaskRequest,
   OutcomeResult,
   Priority,
@@ -36,7 +39,7 @@ import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
-import type { Gh } from '../github/gh.ts'
+import { type Gh, GhError } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
@@ -70,6 +73,16 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import {
+  chooseMethod,
+  deleteBranch,
+  type MergeTarget,
+  mergePullRequest,
+  nextStep,
+  type RemotePullRequest,
+  readPullRequests,
+  rebasePullRequest,
+} from './merge.ts'
 import { placeBetween } from './order.ts'
 import {
   createPullRequests,
@@ -155,6 +168,7 @@ export function createTasks(options: {
   idle?: IdleTimer
   gh?: Gh
   nudgeAfterMs?: number
+  mergePollMs?: number
 }): Tasks {
   const {
     store,
@@ -189,6 +203,10 @@ export function createTasks(options: {
   const checking = new Set<string>()
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const pullRequestQueue = new Map<string, Promise<void>>()
+  const merging = new Set<string>()
+  const rebaseAsked = new Map<string, string>()
+  const autoMergeTried = new Set<string>()
+  const mergePollMs = options.mergePollMs ?? 30_000
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -593,6 +611,320 @@ export function createTasks(options: {
       if (pullRequestQueue.get(taskId) === settled) pullRequestQueue.delete(taskId)
     })
     inBackground(`update ${task.displayId}’s pull requests`, () => next)
+  }
+
+  type MergeCycle = 'done' | 'wait' | 'busy'
+  type MergeWork = MergeTarget & { url: string; worktree: string }
+
+  function tedMerges(task: Task, workflow: ResolvedWorkflow): boolean {
+    if (task.stage !== 'merge' || task.archived) return false
+    if (workflow.settings.stages.merge?.gate !== true) return true
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .some(
+        (c) =>
+          c.gate && c.stage === 'merge' && c.answer?.kind === 'approved' && c.createdAt >= since,
+      )
+  }
+
+  function watchMerge(taskId: string): void {
+    if (merging.has(taskId) || closed) return
+    merging.add(taskId)
+    const name = find(taskId).displayId
+    inBackground(`merge ${name}’s pull requests`, async () => {
+      try {
+        while (!closed) {
+          const current = store.getTask(taskId)
+          if (current?.stage !== 'merge' || current.archived) return
+          await pullRequestQueue.get(taskId)
+          let next: MergeCycle = 'wait'
+          if (!current.stopped && !checking.has(taskId) && openRequests(taskId).length === 0) {
+            next = await mergeCycle(taskId).catch((error: unknown) => {
+              if (error instanceof RequestError && error.status === 409) return 'busy' as const
+              console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
+              return 'wait' as const
+            })
+          }
+          if (next === 'done') return
+          await sleep(next === 'busy' ? 100 : mergePollMs, undefined, {
+            signal: stopping.signal,
+          }).catch(() => undefined)
+        }
+      } finally {
+        merging.delete(taskId)
+      }
+    })
+  }
+
+  async function mergeTargets(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+  ): Promise<MergeWork[]> {
+    const open = task.repos.filter(
+      (r) => !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged',
+    )
+    if (open.length === 0) return []
+    const methods = resolution.workflow.settings.repos ?? []
+    return (await pullRequestTargets(task)).flatMap((target) => {
+      const repo = open.find((r) => r.name === target.name)
+      const pr = repo?.pullRequest
+      if (!repo || !pr) return []
+      const method = methods.find((m) => m.name === target.name)?.merge_method ?? 'squash'
+      return [
+        {
+          ...target,
+          number: pr.number,
+          expectedHead: repo.pushed?.commit ?? '',
+          hasCi: repo.pushed?.ci ?? true,
+          method: method as MergeMethod,
+        },
+      ]
+    })
+  }
+
+  function setWait(taskId: string, name: string, on: GitHubWait): void {
+    const repo = find(taskId).repos.find((r) => r.name === name)
+    if (repo?.pullRequest && repo.pullRequest.waiting !== on) {
+      store.pullRequestWaiting(taskId, name, on)
+    }
+  }
+
+  function mergeChecksPending(task: StoredTask): boolean {
+    const since = visitStart(task)
+    const rebasedAt = store
+      .taskLog(task.id)
+      .findLast((e) => e.name === 'v1.TaskBranchRebased' && e.at >= since)?.at
+    if (rebasedAt === undefined) return false
+    return !store
+      .listCheckRuns()
+      .some(
+        (r) =>
+          r.taskId === task.id &&
+          r.trigger === 'merge' &&
+          r.outcome === 'passed' &&
+          r.startedAt >= rebasedAt,
+      )
+  }
+
+  async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
+    checking.add(taskId)
+    try {
+      const started = await beginChecks(find(taskId), resolution, 'merge')
+      if (!started) return true
+      const result = await started.done
+      if (result.outcome === 'passed') return true
+      if (result.outcome === 'interrupted') return false
+      const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
+      const current = find(taskId)
+      const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
+      await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
+        mode: 0o600,
+      })
+      checking.delete(taskId)
+      await mergeSendBack(taskId, findings, checkRun.id)
+      return false
+    } finally {
+      checking.delete(taskId)
+    }
+  }
+
+  async function mergeSendBack(
+    taskId: string,
+    findings: string,
+    checkRunId?: string,
+  ): Promise<MergeCycle> {
+    const task = find(taskId)
+    if (task.stage !== 'merge') return 'done'
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    if (!resolution.workflow.stages.includes('work')) {
+      console.error(`couldn’t send ${task.displayId} back to Work: Work is off`)
+      return 'wait'
+    }
+    if (advancing.has(taskId)) return 'busy'
+    const outcome = await holding(task, () =>
+      sendBack(
+        find(taskId),
+        resolution,
+        'merge',
+        { outcome: 'back', to: 'work', findings },
+        checkRunId,
+      ),
+    )
+    return outcome.request ? 'wait' : 'done'
+  }
+
+  async function finishMerge(taskId: string): Promise<MergeCycle> {
+    const task = find(taskId)
+    if (task.stage !== 'merge') return 'done'
+    if (advancing.has(taskId)) return 'busy'
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    await holding(task, async () => {
+      const current = find(taskId)
+      if (current.stage === 'merge') await move(current, resolution, 'done', undefined)
+    })
+    return 'done'
+  }
+
+  async function adoptRebase(
+    task: StoredTask,
+    target: MergeWork,
+    head: string,
+  ): Promise<MergeCycle> {
+    const key = `${task.id}:${target.name}`
+    const fetched = await git.fetchBranch(target.worktree, {
+      url: target.url,
+      branch: target.branch,
+      haves: [target.expectedHead],
+    })
+    if (fetched !== head) return 'wait'
+    rebaseAsked.delete(key)
+    if ((await git.headCommit(target.worktree)) !== target.expectedHead) {
+      return mergeSendBack(
+        task.id,
+        `TED rebased ${target.name} onto ${target.base} on GitHub, but the worktree has commits that weren’t signed off. Bring them through Validate for a new sign-off.`,
+      )
+    }
+    await git.moveBranchTo(target.worktree, head)
+    store.branchRebased(task.id, target.name, { commit: head, onto: target.base })
+    return 'busy'
+  }
+
+  async function enableAutoMerge(
+    gh: Gh,
+    task: StoredTask,
+    target: MergeWork,
+    pr: RemotePullRequest,
+  ): Promise<void> {
+    const key = `${task.id}:${target.name}:${target.expectedHead}`
+    const method = chooseMethod(target.method, pr.allowed)
+    if (!method || autoMergeTried.has(key)) return
+    autoMergeTried.add(key)
+    try {
+      await mergePullRequest(gh, target, method, { auto: true })
+      store.autoMergeEnabled(task.id, target.name, { method, requested: target.method })
+    } catch (error) {
+      console.error(
+        `couldn’t turn on auto-merge for ${target.repo}#${target.number}:`,
+        redactSecrets(textOf(error)),
+      )
+    }
+  }
+
+  async function removeMergedBranch(gh: Gh, target: MergeWork, pr: RemotePullRequest) {
+    if (pr.deleteBranchOnMerge) return
+    await deleteBranch(gh, target).catch((error: unknown) =>
+      console.error(
+        `couldn’t delete the branch ${target.branch} on ${target.repo}:`,
+        redactSecrets(textOf(error)),
+      ),
+    )
+  }
+
+  async function mergeCycle(taskId: string): Promise<MergeCycle> {
+    const task = find(taskId)
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
+    const targets = await mergeTargets(find(taskId), resolution)
+    if (targets.length === 0) return finishMerge(taskId)
+    const gh = options.gh
+    if (!gh) return 'wait'
+    let remote: Map<string, RemotePullRequest>
+    try {
+      remote = await readPullRequests(gh, targets)
+    } catch (error) {
+      if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+        for (const target of targets) setWait(taskId, target.name, 'sign-in')
+      }
+      throw error
+    }
+    const ready: { target: MergeWork; pr: RemotePullRequest; noCi: boolean }[] = []
+    let open = 0
+    for (const target of targets) {
+      const pr = remote.get(target.name)
+      if (!pr) {
+        open++
+        continue
+      }
+      const key = `${taskId}:${target.name}`
+      const step = nextStep(target, pr)
+      if (step.kind !== 'merged') open++
+      switch (step.kind) {
+        case 'merged': {
+          rebaseAsked.delete(key)
+          const method = find(taskId).repos.find((r) => r.name === target.name)?.pullRequest
+            ?.autoMerge
+          store.pullRequestMerged(taskId, target.name, {
+            ...(method !== undefined && { method }),
+            noCi: false,
+            byTed: false,
+          })
+          await removeMergedBranch(gh, target, pr)
+          break
+        }
+        case 'closed':
+          setWait(taskId, target.name, 'merge')
+          break
+        case 'changed':
+          if (rebaseAsked.get(key) === target.expectedHead)
+            return adoptRebase(task, target, step.head)
+          return mergeSendBack(
+            taskId,
+            `The pull request ${target.repo}#${target.number} changed on GitHub after sign-off: its branch is at ${step.head}, not ${target.expectedHead}. Find out what changed, then bring the Task back through Validate for a new sign-off.`,
+          )
+        case 'ready':
+          pullRequestWork(taskId, 'ready')
+          return 'wait'
+        case 'conflict':
+          return mergeSendBack(taskId, conflictFindings(target))
+        case 'behind':
+          if (rebaseAsked.get(key) !== target.expectedHead) {
+            try {
+              await rebasePullRequest(gh, pr)
+              rebaseAsked.set(key, target.expectedHead)
+            } catch (error) {
+              if (/conflict/i.test(textOf(error))) {
+                return mergeSendBack(taskId, conflictFindings(target))
+              }
+              throw error
+            }
+          }
+          setWait(taskId, target.name, 'ci')
+          break
+        case 'ci-failed':
+          return mergeSendBack(
+            taskId,
+            `CI failed on ${target.repo}#${target.number} at Merge: ${step.checks.join(', ')}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
+          )
+        case 'wait':
+          setWait(taskId, target.name, step.on)
+          if (step.autoMerge) await enableAutoMerge(gh, task, target, pr)
+          break
+        case 'merge':
+          ready.push({ target, pr, noCi: step.noCi })
+          break
+      }
+    }
+    if (ready.length === 0 || ready.length !== open) {
+      return open === 0 ? finishMerge(taskId) : 'wait'
+    }
+    for (const { target, pr, noCi } of ready) {
+      const method = chooseMethod(target.method, pr.allowed)
+      if (!method) {
+        console.error(`GitHub allows no merge method on ${target.repo}`)
+        setWait(taskId, target.name, 'merge')
+        return 'wait'
+      }
+      await mergePullRequest(gh, target, method, { auto: false })
+      store.pullRequestMerged(taskId, target.name, {
+        method,
+        requested: target.method,
+        noCi,
+        byTed: true,
+      })
+      await removeMergedBranch(gh, target, pr)
+    }
+    return finishMerge(taskId)
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
@@ -1120,6 +1452,7 @@ export function createTasks(options: {
     } else if (message !== undefined) {
       await deliver(task, message)
     }
+    if (next === 'merge' && tedMerges(moved, resolution.workflow)) watchMerge(task.id)
     return moved
   }
 
@@ -1585,6 +1918,7 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
+    if (merging.has(task.id)) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).length > 0) return
@@ -1684,6 +2018,14 @@ export function createTasks(options: {
     ) {
       interrupted.add(run.id)
     }
+  }
+
+  for (const task of store.listTasks()) {
+    if (task.stage !== 'merge' || task.archived) continue
+    inBackground(`look at ${task.displayId}’s merge`, async () => {
+      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      if (tedMerges(find(task.id), resolution.workflow)) watchMerge(task.id)
+    })
   }
 
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
@@ -1876,7 +2218,7 @@ export function createTasks(options: {
       if (existing && (runId === undefined || existing.setByRunId === runId)) {
         return publicTask(task.id)
       }
-      const unmerged = blocker.stage !== 'done'
+      const unmerged = !store.isMerged(blocker.id)
       const queued = store.queue().some((q) => q.id === task.id)
       const midFlow = current.repos.some((r) => !r.removed)
       const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
@@ -2048,13 +2390,16 @@ export function createTasks(options: {
         const at = new Date().toISOString()
         if (request.action === 'request-changes') {
           const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
+          const picksStage = comment.stage === 'review' || comment.stage === 'merge'
           await deliverAnswer(
             task,
             comment,
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
-              `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+              picksStage
+                ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
+                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
             ].join('\n\n'),
           )
           return answered
@@ -2073,6 +2418,14 @@ export function createTasks(options: {
             text === ''
               ? `The human approved the ${gateName(comment)}.`
               : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+          if (now.stage === 'merge') {
+            watchMerge(task.id)
+            await deliver(
+              now,
+              `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
+            )
+            return answered
+          }
           await move(
             now,
             resolution,
@@ -2150,7 +2503,29 @@ export function createTasks(options: {
         }
         const resolution = await resolveWorkflow(factoryOf(current))
         const { workflow } = resolution
-        if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        const changesAsked =
+          (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
+        if (outcome.outcome === 'back') {
+          if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
+            throw new RequestError(
+              409,
+              `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
+            )
+          }
+          return sendBack(current, resolution, stage, outcome)
+        }
+        if (changesAsked) {
+          throw new RequestError(
+            409,
+            `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+          )
+        }
+        if (stage === 'merge' && tedMerges(current, workflow)) {
+          throw new RequestError(
+            409,
+            `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
+          )
+        }
         if (outcome.skip === true) {
           if (!skippableStages.includes(stage)) {
             throw new RequestError(
@@ -2324,6 +2699,14 @@ export function createTasks(options: {
 }
 
 const skippableStages: readonly StageId[] = ['clarify', 'design']
+
+function textOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function conflictFindings(target: { repo: string; number: number; base: string }): string {
+  return `${target.repo}#${target.number} conflicts with ${target.base}, so TED couldn’t rebase it. Rebase onto origin/${target.base} and resolve the conflicts; the Task then comes back through Validate for a short re-sign-off.`
+}
 const idleTitle = 'The Task Lead stopped without saying why'
 const nudgeAgainChoice = 'Nudge again'
 
