@@ -13,7 +13,7 @@ interface RpcMessage {
   id?: number | string
   method?: string
   params?: Record<string, unknown>
-  result?: { thread?: { id?: unknown }; data?: unknown }
+  result?: { thread?: { id?: unknown }; turn?: { id?: unknown }; data?: unknown }
   error?: unknown
 }
 
@@ -51,6 +51,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   const pending: string[] = []
   const queued: string[] = []
   let turnActive = false
+  let turnId: string | undefined
+  let interruptWanted = false
   let effort: Effort | undefined
   let model = plan.model
   const asking = new Map<string, RpcMessage>()
@@ -81,6 +83,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     const openedId = opened.result?.thread?.id
     if (opened.error !== undefined || typeof openedId !== 'string') return stop()
     threadId = openedId
+    if (plan.prompt === '') interruptWanted = false
     if (plan.prompt !== '') {
       const turn = await startTurn(plan.prompt)
       if (turn.error !== undefined) return stop()
@@ -88,19 +91,46 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     for (const text of pending.splice(0)) queueTurn(text)
   })()
 
+  const textInput = (text: string) => [{ type: 'text', text, text_elements: [] }]
+
   async function startTurn(text: string) {
     turnActive = true
+    turnId = undefined
     const started = await request('turn/start', {
       threadId,
-      input: [{ type: 'text', text, text_elements: [] }],
+      input: textInput(text),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
     })
     if (started.error !== undefined) {
       turnActive = false
       nextTurn()
+    } else if (typeof started.result?.turn?.id === 'string' && turnActive) {
+      turnId ??= started.result.turn.id
+      interruptIfWanted()
     }
     return started
+  }
+
+  async function steer(text: string) {
+    if (!turnActive || turnId === undefined) return queueTurn(text)
+    const steered = await request('turn/steer', {
+      threadId,
+      input: textInput(text),
+      expectedTurnId: turnId,
+    })
+    if (steered.error !== undefined) queueTurn(text)
+  }
+
+  function interrupt() {
+    if (turnActive && turnId !== undefined) void request('turn/interrupt', { threadId, turnId })
+    else if (threadId === undefined || turnActive) interruptWanted = true
+  }
+
+  function interruptIfWanted() {
+    if (!interruptWanted || !turnActive || turnId === undefined) return
+    interruptWanted = false
+    void request('turn/interrupt', { threadId, turnId })
   }
 
   function queueTurn(text: string) {
@@ -118,6 +148,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     onInput(line) {
       let input: {
         text?: unknown
+        steer?: unknown
+        interrupt?: unknown
         permission?: { id?: unknown; approved?: unknown; grant?: unknown }
       }
       try {
@@ -139,9 +171,11 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
         )
         return
       }
+      if (input.interrupt === true) return interrupt()
       const text = input.text
       if (typeof text !== 'string') return
       if (threadId === undefined) pending.push(text)
+      else if (input.steer === true) void steer(text)
       else queueTurn(text)
     },
     onLine(line) {
@@ -151,8 +185,15 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       } catch {
         return
       }
+      if (message.method === 'turn/started') {
+        const id = (message.params?.turn as { id?: unknown } | undefined)?.id
+        if (typeof id === 'string') turnId = id
+        interruptIfWanted()
+      }
       if (message.method === 'turn/completed') {
         turnActive = false
+        turnId = undefined
+        interruptWanted = false
         nextTurn()
       }
       if (message.method === 'serverRequest/resolved') {

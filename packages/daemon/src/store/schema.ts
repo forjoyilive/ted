@@ -208,6 +208,18 @@ export const runMessages = State.SQLite.table({
     runId: State.SQLite.text(),
     text: State.SQLite.text(),
     at: State.SQLite.text(),
+    queued: State.SQLite.boolean({ default: false }),
+    deletedAt: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const runInterrupts = State.SQLite.table({
+  name: 'runInterrupts',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    runId: State.SQLite.text(),
+    hold: State.SQLite.boolean({ default: false }),
+    at: State.SQLite.text(),
   },
 })
 
@@ -1093,6 +1105,40 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runMessageQueued: Events.synced({
+    name: 'v1.RunMessageQueued',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      text: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  runMessageDelivered: Events.synced({
+    name: 'v1.RunMessageDelivered',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      lead: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  runMessageDeleted: Events.synced({
+    name: 'v1.RunMessageDeleted',
+    schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  runTurnInterrupted: Events.synced({
+    name: 'v1.RunTurnInterrupted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      hold: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   conversationTabOpened: Events.synced({
     name: 'v1.ConversationTabOpened',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
@@ -1343,6 +1389,11 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.LoopCheckFinished': (args) =>
     task(args, { runId: args.runId, verdict: args.verdict, reason: args.reason }),
   'v1.RunMessageSent': (args) => ({
+    taskId: args.lead === true ? str(args.taskId) : null,
+    at: String(args.at),
+    data: { runId: args.runId, messageId: args.id },
+  }),
+  'v1.RunMessageDelivered': (args) => ({
     taskId: args.lead === true ? str(args.taskId) : null,
     at: String(args.at),
     data: { runId: args.runId, messageId: args.id },
@@ -1609,6 +1660,13 @@ const materializers = counted(
         ),
       ],
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
+      'v1.RunMessageQueued': ({ id, runId, text, at }) =>
+        runMessages.insert({ id, runId, text, at, queued: true }),
+      'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
+      'v1.RunMessageDeleted': ({ id, at }) =>
+        runMessages.update({ deletedAt: at, queued: false }).where({ id }),
+      'v1.RunTurnInterrupted': ({ id, runId, hold, at }) =>
+        runInterrupts.insert({ id, runId, hold, at }),
       'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
         conversationTabs
           .insert({ id: `${taskId}:${runId}`, taskId, runId, openedAt: at })
@@ -1768,6 +1826,7 @@ const state = State.SQLite.makeState({
     sendBackAsks,
     conversationEntries,
     runMessages,
+    runInterrupts,
     conversationTabs,
     comments,
     taskLog,

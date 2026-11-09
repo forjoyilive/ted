@@ -304,6 +304,54 @@ describe('TED app', () => {
     await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
   }, 90_000)
 
+  test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
+    await ted(
+      'dev',
+      'factory',
+      'add',
+      await makeOriginRepo(path.join(home, 'origin')),
+      '--key',
+      'NB',
+    )
+    const steps = [
+      { everyMessage: [{ say: 'Redirected.' }, { endTurn: true }] },
+      { say: 'Working on the sync layer.' },
+      { waitFor: path.join(home, 'never') },
+      { endTurn: true },
+    ]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('working')
+
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('button', { name: /Task Lead/ })
+      .click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Working on the sync layer.').waitFor()
+
+    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    await box.fill('Leave archived notes alone.')
+    await box.press('Enter')
+    const queued = chat.getByText('Leave archived notes alone.')
+    await chat.getByText('Queued', { exact: true }).waitFor()
+    await queued.hover()
+    await chat.getByRole('button', { name: 'Delete' }).click()
+    await queued.waitFor({ state: 'detached' })
+
+    await box.fill('Keep the fix in the swipe handler.')
+    await box.press('Meta+Enter')
+    await chat.getByText(/Interrupted by you/).waitFor()
+    await chat.getByText('Redirected.').waitFor()
+    expect(await client.listComments('NB-1')).toEqual([])
+  }, 90_000)
+
   test('Runs lists a sub-agent under its Task Lead, opens its chat and stops it from its row', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
