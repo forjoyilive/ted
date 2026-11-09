@@ -21,7 +21,7 @@ function Group({
 }) {
   const id = useId()
   return (
-    <section className={styles.group} role="group" aria-labelledby={id}>
+    <section className={styles.group} aria-labelledby={id}>
       <div className={styles.groupHeader}>
         <h3 className={styles.groupLabel} id={id}>
           {label}
@@ -91,7 +91,8 @@ export function WorkingRunsPopover({
     }
   }, [onClose])
 
-  const name = (factoryId: string) => factories.find((f) => f.id === factoryId)?.name ?? 'No Factory'
+  const name = (factoryId: string) =>
+    factories.find((f) => f.id === factoryId)?.name ?? 'No Factory'
   const cap = (factoryId: string): FactorySlots | undefined =>
     slots.factories.find((f) => f.factoryId === factoryId)
   const factoryLabel = (factoryId: string) => {
@@ -107,7 +108,9 @@ export function WorkingRunsPopover({
           Working Runs
         </h2>
         <span className={styles.spacer} />
-        <span className={styles.slots}>{`${slots.working} of ${slots.limit} slots on ${machine}`}</span>
+        <span
+          className={styles.slots}
+        >{`${slots.working} of ${slots.limit} slots on ${machine}`}</span>
       </div>
       {empty ? (
         <p className={styles.empty}>No Runs working. Nothing queued.</p>

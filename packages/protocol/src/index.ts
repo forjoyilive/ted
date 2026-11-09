@@ -1,4 +1,11 @@
 export {
+  type Activity,
+  noActivity,
+  type OpenAppResult,
+  type RunCounts,
+  workRunning,
+} from './activity.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerPlace,
@@ -43,6 +50,7 @@ export {
   agentKinds,
   type ConversationEntry,
   type Run,
+  type RunProblem,
   type RunState,
   type RunWithConversation,
   type StartDevRunRequest,
@@ -53,6 +61,8 @@ export {
   defaultMachineSettings,
   type MachineSettings,
   type Profile,
+  type QuitChoice,
+  quitChoices,
   terminalFontSizes,
   workingRunLimits,
 } from './settings.ts'
@@ -75,6 +85,7 @@ export {
   priorities,
   type ReportOutcomeRequest,
   type SetActivityRequest,
+  type SetTaskLeadRequest,
   type StageId,
   type Task,
   type TaskDefaults,

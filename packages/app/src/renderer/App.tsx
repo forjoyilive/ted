@@ -1,5 +1,6 @@
 import type { Banner, Task } from '@ted/protocol'
-import { useCallback, useEffect, useReducer, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
 import {
   appWideBanners,
@@ -93,6 +94,15 @@ export function App() {
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
 
+  const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
+
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'menu-command') onMenuCommand.current(event.command)
+      }),
+    [],
+  )
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (newTaskOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
@@ -138,6 +148,16 @@ export function App() {
       })
     } else {
       dispatch({ type: 'open-task', taskId: place.taskId })
+    }
+  }
+
+  onMenuCommand.current = (command) => {
+    if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
+    if (command.kind === 'new-task') setNewTaskOpen(true)
+    if (command.kind === 'settings') dispatch({ type: 'open-settings' })
+    if (command.kind === 'banner') {
+      const banner = banners.find((b) => b.id === command.bannerId)
+      if (banner) void act(banner)
     }
   }
 

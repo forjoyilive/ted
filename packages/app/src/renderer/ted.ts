@@ -12,15 +12,20 @@ import type {
   MachineSettings,
   Profile,
   RestoreBackupResult,
+  Run,
   RunSlots,
   StageEntry,
   Task,
   TaskDefaults,
+  TaskLead,
 } from '@ted/protocol'
+import type { MenuCommand } from '../background.ts'
+
+export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
-  onEvent(listener: (event: DaemonEvent) => void): () => void
+  onEvent(listener: (event: TedEvent) => void): () => void
 }
 
 declare global {
@@ -33,14 +38,18 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  setTaskLead: (taskId: string, lead: TaskLead) =>
+    window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  pickDefaultModel: (taskId: string) =>
+    window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
-  moveToBacklog: (taskId: string) =>
-    window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
@@ -72,5 +81,5 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
-  onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
+  onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }
