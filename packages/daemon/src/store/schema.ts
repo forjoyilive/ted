@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { counted } from './progress.ts'
 
 export const factories = State.SQLite.table({
   name: 'factories',
@@ -203,30 +204,35 @@ export const events = {
   }),
 }
 
-const materializers = State.SQLite.materializers(events, {
-  'v1.FactoryAdded': (factory) => factories.insert(factory),
-  'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
-  'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
-    tasks.update({ stage, branch, worktree }).where({ id: taskId }),
-  'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
-  'v1.CommentPosted': (comment) => comments.insert(comment),
-  'v1.RunStarted': (run) => runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
-  'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
-  'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
-    runs.update({ readOffset: toOffset }).where({ id: runId }),
-    ...entries.map(({ offset, line }) =>
-      conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
-    ),
-  ],
-  'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
-  'v1.RunSessionIdentified': ({ runId, sessionId }) =>
-    runs.update({ sessionId }).where({ id: runId }),
-  'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
-  'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
-    workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
-  'v1.AppearanceChanged': ({ appearance }) =>
-    machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
-})
+const materializers = counted(
+  State.SQLite.materializers(events, {
+    'v1.FactoryAdded': (factory) => factories.insert(factory),
+    'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+    'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
+      tasks.update({ stage, branch, worktree }).where({ id: taskId }),
+    'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
+    'v1.CommentPosted': (comment) => comments.insert(comment),
+    'v1.RunStarted': (run) =>
+      runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
+    'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
+      runs.update({ readOffset: toOffset }).where({ id: runId }),
+      ...entries.map(({ offset, line }) =>
+        conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
+      ),
+    ],
+    'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+    'v1.RunSessionIdentified': ({ runId, sessionId }) =>
+      runs.update({ sessionId }).where({ id: runId }),
+    'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+    'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
+      workflowLayers
+        .insert({ layer, files, version, acceptedAt: at })
+        .onConflict('layer', 'replace'),
+    'v1.AppearanceChanged': ({ appearance }) =>
+      machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
+  }),
+)
 
 const state = State.SQLite.makeState({
   tables: {

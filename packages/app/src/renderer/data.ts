@@ -1,4 +1,12 @@
-import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type {
+  Comment,
+  DaemonEvent,
+  DailyBackupFailure,
+  DataStatus,
+  Factory,
+  MachineSettings,
+  Task,
+} from '@ted/protocol'
 import { useCallback, useEffect, useState } from 'react'
 import { ted } from './ted.ts'
 
@@ -70,4 +78,36 @@ export function useSettings(): MachineSettings | undefined {
   }, [])
 
   return settings
+}
+
+export function useDataStatus(): DataStatus | undefined {
+  const [status, setStatus] = useState<DataStatus>()
+
+  useEffect(() => {
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'data-status') setStatus(event.status)
+    })
+    void ted.getDataStatus().then((loaded) => setStatus((current) => current ?? loaded))
+    return unsubscribe
+  }, [])
+
+  return status
+}
+
+export function useDailyBackupFailure(): DailyBackupFailure | undefined {
+  const [failure, setFailure] = useState<DailyBackupFailure | null>()
+
+  useEffect(() => {
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'daily-backup') setFailure(event.failure)
+    })
+    void ted
+      .listBackups()
+      .then(({ dailyFailure }) =>
+        setFailure((current) => (current === undefined ? (dailyFailure ?? null) : current)),
+      )
+    return unsubscribe
+  }, [])
+
+  return failure ?? undefined
 }

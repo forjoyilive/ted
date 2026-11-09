@@ -1,4 +1,10 @@
 import type { DaemonInfo } from './daemon-info.ts'
+import type {
+  BackupsSummary,
+  DataStatus,
+  RestoreBackupRequest,
+  RestoreBackupResult,
+} from './data.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
@@ -79,6 +85,18 @@ export class DaemonClient {
 
   getRun(id: string): Promise<RunWithConversation> {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
+  }
+
+  getDataStatus(): Promise<DataStatus> {
+    return this.#request('GET', '/data-status')
+  }
+
+  listBackups(): Promise<BackupsSummary> {
+    return this.#request('GET', '/backups')
+  }
+
+  restoreBackup(input: RestoreBackupRequest): Promise<RestoreBackupResult> {
+    return this.#request('POST', '/backups/restore', input)
   }
 
   async subscribe(onEvent: (event: DaemonEvent) => void): Promise<Subscription> {

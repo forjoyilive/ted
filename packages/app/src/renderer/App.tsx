@@ -1,6 +1,7 @@
 import type { Task } from '@ted/protocol'
 import { useReducer } from 'react'
 import styles from './App.module.css'
+import { BackupBanner } from './components/BackupBanner.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { useFactories, useTasks } from './data.ts'
 import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
@@ -70,7 +71,10 @@ export function App() {
         inboxCount={0}
         dispatch={dispatch}
       />
-      <main className={styles.main}>{main()}</main>
+      <div className={styles.column}>
+        <BackupBanner onOpen={() => dispatch({ type: 'open', screen: { kind: 'settings' } })} />
+        <main className={styles.main}>{main()}</main>
+      </div>
     </div>
   )
 }

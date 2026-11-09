@@ -5,6 +5,17 @@ export {
   type Subscription,
 } from './client.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export {
+  type Backup,
+  type BackupKind,
+  type BackupsSummary,
+  backupKinds,
+  type DailyBackupFailure,
+  type DataStatus,
+  downloadUrl,
+  type RestoreBackupRequest,
+  type RestoreBackupResult,
+} from './data.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
