@@ -110,6 +110,10 @@ describe('Working Runs', () => {
     await writeFile(free, String(8.2e9))
     const window = await launchApp({ TED_FREE_BYTES_FILE: free })
     await window.getByText('Disk almost full · 8.2 GB free').waitFor()
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listBackups()).backups.length, { timeout: 20_000 })
+      .toBeGreaterThan(0)
 
     await window.getByRole('button', { name: 'Open Storage' }).click()
 
