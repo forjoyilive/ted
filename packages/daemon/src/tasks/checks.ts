@@ -5,6 +5,7 @@ import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
+import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
 import { durationMs, runWorktreeCommand } from './worktree.ts'
@@ -169,10 +170,6 @@ async function checkSettings(
   await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
   await writeFile(log, `${lines.join('\n')}\n`, { mode: 0o600 })
   return errors > 0 ? { outcome: 'failed', exitCode: 1 } : { outcome: 'passed', exitCode: 0 }
-}
-
-function plural(n: number, word: string): string {
-  return `${n} ${word}${n === 1 ? '' : 's'}`
 }
 
 async function tailOf(log: string, bytes: number): Promise<{ lines: string[]; cut: boolean }> {

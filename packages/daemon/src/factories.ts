@@ -2,6 +2,7 @@ import { mkdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
+import { exists } from './files.ts'
 import * as git from './git.ts'
 import { placeholderFactory, type StoredFactory, type TedStore } from './store/index.ts'
 import type { Workflows } from './workflow/workflows.ts'
@@ -158,11 +159,4 @@ function parseRepo(given: string): { repo: string; cloneUrl: string } {
 
 function isSafeSegment(segment: string): boolean {
   return safeSegment.test(segment) && segment !== '.' && segment !== '..'
-}
-
-function exists(file: string): Promise<boolean> {
-  return stat(file).then(
-    () => true,
-    () => false,
-  )
 }

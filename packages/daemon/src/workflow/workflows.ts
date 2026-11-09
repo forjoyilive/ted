@@ -1,7 +1,7 @@
-import { stat } from 'node:fs/promises'
 import type { DriftCounts, LayerKind, LayerUse } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
+import { exists } from '../files.ts'
 import * as git from '../git.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
@@ -184,11 +184,4 @@ export function createWorkflows(options: {
       }
     },
   }
-}
-
-function exists(file: string): Promise<boolean> {
-  return stat(file).then(
-    () => true,
-    () => false,
-  )
 }

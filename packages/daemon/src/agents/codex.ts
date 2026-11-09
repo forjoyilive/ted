@@ -7,6 +7,7 @@ import {
   type RunState,
   tedVersion,
 } from '@ted/protocol'
+import { shellQuote } from '../node-entry.ts'
 import {
   type Agent,
   type AuthCheck,
@@ -246,9 +247,7 @@ const legacyCommandFields = new Set([
 const plainArg = /^[A-Za-z0-9_\-./=:@%+,]+$/
 
 function shellLine(argv: readonly string[]): string {
-  return argv
-    .map((arg) => (plainArg.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`))
-    .join(' ')
+  return argv.map((arg) => (plainArg.test(arg) ? arg : shellQuote(arg))).join(' ')
 }
 
 function commandPrompt(

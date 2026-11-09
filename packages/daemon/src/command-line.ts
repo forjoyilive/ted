@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url'
 import type { CommandLineStatus } from '@ted/protocol'
 import { readLoginShellPath } from './cli-env.ts'
 import { RequestError } from './errors.ts'
+import { exists } from './files.ts'
 import { nodeEntry, shellScript } from './node-entry.ts'
 
 export interface CommandLineOptions {
@@ -150,13 +151,6 @@ export function createCommandLine(options: CommandLineOptions = {}): CommandLine
       await writeScript(place.appImage, place.target)
     },
   }
-}
-
-async function exists(file: string): Promise<boolean> {
-  return access(file).then(
-    () => true,
-    () => false,
-  )
 }
 
 function isTedCommand(resolved: string): boolean {

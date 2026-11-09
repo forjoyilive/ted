@@ -339,7 +339,9 @@ function checkInput(given: unknown): CheckInput {
 
 export function roleChoice(given: unknown, role: string): AgentChoiceInput | null {
   if (given === null) return null
-  const set = Object.entries(bodyObject(given, role)).filter(([, value]) => value !== '' && value !== null)
+  const set = Object.entries(bodyObject(given, role)).filter(
+    ([, value]) => value !== '' && value !== null,
+  )
   return agentChoice(Object.fromEntries(set), role)
 }
 

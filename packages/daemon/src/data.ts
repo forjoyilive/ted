@@ -30,6 +30,7 @@ import type { Storage } from './storage.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
+import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
@@ -79,8 +80,6 @@ export interface Data {
 }
 
 const dailyBackupProblem = 'daily-backup-failed'
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export function majorMinor(version: string): string {
   return version.split('.').slice(0, 2).join('.')

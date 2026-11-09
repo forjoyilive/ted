@@ -37,6 +37,7 @@ import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import { openTasksUsing } from './factory-removal.ts'
 import type { Factories } from './factory-setup.ts'
+import { exists } from './files.ts'
 import * as git from './git.ts'
 import type { Gh } from './github/gh.ts'
 import { redactSecrets } from './redact.ts'
@@ -756,11 +757,4 @@ function isPlainPath(file: string): boolean {
 
 async function isDirectory(folder: string): Promise<boolean> {
   return (await stat(folder).catch(() => undefined))?.isDirectory() ?? false
-}
-
-async function exists(file: string): Promise<boolean> {
-  return stat(file).then(
-    () => true,
-    () => false,
-  )
 }

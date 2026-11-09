@@ -32,6 +32,7 @@ import type { StoredAutomation, StoredFiring } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import type { Caller } from '../tasks/tasks.ts'
+import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
@@ -385,10 +386,6 @@ export function createAutomations(options: AutomationsOptions): Automations {
       `## Tasks this Automation has created\n\n${lines.length > 0 ? lines.join('\n') : 'None yet.'}`,
       `## Your instructions\n\n${automation.prompt.trim()}`,
     ].join('\n\n')
-  }
-
-  function messageOf(error: unknown): string {
-    return error instanceof Error ? error.message : String(error)
   }
 
   function finalMessage(runId: string): string | undefined {
