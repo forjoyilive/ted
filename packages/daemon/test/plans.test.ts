@@ -344,6 +344,8 @@ describe('Planning chats', () => {
       'stopped',
     ])
     await client.ok('DELETE', `/plans/${next.id}`)
+    expect((await client.call('GET', `/runs/${next.id}/chat`)).status).toBe(404)
+    expect(existsSync(path.join(home, 'runs', next.id))).toBe(false)
     await client.ok('DELETE', `/plans/${plan.id}`)
     expect((await client.call('GET', `/plans/${plan.id}`)).status).toBe(404)
     expect(await client.ok<Plan[]>('GET', '/plans')).toEqual([])

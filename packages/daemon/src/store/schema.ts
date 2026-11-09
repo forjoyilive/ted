@@ -2693,6 +2693,10 @@ const materializers = counted(
       'v1.PlanDeleted': ({ id }) => [
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
+        runs.delete().where({ id }),
+        conversationEntries.delete().where({ runId: id }),
+        runMessages.delete().where({ runId: id }),
+        runInterrupts.delete().where({ runId: id }),
       ],
       'v1.PlanRunBegan': ({ id, checkout, at }) =>
         plans.update({ state: 'started', checkout, startedAt: at }).where({ id }),

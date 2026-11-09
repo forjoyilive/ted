@@ -28,6 +28,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
+import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
 import type { Caller } from '../tasks/tasks.ts'
@@ -265,14 +266,25 @@ export function createPlans(options: PlansOptions): Plans {
     const factory = plan && factoryOf(plan)
     if (!plan || !factory) return
     if (plan.state === 'started' && plan.resume === 'queued') {
+      const stillOpen = () => {
+        const current = saved.get(id)
+        return current?.state === 'started' && current.resume === 'queued'
+      }
       try {
         const entries = await entriesOf(factory)
+        if (!stillOpen()) return
         await runs.revive(id, {
           prompt: planResumePrompt,
           env: envFor(plan, factory, entries),
         })
+        if (!stillOpen()) {
+          await runs.stop(id).catch((error: unknown) => console.error(error))
+          if (saved.get(id)) cleanUp(id)
+          return
+        }
         saved.revived(id)
       } catch (error) {
+        if (!stillOpen()) return
         saved.revived(id)
         fail(id, `Couldn’t resume: ${messageOf(error)}`)
       }
@@ -443,6 +455,9 @@ export function createPlans(options: PlansOptions): Plans {
     const run = store.getRun(plan.id)
     if (!run || run.state === 'finished' || plan.state !== 'started') {
       throw new RequestError(409, 'this planning chat has stopped, so it can’t get your answer')
+    }
+    if (store.newWorkHold() !== undefined) {
+      throw new RequestError(507, 'The disk is full, so TED isn’t sending work to Runs')
     }
     await runs.send(run.id, text)
   }
@@ -744,11 +759,14 @@ export function createPlans(options: PlansOptions): Plans {
   async function remove(plan: StoredPlan): Promise<void> {
     const run = store.getRun(plan.id)
     if (plan.state !== 'ended') saved.ended(plan.id, { outcome: 'stopped' })
-    saved.delete(plan.id)
     if (run && run.state !== 'finished') {
       await runs.stop(run.id).catch((error: unknown) => console.error(error))
     }
+    saved.delete(plan.id)
     await discard(plan.checkout, folderOf(plan.id))
+    await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
+      console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),
+    )
     pump()
   }
 }
