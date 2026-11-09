@@ -203,6 +203,7 @@ export function createTasks(options: {
       const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
       const settingUp =
         task.status?.kind !== 'stopped' &&
+        !task.statuses.includes('queued') &&
         task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
       return slots > 0 ? [{ task, runs, settingUp, slots }] : []
@@ -757,6 +758,9 @@ export function createTasks(options: {
     setup: RecordedSetup,
     pickUp?: string,
   ): Promise<void> {
+    const before = find(task.id)
+    if (before.stopped || before.archived) return
+    if (store.queue().some((q) => q.id === task.id)) store.dequeue(task.id)
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
     const cancel = new AbortController()
@@ -1244,6 +1248,7 @@ export function createTasks(options: {
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
       settingUp.get(task.id)?.abort()
       await beginning.get(task.id)?.catch(() => undefined)
+      settingUp.get(task.id)?.abort()
       await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
       closeIdleQuestion(task.id, 'The Task was stopped.')
     } finally {

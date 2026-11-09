@@ -575,7 +575,9 @@ export async function openStore({
       openRequests: openRequestRows(row.id).length,
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
-      ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
+      ...(stoppedAt === null &&
+        place === 0 &&
+        repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
