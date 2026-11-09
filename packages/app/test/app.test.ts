@@ -3695,6 +3695,27 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 }
 
 describe('Factory settings sections', () => {
+  test('jumping to a section scrolls only the settings, never the app frame', async () => {
+    await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
+    const window = await launchApp()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await window.getByText('Always last').waitFor()
+    const jump = window.getByRole('navigation', { name: 'Jump to a section' })
+
+    for (const section of ['Workflow', 'Factory notes']) {
+      await jump.getByRole('button', { name: section }).click()
+      await sleep(300)
+      const main = await window.getByRole('main').boundingBox()
+      const inbox = await nav.getByRole('button', { name: 'Inbox' }).boundingBox()
+      expect(main && Math.round(main.y + main.height)).toBe(800)
+      expect(main?.y).toBe(0)
+      expect(inbox?.y).toBeGreaterThan(0)
+    }
+  })
+
   test('Workflow, Permissions and notes edits collect into one Save, and Bypass needs confirming', async () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
