@@ -1,3 +1,4 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   AgentKind,
@@ -26,7 +27,10 @@ import type {
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 
-export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
+export type TedEvent =
+  | DaemonEvent
+  | { type: 'menu-command'; command: MenuCommand }
+  | { type: 'connection'; connection: DaemonConnection }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -89,6 +93,9 @@ export const ted = {
   agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
   checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
+  connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
+  restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
+  copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
   getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>
