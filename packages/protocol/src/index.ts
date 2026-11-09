@@ -1,4 +1,11 @@
 export {
+  type Activity,
+  noActivity,
+  type OpenAppResult,
+  type RunCounts,
+  workRunning,
+} from './activity.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerPlace,
@@ -30,7 +37,14 @@ export {
   type RunWithConversation,
   type StartDevRunRequest,
 } from './run.ts'
-export { type Appearance, appearances, type MachineSettings } from './settings.ts'
+export {
+  type Appearance,
+  appearances,
+  defaultSettings,
+  type MachineSettings,
+  type QuitChoice,
+  quitChoices,
+} from './settings.ts'
 export {
   type AgentStageId,
   agentStageIds,

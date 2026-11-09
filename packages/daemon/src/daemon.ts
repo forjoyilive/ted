@@ -20,6 +20,7 @@ export interface DaemonOptions {
   codexBin?: string
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
+  onShutdown?: () => void
 }
 
 export interface RunningDaemon {
@@ -84,6 +85,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     banners,
     workflows,
     reposDir: paths.repos,
+    appStreams: new Set(),
+    onShutdown: options.onShutdown ?? (() => undefined),
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

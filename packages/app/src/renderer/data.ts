@@ -1,7 +1,7 @@
-import type { Banner, Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type { Banner, Comment, Factory, MachineSettings, Task } from '@ted/protocol'
 import { useCallback, useEffect, useState } from 'react'
 import { nextReturn } from './banners.ts'
-import { ted } from './ted.ts'
+import { type TedEvent, ted } from './ted.ts'
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   const byId = new Map(current.map((item) => [item.id, item]))
@@ -11,7 +11,7 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
 
 function useLive<T extends { id: string }>(
   load: () => Promise<T[]>,
-  pick: (event: DaemonEvent) => T | undefined,
+  pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
 ): T[] {
   const [items, setItems] = useState<T[]>([])
@@ -33,10 +33,10 @@ function useLive<T extends { id: string }>(
 const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
   a.createdAt.localeCompare(b.createdAt)
 
-const taskFrom = (event: DaemonEvent) =>
+const taskFrom = (event: TedEvent) =>
   event.type === 'task-created' || event.type === 'task-updated' ? event.task : undefined
 
-const factoryFrom = (event: DaemonEvent) =>
+const factoryFrom = (event: TedEvent) =>
   event.type === 'factory-added' ? event.factory : undefined
 
 export function useTasks(): Task[] {
@@ -50,7 +50,7 @@ export function useFactories(): Factory[] {
 export function useComments(taskId: string): Comment[] {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
-    (event: DaemonEvent) =>
+    (event: TedEvent) =>
       event.type === 'comment-posted' && event.comment.taskId === taskId
         ? event.comment
         : undefined,

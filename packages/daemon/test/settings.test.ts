@@ -1,7 +1,13 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
+import {
+  DaemonClient,
+  type DaemonEvent,
+  defaultSettings,
+  readDaemonInfo,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -21,13 +27,13 @@ describe('machine settings in the store', () => {
 
   test('Appearance starts as System and keeps its value across a reopen', async () => {
     const first = await openStore({ directory: dir })
-    expect(first.settings()).toEqual({ appearance: 'system' })
+    expect(first.settings()).toEqual({ ...defaultSettings, appearance: 'system' })
     first.updateSettings({ appearance: 'dark' })
     await first.close()
 
     const second = await openStore({ directory: dir })
     try {
-      expect(second.settings()).toEqual({ appearance: 'dark' })
+      expect(second.settings()).toEqual({ ...defaultSettings, appearance: 'dark' })
     } finally {
       await second.close()
     }
@@ -41,7 +47,9 @@ describe('machine settings in the store', () => {
 
       store.updateSettings({ appearance: 'light' })
 
-      expect(seen).toEqual([{ type: 'settings-changed', settings: { appearance: 'light' } }])
+      expect(seen).toEqual([
+        { type: 'settings-changed', settings: { ...defaultSettings, appearance: 'light' } },
+      ])
     } finally {
       await store.close()
     }
@@ -96,13 +104,16 @@ describe('settings and Factories over the daemon API', () => {
     const seen: DaemonEvent[] = []
     const subscription = await ted.subscribe((event) => seen.push(event))
 
-    expect(await ted.getSettings()).toEqual({ appearance: 'system' })
-    expect(await ted.updateSettings({ appearance: 'dark' })).toEqual({ appearance: 'dark' })
-    expect(await ted.getSettings()).toEqual({ appearance: 'dark' })
+    expect(await ted.getSettings()).toEqual({ ...defaultSettings, appearance: 'system' })
+    expect(await ted.updateSettings({ appearance: 'dark' })).toEqual({
+      ...defaultSettings,
+      appearance: 'dark',
+    })
+    expect(await ted.getSettings()).toEqual({ ...defaultSettings, appearance: 'dark' })
 
     await expect
       .poll(() => seen)
-      .toEqual([{ type: 'settings-changed', settings: { appearance: 'dark' } }])
+      .toEqual([{ type: 'settings-changed', settings: { ...defaultSettings, appearance: 'dark' } }])
     subscription.close()
   })
 
@@ -123,7 +134,10 @@ describe('settings and Factories over the daemon API', () => {
     })
 
     expect(res.status).toBe(400)
-    expect(await (await client()).getSettings()).toEqual({ appearance: 'system' })
+    expect(await (await client()).getSettings()).toEqual({
+      ...defaultSettings,
+      appearance: 'system',
+    })
   })
 
   test('lists Factories without their clone URL', async () => {

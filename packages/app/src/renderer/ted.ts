@@ -1,8 +1,11 @@
 import type { Banner, Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type { MenuCommand } from '../background.ts'
+
+export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
-  onEvent(listener: (event: DaemonEvent) => void): () => void
+  onEvent(listener: (event: TedEvent) => void): () => void
 }
 
 declare global {
@@ -22,5 +25,5 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
-  onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
+  onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }

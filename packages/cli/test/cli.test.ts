@@ -244,6 +244,37 @@ describe('ted dev factory and ted task start', () => {
   })
 })
 
+describe('ted open', () => {
+  test('asks the open app to show its window', async () => {
+    await ted(['task', 'list'])
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const seen: unknown[] = []
+    const app = await new DaemonClient(info).subscribe((event) => seen.push(event), { app: true })
+
+    const { stdout } = await ted(['open'])
+
+    expect(stdout.trim()).toBe('Opened TED')
+    await expect.poll(() => seen).toContainEqual({ type: 'open-requested' })
+    app.close()
+  })
+
+  test('says so and fails when the app isn’t open', async () => {
+    await ted(['task', 'list'])
+
+    await expect(ted(['open'])).rejects.toMatchObject({
+      code: 1,
+      stderr: 'ted: TED isn’t open. Open it from your app launcher.\n',
+    })
+  })
+
+  test('doesn’t start TED’s background process just to open the app', async () => {
+    await expect(ted(['open'])).rejects.toMatchObject({ code: 1 })
+
+    expect(await readDaemonInfo(home)).toBeUndefined()
+  })
+})
+
 describe('ted status and ted doctor', () => {
   test('status prints the daemon and says there are no problems', async () => {
     const { stdout } = await ted(['status'])

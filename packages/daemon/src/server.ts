@@ -8,8 +8,10 @@ import {
   agentKinds,
   appearances,
   type CreateTaskRequest,
+  type DaemonEvent,
   type MachineSettings,
   type PostCommentRequest,
+  quitChoices,
   type ReportOutcomeRequest,
   type StartDevRunRequest,
 } from '@ted/protocol'
@@ -37,6 +39,8 @@ export interface ServerOptions {
   banners: Banners
   workflows: Workflows
   reposDir: string
+  appStreams: Set<http.ServerResponse>
+  onShutdown: () => void
 }
 
 interface RequestContext {
@@ -58,9 +62,9 @@ const maxBodyBytes = 1024 * 1024
 const routes: Route[] = [
   {
     method: 'GET',
-    path: /^\/events$/,
-    async handle({ req, res }, options) {
-      streamEvents(req, res, options)
+    path: /^\/events(\?app=1)?$/,
+    async handle({ req, res, params: [app] }, options) {
+      streamEvents(req, res, options, app === '?app=1')
       return undefined
     },
   },
@@ -143,6 +147,29 @@ const routes: Route[] = [
     path: /^\/settings$/,
     async handle({ req }, { store }) {
       return [200, store.updateSettings(settingsChanges(await readJson(req)))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/activity$/,
+    handle: async (_, { store }) => [200, store.activity()],
+  },
+  {
+    method: 'POST',
+    path: /^\/shutdown$/,
+    async handle({ res }, { store, runs, onShutdown }) {
+      const active = store.listRuns().filter((run) => run.state !== 'finished')
+      await Promise.all(active.map((run) => runs.stop(run.id)))
+      res.once('finish', () => setImmediate(onShutdown))
+      return [200, {}]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/app\/open$/,
+    async handle(_, { appStreams }) {
+      for (const stream of appStreams) send(stream, { type: 'open-requested' })
+      return [200, { opened: appStreams.size > 0 }]
     },
   },
   {
@@ -241,7 +268,7 @@ async function handle(
     if (caller.kind === 'run' && !route.runToken) {
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
-    const params = match.slice(1).map(decodeParam)
+    const params = match.slice(1).map((param) => (param === undefined ? '' : decodeParam(param)))
     const reply = await route.handle({ req, res, params, caller }, options)
     if (reply) sendJson(res, ...reply)
     return
@@ -249,20 +276,27 @@ async function handle(
   throw new HttpError(404, 'not found')
 }
 
+function send(res: http.ServerResponse, event: DaemonEvent): void {
+  res.write(`data: ${JSON.stringify(event)}\n\n`)
+}
+
 function streamEvents(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  { store, idle, keepaliveMs }: ServerOptions,
+  { store, idle, keepaliveMs, appStreams }: ServerOptions,
+  app: boolean,
 ): void {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
   res.write('event: ready\ndata: {}\n\n')
-  const unsubscribe = store.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  const unsubscribe = store.subscribe((event) => send(res, event))
+  if (app) appStreams.add(res)
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
   const release = idle?.hold()
   req.on('close', () => {
     clearInterval(keepalive)
     unsubscribe()
+    appStreams.delete(res)
     release?.()
   })
 }
@@ -294,20 +328,35 @@ function equalSecrets(given: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+const settingParsers: {
+  [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K]
+} = {
+  appearance: (value) => oneOf(appearances, value, 'appearance'),
+  quitWithWorkRunning: (value) => oneOf(quitChoices, value, 'quitWithWorkRunning'),
+  showTrayIcon(value) {
+    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
+    return value
+  },
+}
+
+function oneOf<T extends string>(choices: readonly T[], value: unknown, name: string): T {
+  const choice = choices.find((c) => c === value)
+  if (choice === undefined) throw new HttpError(400, `${name} must be ${choices.join(', ')}`)
+  return choice
+}
+
 function settingsChanges(body: unknown): Partial<MachineSettings> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new HttpError(400, 'settings must be an object')
   }
   const entries = Object.entries(body)
   if (entries.length === 0) throw new HttpError(400, 'no settings to change')
-  const changes: Partial<MachineSettings> = {}
+  const changes: Record<string, unknown> = {}
   for (const [name, value] of entries) {
-    if (name !== 'appearance') throw new HttpError(400, `unknown setting ${name}`)
-    const appearance = appearances.find((a) => a === value)
-    if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
-    changes.appearance = appearance
+    if (!Object.hasOwn(settingParsers, name)) throw new HttpError(400, `unknown setting ${name}`)
+    changes[name] = settingParsers[name as keyof MachineSettings](value)
   }
-  return changes
+  return changes as Partial<MachineSettings>
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

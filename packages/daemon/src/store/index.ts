@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb } from '@livestore/livestore'
 import {
+  type Activity,
   type AgentKind,
   type Appearance,
   type Banner,
@@ -11,6 +13,7 @@ import {
   type Comment,
   type ConversationEntry,
   type DaemonEvent,
+  defaultSettings,
   type Factory,
   type LayerKind,
   type LayerUse,
@@ -30,6 +33,7 @@ import {
   machineSettings,
   runs,
   schema,
+  settingValues,
   stageEntries,
   tasks,
   workflowLayers,
@@ -95,6 +99,7 @@ export interface TedStore {
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
   settings(): MachineSettings
+  activity(): Activity
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -105,8 +110,6 @@ export interface TedStore {
 }
 
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
-
-const defaultSettings: MachineSettings = { appearance: 'system' }
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
   const store = await createStorePromise({
@@ -198,7 +201,34 @@ export async function openStore({ directory }: { directory: string }): Promise<T
 
   const settings = (): MachineSettings => {
     const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
-    return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+    const values = Object.fromEntries(
+      store.query(queryDb(settingValues)).map(({ name, value }) => [name, JSON.parse(value)]),
+    ) as Partial<MachineSettings>
+    return {
+      ...defaultSettings,
+      ...values,
+      appearance: (row?.appearance as Appearance | undefined) ?? defaultSettings.appearance,
+    }
+  }
+
+  const activity = (): Activity => {
+    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    return {
+      waitingOnYou: active.filter((run) => run.state === 'waiting').length,
+      runs: {
+        working: active.filter((run) => run.state === 'working').length,
+        active: active.length,
+        queued: 0,
+      },
+      automationsOn: 0,
+    }
+  }
+  let lastActivity = activity()
+  const noteActivity = () => {
+    const next = activity()
+    if (isDeepStrictEqual(next, lastActivity)) return
+    lastActivity = next
+    emit({ type: 'activity-changed', activity: next })
   }
 
   const toBanner = (row: typeof banners.Type): Banner => ({
@@ -318,6 +348,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         startedAt: new Date().toISOString(),
       }
       store.commit(events.runStartedV2(row))
+      noteActivity()
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
     recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
@@ -332,6 +363,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),
       )
+      if (state && state !== current.state) noteActivity()
     },
     getRun(id) {
       const row = runRow(id)
@@ -344,9 +376,22 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
-    updateSettings({ appearance }) {
-      if (appearance !== undefined && appearance !== settings().appearance) {
-        store.commit(events.appearanceChanged({ appearance, at: new Date().toISOString() }))
+    activity,
+    updateSettings({ appearance, ...others }) {
+      const current = settings()
+      const at = new Date().toISOString()
+      const changed = [
+        ...(appearance !== undefined && appearance !== current.appearance
+          ? [events.appearanceChanged({ appearance, at })]
+          : []),
+        ...Object.entries(others)
+          .filter(([name, value]) => current[name as keyof MachineSettings] !== value)
+          .map(([name, value]) =>
+            events.settingChanged({ name, value: JSON.stringify(value), at }),
+          ),
+      ]
+      if (changed.length > 0) {
+        store.commit(...changed)
         emit({ type: 'settings-changed', settings: settings() })
       }
       return settings()

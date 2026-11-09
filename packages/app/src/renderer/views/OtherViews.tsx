@@ -1,4 +1,4 @@
-import type { Appearance } from '@ted/protocol'
+import type { Appearance, QuitChoice } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { Help } from '../components/Help.tsx'
 import { useSettings } from '../data.ts'
@@ -42,6 +42,16 @@ const appearanceLabels: Record<Appearance, string> = {
 
 const appearances = Object.keys(appearanceLabels) as Appearance[]
 
+const quitChoiceLabels: Record<QuitChoice, string> = {
+  ask: 'Ask each time',
+  'keep-running': 'Keep running in the background',
+  stop: 'Stop it and quit',
+}
+
+const quitChoices = Object.keys(quitChoiceLabels) as QuitChoice[]
+
+const onLinux = navigator.userAgent.includes('Linux')
+
 export function AppSettings() {
   const settings = useSettings()
 
@@ -68,6 +78,35 @@ export function AppSettings() {
             ))}
           </div>
         </div>
+        <div className={styles.settingRow}>
+          <label htmlFor="quit-with-work-running">When you quit with work running</label>
+          <select
+            id="quit-with-work-running"
+            className={styles.select}
+            value={settings?.quitWithWorkRunning ?? 'ask'}
+            onChange={(event) =>
+              void ted.updateSettings({ quitWithWorkRunning: event.target.value as QuitChoice })
+            }
+          >
+            {quitChoices.map((choice) => (
+              <option key={choice} value={choice}>
+                {quitChoiceLabels[choice]}
+              </option>
+            ))}
+          </select>
+        </div>
+        {onLinux && (
+          <div className={styles.settingRow}>
+            <label htmlFor="show-tray-icon">Show tray icon</label>
+            <input
+              id="show-tray-icon"
+              type="checkbox"
+              className={styles.toggle}
+              checked={settings?.showTrayIcon ?? true}
+              onChange={(event) => void ted.updateSettings({ showTrayIcon: event.target.checked })}
+            />
+          </div>
+        )}
       </div>
     </section>
   )

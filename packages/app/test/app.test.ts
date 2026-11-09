@@ -6,11 +6,11 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, defaultSettings, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import { hostRecords, killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -41,13 +41,14 @@ afterEach(async () => {
   }
   await killRunHosts(home)
   await rm(home, { recursive: true, force: true })
-})
+}, 30_000)
 
 const env = () => ({
   ...process.env,
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_HIDDEN_WINDOW: '1',
 })
 
 async function launchApp(): Promise<Page> {
@@ -153,19 +154,16 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
-  test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {
+  test('quitting with nothing running ends the app and TED’s background process', async () => {
     await launchApp()
     const pid = await daemonPid()
+    const electronPid = app?.process().pid ?? 0
 
     await app?.close()
     app = undefined
-    expect(isAlive(pid)).toBe(true)
 
-    await ted('task', 'create', 'Fix login')
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'DEV-1').waitFor()
-    expect(await daemonPid()).toBe(pid)
+    await waitForExit(pid)
+    expect(isAlive(electronPid)).toBe(false)
   })
 
   test('the app connects to a daemon that ted started instead of starting another', async () => {
@@ -286,7 +284,10 @@ describe('TED app frame', () => {
 
     await appearance.getByText('Dark').click()
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
-    expect(await (await daemonClient()).getSettings()).toEqual({ appearance: 'dark' })
+    expect(await (await daemonClient()).getSettings()).toEqual({
+      ...defaultSettings,
+      appearance: 'dark',
+    })
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
@@ -389,6 +390,120 @@ describe('banners', () => {
 
     await failed.waitFor({ state: 'detached' })
     await nav.getByRole('img', { name: 'A problem stops work' }).waitFor({ state: 'detached' })
+  })
+})
+
+describe('running in the background', () => {
+  async function startRun(steps: unknown[]): Promise<string> {
+    const client = await daemonClient()
+    const { id } = await client.startDevRun({ prompt: JSON.stringify({ steps }), cwd: home })
+    await expect.poll(async () => (await client.getActivity()).runs.active).toBe(1)
+    return id
+  }
+
+  const never = () => ({ waitFor: path.join(home, 'never') })
+
+  const menuLabels = () =>
+    (app as ElectronApplication).evaluate(({ Menu }) => {
+      const walk = (menu: Electron.Menu): string[] =>
+        menu.items.flatMap((item) => [item.label, ...(item.submenu ? walk(item.submenu) : [])])
+      const menu = Menu.getApplicationMenu()
+      return menu ? walk(menu) : []
+    })
+
+  test('closing the window keeps TED running, and the window still gets updates', async () => {
+    const window = await launchApp()
+    await openAllTasks(window)
+
+    await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await ted('task', 'create', 'Fix login')
+
+    expect(await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    await taskRow(window, 'DEV-1').waitFor()
+  })
+
+  test('with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all', async () => {
+    await launchApp()
+    const client = await daemonClient()
+    const pid = await daemonPid()
+    const electronPid = app?.process().pid ?? 0
+    await client.updateSettings({ quitWithWorkRunning: 'keep-running' })
+    const runId = await startRun([never()])
+    await sleep(300)
+
+    await app?.evaluate(({ app }) => app.quit())
+    await sleep(1_000)
+
+    expect(isAlive(electronPid)).toBe(true)
+    expect((await client.getRun(runId)).run.state).not.toBe('finished')
+
+    await client.updateSettings({ quitWithWorkRunning: 'stop' })
+    await sleep(300)
+    await app?.close()
+    app = undefined
+
+    await waitForExit(pid)
+    expect(isAlive(electronPid)).toBe(false)
+    expect((await hostRecords(home, runId)).some((r) => r.t === 'exit')).toBe(true)
+  })
+
+  test('the app menu shows what’s waiting and running, and its items open the right place', async () => {
+    const window = await launchApp()
+    await startRun([{ hook: 'PermissionRequest:Bash' }, never()])
+
+    await expect
+      .poll(menuLabels, { timeout: 10_000 })
+      .toEqual(
+        expect.arrayContaining([
+          '1 waiting on you',
+          '0 of 1 Run working',
+          'Open TED',
+          'New Task…',
+          'Settings…',
+          'Quit TED completely',
+        ]),
+      )
+    if (process.platform === 'linux') expect(await window.title()).toBe('TED (1)')
+
+    await app?.evaluate(({ Menu }) => {
+      const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
+        for (const item of menu.items) {
+          const found = item.label === 'Settings…' ? item : item.submenu && find(item.submenu)
+          if (found) return found
+        }
+        return undefined
+      }
+      const menu = Menu.getApplicationMenu()
+      const settings = menu && find(menu)
+      settings?.click()
+    })
+
+    await window.getByRole('radiogroup', { name: 'Appearance' }).waitFor()
+  })
+
+  test('the quit choice is a setting in the app', async () => {
+    const window = await launchApp()
+    await sidebar(window)
+      .getByRole('button', { name: /^Settings/ })
+      .last()
+      .click()
+
+    await window
+      .getByLabel('When you quit with work running')
+      .selectOption({ label: 'Keep running in the background' })
+
+    await expect
+      .poll(async () => (await daemonClient()).getSettings())
+      .toMatchObject({ quitWithWorkRunning: 'keep-running' })
+  })
+
+  test('opening TED again while it runs hands over to the running app', async () => {
+    await launchApp()
+    const electronPid = app?.process().pid ?? 0
+
+    await run(electronPath, [appDir], { env: env(), timeout: 20_000 })
+
+    expect(isAlive(electronPid)).toBe(true)
   })
 })
 
