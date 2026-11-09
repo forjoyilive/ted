@@ -939,12 +939,15 @@ describe('TED app frame', () => {
     const window = await launchApp()
     const nav = sidebar(window)
     const factory = nav.getByRole('button', { name: 'widgets' })
+    const caret = nav
+      .getByRole('article', { name: 'widgets' })
+      .getByRole('button', { name: 'Views' })
     await factory.waitFor()
-    expect(await factory.getAttribute('aria-expanded')).toBe('false')
+    expect(await caret.getAttribute('aria-expanded')).toBe('false')
 
     await factory.click()
 
-    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+    expect(await caret.getAttribute('aria-expanded')).toBe('true')
     const board = nav.getByRole('button', { name: 'Board', exact: true })
     expect(await board.getAttribute('aria-current')).toBe('page')
     await window.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
@@ -953,7 +956,39 @@ describe('TED app frame', () => {
     }
 
     await nav.getByRole('button', { name: 'All Tasks' }).click()
-    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+    expect(await caret.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  test('the caret collapses and expands any Factory’s Views, and the app remembers it', async () => {
+    await twoFactories()
+    let window = await launchApp()
+    const views = (w: Page, name: string) =>
+      sidebar(w).getByRole('article', { name, exact: true }).getByRole('button', { name: 'Views' })
+    const board = (w: Page) => sidebar(w).getByRole('button', { name: 'Board', exact: true })
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await board(window).waitFor()
+
+    await views(window, 'notebook').click()
+
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('false')
+    await board(window).waitFor({ state: 'detached' })
+
+    await views(window, 'site').focus()
+    await window.keyboard.press('Enter')
+    expect(await views(window, 'site').getAttribute('aria-expanded')).toBe('true')
+    await board(window).waitFor()
+
+    await closeApp(app)
+    window = await launchApp()
+    await views(window, 'site').waitFor()
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('false')
+    expect(await views(window, 'site').getAttribute('aria-expanded')).toBe('true')
+
+    await views(window, 'site').press('Space')
+    await board(window).waitFor({ state: 'detached' })
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('true')
+    await board(window).waitFor()
   })
 
   test('a Factory added while the app is open appears in the sidebar', async () => {
@@ -3841,10 +3876,10 @@ describe('Factory row menu', () => {
     await waitFor(async () => (await rowNames(window)).join() === 'site,notebook')
 
     await window.keyboard.press('ControlOrMeta+1')
-    const site = row(window, 'site').getByRole('button', { name: 'site', exact: true })
+    const site = row(window, 'site').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await site.getAttribute('aria-expanded')) === 'true')
     await window.keyboard.press('ControlOrMeta+2')
-    const notebook = row(window, 'notebook').getByRole('button', { name: 'notebook', exact: true })
+    const notebook = row(window, 'notebook').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await notebook.getAttribute('aria-expanded')) === 'true')
   })
 
