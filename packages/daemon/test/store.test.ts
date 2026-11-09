@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { agentStageIds, type DaemonEvent } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
@@ -129,7 +129,14 @@ describe('TedStore', () => {
   test('the Stage track follows the Workflow order and strikes through Stages the Task skipped', async () => {
     const first = await openStore({ directory: dir })
     const task = await first.createTask({ title: 'Fix login' })
-    const order = ['intake', 'design', 'work', 'review'] as const
+    const order = [
+      { stage: 'intake', enabled: true },
+      { stage: 'clarify', enabled: false },
+      { stage: 'design', enabled: true },
+      { stage: 'work', enabled: true },
+      { stage: 'review', enabled: true },
+      { stage: 'merge', enabled: false },
+    ] as const
     const entry = { layers: [], order: [...order] }
     first.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
     first.changeStage(task.id, 'work', entry)
@@ -139,15 +146,19 @@ describe('TedStore', () => {
     try {
       expect(second.getTask(task.id)?.track).toEqual([
         { stage: 'intake', state: 'past' },
+        { stage: 'clarify', state: 'skipped' },
         { stage: 'design', state: 'skipped' },
         { stage: 'work', state: 'current' },
         { stage: 'review', state: 'future' },
+        { stage: 'merge', state: 'skipped' },
       ])
       second.changeStage(task.id, 'done', entry)
       expect(second.getTask(task.id)?.track.map((s) => s.state)).toEqual([
         'past',
         'skipped',
+        'skipped',
         'past',
+        'skipped',
         'skipped',
       ])
     } finally {
@@ -159,7 +170,7 @@ describe('TedStore', () => {
     const store = await openStore({ directory: dir })
     try {
       const task = await store.createTask({ title: 'Fix login' })
-      const entry = { layers: [], order: [...agentStages] }
+      const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
       store.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
       const seen: DaemonEvent[] = []
       store.subscribe((event) => seen.push(event))
@@ -170,7 +181,12 @@ describe('TedStore', () => {
       expect(seen).toEqual([{ type: 'task-updated', task: updated }])
       store.changeStage(task.id, 'clarify', entry)
       expect(store.getTask(task.id)?.activity).toBeUndefined()
+      vi.useFakeTimers({ now: new Date('2026-11-08T12:00:00Z'), toFake: ['Date'] })
+      store.setActivity(task.id, 'Asking round 1')
+      store.changeStage(task.id, 'design', entry)
+      expect(store.getTask(task.id)?.activity).toBeUndefined()
     } finally {
+      vi.useRealTimers()
       await store.close()
     }
   })

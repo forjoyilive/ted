@@ -51,8 +51,13 @@ export interface StoredTask extends Task {
   worktree?: string
 }
 
+export interface PlannedStage {
+  stage: AgentStageId
+  enabled: boolean
+}
+
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
-  order: AgentStageId[]
+  order: PlannedStage[]
 }
 
 export interface AcceptedLayer {
@@ -131,7 +136,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     branch,
     worktree,
     activity,
-    activityAt,
+    activityEntries,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -139,13 +144,10 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     const lead = all.at(0)
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
-    const enteredAt = entries.at(-1)?.at ?? ''
     const facts: TaskFacts = {
       stage,
       runs: live.map((r) => r.state as RunState),
-      ...(activity !== null &&
-        activityAt !== null &&
-        activityAt >= enteredAt && { agentActivity: activity }),
+      ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
@@ -256,7 +258,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           branch: null,
           worktree: null,
           activity: null,
-          activityAt: null,
+          activityEntries: null,
         }),
       )
       emit({ type: 'task-created', task })
@@ -311,6 +313,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           taskId,
           text,
           runId: runId ?? null,
+          stageEntries: entryRows(taskId).length,
           at: new Date().toISOString(),
         }),
       )
@@ -386,13 +389,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
 
 function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
   const saved = entries.findLast((e) => e.order !== null)?.order
-  const order = saved ? (JSON.parse(saved) as AgentStageId[]) : [...agentStageIds]
+  const plan: PlannedStage[] = saved
+    ? (JSON.parse(saved) as PlannedStage[])
+    : agentStageIds.map((id) => ({ stage: id, enabled: true }))
+  const order: StageId[] = plan.map((p) => p.stage)
   const entered = new Set(entries.map((e) => e.stage))
-  const inOrder = (order as StageId[]).includes(stage)
-  const rank = (id: StageId) => (inOrder ? (order as StageId[]).indexOf(id) : builtInRank(id))
-  return order.map((id) => {
-    if (stage === 'backlog') return { stage: id, state: 'future' }
+  const inOrder = order.includes(stage)
+  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
+  return plan.map(({ stage: id, enabled }) => {
     if (id === stage) return { stage: id, state: 'current' }
+    if (!enabled) return { stage: id, state: 'skipped' }
+    if (stage === 'backlog') return { stage: id, state: 'future' }
     if (stage === 'done' || rank(id) < rank(stage)) {
       return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
     }

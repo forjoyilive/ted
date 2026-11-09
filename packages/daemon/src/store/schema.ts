@@ -24,7 +24,7 @@ export const tasks = State.SQLite.table({
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
     activity: State.SQLite.text({ nullable: true }),
-    activityAt: State.SQLite.text({ nullable: true }),
+    activityEntries: State.SQLite.integer({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -195,6 +195,7 @@ export const events = {
       taskId: Schema.String,
       text: Schema.String,
       runId: Schema.NullOr(Schema.String),
+      stageEntries: Schema.Number,
       at: Schema.String,
     }),
   }),
@@ -241,8 +242,8 @@ const materializers = State.SQLite.materializers(events, {
     runs.update({ sessionId }).where({ id: runId }),
   'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
   'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
-  'v1.TaskActivitySet': ({ taskId, text, at }) =>
-    tasks.update({ activity: text, activityAt: at }).where({ id: taskId }),
+  'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
+    tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
   'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
   'v1.AppearanceChanged': ({ appearance }) =>

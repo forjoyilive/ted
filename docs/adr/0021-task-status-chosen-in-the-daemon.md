@@ -4,9 +4,9 @@ A Task shows one status, chosen by the precedence in spec 6.6. `taskStatus` in `
 
 Today the facts are the Task’s Stage and its Runs’ states: a working Run makes the Task Working, and a Run waiting on a permission prompt makes it Waiting on you. Failed, Partly merged, Paused, Stopped, Blocked, Queued and the GitHub waits are already in the function and its tests. The tickets that add those inputs fill a new `TaskFacts` field; they don’t add another place that decides a status. A change of Run state on a Task emits `task-updated`.
 
-The activity line is the agent’s text from `ted status "<text>"` (`v1.TaskActivitySet`), shown only while the Task stays in the Stage it was set in. Otherwise TED fills it in (“Not started” in Backlog, “Starts when NB-46 merges” for a blocked Task). The daemon flattens the text to one line of at most 200 characters.
+The activity line is the agent’s text from `ted status "<text>"` (`v1.TaskActivitySet`), shown only while the Task stays in the Stage it was set in. The event records how many Stage entries the Task had, and the line shows only while that count is unchanged, so the reset doesn’t depend on clock order. Otherwise TED fills it in (“Not started” in Backlog, “Starts when NB-46 merges” for a blocked Task). The daemon flattens the text to one line of at most 200 characters.
 
-Each Stage entry now records the Workflow’s order of agent Stages (`v2.TaskStageEntered`). The Stage track takes the order from the Task’s latest entry and marks each Stage past, current, skipped (before the current Stage but never entered) or future. A Task with no entries shows TED’s default order.
+Each Stage entry now records the Workflow’s `order` of agent Stages, each marked enabled or not (`v2.TaskStageEntered`). The Stage track takes that from the Task’s latest entry and marks each Stage past, current, skipped (turned off in the Workflow, or before the current Stage but never entered) or future. A Task with no entries shows TED’s default order.
 
 ## Considered Options
 

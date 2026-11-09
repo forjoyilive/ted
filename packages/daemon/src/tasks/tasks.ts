@@ -1,13 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import {
-  type AgentKind,
-  type AgentStageId,
-  agentStageIds,
-  type Comment,
-  type Outcome,
-  type Task,
-} from '@ted/protocol'
+import type { AgentKind, AgentStageId, Comment, Outcome, Task } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
@@ -83,9 +76,10 @@ export function createTasks(options: {
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
     const file = stage === 'done' ? undefined : workflow.stageFile(stage)
-    const order = workflow.stages.filter((id): id is AgentStageId =>
-      (agentStageIds as readonly string[]).includes(id),
-    )
+    const order = workflow.order.map((id) => ({
+      stage: id,
+      enabled: workflow.stages.includes(id),
+    }))
     return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
   }
 
