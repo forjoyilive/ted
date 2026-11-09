@@ -32,6 +32,7 @@ import {
   type ConversationTab,
   type CopySkip,
   type DaemonEvent,
+  type DescriptionVersion,
   defaultMachineSettings,
   type Effort,
   type Factory,
@@ -105,6 +106,7 @@ import {
   taskAttachments,
   taskBlockers,
   taskBriefs,
+  taskDescriptions,
   taskLog,
   taskQueue,
   taskRepos,
@@ -428,6 +430,8 @@ export interface TedStore {
   moveToBacklog(taskId: string): Task
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
+  editTask(taskId: string, edit: { title?: string; description?: string }): Task
+  descriptionVersions(taskId: string): DescriptionVersion[]
   archiveTask(taskId: string, record?: { closing: string[]; branches: number }): Task
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
@@ -1231,6 +1235,9 @@ export async function openStore({
     stage: stage as StageId,
     ...(runId !== null && { runId }),
   })
+  const descriptionRows = (taskId: string) =>
+    store.query(queryDb(taskDescriptions.where({ taskId }).orderBy('version', 'asc')))
+
   const briefRows = (taskId: string) =>
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
@@ -1618,6 +1625,36 @@ export async function openStore({
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
+    },
+    editTask(taskId, edit) {
+      const row = taskRow(taskId)
+      if (!row) throw new Error(`no Task ${taskId}`)
+      const title = edit.title !== undefined && edit.title !== row.title ? edit.title : null
+      const description =
+        edit.description !== undefined && edit.description !== row.description
+          ? edit.description
+          : null
+      if (title === null && description === null) return toPublicTask(toTask(row))
+      const versions = descriptionRows(taskId)
+      const latest = versions.at(-1)
+      commit(
+        events.taskEdited({
+          taskId,
+          title,
+          description,
+          version: description === null ? null : (latest?.version ?? 1) + 1,
+          previous: description === null || latest ? null : row.description,
+          previousAt: description === null || latest ? null : row.createdAt,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    descriptionVersions(taskId) {
+      const rows = descriptionRows(taskId)
+      if (rows.length > 0) return rows.map(({ version, text, at }) => ({ version, text, at }))
+      const row = taskRow(taskId)
+      return row ? [{ version: 1, text: row.description, at: row.createdAt }] : []
     },
     setPriority(taskId, priority) {
       commit(events.taskPriorityChanged({ taskId, priority, at: new Date().toISOString() }))

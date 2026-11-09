@@ -1,4 +1,4 @@
-import type { ConversationTab } from './chat.ts'
+import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -24,6 +24,10 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
 export type ClarifyDepthChooser = 'human' | 'task-lead'
+
+export function clarifyIsOver(stage: StageId): boolean {
+  return stage !== 'backlog' && stage !== 'intake' && stage !== 'clarify'
+}
 
 export interface SetClarifyDepthRequest {
   depth: ClarifyDepth
@@ -209,6 +213,17 @@ export interface RepoSetupReport {
 
 export interface SetPriorityRequest {
   priority: Priority
+}
+
+export interface EditTaskRequest {
+  title?: string
+  description?: string
+}
+
+export interface DescriptionVersion {
+  version: number
+  text: string
+  at: string
 }
 
 export type WorktreeCommandOutcome = 'passed' | 'failed' | 'timed-out'
@@ -426,6 +441,7 @@ export interface ThreadEvent {
   checkRunId?: string
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
+  changes?: ChatDiff
 }
 
 export interface Judgment {

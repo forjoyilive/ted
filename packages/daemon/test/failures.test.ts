@@ -162,6 +162,40 @@ describe('resuming takes a working slot', () => {
   })
 })
 
+describe('an edit while the Task Lead is dead', () => {
+  test('reaches the resumed session', async () => {
+    const client = await startTed()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const task = await startTask(client, steps({ endTurn: true }))
+    const gate = path.join(scratch, 'gate')
+    const other = await client.ok<Task>('POST', '/tasks', {
+      title: steps({ waitFor: gate }, { endTurn: true }),
+      factory: 'NB',
+      start: true,
+    })
+    await waitFor(client, other, (t) => t.runs[0]?.state === 'working', 'to be working')
+    const count = await killAgent()
+    await waitUntil(
+      async () =>
+        (await threadEvents(client, task)).some((e) => e.text.endsWith('resuming the session')),
+      'the failure to be recorded',
+    )
+
+    await client.ok('PUT', `/tasks/${task.id}`, { description: 'Search bodies too.' })
+    await writeFile(gate, '')
+    await startsAfter(count)
+
+    const runId = task.leadRunId ?? ''
+    await waitUntil(
+      async () =>
+        (await client.getRun(runId)).conversation.some((e) =>
+          e.line.includes('Search bodies too.'),
+        ),
+      'the edit to reach the resumed session',
+    )
+  })
+})
+
 describe('when TED can’t resume', () => {
   test('a failed resume starts a fresh Run from the brief, shown as a new Run', async () => {
     const client = await startTed()

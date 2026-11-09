@@ -16,6 +16,8 @@ import type {
   CommentAnswer,
   DaemonEvent,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   Effort,
   FactoryBoard,
   GitHubWait,
@@ -49,7 +51,8 @@ import type {
   ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, parseLinearUrl } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, clarifyIsOver, parseLinearUrl } from '@ted/protocol'
+import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -172,6 +175,8 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
+  edit(ref: string, request: EditTaskRequest): Promise<Task>
+  descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
@@ -2179,7 +2184,7 @@ export function createTasks(options: {
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
-              task,
+              withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
               attachmentFile,
@@ -2194,7 +2199,7 @@ export function createTasks(options: {
             ),
             ...(note !== undefined ? [note] : []),
           ]
-        : [continueMessage]),
+        : [continueMessage, ...editedSince(current)]),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -2221,6 +2226,27 @@ export function createTasks(options: {
     )
     store.releaseTaskRun(task.id)
     await sendWaiting(task.id)
+  }
+
+  function withOriginal(task: StoredTask, current: StoredTask): StoredTask & { original?: string } {
+    const [first] = store.descriptionVersions(task.id)
+    const edited = { ...task, title: current.title, description: current.description }
+    return first && first.text !== current.description
+      ? { ...edited, original: first.text }
+      : edited
+  }
+
+  function editedSince(task: StoredTask): string[] {
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (!run) return []
+    const edited = store
+      .taskLog(task.id)
+      .some((e) => e.name === 'v1.TaskEdited' && e.at >= run.startedAt)
+    if (!edited) return []
+    const current = find(task.id)
+    return [
+      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+    ]
   }
 
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
@@ -3561,7 +3587,7 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: revivedMessage(reason),
+        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
@@ -4030,6 +4056,25 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
+    async edit(ref, { title, description }) {
+      const task = live(ref)
+      const before = store.descriptionVersions(task.id).at(-1)?.text ?? task.description
+      const edited = store.editTask(task.id, {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+      })
+      const renamed = edited.title !== task.title
+      const changed = edited.description !== task.description
+      if ((renamed || changed) && liveLead(find(task.id))) {
+        await deliver(task, editMessage(task, edited, before, renamed, changed))
+      }
+      return edited
+    },
+
+    descriptions(ref) {
+      return store.descriptionVersions(find(ref).id)
+    },
+
     archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
       const task = live(ref)
       if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
@@ -4166,6 +4211,12 @@ export function createTasks(options: {
         if (task.archived || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
         }
+        if (clarifyIsOver(task.stage)) {
+          throw new RequestError(
+            409,
+            `Clarify is over for ${task.displayId}, so changing its Clarify depth would do nothing`,
+          )
+        }
         const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
         if (liveLead(find(task.id))) {
           await deliver(
@@ -4215,6 +4266,7 @@ export function createTasks(options: {
         comments: store.listComments(task.id),
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
+        descriptions: store.descriptionVersions(task.id),
       })
     },
 
@@ -4806,6 +4858,31 @@ function permissionMessage(approved: boolean, command: string, text: string): st
   return text === ''
     ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
     : `The human denied this request and said:\n\n${text}`
+}
+
+function editMessage(
+  task: Task,
+  edited: Task,
+  before: string,
+  renamed: boolean,
+  changed: boolean,
+): string {
+  const marks = { context: '  ', added: '+ ', removed: '- ' } as const
+  const diff = diffTexts('description', before, edited.description)
+  return [
+    `The human edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
+    ...(renamed ? [`Title was: ${task.title}\nTitle now: ${edited.title}`] : []),
+    ...(changed
+      ? [
+          'Changes to the description (lines starting “- ” were removed, “+ ” were added):',
+          [
+            ...diff.lines.map((line) => `${marks[line.kind]}${line.text}`),
+            ...(diff.truncated ? ['(longer than shown; read the full description below)'] : []),
+          ].join('\n'),
+          `The description now reads:\n\n${edited.description}`,
+        ]
+      : []),
+  ].join('\n\n')
 }
 
 function humanMessage(body: string): string {

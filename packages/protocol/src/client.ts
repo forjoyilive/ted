@@ -61,6 +61,8 @@ import type {
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -183,6 +185,14 @@ export class DaemonClient {
 
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
+  }
+
+  editTask(ref: string, request: EditTaskRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}`, request)
+  }
+
+  taskDescriptions(ref: string): Promise<DescriptionVersion[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
   }
 
   setPriority(ref: string, priority: Priority): Promise<Task> {
