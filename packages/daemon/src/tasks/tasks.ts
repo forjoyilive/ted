@@ -19,6 +19,7 @@ import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { IdleTimer } from '../idle.ts'
+import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { NewTask, RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
@@ -549,7 +550,7 @@ export function createTasks(options: {
       if (!task.repos.some((r) => r.name === name)) {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
-      return readFile(commandLog(task, 'setup', name), 'utf8').catch(() => '')
+      return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
     },
 
     async close() {

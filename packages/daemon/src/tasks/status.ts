@@ -8,6 +8,7 @@ export interface TaskFacts {
   partlyMerged?: boolean
   paused?: string
   tedWorking?: boolean
+  settingUp?: boolean
   stopped?: boolean
   blockedBy?: readonly string[]
   queue?: { place: number } | { hold: string }
@@ -24,7 +25,9 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
     return { kind: 'waiting-on-you' }
   }
   if (facts.paused !== undefined) return { kind: 'paused', reason: facts.paused }
-  if (facts.tedWorking || facts.runs.includes('working')) return { kind: 'working' }
+  if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
+    return { kind: 'working' }
+  }
   if (facts.stopped) return { kind: 'stopped' }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
@@ -46,6 +49,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.agentActivity !== undefined) return facts.agentActivity
+  if (facts.settingUp) return 'Setting up the worktree'
   const blocker = facts.blockedBy?.[0]
   if (blocker !== undefined) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog') return 'Not started'
