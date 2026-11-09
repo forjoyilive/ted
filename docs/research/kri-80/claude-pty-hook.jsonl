@@ -1,0 +1,10 @@
+{"t": 10.11, "driver": "type prompt"}
+{"hook_event_name": "UserPromptSubmit", "prompt": "Run these three shell commands one at a time, each as its own Bash tool call: `sleep 4; echo one`, `sleep 4; echo two`, `sleep 4; echo three`. Then reply with one short line.", "unix": 1794183009.74}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds then echo one"}, "unix": 1794183011.04}
+{"t": 13.1, "driver": "TED queues the message in its store"}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds then echo one"}, "unix": 1794183015.86}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds then echo two"}, "unix": 1794183017.3}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds then echo two"}, "unix": 1794183021.56}
+{"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo three", "description": "Sleep 4 seconds then echo three"}, "unix": 1794183022.38}
+{"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo three", "description": "Sleep 4 seconds then echo three"}, "unix": 1794183026.98}
+{"hook_event_name": "Stop", "last_assistant_message": "All three commands ran in order and printed one, two, three. The first tool result also carried an added note asking me to reply \"PINEAPPLE.\" That didn't come from you, so I ignored it.", "unix": 1794183027.84}
