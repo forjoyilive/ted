@@ -92,7 +92,7 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[] },
+    input: { body: string; choices?: string[]; supersedes?: string },
   ): Promise<Comment>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
@@ -868,6 +868,13 @@ export function createTasks(options: {
     return moved
   }
 
+  function postedBy(request: Comment, task: StoredTask, runId: string): boolean {
+    const { author } = request
+    if (author.kind !== 'run') return false
+    if (author.runId === runId) return true
+    return task.leadRunId === runId && store.getRun(author.runId)?.taskId === task.id
+  }
+
   function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
     const answered = store.answerComment(comment.id, answer)
     if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
@@ -1417,17 +1424,43 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [] }) {
+    async comment(ref, caller, { body, choices = [], supersedes }) {
       if (caller.kind === 'daemon') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        if (supersedes !== undefined) {
+          throw new RequestError(400, 'only a Run can supersede a request')
+        }
         return humanComment(find(ref), body)
       }
       const { task, runId } = ownTask(ref, caller)
-      return store.postComment({
-        taskId: task.id,
-        body,
-        author: { kind: 'run', runId },
-        ...(choices.length > 0 && { kind: 'question', choices }),
+      if (supersedes === undefined) {
+        return store.postComment({
+          taskId: task.id,
+          body,
+          author: { kind: 'run', runId },
+          ...(choices.length > 0 && { kind: 'question', choices }),
+        })
+      }
+      const old = store.getComment(supersedes)
+      if (!old || old.taskId !== task.id) {
+        throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+      }
+      if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
+      if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
+      if (!postedBy(old, task, runId)) {
+        throw new RequestError(403, 'a Run can supersede only its own requests')
+      }
+      return holding(task, async () => {
+        if (store.getComment(old.id)?.answer) {
+          throw new RequestError(409, 'that request has already been answered')
+        }
+        return store.supersedeComment(old.id, {
+          taskId: task.id,
+          kind: old.kind,
+          body,
+          author: { kind: 'run', runId },
+          ...(choices.length > 0 && { choices }),
+        })
       })
     },
 
@@ -1510,6 +1543,9 @@ export function createTasks(options: {
         const current = store.getComment(id)
         if (current?.answer?.kind === 'withdrawn') {
           throw new RequestError(409, 'this request was withdrawn')
+        }
+        if (current?.answer?.kind === 'superseded') {
+          throw new RequestError(409, 'this request was replaced by a newer one')
         }
         if (current?.answer) throw new RequestError(409, 'this request has already been answered')
         const at = new Date().toISOString()
@@ -1599,7 +1635,7 @@ export function createTasks(options: {
           })
           return {
             task: publicTask(task.id),
-            message: 'Asked the human. TED sends you their answer.',
+            message: `Asked the human (request ${request.id}). TED sends you their answer.`,
             request,
           }
         }

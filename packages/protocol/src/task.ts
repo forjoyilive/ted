@@ -216,6 +216,7 @@ export type CommentAnswer =
   | { kind: 'answered'; at: string; choice?: string; text?: string }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'superseded'; at: string; by: string }
 
 export interface Comment {
   id: string
@@ -257,6 +258,7 @@ export type AnswerRequest =
 export interface PostCommentRequest {
   body: string
   choices?: string[]
+  supersedes?: string
 }
 
 export interface SetActivityRequest {

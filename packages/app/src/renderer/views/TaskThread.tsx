@@ -6,7 +6,12 @@ import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
-import { AnsweredCard, OpenRequestLine, RequestCard } from '../components/RequestCard.tsx'
+import {
+  AnsweredCard,
+  OpenRequestLine,
+  RequestCard,
+  WaitingRow,
+} from '../components/RequestCard.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useComments, useStageEntries, useThreadEvents } from '../data.ts'
@@ -98,6 +103,7 @@ export function TaskThread({
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
+  const pin = (id: string) => setChosen({ from: requestId, id })
 
   return (
     <section className={styles.pane} aria-label="Task thread">
@@ -165,18 +171,23 @@ export function TaskThread({
             return <NoteRow key={comment.id} task={task} comment={comment} />
           }
           if (comment.answer !== undefined) {
+            const { answer } = comment
+            const newer =
+              answer.kind === 'superseded' ? comments.find((c) => c.id === answer.by) : undefined
             return (
               <li key={comment.id} className={styles.requestItem}>
-                <AnsweredCard request={comment} task={task} />
+                <AnsweredCard request={comment} task={task} newer={newer} />
               </li>
             )
           }
-          if (comment.id === pinned?.id) return null
           return (
             <li key={comment.id} className={styles.requestItem}>
               <OpenRequestLine
                 request={comment}
-                onPin={() => setChosen({ from: requestId, id: comment.id })}
+                task={task}
+                pinned={comment.id === pinned?.id}
+                others={open.length - 1}
+                onPin={() => pin(comment.id)}
               />
             </li>
           )
@@ -184,6 +195,7 @@ export function TaskThread({
       </ol>
       {pinned ? (
         <div className={styles.pinned}>
+          {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
           <RequestCard key={pinned.id} request={pinned} task={task} />
         </div>
       ) : (
