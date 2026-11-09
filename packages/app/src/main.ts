@@ -81,6 +81,9 @@ const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
+  markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
+  listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
@@ -90,7 +93,6 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
-  listSendBacks: (client, taskId) => client.listSendBacks(String(taskId)),
   checkOutput: (client, checkRunId, position) =>
     client.checkOutput(String(checkRunId), Number(position)),
   listFactories: (client) => client.listFactories(),

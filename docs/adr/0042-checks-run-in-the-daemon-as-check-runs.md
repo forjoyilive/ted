@@ -8,4 +8,4 @@ A failed Validate Check run sends the Task back to Work through the same send-ba
 
 While a Task’s Checks run, `ted outcome` is refused, so the Task Lead can’t move the Task past them. A daemon that stops mid-run leaves the Check run unfinished; on start it marks it interrupted and, if the Task is still in Validate, runs the Checks again from the start. `ted checks` starts a Check run and polls it, so a long Check never holds an HTTP request open.
 
-The thread draws Check runs and send-backs from `GET /tasks/:id/check-runs` and `GET /tasks/:id/send-backs` and the `check-run-updated` and `sent-back` events. The Merge rebase rerun (KRI-130) calls the same runner.
+The thread draws Check runs from `GET /tasks/:id/check-runs` and the `check-run-updated` event. Send-backs come through the thread events of ADR 0041: `v2.TaskSentBack` reads “Validate sent this back to Work (round 2 of 5)”, carries the Check run’s id, and the thread puts that run’s ✓ row above its Blocking findings box instead of a separate Check run line. `GET /tasks/:id/send-backs` and the `sent-back` event stay for other readers. The Merge rebase rerun (KRI-130) calls the same runner.

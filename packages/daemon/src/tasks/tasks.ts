@@ -25,6 +25,7 @@ import type {
   TaskLead,
   TaskRepo,
   TaskSource,
+  ThreadEvent,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
@@ -69,6 +70,7 @@ import {
 } from './checks.ts'
 import { placeBetween } from './order.ts'
 import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
+import { threadEvents } from './thread.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -101,7 +103,13 @@ export interface Tasks {
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
   subscribe(listener: (event: DaemonEvent) => void): () => void
-  comment(ref: string, caller: Caller, input: { body: string; choices?: string[] }): Comment
+  comment(
+    ref: string,
+    caller: Caller,
+    input: { body: string; choices?: string[] },
+  ): Promise<Comment>
+  markRead(ref: string): number
+  threadEvents(ref: string): ThreadEvent[]
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: ReportOutcomeRequest): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
@@ -156,6 +164,7 @@ export function createTasks(options: {
   const applying = new Set<string>()
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
+  const sendingComments = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -467,16 +476,20 @@ export function createTasks(options: {
       const { workflow } = resolution
       const instructions = message ?? nextStageMessage(workflow, 'validate')
       const started = await beginChecks(task, resolution, 'validate')
-      if (!started) return await deliver(task, instructions)
+      if (!started) {
+        await deliver(task, instructions)
+        return
+      }
       const result = await started.done
       const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
       const current = find(taskId)
       if (result.outcome === 'interrupted' || current.stage !== 'validate') return
       if (result.outcome === 'passed') {
-        return await deliver(
+        await deliver(
           current,
           `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
         )
+        return
       }
       const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
       await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
@@ -486,10 +499,11 @@ export function createTasks(options: {
         workflow.stages.includes('work') &&
         workflow.order.indexOf('work') < workflow.order.indexOf('validate')
       if (!canSendBack) {
-        return await deliver(
+        await deliver(
           current,
           `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. Work isn’t before Validate in this Workflow, so TED couldn’t send the Task back.\n\n${findings}`,
         )
+        return
       }
       const outcome = await holding(current, () =>
         sendBack(
@@ -751,8 +765,10 @@ export function createTasks(options: {
       return
     }
     heldPickUps.delete(task.id)
-    const prompt =
-      resumeSession === undefined
+    const waiting = waitingForRun(task.id)
+    const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
+    const prompt = [
+      ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
               task,
@@ -762,9 +778,11 @@ export function createTasks(options: {
               setupReport,
             ),
             ...(note !== undefined ? [note] : []),
-          ].join('\n\n')
-        : continueMessage
-    await runs.start({
+          ]
+        : [continueMessage]),
+      ...(since !== undefined ? [since] : []),
+    ].join('\n\n')
+    const run = await runs.start({
       agent,
       prompt,
       cwd: repo.worktree,
@@ -774,7 +792,98 @@ export function createTasks(options: {
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
     })
+    store.commentsDelivered(
+      waiting.comments.map((c) => c.id),
+      run.id,
+    )
+    store.answersDelivered(
+      waiting.answers.map((c) => c.id),
+      run.id,
+    )
     store.releaseTaskRun(task.id)
+    await sendWaiting(task.id)
+  }
+
+  function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
+    return {
+      comments: store
+        .listComments(taskId)
+        .filter(
+          (c) =>
+            c.author.kind === 'human' && c.delivered === undefined && !sendingComments.has(c.id),
+        ),
+      answers: store.heldAnswers(taskId),
+    }
+  }
+
+  function sinceLastRun(
+    taskId: string,
+    { comments, answers }: { comments: Comment[]; answers: Comment[] },
+    withBrief: boolean,
+  ): string | undefined {
+    const items = [
+      ...comments.map((c) => ({ at: c.createdAt, line: `- ${c.createdAt}: ${flat(c.body)}` })),
+      ...answers.flatMap((c) => {
+        const answer = answerText(c)
+        return answer === undefined
+          ? []
+          : [
+              {
+                at: c.answer?.at ?? c.createdAt,
+                line: `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+              },
+            ]
+      }),
+    ].sort((a, b) => a.at.localeCompare(b.at))
+    if (items.length === 0) return undefined
+    const brief = withBrief ? store.latestBrief(taskId) : undefined
+    return [
+      '# Comments since the last Run',
+      'The human wrote these while no Run was working on this Task. Read them before you carry on.',
+      ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
+      items.map((i) => i.line).join('\n'),
+    ].join('\n\n')
+  }
+
+  async function sendWaiting(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!task || !run) return
+    for (const c of waitingForRun(taskId).comments) await sendComment(run.id, c)
+  }
+
+  async function sendComment(runId: string, comment: Comment): Promise<void> {
+    sendingComments.add(comment.id)
+    try {
+      await runs.send(runId, humanMessage(comment.body))
+      store.commentsDelivered([comment.id], runId)
+    } catch (error) {
+      console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
+    } finally {
+      sendingComments.delete(comment.id)
+    }
+  }
+
+  async function humanComment(task: StoredTask, body: string): Promise<Comment> {
+    const posted = store.postComment({ taskId: task.id, body, author: { kind: 'human' } })
+    const run = liveLead(find(task.id))
+    if (!run) return posted
+    await sendComment(run.id, posted)
+    return store.getComment(posted.id) ?? posted
+  }
+
+  function markAccepted(run: Run, texts: string[]): void {
+    if (run.taskId === undefined) return
+    const read = store
+      .listComments(run.taskId)
+      .filter(
+        (c) =>
+          c.author.kind === 'human' &&
+          c.delivered?.runId === run.id &&
+          c.readAt === undefined &&
+          texts.some((text) => flat(text).includes(flat(c.body))),
+      )
+    store.commentsRead(read.map((c) => c.id))
   }
 
   async function setUpAndLaunch(
@@ -893,11 +1002,16 @@ export function createTasks(options: {
     }
   }
 
-  async function deliver(task: Task, text: string): Promise<void> {
+  async function deliver(task: Task, text: string): Promise<boolean> {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
-    if (!run || run.state === 'finished') return
+    if (!run || run.state === 'finished') return false
     await runs.send(run.id, text)
+    return true
+  }
+
+  async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
+    if (!(await deliver(task, text))) store.holdAnswer(comment.id)
   }
 
   async function move(
@@ -1116,6 +1230,7 @@ export function createTasks(options: {
     const notes = store
       .listComments(task.id)
       .filter((c) => !brief || c.createdAt > brief.createdAt)
+      .filter((c) => c.author.kind !== 'human' || c.delivered !== undefined)
       .map(
         (c) => `- ${authors[c.author.kind]}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`,
       )
@@ -1232,6 +1347,7 @@ export function createTasks(options: {
       if (run.state !== 'finished') interrupted.add(run.id)
       health.authFailed(run.agent)
     },
+    accepted: markAccepted,
     finished(run) {
       interrupted.delete(run.id)
       inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
@@ -1484,13 +1600,35 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    comment(ref, caller, { body, choices = [] }) {
+    async comment(ref, caller, { body, choices = [] }) {
+      if (caller.kind === 'daemon') {
+        if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        return humanComment(find(ref), body)
+      }
       const { task, runId } = ownTask(ref, caller)
       return store.postComment({
         taskId: task.id,
         body,
         author: { kind: 'run', runId },
         ...(choices.length > 0 && { kind: 'question', choices }),
+      })
+    },
+
+    markRead(ref) {
+      const task = find(ref)
+      const unread = store
+        .listComments(task.id)
+        .filter((c) => c.author.kind !== 'human' && c.readAt === undefined)
+      store.commentsRead(unread.map((c) => c.id))
+      return unread.length
+    },
+
+    threadEvents(ref) {
+      const task = find(ref)
+      return threadEvents(task.id, store.taskLog(task.id), {
+        comments: store.listComments(task.id),
+        displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
+        waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
       })
     },
 
@@ -1560,8 +1698,9 @@ export function createTasks(options: {
         const at = new Date().toISOString()
         if (request.action === 'request-changes') {
           const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
-          await deliver(
+          await deliverAnswer(
             task,
+            comment,
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
@@ -1579,6 +1718,7 @@ export function createTasks(options: {
             at,
             ...(text !== '' && { text }),
           })
+          if (text !== '' && !liveLead(now)) store.holdAnswer(comment.id)
           const approved =
             text === ''
               ? `The human approved the ${gateName(comment)}.`
@@ -1603,8 +1743,9 @@ export function createTasks(options: {
           ...(text !== '' && { text }),
         })
         if (aboutModel) return answered
-        await deliver(
+        await deliverAnswer(
           task,
+          comment,
           [
             `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
             ...(choice !== undefined ? [choice] : []),
@@ -1872,6 +2013,26 @@ function briefGoal(text: string): string | undefined {
 
 const continueMessage =
   'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+
+function humanMessage(body: string): string {
+  return `The human posted a Comment on this Task:\n\n${body}`
+}
+
+function flat(text: string): string {
+  return text.replace(/\s*\n\s*/g, ' ')
+}
+
+function answerText(comment: Comment): string | undefined {
+  const { answer } = comment
+  if (!answer) return undefined
+  if (answer.kind === 'approved')
+    return answer.text === undefined ? undefined : `approved, adding: ${answer.text}`
+  if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
+  if (answer.kind === 'answered') {
+    return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
+  }
+  return undefined
+}
 
 function firstLine(text: string): string {
   return (

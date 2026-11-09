@@ -9,10 +9,10 @@ import type {
   InboxItem,
   MachineSettings,
   RunSlots,
-  SendBack,
   StageEntry,
   StageId,
   Task,
+  ThreadEvent,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { nextReturn } from './banners.ts'
@@ -129,7 +129,6 @@ export function useComments(taskId: string): Comment[] {
 }
 
 const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
-const byAt = (a: SendBack, b: SendBack) => a.at.localeCompare(b.at)
 
 export function useCheckRuns(taskId: string): CheckRun[] {
   const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
@@ -143,14 +142,40 @@ export function useCheckRuns(taskId: string): CheckRun[] {
   return useLive(load, pick, byStartedAt)
 }
 
-export function useSendBacks(taskId: string): SendBack[] {
-  const load = useCallback(() => ted.listSendBacks(taskId), [taskId])
-  const pick = useCallback(
-    (event: TedEvent) =>
-      event.type === 'sent-back' && event.sendBack.taskId === taskId ? event.sendBack : undefined,
-    [taskId],
-  )
-  return useLive(load, pick, byAt)
+export function useThreadEvents(taskId: string): ThreadEvent[] {
+  const [events, setEvents] = useState<ThreadEvent[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let latest = 0
+    setEvents([])
+    const load = () => {
+      const call = ++latest
+      void ted.listThreadEvents(taskId).then(
+        (loaded) => {
+          if (call === latest) setEvents(loaded)
+        },
+        () => undefined,
+      )
+    }
+    const unsubscribe = ted.onEvent((event) => {
+      if (
+        (event.type === 'task-updated' && event.task.id === taskId) ||
+        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+          event.comment.taskId === taskId)
+      ) {
+        load()
+      }
+    })
+    load()
+    return () => {
+      latest = -1
+      unsubscribe()
+    }
+  }, [taskId, epoch])
+
+  return events
 }
 
 const inboxEvents = new Set<TedEvent['type']>([

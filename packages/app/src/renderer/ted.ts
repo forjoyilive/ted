@@ -34,12 +34,12 @@ import type {
   RunFixRequest,
   RunFixResult,
   RunSlots,
-  SendBack,
   StageEntry,
   StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
+  ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import type { LoginItemState } from '../login-item.ts'
@@ -65,6 +65,12 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  postComment: (taskId: string, body: string) =>
+    window.ted.request('postComment', taskId, body) as Promise<Comment>,
+  markCommentsRead: (taskId: string) =>
+    window.ted.request('markCommentsRead', taskId) as Promise<{ read: number }>,
+  listThreadEvents: (taskId: string) =>
+    window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
@@ -77,8 +83,6 @@ export const ted = {
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listCheckRuns: (taskId: string) =>
     window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
-  listSendBacks: (taskId: string) =>
-    window.ted.request('listSendBacks', taskId) as Promise<SendBack[]>,
   checkOutput: (checkRunId: string, position: number) =>
     window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,

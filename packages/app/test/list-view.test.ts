@@ -38,6 +38,7 @@ function task(fields: Partial<Task> & { displayId: string }): Task {
     runs: [],
     repos: [],
     createdBy: 'human',
+    commentBox: 'no-run',
     createdAt: `2026-11-0${(made % 8) + 1}T10:00:00Z`,
     updatedAt: `2026-11-0${(made % 8) + 1}T10:00:00Z`,
     ...fields,
