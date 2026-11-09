@@ -48,6 +48,7 @@ export interface AgentHealthMonitor {
   onReady(listener: (kind: AgentKind) => void): void
   onPaused(listener: (kind: AgentKind, state: AgentHealthState) => void): void
   onProbe(listener: (kind: AgentKind) => boolean): void
+  onVersion(listener: (kind: AgentKind, version: string) => void): void
   close(): void
 }
 
@@ -79,6 +80,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   const readyListeners = new Set<(kind: AgentKind) => void>()
   const pausedListeners = new Set<(kind: AgentKind, state: AgentHealthState) => void>()
   const probeListeners = new Set<(kind: AgentKind) => boolean>()
+  const versionListeners = new Set<(kind: AgentKind, version: string) => void>()
   const watches = new Map<AgentKind, NodeJS.Timeout>()
   const limits = new Map<AgentKind, Limit>()
   const wrongKeys = new Map<AgentKind, string | undefined>()
@@ -235,6 +237,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
 
   function apply(health: AgentHealth): AgentHealth {
     inspected.set(health.agent, health)
+    const { version } = health
+    if (version !== undefined)
+      for (const listener of versionListeners) listener(health.agent, version)
     if (health.state === 'ready') stopWatching(health.agent)
     return publish(health.agent) ?? health
   }
@@ -430,6 +435,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     },
     onProbe(listener) {
       probeListeners.add(listener)
+    },
+    onVersion(listener) {
+      versionListeners.add(listener)
     },
     close() {
       closed = true

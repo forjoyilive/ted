@@ -28,6 +28,7 @@ import {
   type StageRowView,
   type WorkflowProblem,
 } from '@ted/protocol'
+import { fileChange } from '@ted/protocol/diff'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -54,7 +55,6 @@ import {
   maxFactoryRepos,
   type WorkflowSettings,
 } from './workflow/check.ts'
-import { fileChange } from './workflow/diff.ts'
 import {
   applyChanges,
   defaultName,

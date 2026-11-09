@@ -172,9 +172,13 @@ export function inputProblems(
   return problems
 }
 
+export type LayerChanges = Omit<FactorySettingsChanges, 'repos'> & {
+  repos?: RepoSettingsInput[]
+}
+
 export function applyChanges(
   text: string | undefined,
-  changes: FactorySettingsChanges,
+  changes: LayerChanges,
   current: readonly RepoSettingsInput[],
   basedOn: Partial<Record<AgentStageId, string | null>> = {},
 ): string {
@@ -182,43 +186,7 @@ export function applyChanges(
     text === undefined || text.trim() === '' ? new Document({ version: 1 }) : parseDocument(text)
   if (!isMap(doc.contents)) doc.contents = doc.createNode({ version: 1 }) as YAMLMap
   const root = doc.contents as YAMLMap
-  const existing = root.get('repos', true)
-  const items = isSeq(existing) ? (existing.items as unknown[]) : []
-  const originalIndex = (was: string) => current.findIndex((r) => r.was === was)
-
-  const seq = new YAMLSeq()
-  changes.repos.forEach((repo, position) => {
-    const index = repo.was === undefined ? -1 : originalIndex(repo.was)
-    const found = index >= 0 ? items[index] : undefined
-    const map = isMap(found) ? (found as YAMLMap) : (doc.createNode({}) as YAMLMap)
-    writeRepo(doc, map, repo, position === 0)
-    seq.items.push(map)
-  })
-  if (isSeq(existing)) {
-    existing.items = seq.items
-  } else {
-    root.set('repos', seq)
-  }
-
-  const renames = new Map<string, string>()
-  for (const repo of changes.repos) {
-    if (repo.was !== undefined && repo.was !== repo.name) renames.set(repo.was, repo.name)
-  }
-  const removed = new Set(
-    current.map((r) => r.was).filter((was) => !changes.repos.some((r) => r.was === was)),
-  )
-  const checks = doc.getIn(['stages', 'validate', 'checks'], true)
-  if (isSeq(checks)) {
-    checks.items = (checks.items as unknown[]).filter((item) => {
-      if (!isMap(item)) return true
-      const repo = item.get('repo')
-      if (typeof repo !== 'string') return true
-      if (removed.has(repo)) return false
-      const renamed = renames.get(repo)
-      if (renamed !== undefined) setKeepingStyle(item, 'repo', renamed)
-      return true
-    })
-  }
+  if (changes.repos !== undefined) writeRepos(doc, root, changes.repos, current)
 
   for (const [id, stage] of Object.entries(changes.stages ?? {})) {
     if (!stage) continue
@@ -257,6 +225,52 @@ export function applyChanges(
     setRoot(root, 'max_working_runs', changes.maxWorkingRuns)
   }
   return keepOriginalStyle(text, doc.toString({ lineWidth: 0, flowCollectionPadding: false }))
+}
+
+function writeRepos(
+  doc: Document,
+  root: YAMLMap,
+  repos: readonly RepoSettingsInput[],
+  current: readonly RepoSettingsInput[],
+): void {
+  const changes = { repos }
+  const existing = root.get('repos', true)
+  const items = isSeq(existing) ? (existing.items as unknown[]) : []
+  const originalIndex = (was: string) => current.findIndex((r) => r.was === was)
+
+  const seq = new YAMLSeq()
+  changes.repos.forEach((repo, position) => {
+    const index = repo.was === undefined ? -1 : originalIndex(repo.was)
+    const found = index >= 0 ? items[index] : undefined
+    const map = isMap(found) ? (found as YAMLMap) : (doc.createNode({}) as YAMLMap)
+    writeRepo(doc, map, repo, position === 0)
+    seq.items.push(map)
+  })
+  if (isSeq(existing)) {
+    existing.items = seq.items
+  } else {
+    root.set('repos', seq)
+  }
+
+  const renames = new Map<string, string>()
+  for (const repo of changes.repos) {
+    if (repo.was !== undefined && repo.was !== repo.name) renames.set(repo.was, repo.name)
+  }
+  const removed = new Set(
+    current.map((r) => r.was).filter((was) => !changes.repos.some((r) => r.was === was)),
+  )
+  const checks = doc.getIn(['stages', 'validate', 'checks'], true)
+  if (isSeq(checks)) {
+    checks.items = (checks.items as unknown[]).filter((item) => {
+      if (!isMap(item)) return true
+      const repo = item.get('repo')
+      if (typeof repo !== 'string') return true
+      if (removed.has(repo)) return false
+      const renamed = renames.get(repo)
+      if (renamed !== undefined) setKeepingStyle(item, 'repo', renamed)
+      return true
+    })
+  }
 }
 
 const rootOrder = [

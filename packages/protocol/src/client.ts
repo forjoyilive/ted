@@ -36,7 +36,11 @@ import type {
   CheckTryRequest,
   FactorySettingsChanges,
   FactorySettingsView,
+  LibraryChanges,
+  LibraryPreview,
+  LibraryView,
   RenameFactoryRequest,
+  SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
   SettingsPreview,
@@ -492,6 +496,18 @@ export class DaemonClient {
       `/factories/${encodeURIComponent(factoryId)}/settings/save`,
       request,
     )
+  }
+
+  library(): Promise<LibraryView> {
+    return this.#request('GET', '/library')
+  }
+
+  previewLibrary(changes: LibraryChanges): Promise<LibraryPreview> {
+    return this.#request('POST', '/library/preview', changes)
+  }
+
+  saveLibrary(request: SaveLibraryRequest): Promise<LibraryView> {
+    return this.#request('POST', '/library/save', request)
   }
 
   tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {

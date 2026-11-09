@@ -3068,3 +3068,70 @@ describe('Factory settings sections', () => {
       .waitFor()
   })
 })
+
+describe('Library settings', () => {
+  test('Edit in Library and a Gate change save straight to the Library folder', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Library', exact: true }).click()
+    await window.getByRole('heading', { name: 'Stage files' }).waitFor()
+    await window
+      .getByText('Applies to every Factory that doesn’t override it, from each Task’s next Stage.')
+      .waitFor()
+
+    await window.getByRole('switch', { name: 'Design Gate' }).click()
+    await window.getByText('1 unsaved change to the Library').waitFor()
+    await window.getByRole('button', { name: 'Edit in Library' }).nth(5).click()
+    const editor = window.getByRole('textbox', { name: 'Review Stage file' })
+    await editor.fill(`${await editor.inputValue()}\n## Also\n\nRead the changelog.\n`)
+    await window.getByRole('tab', { name: 'Compare with default' }).click()
+    await window.getByRole('region', { name: 'review.md compared with TED’s default' }).waitFor()
+    await window.getByText('2 unsaved changes to the Library').waitFor()
+    await window.getByRole('button', { name: 'Save', exact: true }).click()
+    await window.getByText('2 unsaved changes to the Library').waitFor({ state: 'detached' })
+
+    const library = path.join(home, 'library')
+    expect(await readFile(path.join(library, 'stages', 'review.md'), 'utf8')).toContain(
+      'Read the changelog.',
+    )
+    expect(await readFile(path.join(library, 'workflow.yaml'), 'utf8')).toMatch(
+      /design:\n {4}gate: false\n {2}review:\n {4}based_on: [0-9a-f]{7}\n/,
+    )
+
+    await window.getByRole('button', { name: 'Reset to default' }).first().click()
+    await window.getByRole('button', { name: 'Save', exact: true }).click()
+    await waitFor(async () =>
+      readFile(path.join(library, 'stages', 'review.md')).then(
+        () => false,
+        () => true,
+      ),
+    )
+  })
+
+  test('Agent defaults save to the Library and show the Library tag', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Agents', exact: true }).click()
+    const restart = window.getByRole('switch', {
+      name: 'Restart idle Runs onto new agent versions',
+    })
+    expect(await restart.getAttribute('aria-checked')).toBe('true')
+    await restart.click()
+    await waitFor(
+      async () => (await (await daemonClient()).getSettings()).restartIdleRuns === false,
+    )
+
+    const defaults = window.getByRole('group', { name: 'Defaults for all Factories' })
+    await defaults.getByRole('combobox', { name: 'Reviewer effort' }).selectOption('high')
+    await defaults.getByRole('button', { name: 'Reset to TED default' }).waitFor()
+    await defaults.getByText('Library', { exact: true }).waitFor()
+    expect(await readFile(path.join(home, 'library', 'workflow.yaml'), 'utf8')).toMatch(
+      /^version: 1\nreviewer: \{agent: \w+, effort: high\}\n$/,
+    )
+    await defaults.getByRole('button', { name: 'Reset to TED default' }).click()
+    await waitFor(
+      async () =>
+        (await readFile(path.join(home, 'library', 'workflow.yaml'), 'utf8')) === 'version: 1\n',
+    )
+  })
+})
