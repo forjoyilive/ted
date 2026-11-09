@@ -1,6 +1,7 @@
 import type { Factory, Task } from '@ted/protocol'
 import { AgentAvatar } from '../components/Avatar.tsx'
 import { useComments } from '../data.ts'
+import { clarifyDepthLabels, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
@@ -27,6 +28,7 @@ export function TaskThread({
       <header className={styles.taskHeader}>
         <span className={styles.taskMeta}>{task.displayId}</span>
         <h1 className={styles.taskTitle}>{task.title}</h1>
+        {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
       <ol className={styles.thread}>
         {comments.map((comment) => (
@@ -46,7 +48,16 @@ export function TaskThread({
   )
 }
 
-export function TaskDetails({ task, factories }: { task: Task; factories: readonly Factory[] }) {
+export function TaskDetails({
+  task,
+  tasks,
+  factories,
+}: {
+  task: Task
+  tasks: readonly Task[]
+  factories: readonly Factory[]
+}) {
+  const blockers = task.blockedBy.map((id) => tasks.find((t) => t.id === id)?.displayId ?? id)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
@@ -54,6 +65,37 @@ export function TaskDetails({ task, factories }: { task: Task; factories: readon
         <dd>{factoryName(factories, task.factoryId)}</dd>
         <dt>Stage</dt>
         <dd>{stageName(task.stage)}</dd>
+        <dt>Priority</dt>
+        <dd>{priorityLabels[task.priority]}</dd>
+        {task.lead && (
+          <>
+            <dt>Task Lead</dt>
+            <dd>{leadSummary(task.lead)}</dd>
+          </>
+        )}
+        <dt>Clarify depth</dt>
+        <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
+        {blockers.length > 0 && (
+          <>
+            <dt>Blocked by</dt>
+            <dd>{blockers.join(', ')}</dd>
+          </>
+        )}
+        {task.attachments.length > 0 && (
+          <>
+            <dt>Attachments</dt>
+            <dd>
+              <ul className={styles.detailList}>
+                {task.attachments.map((a) => (
+                  <li key={`${a.hash}:${a.name}`}>
+                    {a.name}
+                    <span className={styles.detailMeta}>{formatSize(a.size)}</span>
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
         {task.branch !== undefined && (
           <>
             <dt>Branch</dt>

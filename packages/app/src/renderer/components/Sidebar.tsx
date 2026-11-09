@@ -25,6 +25,7 @@ interface SidebarProps {
   settingsProblem?: boolean
   footer?: SidebarFooter
   dispatch: (action: NavigationAction) => void
+  onNewTask: () => void
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
@@ -51,6 +52,7 @@ export function Sidebar({
   settingsProblem = false,
   footer = {},
   dispatch,
+  onNewTask,
 }: SidebarProps) {
   const open = (screen: Screen) => dispatch({ type: 'open', screen })
   const current = (screen: Screen) =>
@@ -65,12 +67,7 @@ export function Sidebar({
           <span className={styles.searchLabel}>Search</span>
           <span className={styles.shortcut}>⌘K</span>
         </button>
-        <button
-          type="button"
-          className={styles.newTask}
-          aria-label="New Task"
-          onClick={() => open({ kind: 'new-task' })}
-        >
+        <button type="button" className={styles.newTask} aria-label="New Task" onClick={onNewTask}>
           <PlusIcon />
         </button>
       </div>

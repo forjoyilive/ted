@@ -1,0 +1,64 @@
+.button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.button:disabled {
+  opacity: 0.5;
+}
+
+.regular {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: var(--text-14);
+}
+
+.small {
+  padding: 4px 10px;
+  border-radius: var(--radius-control);
+  font-size: var(--text-13);
+  font-weight: var(--weight-regular);
+}
+
+.primary {
+  background: var(--accent-default);
+  color: var(--text-on-accent);
+}
+
+.secondary {
+  border-color: var(--border-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.quiet {
+  background: none;
+  color: var(--text-secondary);
+}
+
+.quiet:hover:not(:disabled) {
+  background: var(--surface-selected);
+}
+
+.shortcut {
+  color: var(--text-on-accent-muted);
+  font-family: inherit;
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}

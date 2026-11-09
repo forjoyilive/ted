@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
+import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { ensureClone } from './factories.ts'
 import { startIdleTimer } from './idle.ts'
@@ -48,6 +49,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     tokens: runTokens,
     ...(idle && { idle }),
   })
+  const attachments = createAttachments(paths.attachments)
   const banners = createBanners({ store })
   const workflows = createWorkflows({
     store,
@@ -69,7 +71,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     banners,
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
-    leadAgent: () => agents.defaultLead(),
+    defaultLead: () => agents.defaultLead(),
+    attachmentFile: (attachment) => attachments.file(attachment),
   })
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
@@ -81,6 +84,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     agents,
     runTokens,
     tasks,
+    attachments,
     banners,
     workflows,
     reposDir: paths.repos,

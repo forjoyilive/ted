@@ -6,7 +6,6 @@ export type Screen =
   | { kind: 'factory'; factoryId: string; view: FactoryView }
   | { kind: 'settings' }
   | { kind: 'search' }
-  | { kind: 'new-task' }
   | { kind: 'add-factory' }
 
 export interface Navigation {

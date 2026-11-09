@@ -4,22 +4,27 @@ import { createStorePromise, queryDb } from '@livestore/livestore'
 import {
   type AgentKind,
   type Appearance,
+  type Attachment,
   type Banner,
   type BannerAction,
   type BannerSeverity,
   bannerOrder,
+  type ClarifyDepth,
   type Comment,
   type ConversationEntry,
   type DaemonEvent,
+  type Effort,
   type Factory,
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type Priority,
   type Run,
   type RunState,
   type StageEntry,
   type StageId,
   type Task,
+  type TaskLead,
 } from '@ted/protocol'
 import {
   banners,
@@ -31,6 +36,8 @@ import {
   runs,
   schema,
   stageEntries,
+  taskAttachments,
+  taskBlockers,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -50,6 +57,19 @@ export interface StoredFactory extends Factory {
 
 export interface StoredTask extends Task {
   worktree?: string
+  startRequested: boolean
+}
+
+export interface NewTask {
+  title: string
+  factoryId?: string
+  description?: string
+  priority?: Priority
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+  startRequested?: boolean
+  blockedBy?: string[]
+  attachments?: Attachment[]
 }
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
@@ -64,7 +84,7 @@ export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
-  createTask(input: { title: string; factoryId?: string }): Promise<Task>
+  createTask(input: NewTask): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   startTask(input: {
@@ -129,10 +149,38 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const leadRunId = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
 
-  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
+  const blockersOf = (taskId: string) =>
+    store
+      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+      .map((row) => row.blockerId)
+
+  const attachmentsOf = (taskId: string): Attachment[] =>
+    store
+      .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
+  const toTask = ({
+    branch,
+    worktree,
+    leadAgent,
+    leadModel,
+    leadEffort,
+    ...row
+  }: typeof tasks.Type): StoredTask => {
     const lead = leadRunId(row.id)
     return {
       ...row,
+      priority: row.priority as Priority,
+      clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(leadAgent !== null && {
+        lead: {
+          agent: leadAgent as AgentKind,
+          ...(leadModel !== null && { model: leadModel }),
+          ...(leadEffort !== null && { effort: leadEffort as Effort }),
+        },
+      }),
+      blockedBy: blockersOf(row.id),
+      attachments: attachmentsOf(row.id),
       stage: row.stage as StageId,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
@@ -141,7 +189,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     }
   }
 
-  const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
+  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
   const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
     ...row,
@@ -232,18 +280,44 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
-    async createTask({ title, factoryId = placeholderFactory.id }) {
+    async createTask({
+      title,
+      factoryId = placeholderFactory.id,
+      description = '',
+      priority = 'none',
+      clarifyDepth = 'auto',
+      lead,
+      startRequested = false,
+      blockedBy = [],
+      attachments = [],
+    }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
-      const row = {
-        id: randomUUID(),
-        factoryId,
-        number,
-        title,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.taskCreated(row))
-      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
+      const id = randomUUID()
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskCreatedV2({
+          id,
+          factoryId,
+          number,
+          title,
+          description,
+          priority,
+          clarifyDepth,
+          leadAgent: lead?.agent ?? null,
+          leadModel: lead?.model ?? null,
+          leadEffort: lead?.effort ?? null,
+          startRequested,
+          createdAt: at,
+        }),
+        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...attachments.map((attachment) =>
+          events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+        ),
+      )
+      const row = taskRow(id)
+      if (!row) throw new Error(`no Task ${id}`)
+      const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
       return task
     },
