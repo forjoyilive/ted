@@ -12,8 +12,22 @@ const githubRepo = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const safeSegment = /^[A-Za-z0-9_.-]+$/
 const cloning = new Map<string, number>()
 
+const removing = new Map<string, Promise<void>>()
+
 export function isCloning(clone: string): boolean {
   return cloning.has(clone)
+}
+
+export async function removeClone(clone: string, stillUnused: () => boolean): Promise<boolean> {
+  if (cloning.has(clone) || removing.has(clone) || !stillUnused()) return false
+  const removal = rm(clone, { recursive: true, force: true })
+  removing.set(clone, removal)
+  try {
+    await removal
+  } finally {
+    removing.delete(clone)
+  }
+  return true
 }
 
 export async function addFactory(
@@ -32,6 +46,7 @@ export async function addFactory(
     input.localFolder === undefined ? undefined : await checkLocalFolder(input.localFolder)
 
   const clone = path.join(reposDir, ...repo.split('/'))
+  for (let removal = removing.get(clone); removal; removal = removing.get(clone)) await removal
   cloning.set(clone, (cloning.get(clone) ?? 0) + 1)
   let factory: StoredFactory
   try {

@@ -61,6 +61,8 @@ describe('pruning raw Run output', () => {
     const result = await pruneRunOutput({ runsDir, isLive: () => false, now, maxBytes: 1000 })
 
     expect(result.trimmed).toEqual([id])
+    const stopped = new Date(now.getTime() - day).getTime()
+    expect((await stat(path.join(runsDir, id, 'host.log'))).mtimeMs).toBe(stopped)
     const kept = await readFile(path.join(runsDir, id, 'host.log'), 'utf8')
     expect(kept.length).toBeLessThanOrEqual(1000)
     expect(kept.endsWith(lines.at(-1) as string)).toBe(true)

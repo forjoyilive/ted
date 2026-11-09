@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath, rm, rmdir } from 'node:fs/promises'
+import { lstat, readdir, realpath, rmdir } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type RemoveClonesResult,
@@ -11,7 +11,7 @@ import {
 import { displayPath } from './backups.ts'
 import type { Data } from './data.ts'
 import type { DiskWatch } from './disk.ts'
-import { isCloning } from './factories.ts'
+import { isCloning, removeClone } from './factories.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface Storage {
@@ -55,11 +55,16 @@ export function createStorage(options: {
     return found
   }
 
-  async function unusedClones(): Promise<{ repo: string; dir: string }[]> {
+  function usedRepos(): Set<string> {
     const used = new Set(store.listFactories().map((f) => f.repo))
     for (const task of store.listTasks()) {
       for (const repo of task.repos) if (!repo.removed) used.add(repo.repo)
     }
+    return used
+  }
+
+  async function unusedClones(): Promise<{ repo: string; dir: string }[]> {
+    const used = usedRepos()
     return (await clones()).filter(({ repo, dir }) => !used.has(repo) && !isCloning(dir))
   }
 
@@ -133,7 +138,7 @@ export function createStorage(options: {
         const real = await realpath(dir).catch(() => undefined)
         if (real !== path.join(root, owner, name)) continue
         const size = await diskUsage(dir)
-        await rm(dir, { recursive: true, force: true })
+        if (!(await removeClone(dir, () => !usedRepos().has(repo)))) continue
         await rmdir(path.dirname(dir)).catch(() => undefined)
         removed.push(repo)
         bytes += size

@@ -1,4 +1,4 @@
-import { lstat, open, readdir, rename, rm, stat } from 'node:fs/promises'
+import { lstat, open, readdir, rename, rm, stat, utimes } from 'node:fs/promises'
 import path from 'node:path'
 import { isLockHeld } from './lock.ts'
 import { runFiles } from './runs/host-files.ts'
@@ -45,6 +45,7 @@ export async function pruneRunOutput(options: PruneOptions): Promise<PruneResult
         result.removed.push(runId)
       } else if (log?.isFile() && log.size > maxBytes) {
         await keepTail(files.log, log.size, maxBytes)
+        await utimes(files.log, log.atime, log.mtime)
         result.trimmed.push(runId)
       }
     } catch (error) {

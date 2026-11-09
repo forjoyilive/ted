@@ -358,8 +358,10 @@ export function createTasks(options: {
     applying.add(taskId)
     try {
       const lead = task.lead
-      if (lead.agent !== run.agent) await freshLead(task, run)
-      else {
+      if (lead.agent !== run.agent) {
+        if (store.newWorkHold() !== undefined) return
+        await freshLead(task, run)
+      } else {
         await restartLead(run, {
           ...(lead.model !== undefined && { model: lead.model }),
           ...(lead.effort !== undefined && { effort: lead.effort }),
@@ -1010,7 +1012,16 @@ export function createTasks(options: {
     },
 
     slots,
-    wake: () => void pump(),
+    wake() {
+      void pump()
+      for (const task of store.listTasks()) {
+        if (task.runs.length > 0) {
+          applyLead(task.id).catch((error: unknown) =>
+            console.error(`couldn’t apply ${task.displayId}’s Task Lead:`, error),
+          )
+        }
+      }
+    },
 
     subscribe(listener) {
       listeners.add(listener)

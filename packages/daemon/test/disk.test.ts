@@ -13,6 +13,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   tokenFor,
   waitUntil,
 } from './helpers.ts'
@@ -44,6 +45,7 @@ async function start() {
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     disk: {
       freeBytes: async () => free,
       checkEveryMs: 20,
@@ -148,6 +150,39 @@ describe('watching free disk space', () => {
       async () => (await getTask(client, task.id)).leadRunId,
       'the held Task to start once space returns',
     )
+  })
+
+  test('a Task Lead’s agent change waits for the hold to lift before starting a new Run', async () => {
+    const client = await start()
+    const created = await client.ok<Task>('POST', '/tasks', {
+      title: JSON.stringify({ steps: [{ endTurn: true }] }),
+      factory: 'NB',
+    })
+    await client.ok<Task>('POST', `/tasks/${created.id}/start`)
+    const first = await waitUntil(async () => {
+      const task = await getTask(client, created.id)
+      return task.leadRunId !== undefined && task.runs[0]?.state === 'idle' ? task : undefined
+    }, 'the Task Lead to go idle')
+
+    free = 1e9
+    await bannersBecome(client, [
+      {
+        problem: 'disk-full',
+        severity: 'stops-work',
+        text: 'Disk full · new work held · 1.0 GB free',
+        action: openStorage,
+      },
+    ])
+    await client.ok<Task>('PUT', `/tasks/${created.id}/lead`, { agent: 'codex' })
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect((await getTask(client, created.id)).leadRunId).toBe(first.leadRunId)
+
+    free = 50e9
+    const moved = await waitUntil(async () => {
+      const task = await getTask(client, created.id)
+      return task.leadRunId !== first.leadRunId ? task : undefined
+    }, 'the new Task Lead once space returns')
+    expect(moved.runs[0]?.agent).toBe('codex')
   })
 
   test('a disk that is already full when TED starts holds queued work from the first moment', async () => {
