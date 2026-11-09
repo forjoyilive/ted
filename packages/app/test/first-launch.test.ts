@@ -119,6 +119,32 @@ const continueButton = (window: Page) => window.getByRole('button', { name: 'Con
 const continueHelp = 'Continue needs Git and at least one agent ready.'
 
 describe('first launch', () => {
+  test.each([true, false])(
+    'closing unfinished setup with the checkbox %s leaves Start at login untouched',
+    async (checked) => {
+      const window = await launchApp()
+      await setUp(window).waitFor()
+      await startAtLogin(window).setChecked(checked)
+      expect(await settings()).toMatchObject({ firstLaunchDone: false, startAtLogin: true })
+      expect(await loginLines()).toEqual([])
+
+      await closeApp(app)
+      app = undefined
+      expect(await loginLines()).toEqual([])
+
+      const again = await launchApp()
+      await setUp(again).waitFor()
+      expect(await startAtLogin(again).isChecked()).toBe(true)
+      expect(await settings()).toMatchObject({ firstLaunchDone: false, startAtLogin: true })
+      expect(await loginLines()).toEqual([])
+
+      await again.getByRole('button', { name: 'Skip for now' }).click()
+      await sidebar(again).waitFor()
+      await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+      await expect.poll(loginLines).toEqual(['on'])
+    },
+  )
+
   test('shows every check ready; Skip for now lets the human in, once per machine', async () => {
     await setStub('codex', {})
     const window = await launchApp({ codex: true })
