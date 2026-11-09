@@ -1,5 +1,6 @@
-import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type { Banner, Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
 import { useCallback, useEffect, useState } from 'react'
+import { nextReturn } from './banners.ts'
 import { ted } from './ted.ts'
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
@@ -70,4 +71,33 @@ export function useSettings(): MachineSettings | undefined {
   }, [])
 
   return settings
+}
+
+export function useBanners(): Banner[] {
+  const [banners, setBanners] = useState<Banner[]>([])
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'banner-raised' || event.type === 'banner-updated') {
+        setBanners((current) => mergeById(current, [event.banner]))
+      } else if (event.type === 'banner-cleared') {
+        setBanners((current) => current.filter((b) => b.id !== event.id))
+      }
+    })
+    void ted.listBanners().then((loaded) => setBanners((current) => mergeById(loaded, current)))
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    const at = nextReturn(banners)
+    if (at === undefined) return
+    const timer = setTimeout(
+      () => setTick((n) => n + 1),
+      Math.min(at - Date.now() + 50, 2 ** 31 - 1),
+    )
+    return () => clearTimeout(timer)
+  }, [banners])
+
+  return banners
 }

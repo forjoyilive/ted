@@ -1,3 +1,4 @@
+import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
@@ -67,6 +68,18 @@ export class DaemonClient {
 
   updateSettings(changes: Partial<MachineSettings>): Promise<MachineSettings> {
     return this.#request('PATCH', '/settings', changes)
+  }
+
+  listBanners(): Promise<Banner[]> {
+    return this.#request('GET', '/banners')
+  }
+
+  dismissBanner(id: string): Promise<Banner> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/dismiss`)
+  }
+
+  actOnBanner(id: string): Promise<void> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
   }
 
   addFactory(input: AddFactoryRequest): Promise<Factory> {
