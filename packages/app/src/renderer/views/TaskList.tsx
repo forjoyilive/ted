@@ -107,7 +107,7 @@ function ending(task: Task): string {
   return `Archived from ${stageName(ended.stage)}`
 }
 
-function usePopover(open: boolean, close: () => void) {
+export function usePopover(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
