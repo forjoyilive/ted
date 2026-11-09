@@ -550,7 +550,10 @@ describe('TED app', () => {
       .getByRole('region', { name: 'Blocking findings' })
       .getByText(/The Check “Tests”/)
       .waitFor()
-    await thread.getByText('Checks passed at Validate').waitFor({ timeout: 40_000 })
+    await thread
+      .getByText(/^(Checks passed at Validate|Validate passed)$/)
+      .first()
+      .waitFor({ timeout: 40_000 })
 
     await row.getByRole('button', { name: '✗ Tests' }).click()
     const dialog = window.getByRole('dialog', { name: 'Tests output' })
@@ -559,6 +562,68 @@ describe('TED app', () => {
     await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
     await window.getByRole('button', { name: 'Close' }).click()
     await dialog.waitFor({ state: 'detached' })
+  }, 90_000)
+
+  test('the Review sign-off card starts with the confirmation row, Review notes included', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.gitignore': 'stub-*\nn\nbrief.md\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        '',
+      ].join('\n'),
+    })
+    const brief = [
+      '## Goal',
+      'Export works.',
+      '## Decisions so far',
+      'None.',
+      '## Current state',
+      'Done.',
+      '## Open questions',
+      'None.',
+      '## Next step',
+      'Merge.',
+    ].join('\n\n')
+    const script = [
+      'n=$(cat n 2>/dev/null || echo 0); n=$((n+1)); echo $n > n;',
+      'case $n in',
+      '2) echo x > work.txt; ted outcome advance;;',
+      '3) ted outcome advance --review pass --review-notes 2 --visual pass;;',
+      `4) printf '%s' '${brief}' > brief.md; ted brief write --file brief.md; ted outcome advance;;`,
+      '[5-9]) :;;',
+      '*) ted outcome advance;;',
+      'esac',
+    ].join(' ')
+    const run = { run: ['sh', '-c', script] }
+    const steps = JSON.stringify({ steps: [{ everyMessage: [run, { endTurn: true }] }, run] })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await ted('task', 'start', 'NB-1')
+
+    const passed = thread.getByRole('listitem').filter({ hasText: 'Validate passed' })
+    await passed.waitFor({ timeout: 40_000 })
+    await passed.getByRole('listitem').filter({ hasText: 'Review · 2 notes' }).waitFor()
+    const card = thread.getByRole('region', { name: 'Sign-off' })
+    await card.waitFor({ timeout: 40_000 })
+    const row = card.getByRole('list', { name: 'Checks' })
+    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
+    await row.getByRole('listitem').filter({ hasText: '✓Review · 2 notes' }).waitFor()
+    await row
+      .getByRole('listitem')
+      .filter({ hasText: /^✓Visual$/ })
+      .waitFor()
   }, 90_000)
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {

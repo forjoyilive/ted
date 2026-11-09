@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  AgentKind,
   AgentStageId,
   AnswerRequest,
   Attachment,
@@ -11,6 +12,7 @@ import type {
   Comment,
   CommentAnswer,
   DaemonEvent,
+  Effort,
   FactoryBoard,
   InboxItem,
   LinearIssue,
@@ -33,6 +35,7 @@ import type {
   TaskRepo,
   TaskSource,
   ThreadEvent,
+  ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
@@ -49,6 +52,8 @@ import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type {
+  LoopCheck,
+  LoopVerdict,
   NewTask,
   RecordedSetup,
   RunFlags,
@@ -61,6 +66,7 @@ import type { WorkflowSettings } from '../workflow/check.ts'
 import { boardStages, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import {
   backStageMessage,
+  loopCheckInstructions,
   nextStageMessage,
   stageTitle,
   taskLeadPrompt,
@@ -103,7 +109,7 @@ import {
   roundAnswerSummary,
   roundAnswers,
 } from './rounds.ts'
-import { createSubAgents } from './sub-agents.ts'
+import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import {
   type CommandResult,
@@ -622,7 +628,7 @@ export function createTasks(options: {
           checkRun.id,
         ),
       )
-      if (outcome.request) {
+      if (outcome.request || outcome.pending) {
         await deliver(
           current,
           `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. ${outcome.message}\n\n${findings}`,
@@ -699,6 +705,7 @@ export function createTasks(options: {
       if (task.lead) return task.lead
       return leadFrom((await resolveWorkflow(factoryOf(task), { fetch: false })).workflow.settings)
     },
+    reviewerFor: (task) => reviewerFor(task),
     async envFor(task, repo) {
       const recorded = store.recordedSetup(task.id, repo.name)?.env
       if (recorded) return recorded
@@ -715,6 +722,28 @@ export function createTasks(options: {
     pump: () => void pump(),
     inBackground: (what, work) => inBackground(what, work),
   })
+
+  async function reviewerFor(task: StoredTask): Promise<ReviewerChoice> {
+    const { settings } = (await resolveWorkflow(factoryOf(task), { fetch: false })).workflow
+    const lead = task.lead ?? leadFrom(settings)
+    const setting = settings.reviewer
+    const tuned = {
+      ...(setting?.model !== undefined && { model: setting.model }),
+      ...(setting?.effort !== undefined && { effort: setting.effort as Effort }),
+    }
+    if (setting?.agent !== undefined) {
+      const agent = setting.agent === 'same' ? lead.agent : (setting.agent as AgentKind)
+      await health.ready(agent).catch(() => false)
+      return { lead: { agent, ...tuned } }
+    }
+    const other: AgentKind = lead.agent === 'claude' ? 'codex' : 'claude'
+    const canRun = async (kind: AgentKind) =>
+      agents.installed(kind) &&
+      store.agentPauses()[kind] === undefined &&
+      (await health.ready(kind))
+    const agent = (await canRun(other)) ? other : (await canRun(lead.agent)) ? lead.agent : other
+    return { lead: { agent, ...tuned }, ...(agent !== other && { unavailable: other }) }
+  }
 
   const sameChoice = (lead: TaskLead, run: Run) =>
     lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
@@ -1441,16 +1470,7 @@ export function createTasks(options: {
       .find((c) => c.gate && c.stage === task.stage && c.answer === undefined)
   }
 
-  async function sendBack(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-    from: AgentStageId,
-    request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
-    checkRunId?: string,
-  ): Promise<OutcomeResult> {
-    const { workflow } = resolution
-    const to = request.to
-    const findings = request.findings.trim()
+  function checkBack(workflow: ResolvedWorkflow, from: AgentStageId, to: AgentStageId): void {
     if (!workflow.stages.includes(to)) {
       throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
     }
@@ -1460,11 +1480,38 @@ export function createTasks(options: {
         `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
       )
     }
+  }
+
+  async function sendBack(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    from: AgentStageId,
+    request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
+    checkRunId?: string,
+  ): Promise<OutcomeResult & { pending?: boolean }> {
+    const { workflow } = resolution
+    const to = request.to
+    const findings = request.findings.trim()
+    checkBack(workflow, from, to)
     const counted = lastChangesRequested(task) === ''
     const limit = workflow.settings.stages[from]?.max_back
     const count = store.sendBackCount(task.id, from)
     if (counted && limit !== undefined && count >= limit) {
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
+      if (from === 'validate') {
+        const request = askAboutLoop(task, workflow, {
+          to,
+          findings,
+          title: `Validate has sent this Task back ${times}, its limit`,
+          intro: `Validate has sent this Task back to ${stageTitle(to)} ${times}, its limit (max_back: ${limit}), and wants to send it back again. These are each round’s blocking Findings.`,
+          ...(checkRunId !== undefined && { checkRunId }),
+        })
+        return {
+          task: publicTask(task.id),
+          message: `Validate has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+          request,
+        }
+      }
       const request = store.postComment({
         taskId: task.id,
         kind: 'question',
@@ -1473,10 +1520,36 @@ export function createTasks(options: {
         body: `${stageTitle(from)} has sent this Task back ${times}, its limit (max_back: ${limit}). Its Findings this time:\n\n${findings}`,
         choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
       })
+      store.askAboutSendBack({
+        commentId: request.id,
+        taskId: task.id,
+        from,
+        to,
+        findings,
+        loop: false,
+        ...(checkRunId !== undefined && { checkRunId }),
+      })
       return {
         task: publicTask(task.id),
         message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
         request,
+      }
+    }
+    const loopAt = from === 'validate' ? workflow.settings.stages.validate?.loop_check : undefined
+    if (counted && typeof loopAt === 'number' && count + 1 === loopAt) {
+      const started = await startLoopCheck(task, {
+        to,
+        findings,
+        round: count + 1,
+        ...(limit !== undefined && { limit }),
+        ...(checkRunId !== undefined && { checkRunId }),
+      })
+      if (started) {
+        return {
+          task: publicTask(task.id),
+          message: `This is Validate’s send-back number ${count + 1}, so TED started a loop check to see whether the rounds are converging. The Task stays in Validate until it answers; TED sends you the result.`,
+          pending: true,
+        }
       }
     }
     store.recordSendBack({
@@ -1492,6 +1565,277 @@ export function createTasks(options: {
     if (from === 'review') store.resetSendBacks(task.id, 'validate')
     const moved = await move(task, resolution, to, backStageMessage(workflow, to, from, findings))
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
+  }
+
+  function countedValidateSendBacks(taskId: string) {
+    const count = store.sendBackCount(taskId, 'validate')
+    if (count === 0) return []
+    return store
+      .listSendBacks(taskId)
+      .filter((b) => b.from === 'validate' && b.counted)
+      .slice(-count)
+  }
+
+  function roundsText(rounds: readonly string[]): string {
+    return rounds.map((findings, i) => `## Round ${i + 1}\n\n${findings.trim()}`).join('\n\n')
+  }
+
+  function askAboutLoop(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+    input: {
+      to: AgentStageId
+      findings: string
+      title: string
+      intro: string
+      checkRunId?: string
+    },
+  ): Comment {
+    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
+    const request = store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: input.title,
+      body: [
+        input.intro,
+        ...rounds.map((findings, i) => `Round ${i + 1}:\n${findings.trim()}`),
+      ].join('\n\n'),
+      choices: loopChoices(workflow),
+    })
+    store.askAboutSendBack({
+      commentId: request.id,
+      taskId: task.id,
+      from: 'validate',
+      to: input.to,
+      findings: input.findings,
+      loop: true,
+      ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
+    })
+    return request
+  }
+
+  async function roundCommits(task: StoredTask): Promise<string[]> {
+    const worktree = task.repos.find((r) => !r.removed)?.worktree
+    if (worktree === undefined) return []
+    const commits = await Promise.all(
+      countedValidateSendBacks(task.id).map((b) =>
+        git.commitAt(worktree, b.at).catch(() => undefined),
+      ),
+    )
+    const head = await git.revParse(worktree, 'HEAD').catch(() => undefined)
+    return [...commits, head].map((c, i) => `- Round ${i + 1}: ${c ?? 'unknown'}`)
+  }
+
+  async function startLoopCheck(
+    task: StoredTask,
+    input: {
+      to: AgentStageId
+      findings: string
+      round: number
+      limit?: number
+      checkRunId?: string
+    },
+  ): Promise<boolean> {
+    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
+    const prompt = [
+      await loopCheckInstructions(),
+      roundsText(rounds),
+      `# Commits\n\n${(await roundCommits(task)).join('\n')}`,
+      `# The Task: ${task.displayId}\n\n${task.title}`,
+    ].join('\n\n')
+    const runId = subAgents.requestForTed(task, {
+      name: 'Loop check · Validate',
+      prompt,
+      choice: await reviewerFor(task),
+      purpose: 'loop-check',
+    })
+    if (runId === undefined) return false
+    const check = store.startLoopCheck({
+      runId,
+      taskId: task.id,
+      to: input.to,
+      findings: input.findings,
+      round: input.round,
+      ...(input.limit !== undefined && { limit: input.limit }),
+      ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
+    })
+    inBackground(`run ${task.displayId}’s loop check`, () => awaitLoopCheck(check))
+    return true
+  }
+
+  function pendingLoopCheck(taskId: string): LoopCheck | undefined {
+    return store.loopChecks(taskId).find((c) => c.verdict === undefined)
+  }
+
+  async function awaitLoopCheck(check: LoopCheck): Promise<void> {
+    const result = await subAgents.result(check.runId)
+    if (closed) return
+    const said = result.message?.trim() ?? ''
+    const finished = result.error === undefined && result.state !== 'stopped'
+    const verdict: LoopVerdict = finished ? (verdictIn(said) ?? 'failed') : 'failed'
+    const reason =
+      verdict !== 'failed'
+        ? reasonIn(said)
+        : finished
+          ? 'the loop check gave no verdict'
+          : 'the loop check didn’t finish'
+    const run = store.getRun(check.runId)
+    if (run && run.state !== 'finished') await runs.stop(run.id).catch(() => undefined)
+    const resolution = await resolveWorkflow(factoryOf(find(check.taskId)), { fetch: false })
+    const { workflow } = resolution
+    store.finishLoopCheck(check.runId, verdict, reason)
+    const task = find(check.taskId)
+    if (task.stage !== 'validate' || task.archived) return
+    if (verdict === 'converging') {
+      store.recordSendBack({
+        taskId: task.id,
+        from: 'validate',
+        to: check.to,
+        findings: check.findings,
+        counted: true,
+        round: check.round,
+        ...(check.limit !== undefined && { limit: check.limit }),
+        ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
+      })
+      await move(
+        task,
+        resolution,
+        check.to,
+        [
+          backStageMessage(workflow, check.to, 'validate', check.findings),
+          `# Loop check\n\nTED checked Validate’s ${check.round} rounds of Findings and the changes between them. Verdict: converging. ${reason}`,
+        ].join('\n\n'),
+      )
+      return
+    }
+    const looping = verdict === 'looping'
+    const request = askAboutLoop(task, workflow, {
+      to: check.to,
+      findings: check.findings,
+      title: looping
+        ? 'Validate and Work are going round in circles'
+        : `Validate has sent this Task back ${check.round} times`,
+      intro: looping
+        ? `TED’s loop check read Validate’s ${check.round} rounds of Findings and the changes between them, and found they’re looping: ${reason}`
+        : `TED couldn’t tell whether Validate’s ${check.round} rounds are converging (${reason}), so it’s asking you.`,
+      ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
+    })
+    await deliver(
+      task,
+      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
+    )
+  }
+
+  function judge(
+    task: StoredTask,
+    outcome: 'passed' | 'sent-back',
+    judged: ValidateJudgments | undefined,
+  ): void {
+    const since = visitStart(task)
+    const checkRun = store
+      .listCheckRuns(task.id)
+      .filter((r) => r.trigger === 'validate' && r.startedAt >= since)
+      .at(-1)
+    const reviewer = store
+      .reviewers(task.id)
+      .filter((r) => r.purpose === 'review' && r.at >= since)
+      .at(-1)
+    const review =
+      judged?.review ??
+      (reviewer !== undefined && outcome === 'passed' ? { passed: true } : undefined)
+    store.judgeValidate({
+      taskId: task.id,
+      outcome,
+      ...(checkRun !== undefined && { checkRunId: checkRun.id }),
+      ...(review !== undefined && { review }),
+      ...(judged?.visual !== undefined && { visual: judged.visual }),
+      ...(reviewer !== undefined && {
+        reviewer: {
+          agent: reviewer.agent,
+          ...(reviewer.unavailable !== undefined && { unavailable: reviewer.unavailable }),
+        },
+      }),
+    })
+  }
+
+  function openSendBackAsk(task: Task): Comment | undefined {
+    const asks = new Set(store.sendBackAsks(task.id).map((a) => a.commentId))
+    return store
+      .listComments(task.id)
+      .find((c) => asks.has(c.id) && c.answer === undefined && c.stage === task.stage)
+  }
+
+  async function answerLoopAsk(
+    task: StoredTask,
+    comment: Comment,
+    choice: string,
+    text: string,
+    at: string,
+  ): Promise<Comment | undefined> {
+    const ask = store.sendBackAsk(comment.id)
+    if (!ask?.loop) return undefined
+    const current = find(task.id)
+    if (current.stage !== 'validate') return undefined
+    const resolution = await resolveWorkflow(factoryOf(current))
+    const { workflow } = resolution
+    const next = workflow.next('validate') as AgentStageId | 'done'
+    const choices = loopChoices(workflow)
+    if (!choices.includes(choice)) return undefined
+    if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
+    if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
+    const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
+    const answered = answerRequest(task, comment, {
+      kind: 'answered',
+      at,
+      choice,
+      ...(text !== '' && { text }),
+    })
+    if (choice === tryAgainChoice) {
+      const limit = workflow.settings.stages.validate?.max_back
+      store.recordSendBack({
+        taskId: task.id,
+        from: 'validate',
+        to: ask.to,
+        findings: ask.findings,
+        counted: true,
+        round: 1,
+        ...(limit !== undefined && { limit }),
+        ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
+      })
+      await move(
+        current,
+        resolution,
+        ask.to,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+      )
+    } else if (choice === backToDesignChoice) {
+      store.recordSendBack({
+        taskId: task.id,
+        from: 'validate',
+        to: 'design',
+        findings: ask.findings,
+        counted: false,
+      })
+      await move(
+        current,
+        resolution,
+        'design',
+        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+      )
+    } else {
+      pullRequestWork(task.id, 'again')
+      const open = `# Open Findings\n\nThe human chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
+      await move(
+        current,
+        resolution,
+        next,
+        next === 'done'
+          ? undefined
+          : `The human moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
+      )
+    }
+    return answered
   }
 
   function live(ref: string): StoredTask {
@@ -2108,6 +2452,10 @@ export function createTasks(options: {
     }
   }
 
+  for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
+    inBackground('wait for a loop check', () => awaitLoopCheck(check))
+  }
+
   const stopPumping = store.subscribe((event) => {
     if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
       const taskId = event.run.taskId
@@ -2549,6 +2897,10 @@ export function createTasks(options: {
           return answered
         }
         const choice = request.choice
+        if (choice !== undefined) {
+          const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
+          if (answered) return answered
+        }
         if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
           const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
           const run = liveLead(find(task.id))
@@ -2596,6 +2948,24 @@ export function createTasks(options: {
           `TED is running ${task.displayId}’s Checks; wait for their results before reporting an outcome`,
         )
       }
+      if (outcome.outcome !== 'ask') {
+        if (outcome.judged !== undefined && task.stage !== 'validate') {
+          throw new RequestError(400, 'only Validate reports the review and visual results')
+        }
+        if (pendingLoopCheck(task.id)) {
+          throw new RequestError(
+            409,
+            'TED is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
+          )
+        }
+        const asked = openSendBackAsk(task)
+        if (asked) {
+          throw new RequestError(
+            409,
+            `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+          )
+        }
+      }
       return holding(task, async () => {
         const current = find(task.id)
         const stage = current.stage as AgentStageId
@@ -2615,7 +2985,13 @@ export function createTasks(options: {
         }
         const resolution = await resolveWorkflow(factoryOf(current))
         const { workflow } = resolution
-        if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        if (outcome.outcome === 'back') {
+          if (stage === 'validate') {
+            checkBack(workflow, stage, outcome.to)
+            judge(current, 'sent-back', outcome.judged)
+          }
+          return sendBack(current, resolution, stage, outcome)
+        }
         const waiting = stage === 'clarify' ? openRound(current) : undefined
         if (waiting) {
           throw new RequestError(
@@ -2651,7 +3027,10 @@ export function createTasks(options: {
           outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
-          if (stage === 'validate') pullRequestWork(task.id, 'again')
+          if (stage === 'validate') {
+            judge(current, 'passed', outcome.judged)
+            pullRequestWork(task.id, 'again')
+          }
           const moved = await move(
             current,
             resolution,
@@ -2672,6 +3051,7 @@ export function createTasks(options: {
             `write the Task brief with \`ted brief write\` before passing the ${name}`,
           )
         }
+        if (stage === 'validate') judge(current, 'passed', outcome.judged)
         const request = store.postComment({
           taskId: task.id,
           kind: stage === 'design' ? 'review' : 'signoff',
@@ -2815,6 +3195,35 @@ function isIdleQuestion(comment: Comment): boolean {
   )
 }
 const useDefaultChoice = 'Use the default model'
+const tryAgainChoice = 'Try again'
+const backToDesignChoice = 'Back to Design'
+
+function loopChoices(workflow: ResolvedWorkflow): string[] {
+  const next = workflow.next('validate')
+  const design =
+    workflow.stages.includes('design') &&
+    workflow.order.indexOf('design') < workflow.order.indexOf('validate')
+  return [
+    tryAgainChoice,
+    ...(design ? [backToDesignChoice] : []),
+    `Move to ${stageTitle(next)} anyway`,
+  ]
+}
+
+function verdictIn(text: string): LoopVerdict | undefined {
+  const found = [...text.matchAll(/verdict:\s*\**\s*(converging|looping)/gi)].at(-1)?.[1]
+  return found === undefined ? undefined : (found.toLowerCase() as LoopVerdict)
+}
+
+function reasonIn(text: string): string {
+  const reason = text
+    .split('\n')
+    .filter((line) => !/verdict:/i.test(line))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return oneLine(reason === '' ? 'no reason given' : reason, 300)
+}
 
 function latest(a: string, b: string): string {
   return a > b ? a : b

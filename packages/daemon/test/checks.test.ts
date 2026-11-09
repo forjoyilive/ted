@@ -357,7 +357,7 @@ describe('Checks over the send-back limit and across restarts', () => {
     const question = await waitUntil(
       async () => {
         const comments = await client.ok<
-          { kind: string; title?: string; author: { kind: string } }[]
+          { id: string; kind: string; title?: string; author: { kind: string } }[]
         >('GET', `/tasks/${task.id}/comments`)
         return comments.find((c) => c.kind === 'question')
       },
@@ -366,7 +366,8 @@ describe('Checks over the send-back limit and across restarts', () => {
     )
     expect(question).toMatchObject({
       author: { kind: 'ted' },
-      title: 'Validate wants to send this Task back to Work again',
+      title: 'Validate has sent this Task back 1 time, its limit',
+      choices: ['Try again', 'Move to Done anyway'],
     })
     expect(await sendBacks(client, task)).toHaveLength(1)
     const messages = await waitUntil(async () => {
@@ -374,6 +375,18 @@ describe('Checks over the send-back limit and across restarts', () => {
       return all.some((m) => m.includes('# A Check failed')) ? all : undefined
     }, 'the note that TED asked the human')
     expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
+    await waitUntil(async () => {
+      const id = (await getTask(client, task.id))?.leadRunId
+      if (!id) return undefined
+      return assistantTexts((await client.getRun(id)).conversation).some((t) =>
+        t.includes('TED asked the human whether to keep sending NB-1 back'),
+      )
+    }, 'the Task Lead’s advance to be refused')
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Move to Done anyway',
+    })
     await waitUntil(
       async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
       'the Task Lead to finish',

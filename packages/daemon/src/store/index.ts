@@ -84,13 +84,16 @@ import {
   factoryRepos,
   heldRuns,
   localFolders,
+  loopChecks,
   machineSettings,
   machineSettingValues,
   pullRequests,
+  reviewers,
   runInterrupts,
   runMessages,
   runs,
   schema,
+  sendBackAsks,
   sendBackResets,
   sendBacks,
   stageEntries,
@@ -241,6 +244,43 @@ export interface SubAgentRequest {
   effort?: Effort
   prompt: string
   ownWorktree: boolean
+  at: string
+}
+
+export type ReviewerPurpose = 'review' | 'loop-check'
+
+export interface Reviewer {
+  runId: string
+  taskId: string
+  stage: StageId
+  purpose: ReviewerPurpose
+  agent: AgentKind
+  unavailable?: AgentKind
+  at: string
+}
+
+export type LoopVerdict = 'converging' | 'looping' | 'failed'
+
+export interface LoopCheck {
+  runId: string
+  taskId: string
+  to: AgentStageId
+  findings: string
+  checkRunId?: string
+  round: number
+  limit?: number
+  verdict?: LoopVerdict
+  at: string
+}
+
+export interface SendBackAsk {
+  commentId: string
+  taskId: string
+  from: AgentStageId
+  to: AgentStageId
+  findings: string
+  checkRunId?: string
+  loop: boolean
   at: string
 }
 
@@ -433,6 +473,23 @@ export interface TedStore {
   requestSubAgent(request: Omit<SubAgentRequest, 'at'>): SubAgentRequest
   subAgentRequests(taskId?: string): SubAgentRequest[]
   dropSubAgentRequest(id: string): void
+  chooseReviewer(reviewer: Omit<Reviewer, 'at'>): Reviewer
+  reviewerOf(runId: string): Reviewer | undefined
+  reviewers(taskId: string): Reviewer[]
+  judgeValidate(input: {
+    taskId: string
+    outcome: 'passed' | 'sent-back'
+    checkRunId?: string
+    review?: { passed: boolean; notes?: number }
+    visual?: { passed: boolean; notes?: number }
+    reviewer?: { agent: AgentKind; unavailable?: AgentKind }
+  }): void
+  startLoopCheck(check: Omit<LoopCheck, 'at' | 'verdict'>): LoopCheck
+  finishLoopCheck(runId: string, verdict: LoopVerdict, reason: string): void
+  loopChecks(taskId?: string): LoopCheck[]
+  askAboutSendBack(ask: Omit<SendBackAsk, 'at'>): SendBackAsk
+  sendBackAsk(commentId: string): SendBackAsk | undefined
+  sendBackAsks(taskId: string): SendBackAsk[]
   setOnSubAgents(runId: string, on: boolean): void
   onSubAgents(runId: string): boolean
   recordRunOutput(runId: string, output: RunOutput): void
@@ -580,6 +637,40 @@ export async function openStore({
 
   const runName = (run: typeof runs.Type) =>
     run.name ?? (run.taskId !== null && run.parentRunId === null ? 'Task Lead' : 'Run')
+
+  const toReviewer = ({ unavailable, ...row }: typeof reviewers.Type): Reviewer => ({
+    ...row,
+    stage: row.stage as StageId,
+    purpose: row.purpose as ReviewerPurpose,
+    agent: row.agent as AgentKind,
+    ...(unavailable !== null && { unavailable: unavailable as AgentKind }),
+  })
+
+  const toLoopCheck = ({
+    toStage,
+    checkRunId,
+    limit,
+    verdict,
+    ...row
+  }: typeof loopChecks.Type): LoopCheck => ({
+    ...row,
+    to: toStage as AgentStageId,
+    ...(checkRunId !== null && { checkRunId }),
+    ...(limit !== null && { limit }),
+    ...(verdict !== null && { verdict: verdict as LoopVerdict }),
+  })
+
+  const toSendBackAsk = ({
+    fromStage,
+    toStage,
+    checkRunId,
+    ...row
+  }: typeof sendBackAsks.Type): SendBackAsk => ({
+    ...row,
+    from: fromStage as AgentStageId,
+    to: toStage as AgentStageId,
+    ...(checkRunId !== null && { checkRunId }),
+  })
 
   const toSubAgentRequest = ({
     model,
@@ -1939,6 +2030,88 @@ export async function openStore({
       commit(events.subAgentRequestDropped({ id, at: new Date().toISOString() }))
       updatedTask(row.taskId)
     },
+    chooseReviewer({ unavailable, ...reviewer }) {
+      const at = new Date().toISOString()
+      commit(events.reviewerChosen({ ...reviewer, unavailable: unavailable ?? null, at }))
+      return { ...reviewer, ...(unavailable !== undefined && { unavailable }), at }
+    },
+    reviewerOf: (runId) => {
+      const row = store.query(queryDb(reviewers.where({ runId }))).at(0)
+      return row && toReviewer(row)
+    },
+    reviewers: (taskId) =>
+      store.query(queryDb(reviewers.where({ taskId }).orderBy('at', 'asc'))).map(toReviewer),
+    judgeValidate({ taskId, outcome, checkRunId, review, visual, reviewer }) {
+      const judged = (j: { passed: boolean; notes?: number } | undefined) =>
+        j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
+      commit(
+        events.validateJudged({
+          id: randomUUID(),
+          taskId,
+          outcome,
+          checkRunId: checkRunId ?? null,
+          review: judged(review),
+          visual: judged(visual),
+          reviewer:
+            reviewer === undefined
+              ? null
+              : { agent: reviewer.agent, unavailable: reviewer.unavailable ?? null },
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    startLoopCheck({ checkRunId, limit, ...check }) {
+      const at = new Date().toISOString()
+      commit(
+        events.loopCheckStarted({
+          ...check,
+          checkRunId: checkRunId ?? null,
+          limit: limit ?? null,
+          at,
+        }),
+      )
+      updatedTask(check.taskId)
+      return {
+        ...check,
+        ...(checkRunId !== undefined && { checkRunId }),
+        ...(limit !== undefined && { limit }),
+        at,
+      }
+    },
+    finishLoopCheck(runId, verdict, reason) {
+      const row = store.query(queryDb(loopChecks.where({ runId }))).at(0)
+      if (!row || row.verdict !== null) return
+      commit(
+        events.loopCheckFinished({
+          runId,
+          taskId: row.taskId,
+          verdict,
+          reason,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(row.taskId)
+    },
+    loopChecks: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? loopChecks : loopChecks.where({ taskId })).orderBy('at', 'asc'),
+          ),
+        )
+        .map(toLoopCheck),
+    askAboutSendBack({ checkRunId, ...ask }) {
+      const at = new Date().toISOString()
+      commit(events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }))
+      return { ...ask, ...(checkRunId !== undefined && { checkRunId }), at }
+    },
+    sendBackAsk: (commentId) => {
+      const row = store.query(queryDb(sendBackAsks.where({ commentId }))).at(0)
+      return row && toSendBackAsk(row)
+    },
+    sendBackAsks: (taskId) =>
+      store.query(queryDb(sendBackAsks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBackAsk),
     setOnSubAgents(runId, on) {
       if (waitingOnSubAgents.has(runId) === on) return
       if (on) waitingOnSubAgents.add(runId)

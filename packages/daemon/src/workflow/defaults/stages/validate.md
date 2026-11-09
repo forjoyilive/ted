@@ -11,18 +11,18 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 ## Steps
 
 1. Run the project’s tests, and its end-to-end tests where they exist, beyond what the Checks cover.
-2. Have the reviewer review the diff with no Work context: start a sub-agent with `ted run start`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings.
+2. Have the reviewer review the diff with no Work context: start it with `ted run start --reviewer --prompt-file <file>`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings with `ted run wait`. TED picks the reviewer’s agent, model and effort.
 3. Check the change against the Task’s description and the Design brief. Look for missing cases, broken behaviour and leftover debugging code.
 4. For UI changes, take screenshots of each changed screen, judge them against what was wanted, and list their paths in your note as evidence.
 5. Sort every Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
 
 ## Done when
 
-There are no blocking Findings and the note is posted. Then report the outcome; the notes go into the Review brief.
+There are no blocking Findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the human’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
 
 ## Send back when
 
-There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`.
+There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. From the third send-back TED checks whether the rounds are converging and may ask the human instead; it tells you what happens.
 
 ## Ask the human when
 
