@@ -250,7 +250,7 @@ describe('sub-agents', () => {
       const current = await client.ok<RunSlots>('GET', '/slots')
       return current.queue.length === 2 ? current : undefined
     }, 'both to queue')
-    expect(slots.queue.map((q) => [q.place, q.kind, q.displayId])).toEqual([
+    expect(slots.queue.map((q) => [q.place, q.kind, q.kind === 'automation' ? q.name : q.displayId])).toEqual([
       [1, 'sub-agent', 'NB-1'],
       [2, 'task', 'NB-2'],
     ])

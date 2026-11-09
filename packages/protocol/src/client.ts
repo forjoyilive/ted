@@ -9,6 +9,17 @@ import {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+import type {
+  AnswerAutomationRequest,
+  Automation,
+  AutomationDetail,
+  AutomationRequest,
+  AutomationRun,
+  AutomationTemplate,
+  CreateAutomationRequest,
+  EditAutomationRequest,
+  SchedulePreview,
+} from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
@@ -23,6 +34,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { AutomationSchedule } from './schedule.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -133,6 +145,74 @@ export class DaemonClient {
       proof !== undefined &&
       equalHex(proof, daemonProof(this.#appKey, nonce, this.#info.port))
     )
+  }
+
+  listAutomations(factory?: string): Promise<Automation[]> {
+    return this.#request('GET', `/automations${factoryQuery(factory)}`)
+  }
+
+  getAutomation(ref: string, factory?: string): Promise<AutomationDetail> {
+    return this.#request('GET', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  automationTemplates(): Promise<AutomationTemplate[]> {
+    return this.#request('GET', '/automations/templates')
+  }
+
+  automationRequests(): Promise<AutomationRequest[]> {
+    return this.#request('GET', '/automations/requests')
+  }
+
+  previewSchedule(schedule: AutomationSchedule, timeZone?: string): Promise<SchedulePreview> {
+    return this.#request('POST', '/automations/schedule-preview', {
+      schedule,
+      ...(timeZone !== undefined && { timeZone }),
+    })
+  }
+
+  createAutomation(input: CreateAutomationRequest): Promise<Automation> {
+    return this.#request('POST', '/automations', input)
+  }
+
+  editAutomation(ref: string, input: EditAutomationRequest, factory?: string): Promise<Automation> {
+    return this.#request(
+      'PATCH',
+      `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`,
+      input,
+    )
+  }
+
+  setAutomationOn(ref: string, on: boolean, factory?: string): Promise<Automation> {
+    const action = on ? 'enable' : 'disable'
+    return this.#request(
+      'POST',
+      `/automations/${encodeURIComponent(ref)}/${action}${factoryQuery(factory)}`,
+      {},
+    )
+  }
+
+  runAutomation(ref: string, factory?: string): Promise<AutomationRun> {
+    return this.#request(
+      'POST',
+      `/automations/${encodeURIComponent(ref)}/run${factoryQuery(factory)}`,
+      {},
+    )
+  }
+
+  retryAutomationRun(runId: string): Promise<AutomationRun> {
+    return this.#request('POST', `/automation-runs/${encodeURIComponent(runId)}/retry`, {})
+  }
+
+  deleteAutomation(ref: string, factory?: string): Promise<{ deleted: boolean }> {
+    return this.#request('DELETE', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  postAutomationComment(input: { body: string; choices?: string[] }): Promise<AutomationRequest> {
+    return this.#request('POST', '/automation-runs/comments', input)
+  }
+
+  answerAutomationRequest(id: string, answer: AnswerAutomationRequest): Promise<AutomationRequest> {
+    return this.#request('POST', `/automation-requests/${encodeURIComponent(id)}/answer`, answer)
   }
 
   listTasks(): Promise<Task[]> {
@@ -786,4 +866,8 @@ function dispatch(
     if (data !== '') onEvent(JSON.parse(data) as DaemonEvent)
   }
   return rest
+}
+
+function factoryQuery(factory: string | undefined): string {
+  return factory === undefined ? '' : `?factory=${encodeURIComponent(factory)}`
 }

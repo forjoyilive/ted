@@ -33,6 +33,7 @@ import type {
   RoundInput,
   Run,
   RunSlots,
+  SlotHolder,
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
@@ -144,7 +145,13 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  type QueueEntry,
+  type QueueSource,
+  queueOrder,
+  type SlotUse,
+  startsNow,
+} from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -227,6 +234,7 @@ export interface Tasks {
   waitForSubAgent(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
   sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
+  addQueueSource(source: QueueSource): () => void
   close(): Promise<void>
 }
 
@@ -313,6 +321,7 @@ export function createTasks(options: {
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
     })
+  const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -371,17 +380,26 @@ export function createTasks(options: {
     for (const { task, slots } of holders) {
       byFactory[task.factoryId] = (byFactory[task.factoryId] ?? 0) + slots
     }
+    const others = sources.flatMap((source) => source.holders())
+    for (const { factoryId, runs } of others) {
+      byFactory[factoryId] = (byFactory[factoryId] ?? 0) + runs
+    }
     const capsNow: Record<string, number | undefined> = {}
-    for (const id of new Set([...factoryIds, ...holders.map((h) => h.task.factoryId)])) {
+    for (const id of new Set([
+      ...factoryIds,
+      ...holders.map((h) => h.task.factoryId),
+      ...others.map((h) => h.factoryId),
+    ])) {
       capsNow[id] = await capOf(id)
     }
     const use: SlotUse = {
       limit: store.settings().maxWorkingRuns,
-      working: holders.reduce((sum, h) => sum + h.slots, 0),
+      working:
+        holders.reduce((sum, h) => sum + h.slots, 0) + others.reduce((sum, h) => sum + h.runs, 0),
       byFactory,
       caps: capsNow,
     }
-    return { use, holders, all }
+    return { use, holders, others, all }
   }
 
   const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
@@ -389,6 +407,13 @@ export function createTasks(options: {
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+      ...sources.flatMap((source) =>
+        source
+          .queued()
+          .filter(
+            (q) => source.runnable(q.id) && (q.factoryId === undefined || cloned(q.factoryId)),
+          ),
+      ),
     ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
 
   function subAgentRunnable(id: string): boolean {
@@ -431,12 +456,16 @@ export function createTasks(options: {
     )
     const heldIds = new Set(held.map((h) => h.id))
     const reviveIds = new Set(revives.map((r) => r.id))
+    const sourceOf = new Map(
+      sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
+    )
     for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
       if (reviveIds.has(entry.id)) {
         awaitingRevive.delete(entry.id)
         inBackground('resume a Task Lead session', () => reviveLead(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
+      else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
@@ -469,11 +498,20 @@ export function createTasks(options: {
 
   async function slots(): Promise<RunSlots> {
     const factoryIds = store.listFactories().map((f) => f.id)
-    const { use, holders, all } = await slotUse(factoryIds)
+    const { use, holders, others, all } = await slotUse(factoryIds)
     const byId = new Map(all.map((t) => [t.id, t]))
     const requests = new Map(store.subAgentRequests().map((r) => [r.id, r]))
-    const ordered = queueOrder<QueueEntry>([...subAgents.queued(), ...store.queue()])
-    const queue = ordered.flatMap((entry): RunSlots['queue'] => {
+    const sourceOf = new Map(
+      sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
+    )
+    const ordered = queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...store.queue(),
+      ...sources.flatMap((source) => source.queued()),
+    ])
+    const queue = ordered.flatMap((entry, i): RunSlots['queue'] => {
+      const described = sourceOf.get(entry.id)?.describe(entry.id, i + 1)
+      if (described) return [described]
       const request = requests.get(entry.id)
       const task = byId.get(request?.taskId ?? entry.id)
       if (!task) return []
@@ -507,7 +545,7 @@ export function createTasks(options: {
       limit: use.limit,
       working: use.working,
       queued: queue.length,
-      holders: holders.map(({ task, runs, subAgentRuns, settingUp }) => ({
+      holders: holders.map(({ task, runs, subAgentRuns, settingUp }): SlotHolder => ({
         kind: 'task' as const,
         taskId: task.id,
         displayId: task.displayId,
@@ -516,7 +554,8 @@ export function createTasks(options: {
         runs,
         subAgents: subAgentRuns,
         settingUp,
-      })),
+      }))
+        .concat(others),
       queue,
       factories: factoryIds.flatMap((factoryId) => {
         const cap = use.caps[factoryId]
@@ -4983,6 +5022,11 @@ export function createTasks(options: {
     waitForSubAgent: (runId, caller, timeoutMs) => subAgents.wait(runId, caller, timeoutMs),
     sendSubAgent: (runId, caller, text) => subAgents.send(runId, caller, text),
     stopSubAgent: (runId, caller) => subAgents.stop(runId, caller),
+    addQueueSource(source) {
+      sources.push(source)
+      void pump()
+      return () => void pump()
+    },
 
     async close() {
       closed = true

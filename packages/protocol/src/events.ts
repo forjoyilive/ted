@@ -34,3 +34,5 @@ export type DaemonEvent =
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
   | { type: 'check-try-updated'; checkTry: CheckTry }
+  | { type: 'automation-updated'; automationId: string }
+  | { type: 'automation-deleted'; automationId: string }

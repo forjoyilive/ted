@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
+import { createAutomations } from './automations/automations.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
@@ -58,6 +59,13 @@ export interface DaemonOptions {
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
+  automations?: DaemonAutomationsOptions
+}
+
+export interface DaemonAutomationsOptions {
+  now?: () => number
+  checkEveryMs?: number
+  graceMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -282,7 +290,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
-      wake = () => tasks.wake()
+      const automationOptions = options.automations ?? {}
+      const automations = createAutomations({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        banners,
+        workflows,
+        queue: tasks,
+        ...(idle && { idle }),
+        ...automationOptions,
+      })
+      wake = () => {
+        tasks.wake()
+        automations.check()
+      }
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
       const excludeFromBackups =
@@ -326,6 +350,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         disk,
       })
       return {
+        automations,
         runs,
         conversations,
         tasks,
@@ -339,6 +364,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         factorySettings,
         checkTries,
         async close() {
+          automations.close()
           await checkTries.close()
           stayAwake?.close()
           disk.close()
