@@ -230,6 +230,73 @@ describe('TED app', () => {
       .toBe(true)
   })
 
+  test('files in Comments: an agent’s image and HTML show in the thread; the human drops and pastes files', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await addFactory(origin, 'NB')
+    const shot = path.join(home, 'shot.png')
+    const report = path.join(home, 'report.html')
+    await writeFile(shot, Buffer.from(onePixelPng, 'base64'))
+    await writeFile(report, '<h1>Report</h1><script>document.title = "ran"</script>')
+    const attach = ['ted', 'comment', '--attach', shot, '--attach', report, 'Here is the screen']
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--start',
+      JSON.stringify({ steps: [{ run: attach }, { endTurn: true }] }),
+    )
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await thread.getByRole('img', { name: 'shot.png' }).waitFor()
+    const frame = thread.locator('iframe[title="report.html"]')
+    await frame.waitFor()
+    expect(await frame.getAttribute('sandbox')).toBe('')
+    await frame.contentFrame().getByRole('heading', { name: 'Report' }).waitFor()
+    expect(
+      await frame.evaluate((f: HTMLIFrameElement) => {
+        try {
+          return f.contentDocument?.title ?? 'no access'
+        } catch {
+          return 'no access'
+        }
+      }),
+    ).toBe('no access')
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    const dropped = await window.evaluateHandle((png) => {
+      const data = new DataTransfer()
+      const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0))
+      data.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+      return data
+    }, onePixelPng)
+    await box.dispatchEvent('drop', { dataTransfer: dropped })
+    await thread.getByRole('listitem').filter({ hasText: 'dropped.png' }).waitFor()
+    await box.evaluate((element) => {
+      const data = new DataTransfer()
+      data.items.add(new File(['pasted words'], 'notes.txt', { type: 'text/plain' }))
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+    })
+    await thread.getByRole('listitem').filter({ hasText: 'notes.txt' }).waitFor()
+    await box.fill('Compare with this.')
+    await box.press('ControlOrMeta+Enter')
+
+    await thread.getByRole('img', { name: 'dropped.png' }).waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    const client = await daemonClient()
+    const sent = await waitUntil(async () => {
+      const found = (await client.listComments('NB-1')).find((c) => c.body === 'Compare with this.')
+      return found?.readAt !== undefined ? found : undefined
+    }, 'the Task Lead to read the Comment')
+    expect(sent.attachments?.map((a) => a.name)).toEqual(['dropped.png', 'notes.txt'])
+  })
+
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {
@@ -928,7 +995,7 @@ describe('New Task dialog', () => {
     await dialog(window).getByRole('button', { name: 'Close' }).click()
     await dialog(window).waitFor({ state: 'detached' })
 
-    await window.getByRole('main').getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('main').getByRole('button', { name: 'New Task' }).first().click()
     await dialog(window).waitFor()
   })
 
@@ -2350,10 +2417,9 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Sign-off', exact: true })
     const decisions = card.getByRole('region', { name: 'Decisions so far' })
-    expect(await decisions.getByRole('listitem').allTextContents()).toEqual([
-      'Notes save locally first.',
-      'Warn after 30 days offline.',
-    ])
+    await expect
+      .poll(() => decisions.getByRole('listitem').allTextContents())
+      .toEqual(['Notes save locally first.', 'Warn after 30 days offline.'])
     await card.getByText('Open questions: None.').waitFor()
     await card
       .getByText('Approve moves the Task on. Request changes starts another round.')
@@ -2783,7 +2849,7 @@ describe('Board', () => {
     expect(await board.getByRole('region', { name: 'Work' }).getByText('Gate').count()).toBe(0)
     await board.getByRole('heading', { name: /widgets\s*\/\s*Board/ }).waitFor()
     await board.getByRole('button', { name: 'Filter' }).waitFor()
-    await board.getByRole('button', { name: 'Plan' }).waitFor()
+    await board.getByRole('button', { name: 'Plan' }).first().waitFor()
   })
 
   test('dragging Backlog → Intake starts a Task, Queued → Backlog un-starts it, other drops are refused', async () => {
@@ -3265,5 +3331,80 @@ describe('Factory row menu', () => {
     await api.getByRole('button', { name: 'Undo' }).click()
     await api.getByText('Removed when you save').waitFor({ state: 'detached' })
     await api.getByRole('button', { name: 'More for acme/api' }).waitFor()
+  })
+})
+
+describe('Empty states', () => {
+  test('an empty Inbox offers New Task until a Factory has a Task, then Show answered', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.getByText('Nothing waiting on you', { exact: true }).waitFor()
+
+    await inbox.getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('dialog', { name: 'New Task' }).getByLabel('Close').click()
+
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    await inbox.getByRole('button', { name: 'Show answered' }).click()
+    expect(await inbox.getByRole('switch', { name: 'Answered' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+    await inbox.getByText('Nothing answered in the last 30 days', { exact: true }).waitFor()
+  })
+
+  test('an Inbox filtered to one Factory names it and offers Show all Factories', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+
+    await inbox.getByRole('button', { name: 'notebook 0', exact: true }).click()
+    await inbox.getByText('Nothing waiting in notebook', { exact: true }).waitFor()
+    await inbox.getByRole('button', { name: 'Show all Factories' }).click()
+
+    expect(
+      await inbox.getByRole('button', { name: 'All 0', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    await inbox.getByText('Nothing waiting on you', { exact: true }).waitFor()
+  })
+
+  test('a Board with no Tasks keeps its columns and offers New Task and Plan', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const empty = window.getByRole('region', { name: 'No Tasks yet' })
+    await empty.waitFor()
+    await window.getByRole('region', { name: 'Backlog' }).waitFor()
+
+    await empty.getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('dialog', { name: 'New Task' }).getByLabel('Close').click()
+    await empty.getByRole('button', { name: 'Plan' }).click()
+
+    expect(
+      await sidebar(window)
+        .getByRole('button', { name: 'Plans', exact: true })
+        .getAttribute('aria-current'),
+    ).toBe('page')
+  })
+
+  test('Board filters that match nothing offer Clear filters', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const main = window.getByRole('main')
+    await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+
+    await main.getByRole('button', { name: 'Filter' }).click()
+    await main.getByRole('menuitem', { name: 'Priority' }).hover()
+    await main.getByRole('menuitemcheckbox', { name: /Urgent/ }).click()
+    await window.keyboard.press('Escape')
+    const empty = main.getByRole('region', { name: 'No Tasks match these filters' })
+    await empty.getByRole('button', { name: 'Clear filters' }).click()
+
+    await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+    await empty.waitFor({ state: 'detached' })
   })
 })

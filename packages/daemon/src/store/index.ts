@@ -86,6 +86,7 @@ import {
   banners,
   checkResults,
   checkRuns,
+  commentAttachments,
   comments,
   conversationEntries,
   conversationTabs,
@@ -335,6 +336,7 @@ export interface NewComment {
   choices?: string[]
   round?: Round
   gate?: NonNullable<Comment['gate']>
+  attachments?: readonly Attachment[]
 }
 
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
@@ -509,6 +511,8 @@ export interface TedStore {
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  taskFiles(taskId: string): Attachment[]
+  filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
   answerComment(id: string, answer: CommentAnswer): Comment
   commentsDelivered(ids: readonly string[], runId: string): void
@@ -964,6 +968,11 @@ export async function openStore({
       }
     })
 
+  const commentFiles = (commentId: string): Attachment[] =>
+    store
+      .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
   const attachmentsOf = (taskId: string): Attachment[] =>
     store
       .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
@@ -1300,7 +1309,13 @@ export async function openStore({
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+    ...withFiles(row.id),
   })
+
+  const withFiles = (commentId: string): { attachments?: Attachment[] } => {
+    const files = commentFiles(commentId)
+    return files.length > 0 ? { attachments: files } : {}
+  }
 
   const openPermissionRows = (runId: string, requestId?: string) =>
     store
@@ -1464,7 +1479,17 @@ export async function openStore({
     return comment
   }
   const commentPosted = (
-    { taskId, body, author, kind = 'note', title, choices, round, gate }: NewComment,
+    {
+      taskId,
+      body,
+      author,
+      kind = 'note',
+      title,
+      choices,
+      round,
+      gate,
+      attachments = [],
+    }: NewComment,
     createdAt: string,
   ) => {
     const id = randomUUID()
@@ -1485,7 +1510,18 @@ export async function openStore({
       round === undefined
         ? events.commentPostedV2(fields)
         : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
-    return { id, event }
+    const attached = attachments.map(({ hash, name, size, mediaType }, position) =>
+      events.commentAttachmentAdded({
+        commentId: id,
+        taskId,
+        hash,
+        name,
+        size,
+        mediaType,
+        position,
+      }),
+    )
+    return { id, event, attached }
   }
   const repoAt = (taskId: string, cwd: string) => {
     if (!path.isAbsolute(cwd)) return undefined
@@ -2342,9 +2378,20 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
+    taskFiles: (taskId) => [
+      ...attachmentsOf(taskId),
+      ...store
+        .query(queryDb(commentAttachments.where({ taskId })))
+        .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType })),
+    ],
+    filesInUse: () =>
+      new Set([
+        ...store.query(queryDb(taskAttachments)).map((a) => a.hash),
+        ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
+      ]),
     postComment(input) {
-      const { id, event } = commentPosted(input, new Date().toISOString())
-      commit(event)
+      const { id, event, attached } = commentPosted(input, new Date().toISOString())
+      commit(event, ...attached)
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
       if (comment.kind !== 'note') updatedTask(input.taskId)
@@ -2352,9 +2399,13 @@ export async function openStore({
     },
     supersedeComment(oldId, input) {
       const at = new Date().toISOString()
-      const { id, event } = commentPosted(input, at)
+      const { id, event, attached } = commentPosted(input, at)
       const answer: CommentAnswer = { kind: 'superseded', at, by: id }
-      commit(event, events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }))
+      commit(
+        event,
+        ...attached,
+        events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }),
+      )
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
       emitComment(oldId)

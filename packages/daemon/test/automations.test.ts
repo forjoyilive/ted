@@ -244,6 +244,46 @@ describe('Automations', () => {
     )
   })
 
+  test('an answer given before the asking turn ends still reaches the Run', async () => {
+    const client = await startTed()
+    const turnEnds = path.join(scratch, 'turn-ends')
+    const readsAnswer = path.join(scratch, 'reads-answer')
+    const automation = await create(client, {
+      name: 'Asking',
+      schedule: { kind: 'every', every: 15, unit: 'minutes' },
+      prompt: steps(
+        { everyMessage: [{ say: 'Got it' }, { endTurn: true }] },
+        { run: ['ted', 'comment', '--choice', 'Yes', '--choice', 'No', 'Create NB tasks?'] },
+        { readNextAfter: readsAnswer },
+        { waitFor: turnEnds },
+        { endTurn: true },
+      ),
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    const question = await waitUntil(
+      async () => (await detail(client, automation.id)).requests[0],
+      'the question',
+    )
+    const runId = question.runId ?? ''
+    const run = async () => (await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).run
+    expect((await run()).state).toBe('working')
+    await client.ok('POST', `/automation-requests/${question.id}/answer`, { choice: 'No' })
+    await writeFile(turnEnds, '')
+    await waitUntil(async () => (await run()).state !== 'working', 'the asking turn to end')
+    await writeFile(readsAnswer, '')
+    await waitUntil(
+      async () => (await said(client, runId)).includes('Got it'),
+      'the answer to reach the Run',
+      20_000,
+    )
+    await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'the answered Run to finish',
+    )
+  })
+
   test('missed firings are made up once when TED starts again', async () => {
     let client = await startTed()
     const automation = await create(client, {

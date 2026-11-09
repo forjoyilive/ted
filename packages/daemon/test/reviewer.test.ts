@@ -372,6 +372,7 @@ describe('the Validate loop check', () => {
       const client = await start(
         `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3 }\n`,
       )
+      await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ turnStartDelayMs: 500 }))
       const task = await loopTask(client, 'converging')
       await waitUntil(
         async () =>
