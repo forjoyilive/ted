@@ -11,6 +11,9 @@ import type {
   CheckOutput,
   CheckRepoRequest,
   CheckRun,
+  CheckTry,
+  CheckTryOutput,
+  CheckTryRequest,
   ClarifyDepth,
   CommandLineStatus,
   Comment,
@@ -174,6 +177,12 @@ export const ted = {
     window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
   saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
     window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  tryCheck: (factoryId: string, request: CheckTryRequest) =>
+    window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
+  stopCheckTry: (factoryId: string, name: string) =>
+    window.ted.request('stopCheckTry', factoryId, name) as Promise<void>,
+  checkTryOutput: (factoryId: string, name: string) =>
+    window.ted.request('checkTryOutput', factoryId, name) as Promise<CheckTryOutput>,
   renameFactory: (factoryId: string, name: string) =>
     window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
   setRepoLocalFolder: (factoryId: string, repoName: string, folder: string) =>

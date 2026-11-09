@@ -499,6 +499,24 @@ export async function moveBranchTo(worktree: string, commit: string): Promise<vo
   )
 }
 
+export async function addScratchWorktree(
+  repo: string,
+  worktree: string,
+  from: string,
+): Promise<void> {
+  await git(repo, 'worktree', 'prune')
+  await git(repo, 'worktree', 'add', '--detach', worktree, from)
+}
+
+export async function resetScratchWorktree(worktree: string, to: string): Promise<void> {
+  await git(worktree, ...noHooks, 'reset', '--hard', '--quiet', to)
+  await git(worktree, ...noHooks, 'clean', '-fdq')
+}
+
+export async function commitDate(repo: string, ref: string): Promise<string> {
+  return git(repo, 'log', '-1', '--format=%cI', '--end-of-options', ref)
+}
+
 export async function commitAndPush(
   clone: string,
   options: {
@@ -538,7 +556,7 @@ export async function commitAndPush(
     await run(['read-tree', `${options.base}^{tree}`])
     for (const [file, text] of Object.entries(options.files)) {
       if (text === null) {
-        await run(['update-index', '--force-remove', '--', file])
+        await run(['update-index', '--index-info'], `0 ${'0'.repeat(40)}\t${file}\n`)
         continue
       }
       const blob = await run(['hash-object', '-w', '--no-filters', '--stdin'], text)

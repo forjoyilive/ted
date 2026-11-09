@@ -15,7 +15,10 @@ export interface WorkflowResolution {
 
 export interface Workflows {
   resolve(factory: StoredFactory, options?: { fetch?: boolean }): Promise<WorkflowResolution>
+  inherited(): Promise<CheckedLayer[]>
 }
+
+export const invalidSettingsProblem = 'workflow-invalid'
 
 export function createWorkflows(options: {
   store: TedStore
@@ -74,7 +77,42 @@ export function createWorkflows(options: {
     }
   }
 
+  function reportInvalid(factory: StoredFactory, use: LayerUse): void {
+    const ref = { problem: invalidSettingsProblem, factoryId: factory.id }
+    const error = use.problems.find((p) => p.severity === 'error')
+    if ((use.status !== 'last-valid' && use.status !== 'skipped') || !error) {
+      banners.clear(ref)
+      return
+    }
+    const using =
+      use.status === 'last-valid'
+        ? `using the last valid version (${use.version ?? ''})`
+        : 'using the inherited settings'
+    banners.raise({
+      ...ref,
+      severity: 'warning',
+      text: `${error.file} has an error on line ${error.line} · ${using}`,
+      action: {
+        label: 'Open Factory settings',
+        opens: { kind: 'factory-settings', factoryId: factory.id },
+      },
+    })
+  }
+
+  async function libraryLayer() {
+    const libraryFiles = await readLayerDirectory(libraryDir)
+    return choose(
+      'library',
+      'library',
+      libraryFiles && { files: libraryFiles, version: contentVersion(libraryFiles) },
+    )
+  }
+
   return {
+    async inherited() {
+      const library = await libraryLayer()
+      return [await readDefaultLayer(), ...(library.layer ? [library.layer] : [])]
+    },
     async resolve(factory, { fetch = true } = {}) {
       const clone = clonePath(reposDir, factory)
       if (fetch) {
@@ -83,12 +121,7 @@ export function createWorkflows(options: {
         })
       }
       const defaults = await readDefaultLayer()
-      const libraryFiles = await readLayerDirectory(libraryDir)
-      const library = choose(
-        'library',
-        'library',
-        libraryFiles && { files: libraryFiles, version: contentVersion(libraryFiles) },
-      )
+      const library = await libraryLayer()
       const factoryLayer = choose(
         'factory',
         `factory:${factory.id}`,
@@ -104,6 +137,7 @@ export function createWorkflows(options: {
         ...chosen.flatMap(({ layer }) => (layer ? [layer] : [])),
       ])
       reportChecks(factory, workflow)
+      reportInvalid(factory, factoryLayer.use)
       return {
         workflow,
         layers: [{ layer: 'ted', status: 'valid', problems: [] }, ...chosen.map(({ use }) => use)],

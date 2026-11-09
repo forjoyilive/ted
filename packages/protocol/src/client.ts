@@ -31,6 +31,9 @@ import type {
   RepoCheck,
 } from './factory.ts'
 import type {
+  CheckTry,
+  CheckTryOutput,
+  CheckTryRequest,
   FactorySettingsChanges,
   FactorySettingsView,
   RenameFactoryRequest,
@@ -470,6 +473,23 @@ export class DaemonClient {
       'POST',
       `/factories/${encodeURIComponent(factoryId)}/settings/save`,
       request,
+    )
+  }
+
+  tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
+  }
+
+  stopCheckTry(factoryId: string, name: string): Promise<void> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try/stop`, {
+      name,
+    })
+  }
+
+  checkTryOutput(factoryId: string, name: string): Promise<CheckTryOutput> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/checks/try/output?name=${encodeURIComponent(name)}`,
     )
   }
 

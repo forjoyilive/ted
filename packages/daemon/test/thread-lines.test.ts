@@ -84,4 +84,31 @@ describe('event lines', () => {
       { tone: 'edit', text: 'Task Lead set to Claude' },
     ])
   })
+
+  test('entering a Stage while the Factory’s settings are broken says which version TED used', () => {
+    const broken = {
+      layer: 'factory',
+      status: 'last-valid',
+      version: 'a1b2c3d',
+      problems: [
+        { severity: 'error', file: '.ted/workflow.yaml', line: 12, column: 3, message: 'x' },
+      ],
+    }
+    expect(
+      lines([
+        entry('v2.TaskStageEntered', 1, {
+          stage: 'work',
+          layers: JSON.stringify([{ layer: 'ted', status: 'valid', problems: [] }, broken]),
+        }),
+        entry('v2.TaskStageEntered', 2, {
+          stage: 'validate',
+          layers: JSON.stringify([{ layer: 'factory', status: 'valid', problems: [] }]),
+        }),
+      ]),
+    ).toEqual([
+      { tone: 'edit', text: 'Task moved to Work' },
+      { tone: 'quiet', text: 'Used last valid TED settings: .ted/workflow.yaml has an error' },
+      { tone: 'edit', text: 'Task moved to Validate' },
+    ])
+  })
 })
