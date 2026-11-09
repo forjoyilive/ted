@@ -190,9 +190,16 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
+    const waitingOn = blockedBy.flatMap((id) => {
+      const blocker = taskRow(id)
+      return blocker && blocker.stage !== 'done'
+        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
+        : []
+    })
     const facts: TaskFacts = {
       stage,
       runs: live.map((r) => r.state as RunState),
+      ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
@@ -378,7 +385,15 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (stage === 'done') {
+        for (const { taskId: waiting } of store.query(
+          queryDb(taskBlockers.where({ blockerId: taskId })),
+        )) {
+          updatedTask(waiting)
+        }
+      }
+      return task
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
