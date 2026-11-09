@@ -6,7 +6,7 @@ TED (“Totally Excellent Development”) is a desktop app for running software 
 
 pnpm workspace on Node 24: `packages/protocol` (paths, `daemon.json`, API types, `DaemonClient`), `packages/daemon`, `packages/cli`, `packages/app` (Electron, React renderer). Node and Electron run the `.ts` files directly. Only the renderer has a build step (Vite), and the preload stays plain `.cjs` because Electron’s sandboxed preload loader doesn’t strip types (ADR 0011).
 
-- `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes), `pnpm test` (Vitest). Run all three locally before merging to `main`; GitHub CI runs only when started by hand (`gh workflow run CI --ref <branch>`), on Ubuntu.
+- `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes), `pnpm test` (Vitest). Run all three locally before merging to `main`; GitHub CI runs on Ubuntu every Monday on `main` and when started by hand (`gh workflow run CI --ref <branch>`). `pnpm release <version>` checks `main` is clean and pushed, runs all three locally and GitHub CI, then bumps the version, tags `v<version>` and pushes; the tag builds a draft release that a human publishes.
 - `pnpm ted <args>` runs the `ted` CLI from source. It starts the daemon if needed.
 - `pnpm app` builds the renderer and opens the app from source. Like `ted`, it reuses a running daemon or starts one.
 - `pnpm ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"` starts a Run in a detached host; `pnpm ted dev run show <run-id>` prints its state and Conversation.

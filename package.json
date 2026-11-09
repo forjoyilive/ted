@@ -14,7 +14,8 @@
     "test": "vitest run",
     "ted": "node packages/cli/src/main.ts",
     "app": "pnpm --filter @ted/app start",
-    "package": "pnpm --filter @ted/app package"
+    "package": "pnpm --filter @ted/app package",
+    "release": "node scripts/release.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",

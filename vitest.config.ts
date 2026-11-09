@@ -29,4 +29,4 @@ export function tedTestConfig(include: string[]) {
   })
 }
 
-export default tedTestConfig(['packages/*/test/**/*.test.ts'])
+export default tedTestConfig(['packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts'])

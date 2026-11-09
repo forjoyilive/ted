@@ -20,7 +20,8 @@
     "packages/*/src",
     "packages/*/test",
     "packages/*/vitest.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "scripts"
   ],
   "exclude": ["packages/app"]
 }
