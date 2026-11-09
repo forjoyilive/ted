@@ -99,6 +99,11 @@ for await (const line of createInterface({ input: process.stdin })) {
     openThread(id, `0199a000-0000-7000-8000-${randomUUID().slice(-12)}`)
   } else if (message.method === 'thread/resume') {
     openThread(id, String(message.params?.threadId))
+  } else if (
+    message.method === 'turn/start' &&
+    JSON.stringify(message.params).includes('reject-turn')
+  ) {
+    send({ id, error: { code: -32600, message: 'turn rejected' } })
   } else if (message.method === 'turn/start') {
     send({ id, result: { turn: { id: 'turn-1', status: 'inProgress', items: [] } } })
     const input = message.params?.input as { type: string; text: string }[]

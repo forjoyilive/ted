@@ -35,7 +35,7 @@ agent.stdin.on('error', () => {})
 const send = (line: string) => {
   if (agent.stdin.writable) agent.stdin.write(`${line}\n`)
 }
-const driver = drive?.({ input: launch.input, send })
+const driver = drive?.({ input: launch.input, send, stop: () => agent.kill('SIGTERM') })
 if (!driver) send(launch.input)
 
 const stdout = createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY })

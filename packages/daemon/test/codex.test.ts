@@ -174,6 +174,20 @@ describe('Codex Runs', () => {
     expect(list).toMatchObject({ code: 0, stdout: 'No Tasks yet.\n' })
   })
 
+  test('a Codex Run whose turn can’t start is stopped and marked finished', async () => {
+    const client = await startWithStubs()
+    const res = await client.call('POST', '/dev/runs', {
+      prompt: 'reject-turn',
+      cwd,
+      agent: 'codex',
+    })
+    const done = await waitUntil(async () => {
+      const r = await client.getRun(res.body.id)
+      return r.run.state === 'finished' ? r : undefined
+    }, 'the Run to finish')
+    expect(done.conversation.some((e) => e.line.includes('turn rejected'))).toBe(true)
+  })
+
   test('an unknown agent kind is refused', async () => {
     const client = await startWithStubs()
     const res = await client.call('POST', '/dev/runs', { prompt: 'x', cwd, agent: 'gemini' })

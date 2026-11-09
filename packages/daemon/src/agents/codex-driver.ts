@@ -22,7 +22,7 @@ const declined: Record<string, unknown> = {
   applyPatchApproval: { decision: { denied: { rejection: 'TED declined this request' } } },
 }
 
-export const drive: DriveAgent = ({ input, send }) => {
+export const drive: DriveAgent = ({ input, send, stop }) => {
   const plan = JSON.parse(input) as CodexPlan
   const waiting = new Map<number, (message: RpcMessage) => void>()
   let nextId = 0
@@ -38,15 +38,16 @@ export const drive: DriveAgent = ({ input, send }) => {
       clientInfo: { name: 'ted', title: 'TED', version: plan.clientVersion },
       capabilities: null,
     })
-    if (init.error !== undefined) return
+    if (init.error !== undefined) return stop()
     send(JSON.stringify({ method: 'initialized' }))
     const opened = await request(plan.thread.method, plan.thread.params)
     const threadId = opened.result?.thread?.id
-    if (typeof threadId !== 'string') return
-    await request('turn/start', {
+    if (opened.error !== undefined || typeof threadId !== 'string') return stop()
+    const turn = await request('turn/start', {
       threadId,
       input: [{ type: 'text', text: plan.prompt, text_elements: [] }],
     })
+    if (turn.error !== undefined) stop()
   })()
 
   return {
