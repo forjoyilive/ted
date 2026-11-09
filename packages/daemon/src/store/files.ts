@@ -57,7 +57,23 @@ function stateIsComplete(file: string): boolean {
   }
 }
 
+// A journal left by a killed writer makes every read-only open fail with
+// “attempt to write a readonly database”; a read-write open rolls it back first.
+async function rollBackInterruptedWrites(directory: string): Promise<void> {
+  const files = await filesIn(directory)
+  for (const file of files) {
+    if (!file.endsWith('.db') || !files.includes(`${file}-journal`)) continue
+    const db = new DatabaseSync(path.join(directory, storeFolder, file))
+    try {
+      db.prepare('SELECT COUNT(*) FROM sqlite_master').get()
+    } finally {
+      db.close()
+    }
+  }
+}
+
 export async function checkStore(directory: string): Promise<StoreCheck> {
+  await rollBackInterruptedWrites(directory)
   const eventlog = await eventlogFile(directory)
   if (!eventlog) return { kind: 'empty' }
   const { names, count } = readOnly(eventlog, (db) => ({
