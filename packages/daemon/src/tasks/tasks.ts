@@ -290,6 +290,7 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
+  const signedOutAt = new Map<string, string>()
   const turnEnding = new Set<string>()
   const readyMidTurn = new Set<string>()
   const advancing = new Set<string>()
@@ -4011,7 +4012,7 @@ export function createTasks(options: {
     )
   }
 
-  async function leadStopped(run: Run): Promise<void> {
+  async function leadStopped(run: Run, signedOut?: string): Promise<void> {
     if (run.taskId === undefined) return
     const silence = silent.get(run.id)
     silent.delete(run.id)
@@ -4021,7 +4022,7 @@ export function createTasks(options: {
       return
     }
     const [checked] = await health.check([run.agent])
-    if (checked?.state === 'ready') {
+    if (checked?.state === 'ready' && signedOut === undefined) {
       const ended = store.getRun(run.id)?.ended
       if (silence !== undefined || (ended !== undefined && ended.how !== 'stopped')) {
         await leadFailed(run.id, silence)
@@ -4031,11 +4032,20 @@ export function createTasks(options: {
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
     if (now.waitsForBlockers || now.stopped) return
+    if (signedOut !== undefined) {
+      const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
+      for (const comment of store.listComments(task.id)) {
+        const at = comment.answer?.at
+        const unread = at !== undefined && at >= signedOut && answerText(comment) !== undefined
+        if (unread && !held.has(comment.id)) store.holdAnswer(comment.id)
+      }
+    }
     store.holdTaskRun({
       taskId: task.id,
       agent: run.agent,
       ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
     })
+    void pump()
   }
 
   async function leadFailed(runId: string, silence?: string): Promise<void> {
@@ -4304,6 +4314,7 @@ export function createTasks(options: {
 
   runs.observe({
     authFailed(run) {
+      if (!signedOutAt.has(run.id)) signedOutAt.set(run.id, new Date().toISOString())
       if (run.state !== 'finished') stoppedMidTurn(run.id)
       health.authFailed(run.agent)
     },
@@ -4324,6 +4335,7 @@ export function createTasks(options: {
       health.planUsage(run.agent, windows)
     },
     settled(run) {
+      if (!interrupted.has(run.id)) signedOutAt.delete(run.id)
       turnEnding.delete(run.id)
       if (!readyMidTurn.delete(run.id) || store.agentPauses()[run.agent] !== undefined) return
       if (!interrupted.delete(run.id)) return
@@ -4344,7 +4356,9 @@ export function createTasks(options: {
       interrupted.delete(run.id)
       turnEnding.delete(run.id)
       readyMidTurn.delete(run.id)
-      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+      const signedOut = signedOutAt.get(run.id)
+      signedOutAt.delete(run.id)
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run, signedOut))
     },
   })
 
