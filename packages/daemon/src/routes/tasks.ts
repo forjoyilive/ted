@@ -22,7 +22,7 @@ import {
 import type { Attachments } from '../attachments.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import type { CreateTaskInput } from '../tasks/tasks.ts'
-import { type Route, readJson } from './route.ts'
+import { type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
 
@@ -107,7 +107,14 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/archive$/,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.archive(ref)],
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readOptionalJson(req)) as Record<string, unknown> | null
+      const close = body?.closePullRequests
+      if (close !== undefined && typeof close !== 'boolean') {
+        throw new HttpError(400, 'closePullRequests must be true or false')
+      }
+      return [200, tasks.archive(ref, { closePullRequests: close === true })]
+    },
   },
   {
     method: 'POST',

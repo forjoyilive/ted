@@ -20,6 +20,7 @@ import {
   type CheckRunOutcome,
   type CheckRunTrigger,
   type CheckState,
+  type CiSignal,
   type ClarifyDepth,
   type Comment,
   type CommentAnswer,
@@ -49,6 +50,7 @@ import {
   type TaskBrief,
   type TaskEnding,
   type TaskLead,
+  type TaskPullRequest,
   type TaskRepo,
   type TaskSource,
   type TrackStage,
@@ -82,6 +84,7 @@ import {
   localFolders,
   machineSettings,
   machineSettingValues,
+  pullRequests,
   runMessages,
   runs,
   schema,
@@ -298,6 +301,19 @@ export interface TedStore {
     name: string,
     teardown?: { command: string; outcome: WorktreeCommandOutcome },
   ): void
+  branchPushed(
+    taskId: string,
+    name: string,
+    push: { commit: string; ci: boolean; ciSignals: CiSignal[] },
+  ): void
+  branchPushFailed(taskId: string, name: string, message: string): void
+  pullRequestOpened(
+    taskId: string,
+    name: string,
+    pullRequest: { number: number; url: string; base: string },
+  ): void
+  pullRequestMarkedReady(taskId: string, name: string): void
+  pullRequestClosed(taskId: string, name: string): void
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
@@ -502,7 +518,39 @@ export async function openStore({
   const taskRuns = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
+  const pullRequestFields = (id: string): Partial<TaskRepo> => {
+    const row = store.query(queryDb(pullRequests.where({ id }))).at(0)
+    if (!row) return {}
+    return {
+      ...(row.pushedCommit !== null &&
+        row.pushedAt !== null && {
+          pushed: {
+            commit: row.pushedCommit,
+            at: row.pushedAt,
+            ci: row.hasCi === true,
+            ciSignals: JSON.parse(row.ciSignals ?? '[]') as CiSignal[],
+          },
+        }),
+      ...(row.pushError !== null &&
+        row.pushErrorAt !== null && {
+          pushFailed: { message: row.pushError, at: row.pushErrorAt },
+        }),
+      ...(row.number !== null &&
+        row.url !== null &&
+        row.base !== null &&
+        row.state !== null && {
+          pullRequest: {
+            number: row.number,
+            url: row.url,
+            base: row.base,
+            state: row.state as TaskPullRequest['state'],
+          },
+        }),
+    }
+  }
+
   const toTaskRepo = (row: typeof taskRepos.Type): TaskRepo => ({
+    ...pullRequestFields(row.id),
     name: row.name,
     repo: row.repo,
     branch: row.branch,
@@ -1409,6 +1457,44 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+      updatedTask(taskId)
+    },
+    branchPushed(taskId, name, { commit: pushed, ci, ciSignals }) {
+      commit(
+        events.taskBranchPushed({
+          taskId,
+          name,
+          commit: pushed,
+          ci,
+          ciSignals,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    branchPushFailed(taskId, name, message) {
+      commit(events.taskBranchPushFailed({ taskId, name, message, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pullRequestOpened(taskId, name, { number, url, base }) {
+      commit(
+        events.pullRequestOpened({
+          taskId,
+          name,
+          number,
+          url,
+          base,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    pullRequestMarkedReady(taskId, name) {
+      commit(events.pullRequestMarkedReady({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pullRequestClosed(taskId, name) {
+      commit(events.pullRequestClosed({ taskId, name, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     setLocalFolder(repo, path) {

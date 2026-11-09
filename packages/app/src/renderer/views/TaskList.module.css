@@ -546,8 +546,18 @@
   transform: translateX(-50%);
 }
 
+.closePullRequests {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+  white-space: nowrap;
+}
+
 .selectionCount {
   margin-right: 4px;
+  white-space: nowrap;
   color: var(--text-secondary);
   font-size: var(--text-13);
 }

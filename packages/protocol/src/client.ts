@@ -29,6 +29,7 @@ import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
@@ -134,8 +135,8 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
   }
 
-  archiveTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`)
+  archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
   }
 
   getSlots(): Promise<RunSlots> {

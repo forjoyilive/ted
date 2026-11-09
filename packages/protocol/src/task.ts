@@ -179,6 +179,31 @@ export interface TaskRepo {
     at: string
     teardown?: { command: string; outcome: WorktreeCommandOutcome }
   }
+  pushed?: TaskPush
+  pushFailed?: { message: string; at: string }
+  pullRequest?: TaskPullRequest
+}
+
+export const ciSignals = ['workflow-files', 'required-checks', 'recent-checks'] as const
+
+export type CiSignal = (typeof ciSignals)[number]
+
+export interface TaskPush {
+  commit: string
+  at: string
+  ci: boolean
+  ciSignals: CiSignal[]
+}
+
+export interface TaskPullRequest {
+  number: number
+  url: string
+  base: string
+  state: 'draft' | 'ready' | 'closed'
+}
+
+export interface ArchiveTaskRequest {
+  closePullRequests?: boolean
 }
 
 export interface CreateTaskRequest {
