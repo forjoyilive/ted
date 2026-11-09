@@ -204,6 +204,72 @@ describe('ted dev run', () => {
   })
 })
 
+function tedWithInput(args: string[], input: string) {
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = execFile(
+      process.execPath,
+      [cliPath, ...args],
+      {
+        env: {
+          ...process.env,
+          TED_HOME: home,
+          TED_IDLE_EXIT_MS: '30000',
+          TED_CLAUDE_BIN: stubClaudePath,
+        },
+        cwd: home,
+      },
+      (error, stdout, stderr) =>
+        resolve({ code: error ? (error.code as number) : 0, stdout, stderr }),
+    )
+    child.stdin?.end(input)
+  })
+}
+
+describe('ted backup', () => {
+  test('list shows the daily backup taken when TED starts', async () => {
+    await ted(['task', 'create', 'Fix login'])
+
+    const listed = await ted(['backup', 'list'])
+
+    expect(listed.stdout).toMatch(/^daily-\d{8} {2}daily {2}\d{1,2} \w{3} \d{4}, \d{2}:\d{2}\n$/)
+  })
+
+  test('restore asks to stop running Runs, saves current data, and restores', async () => {
+    await ted(['task', 'create', 'After the backup'])
+    const daily = (await ted(['backup', 'list'])).stdout.split(' ')[0] ?? ''
+    const prompt = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+    await ted(['dev', 'run', 'start', prompt])
+
+    const declined = await tedWithInput(['backup', 'restore', daily], 'n\n')
+    expect(declined.code).toBe(1)
+    expect(declined.stdout).toBe('Restoring stops 1 Run. Stop it and restore? [y/N] ')
+    expect(declined.stderr).toBe('ted: nothing restored\n')
+    expect((await ted(['task', 'list'])).stdout).toContain('After the backup')
+
+    const accepted = await tedWithInput(['backup', 'restore', daily], 'y\n')
+    expect(accepted.code).toBe(0)
+    const lines = accepted.stdout.split('\n')
+    expect(lines[0]).toBe('Restoring stops 1 Run. Stop it and restore? [y/N] Stopped 1 Run.')
+    expect(lines[1]).toBe(`Restored ${daily}.`)
+    expect(lines[2]).toMatch(
+      /^Your data from before the restore is in backup before-restore-\d{8}-\d{6}\.$/,
+    )
+    expect((await ted(['task', 'list'])).stdout).toBe('No Tasks yet.\n')
+  })
+
+  test('restore --yes doesn’t ask, and an unknown backup fails', async () => {
+    await ted(['task', 'create', 'Fix login'])
+    const daily = (await ted(['backup', 'list'])).stdout.split(' ')[0] ?? ''
+
+    const restored = await ted(['backup', 'restore', daily, '--yes'])
+    expect(restored.stdout.split('\n')[0]).toBe(`Restored ${daily}.`)
+
+    await expect(ted(['backup', 'restore', 'daily-19990101'])).rejects.toMatchObject({
+      stderr: 'ted: no backup daily-19990101\n',
+    })
+  })
+})
+
 describe('ted help', () => {
   test('lists the commands a Task Lead uses', async () => {
     const { stdout } = await ted(['help'])

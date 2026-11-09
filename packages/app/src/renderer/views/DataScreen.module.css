@@ -1,0 +1,146 @@
+.screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 24px;
+  background: var(--surface-app);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 580px;
+  max-width: 100%;
+}
+
+.content p {
+  margin: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-22);
+  font-weight: var(--weight-semibold);
+  line-height: 1.45;
+}
+
+.body {
+  color: var(--text-tertiary);
+  font-size: var(--text-14);
+  line-height: 1.45;
+}
+
+.caption {
+  color: var(--text-muted);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.progressStack {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.track {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--border-subtle);
+}
+
+.fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent-default);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-11-5);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.actions > .row:not(:first-child) {
+  padding-top: 6px;
+}
+
+.later {
+  padding-top: 10px;
+}
+
+.restore {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.loses {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.primary,
+.secondary {
+  padding: 6px 13px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  font-size: var(--text-13-5);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+}
+
+.primary {
+  background: var(--accent-default);
+  color: var(--text-on-accent);
+}
+
+.secondary {
+  border-color: var(--border-strong);
+  background: var(--surface-pane);
+  color: var(--text-primary);
+}
+
+.primary:disabled,
+.secondary:disabled {
+  opacity: 0.6;
+}
+
+.primary:focus-visible,
+.secondary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

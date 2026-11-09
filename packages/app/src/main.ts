@@ -5,7 +5,9 @@ import {
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
+  downloadUrl,
   type MachineSettings,
+  type RestoreBackupRequest,
   tedHome,
 } from '@ted/protocol'
 import {
@@ -49,6 +51,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
+  getDataStatus: (client) => client.getDataStatus(),
+  listBackups: (client) => client.listBackups(),
+  restoreBackup: (client, name) =>
+    client.restoreBackup({ name: String(name) } satisfies RestoreBackupRequest),
+  copyText: async (_, text) => clipboard.writeText(String(text)),
+  downloadTed: () => shell.openExternal(downloadUrl),
+  quit: async () => app.quit(),
   getProfile: (client) => client.getProfile(),
   getDiagnostics: (client) => client.getDiagnostics(),
   readDaemonLog: (client) => client.readDaemonLog(),
@@ -105,26 +114,33 @@ async function choosePicture(): Promise<string | undefined> {
 }
 
 let window: BrowserWindow | undefined
+let client: DaemonClient | undefined
 const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
 const applySettings = ({ appearance }: Pick<MachineSettings, 'appearance'>) => {
   nativeTheme.themeSource = appearance
 }
+const loadSettings = async () => {
+  if (client) applySettings(await client.getSettings())
+}
 const forward = (event: DaemonEvent) => {
   if (event.type === 'settings-changed') applySettings(event.settings)
+  if (event.type === 'data-status' && event.status.state === 'ready') {
+    loadSettings().catch((error: unknown) => console.error('loading settings failed:', error))
+  }
   window?.webContents.send('ted:event', event)
 }
 
 async function start(): Promise<void> {
-  const client = await withDaemon(tedHome(), async (client) => {
+  client = await withDaemon(tedHome(), async (client) => {
     await client.subscribe(forward)
     return client
   })
-  applySettings(await client.getSettings())
+  if ((await client.getDataStatus()).state === 'ready') await loadSettings()
 
   ipcMain.handle('ted:request', (_event, name: string, ...args: unknown[]) => {
     const request = Object.hasOwn(requests, name) ? requests[name] : undefined
     if (!request) throw new Error(`unknown request ${name}`)
-    return request(client, ...args)
+    return request(client as DaemonClient, ...args)
   })
 
   if (hiddenWindow) app.dock?.hide()

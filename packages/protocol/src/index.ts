@@ -18,6 +18,16 @@ export {
   type Subscription,
 } from './client.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export {
+  type Backup,
+  type BackupKind,
+  type BackupsSummary,
+  backupKinds,
+  type DataStatus,
+  downloadUrl,
+  type RestoreBackupRequest,
+  type RestoreBackupResult,
+} from './data.ts'
 export type {
   Diagnostics,
   LogText,

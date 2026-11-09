@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
@@ -188,4 +189,26 @@ export async function commitToOrigin(parent: string, files: Record<string, strin
 export async function refsOf(repo: string): Promise<string> {
   const { stdout } = await execFileAsync('git', ['for-each-ref'], { cwd: repo })
   return stdout
+}
+
+export async function storeDbFiles(dir: string): Promise<string[]> {
+  return (await readdir(dir)).filter((f) => f.endsWith('.db')).sort()
+}
+
+export async function pretendStateSchemaChanged(home: string): Promise<void> {
+  const dir = path.join(home, 'store', 'ted')
+  for (const file of await storeDbFiles(dir)) {
+    if (file.startsWith('state')) {
+      await rename(path.join(dir, file), path.join(dir, `stateold${file.slice(5)}`))
+    }
+  }
+}
+
+export async function editEventlog(home: string, sql: string): Promise<void> {
+  const dir = path.join(home, 'store', 'ted')
+  const file = (await storeDbFiles(dir)).find((f) => f.startsWith('eventlog'))
+  if (!file) throw new Error('no event log')
+  const db = new DatabaseSync(path.join(dir, file))
+  db.exec(sql)
+  db.close()
 }

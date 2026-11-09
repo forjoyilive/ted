@@ -2,6 +2,7 @@ import type {
   Banner,
   Comment,
   DaemonEvent,
+  DataStatus,
   Factory,
   MachineSettings,
   StageEntry,
@@ -80,6 +81,20 @@ export function useSettings(): MachineSettings | undefined {
   }, [])
 
   return settings
+}
+
+export function useDataStatus(): DataStatus | undefined {
+  const [status, setStatus] = useState<DataStatus>()
+
+  useEffect(() => {
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'data-status') setStatus(event.status)
+    })
+    void ted.getDataStatus().then((loaded) => setStatus((current) => current ?? loaded))
+    return unsubscribe
+  }, [])
+
+  return status
 }
 
 export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {

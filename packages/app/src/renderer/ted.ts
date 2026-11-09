@@ -1,14 +1,17 @@
 import type {
   Attachment,
+  BackupsSummary,
   Banner,
   Comment,
   CreateTaskRequest,
   DaemonEvent,
+  DataStatus,
   Diagnostics,
   Factory,
   LogText,
   MachineSettings,
   Profile,
+  RestoreBackupResult,
   StageEntry,
   Task,
   TaskDefaults,
@@ -45,6 +48,13 @@ export const ted = {
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
+  getDataStatus: () => window.ted.request('getDataStatus') as Promise<DataStatus>,
+  listBackups: () => window.ted.request('listBackups') as Promise<BackupsSummary>,
+  restoreBackup: (name: string) =>
+    window.ted.request('restoreBackup', name) as Promise<RestoreBackupResult>,
+  copyText: (text: string) => window.ted.request('copyText', text) as Promise<void>,
+  downloadTed: () => window.ted.request('downloadTed') as Promise<void>,
+  quit: () => window.ted.request('quit') as Promise<void>,
   getProfile: () => window.ted.request('getProfile') as Promise<Profile>,
   chooseProfilePicture: () =>
     window.ted.request('chooseProfilePicture') as Promise<MachineSettings>,

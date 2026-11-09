@@ -3,6 +3,6 @@ import '@fontsource-variable/geist-mono'
 import './styles/tokens.css'
 import './styles/base.css'
 import { createRoot } from 'react-dom/client'
-import { App } from './App.tsx'
+import { Root } from './Root.tsx'
 
-createRoot(document.getElementById('root') as HTMLElement).render(<App />)
+createRoot(document.getElementById('root') as HTMLElement).render(<Root />)

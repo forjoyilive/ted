@@ -26,6 +26,8 @@ const usage = `Usage:
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted backup list                            List backups of TED's data, newest first
+  ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
@@ -50,6 +52,7 @@ function parse() {
         key: { type: 'string' },
         'local-folder': { type: 'string' },
         task: { type: 'string' },
+        yes: { type: 'boolean' },
       },
     })
   } catch {
@@ -119,6 +122,15 @@ try {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
     console.log(`Started ${task.displayId} on branch ${task.branch}`)
+  } else if (group === 'backup' && command === 'list' && rest.length === 0) {
+    const { backups } = await withDaemon(home, (client) => client.listBackups())
+    console.log(
+      backups.length === 0
+        ? 'No backups yet.'
+        : backups.map((b) => `${b.name}  ${b.kind}  ${formatDate(b.takenAt)}`).join('\n'),
+    )
+  } else if (group === 'backup' && command === 'restore' && rest.length === 1) {
+    await restoreBackup(rest[0] ?? '')
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
@@ -173,6 +185,45 @@ try {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   }
+}
+
+async function restoreBackup(name: string): Promise<void> {
+  await withDaemon(home, async (client) => {
+    const { backups, activeRuns } = await client.listBackups()
+    if (!backups.some((b) => b.name === name)) throw new Error(`no backup ${name}`)
+    if (activeRuns > 0 && !options.yes) {
+      const runs = activeRuns === 1 ? '1 Run' : `${activeRuns} Runs`
+      const them = activeRuns === 1 ? 'it' : 'them'
+      process.stdout.write(`Restoring stops ${runs}. Stop ${them} and restore? [y/N] `)
+      if (!/^y(es)?$/i.test((await readLine()).trim())) throw new Error('nothing restored')
+    }
+    const result = await client.restoreBackup({ name, stopRuns: true })
+    if (result.stoppedRuns > 0) {
+      console.log(`Stopped ${result.stoppedRuns === 1 ? '1 Run' : `${result.stoppedRuns} Runs`}.`)
+    }
+    console.log(`Restored ${result.restored}.`)
+    console.log(`Your data from before the restore is in backup ${result.saved}.`)
+  })
+}
+
+async function readLine(): Promise<string> {
+  let text = ''
+  for await (const chunk of process.stdin) {
+    text += chunk
+    const newline = text.indexOf('\n')
+    if (newline >= 0) return text.slice(0, newline)
+  }
+  return text
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 async function problems(): Promise<{ pid: number | undefined; banners: string[]; stops: boolean }> {

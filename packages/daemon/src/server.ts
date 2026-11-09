@@ -15,6 +15,7 @@ import {
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
+  type RestoreBackupRequest,
   type SetActivityRequest,
   type SetLocalFolderRequest,
   type StartDevRunRequest,
@@ -22,7 +23,7 @@ import {
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
-import type { Banners } from './banners.ts'
+import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory, listFactories, setLocalFolder } from './factories.ts'
@@ -30,27 +31,22 @@ import type { IdleTimer } from './idle.ts'
 import { readProfile } from './profile.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunTokens } from './run-token.ts'
-import type { RunManager } from './runs/run-manager.ts'
-import type { TedStore } from './store/index.ts'
-import type { Caller, CreateTaskInput, Tasks } from './tasks/tasks.ts'
-import type { Workflows } from './workflow/workflows.ts'
+import type { Caller, CreateTaskInput } from './tasks/tasks.ts'
 
-export interface ServerOptions {
+export interface BaseOptions {
   version: string
   token: string
-  store: TedStore
+  data: Data
   idle?: IdleTimer
   keepaliveMs: number
-  runs: RunManager
   agents: Agents
   runTokens: RunTokens
-  tasks: Tasks
   attachments: Attachments
-  banners: Banners
-  workflows: Workflows
   reposDir: string
   home: string
 }
+
+export type ServerOptions = BaseOptions & Services
 
 interface RequestContext {
   req: http.IncomingMessage
@@ -59,17 +55,17 @@ interface RequestContext {
   caller: Caller
 }
 
-interface Route {
+interface Route<O = ServerOptions> {
   method: string
   path: RegExp
   runToken?: true
-  handle(context: RequestContext, options: ServerOptions): Promise<[number, unknown] | undefined>
+  handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
 }
 
 const maxBodyBytes = 1024 * 1024
 const maxActivityLength = 200
 
-const routes: Route[] = [
+const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'GET',
     path: /^\/events$/,
@@ -78,6 +74,29 @@ const routes: Route[] = [
       return undefined
     },
   },
+  {
+    method: 'GET',
+    path: /^\/data-status$/,
+    handle: async (_, { data }) => [200, data.status()],
+  },
+  {
+    method: 'GET',
+    path: /^\/backups$/,
+    handle: async (_, { data }) => [200, await data.summary()],
+  },
+  {
+    method: 'POST',
+    path: /^\/backups\/restore$/,
+    async handle({ req }, { data }) {
+      const body = (await readJson(req)) as Partial<RestoreBackupRequest> | null
+      const name = typeof body?.name === 'string' ? body.name : ''
+      const stopRuns = body?.stopRuns === true
+      return [200, await data.restore({ name, stopRuns })]
+    },
+  },
+]
+
+const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/tasks$/,
@@ -284,9 +303,7 @@ const routes: Route[] = [
   },
 ]
 
-export async function listen(
-  options: ServerOptions,
-): Promise<{ server: http.Server; port: number }> {
+export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
     options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
@@ -307,7 +324,7 @@ export async function listen(
 async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  options: ServerOptions,
+  options: BaseOptions,
 ): Promise<void> {
   if (!isLoopbackHost(req.headers.host)) throw new HttpError(403, 'host not allowed')
   if (req.headers.origin !== undefined) throw new HttpError(403, 'browser requests not allowed')
@@ -320,28 +337,48 @@ async function handle(
   const caller = identify(req.headers.authorization, options)
   if (!caller) throw new HttpError(401, 'missing or wrong token')
 
-  for (const route of routes) {
-    const match = req.method === route.method ? route.path.exec(url) : null
-    if (!match) continue
-    if (caller.kind === 'run' && !route.runToken) {
-      throw new HttpError(403, 'Not allowed from inside a Run')
-    }
-    const params = match.slice(1).map(decodeParam)
-    const reply = await route.handle({ req, res, params, caller }, options)
+  const dataRoute = find(dataRoutes, req, url, caller)
+  if (dataRoute) {
+    const reply = await dataRoute.route.handle(context(dataRoute.params), options)
     if (reply) sendJson(res, ...reply)
     return
   }
-  throw new HttpError(404, 'not found')
+  const route = find(routes, req, url, caller)
+  if (!route) throw new HttpError(404, 'not found')
+  const services = await options.data.services()
+  const reply = await route.route.handle(context(route.params), { ...options, ...services })
+  if (reply) sendJson(res, ...reply)
+
+  function context(params: string[]): RequestContext {
+    return { req, res, params, caller: caller as Caller }
+  }
+}
+
+function find<O>(
+  list: Route<O>[],
+  req: http.IncomingMessage,
+  url: string,
+  caller: Caller,
+): { route: Route<O>; params: string[] } | undefined {
+  for (const route of list) {
+    const found = req.method === route.method ? route.path.exec(url) : null
+    if (!found) continue
+    if (caller.kind === 'run' && !route.runToken) {
+      throw new HttpError(403, 'Not allowed from inside a Run')
+    }
+    return { route, params: found.slice(1).map(decodeParam) }
+  }
+  return undefined
 }
 
 function streamEvents(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  { store, idle, keepaliveMs }: ServerOptions,
+  { data, idle, keepaliveMs }: BaseOptions,
 ): void {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
   res.write('event: ready\ndata: {}\n\n')
-  const unsubscribe = store.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  const unsubscribe = data.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
   const release = idle?.hold()
@@ -352,7 +389,7 @@ function streamEvents(
   })
 }
 
-function identify(authorization: string | undefined, options: ServerOptions): Caller | undefined {
+function identify(authorization: string | undefined, options: BaseOptions): Caller | undefined {
   const given = authorization?.replace(/^Bearer /, '') ?? ''
   if (equalSecrets(given, options.token)) return { kind: 'daemon' }
   const runId = options.runTokens.verify(given)

@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { counted } from './progress.ts'
 
 export const factories = State.SQLite.table({
   name: 'factories',
@@ -410,90 +411,96 @@ export const events = {
   }),
 }
 
-const materializers = State.SQLite.materializers(events, {
-  'v1.FactoryAdded': (factory) => factories.insert(factory),
-  'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
-  'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
-  'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
-    taskBlockers
-      .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
-      .onConflict('id', 'ignore'),
-  'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
-    taskAttachments
-      .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
-      .onConflict('id', 'ignore'),
-  'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
-    tasks.update({ stage, branch, worktree }).where({ id: taskId }),
-  'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
-  'v1.CommentPosted': (comment) => comments.insert(comment),
-  'v1.RunStarted': (run) => runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
-  'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
-  'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
-    runs.update({ readOffset: toOffset }).where({ id: runId }),
-    ...entries.map(({ offset, line }) =>
-      conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
-    ),
-  ],
-  'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
-  'v1.RunSessionIdentified': ({ runId, sessionId }) =>
-    runs.update({ sessionId }).where({ id: runId }),
-  'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
-  'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
-  'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
-    tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
-  'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
-    taskRepos
-      .insert({
-        ...row,
-        id: `${taskId}:${name}`,
-        taskId,
-        name,
-        copied: JSON.stringify(copied),
-        skipped: JSON.stringify(skipped),
-        createdAt: at,
-      })
-      .onConflict('id', 'replace'),
-  'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
-    taskRepos
-      .update({
-        setupCommand: command,
-        setupTimeoutMs: timeoutMs,
-        setupEnv: env,
-        setupState: 'running',
-        setupExitCode: null,
-      })
-      .where({ id: `${taskId}:${name}` }),
-  'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
-    taskRepos
-      .update({ setupState: outcome, setupExitCode: exitCode })
-      .where({ id: `${taskId}:${name}` }),
-  'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
-    taskRepos
-      .update({ teardownCommand, teardownOutcome, removedAt: at })
-      .where({ id: `${taskId}:${name}` }),
-    tasks.update({ worktree: null }).where({ id: taskId }),
-  ],
-  'v1.LocalFolderSet': ({ repo, path, at }) =>
-    localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
-  'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
-    workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
-  'v1.AppearanceChanged': ({ appearance }) =>
-    machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
-  'v1.MachineSettingsChanged': ({ changes }) =>
-    Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
-      machineSettingValues
-        .insert({ name, value: JSON.stringify(value) })
-        .onConflict('name', 'replace'),
-    ),
-  'v1.BannerRaised': ({ at, ...banner }) => [
-    banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
-    banners
-      .update({ severity: banner.severity, text: banner.text, action: banner.action })
-      .where({ id: banner.id }),
-  ],
-  'v1.BannerDismissed': ({ id, until }) => banners.update({ dismissedUntil: until }).where({ id }),
-  'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
-})
+const materializers = counted(
+  State.SQLite.materializers(events, {
+    'v1.FactoryAdded': (factory) => factories.insert(factory),
+    'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+    'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+    'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+      taskBlockers
+        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
+        .onConflict('id', 'ignore'),
+    'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
+      taskAttachments
+        .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+        .onConflict('id', 'ignore'),
+    'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
+      tasks.update({ stage, branch, worktree }).where({ id: taskId }),
+    'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
+    'v1.CommentPosted': (comment) => comments.insert(comment),
+    'v1.RunStarted': (run) =>
+      runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
+    'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
+      runs.update({ readOffset: toOffset }).where({ id: runId }),
+      ...entries.map(({ offset, line }) =>
+        conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
+      ),
+    ],
+    'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+    'v1.RunSessionIdentified': ({ runId, sessionId }) =>
+      runs.update({ sessionId }).where({ id: runId }),
+    'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+    'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+    'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
+      tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
+    'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
+      taskRepos
+        .insert({
+          ...row,
+          id: `${taskId}:${name}`,
+          taskId,
+          name,
+          copied: JSON.stringify(copied),
+          skipped: JSON.stringify(skipped),
+          createdAt: at,
+        })
+        .onConflict('id', 'replace'),
+    'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
+      taskRepos
+        .update({
+          setupCommand: command,
+          setupTimeoutMs: timeoutMs,
+          setupEnv: env,
+          setupState: 'running',
+          setupExitCode: null,
+        })
+        .where({ id: `${taskId}:${name}` }),
+    'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
+      taskRepos
+        .update({ setupState: outcome, setupExitCode: exitCode })
+        .where({ id: `${taskId}:${name}` }),
+    'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
+      taskRepos
+        .update({ teardownCommand, teardownOutcome, removedAt: at })
+        .where({ id: `${taskId}:${name}` }),
+      tasks.update({ worktree: null }).where({ id: taskId }),
+    ],
+    'v1.LocalFolderSet': ({ repo, path, at }) =>
+      localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+    'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
+      workflowLayers
+        .insert({ layer, files, version, acceptedAt: at })
+        .onConflict('layer', 'replace'),
+    'v1.AppearanceChanged': ({ appearance }) =>
+      machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
+    'v1.MachineSettingsChanged': ({ changes }) =>
+      Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
+        machineSettingValues
+          .insert({ name, value: JSON.stringify(value) })
+          .onConflict('name', 'replace'),
+      ),
+    'v1.BannerRaised': ({ at, ...banner }) => [
+      banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
+      banners
+        .update({ severity: banner.severity, text: banner.text, action: banner.action })
+        .where({ id: banner.id }),
+    ],
+    'v1.BannerDismissed': ({ id, until }) =>
+      banners.update({ dismissedUntil: until }).where({ id }),
+    'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
+  }),
+)
 
 const state = State.SQLite.makeState({
   tables: {

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { makeAdapter } from '@livestore/adapter-node'
-import { createStorePromise, queryDb } from '@livestore/livestore'
+import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import {
   type AgentKind,
   type AgentStageId,
@@ -33,7 +34,10 @@ import {
   type TrackStage,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { Effect } from 'effect'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
+import { eventCount, eventlogFile, storeId } from './files.ts'
+import { countMaterialized } from './progress.ts'
 import {
   banners,
   comments,
@@ -168,6 +172,7 @@ export interface TedStore {
   clearBanner(id: string): void
   getBanner(id: string): Banner | undefined
   listBanners(): Banner[]
+  exportEventlog(): { fileName: string; data: Uint8Array }
   close(): Promise<void>
 }
 
@@ -177,13 +182,32 @@ function pick(values: Record<string, unknown>, names: string[]): Record<string, 
 
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
-export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
+export interface OpenProgress {
+  done: number
+  total: number
+}
+
+export async function openStore({
+  directory,
+  onProgress,
+}: {
+  directory: string
+  onProgress?: (progress: OpenProgress) => void
+}): Promise<TedStore> {
+  const total = onProgress ? await eventCount(directory) : 0
+  let done = 0
+  countMaterialized(onProgress && (() => onProgress({ done: Math.min(++done, total), total })))
   const store = await createStorePromise({
     schema,
-    storeId: 'ted',
+    storeId,
     adapter: makeAdapter({ storage: { type: 'fs', baseDirectory: directory } }),
     disableDevtools: true,
   })
+    .catch((error: unknown) => {
+      throw new Error(describeOpenError(error), { cause: error })
+    })
+    .finally(() => countMaterialized(undefined))
+  const eventlogName = path.basename((await eventlogFile(directory)) ?? 'eventlog.db')
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
@@ -678,8 +702,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     getBanner,
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
+    exportEventlog: () => ({
+      fileName: eventlogName,
+      data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),
+    }),
     close: () => store.shutdownPromise(),
   }
+}
+
+function describeOpenError(error: unknown): string {
+  let event: string | undefined
+  let message = ''
+  for (let at: unknown = error; at !== undefined && at !== null; ) {
+    const current = at as { message?: unknown; note?: unknown; cause?: unknown }
+    const note = typeof current.note === 'string' ? current.note : ''
+    event ??= /event definition "([^"]+)"/.exec(note)?.[1]
+    if (typeof current.message === 'string' && current.message.trim() !== '') {
+      message = current.message
+    }
+    at = current.cause
+  }
+  const text = message.replace(/\s+/g, ' ').trim() || 'unknown error'
+  return event ? `${event}: ${text}` : text
 }
 
 function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
