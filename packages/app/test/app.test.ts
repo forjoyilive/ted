@@ -230,6 +230,73 @@ describe('TED app', () => {
       .toBe(true)
   })
 
+  test('files in Comments: an agent’s image and HTML show in the thread; the human drops and pastes files', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await addFactory(origin, 'NB')
+    const shot = path.join(home, 'shot.png')
+    const report = path.join(home, 'report.html')
+    await writeFile(shot, Buffer.from(onePixelPng, 'base64'))
+    await writeFile(report, '<h1>Report</h1><script>document.title = "ran"</script>')
+    const attach = ['ted', 'comment', '--attach', shot, '--attach', report, 'Here is the screen']
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--start',
+      JSON.stringify({ steps: [{ run: attach }, { endTurn: true }] }),
+    )
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await thread.getByRole('img', { name: 'shot.png' }).waitFor()
+    const frame = thread.locator('iframe[title="report.html"]')
+    await frame.waitFor()
+    expect(await frame.getAttribute('sandbox')).toBe('')
+    await frame.contentFrame().getByRole('heading', { name: 'Report' }).waitFor()
+    expect(
+      await frame.evaluate((f: HTMLIFrameElement) => {
+        try {
+          return f.contentDocument?.title ?? 'no access'
+        } catch {
+          return 'no access'
+        }
+      }),
+    ).toBe('no access')
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    const dropped = await window.evaluateHandle((png) => {
+      const data = new DataTransfer()
+      const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0))
+      data.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+      return data
+    }, onePixelPng)
+    await box.dispatchEvent('drop', { dataTransfer: dropped })
+    await thread.getByRole('listitem').filter({ hasText: 'dropped.png' }).waitFor()
+    await box.evaluate((element) => {
+      const data = new DataTransfer()
+      data.items.add(new File(['pasted words'], 'notes.txt', { type: 'text/plain' }))
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+    })
+    await thread.getByRole('listitem').filter({ hasText: 'notes.txt' }).waitFor()
+    await box.fill('Compare with this.')
+    await box.press('ControlOrMeta+Enter')
+
+    await thread.getByRole('img', { name: 'dropped.png' }).waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    const client = await daemonClient()
+    const sent = await waitUntil(async () => {
+      const found = (await client.listComments('NB-1')).find((c) => c.body === 'Compare with this.')
+      return found?.readAt !== undefined ? found : undefined
+    }, 'the Task Lead to read the Comment')
+    expect(sent.attachments?.map((a) => a.name)).toEqual(['dropped.png', 'notes.txt'])
+  })
+
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {

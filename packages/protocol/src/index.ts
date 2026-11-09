@@ -285,6 +285,8 @@ export {
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
+  type AttachmentBytes,
+  type AttachmentRef,
   agentStageIds,
   type BlockedChoice,
   type BlockerEnded,

@@ -114,6 +114,20 @@ export const taskAttachments = State.SQLite.table({
   },
 })
 
+export const commentAttachments = State.SQLite.table({
+  name: 'commentAttachments',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    commentId: State.SQLite.text(),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    position: State.SQLite.integer(),
+  },
+})
+
 export const taskSources = State.SQLite.table({
   name: 'taskSources',
   columns: {
@@ -653,6 +667,18 @@ export const events = {
       size: Schema.Number,
       mediaType: Schema.String,
       at: Schema.String,
+    }),
+  }),
+  commentAttachmentAdded: Events.synced({
+    name: 'v1.CommentAttachmentAdded',
+    schema: Schema.Struct({
+      commentId: Schema.String,
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      position: Schema.Number,
     }),
   }),
   taskFollowsUp: Events.synced({
@@ -1815,6 +1841,10 @@ const materializers = counted(
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.CommentAttachmentAdded': ({ commentId, hash, name, ...rest }) =>
+        commentAttachments
+          .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
       'v1.TaskFollowedUp': ({ taskId, at }) =>
@@ -1897,6 +1927,7 @@ const materializers = counted(
         taskQueue.delete().where({ taskId }),
         taskBlockers.delete().where({ taskId }),
         taskAttachments.delete().where({ taskId }),
+        commentAttachments.delete().where({ taskId }),
         taskSources.delete().where({ taskId }),
         runs.delete().where({ taskId }),
         subAgentRequests.delete().where({ taskId }),
@@ -2270,6 +2301,7 @@ const state = State.SQLite.makeState({
     taskBlockers,
     deletedTasks,
     taskAttachments,
+    commentAttachments,
     taskSources,
     runs,
     subAgentRequests,
