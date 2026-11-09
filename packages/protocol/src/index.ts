@@ -228,6 +228,7 @@ export {
   efforts,
   type GitHubWait,
   type InboxItem,
+  isModelName,
   type Judgment,
   type MergeMethod,
   type MoveTaskRequest,

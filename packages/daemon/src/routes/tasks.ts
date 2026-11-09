@@ -10,6 +10,7 @@ import {
   clarifyDepths,
   type Effort,
   efforts,
+  isModelName,
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
@@ -363,15 +364,15 @@ function agentChoice(body: unknown): TaskLead {
   if (!agentKinds.includes(agent as AgentKind)) {
     throw new HttpError(400, 'agent must be claude or codex')
   }
-  if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
-    throw new HttpError(400, 'model must be a name')
+  if (model !== undefined && !isModelName(model)) {
+    throw new HttpError(400, 'model must be a model name, such as opus or gpt-5.5')
   }
   if (effort !== undefined && !efforts.includes(effort as Effort)) {
     throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
   }
   return {
     agent: agent as AgentKind,
-    ...(typeof model === 'string' && { model: model.trim() }),
+    ...(model !== undefined && { model }),
     ...(effort !== undefined && { effort: effort as Effort }),
   }
 }
@@ -447,13 +448,13 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     const { agent, model, effort } = value as Record<string, unknown>
     const kind = oneOf('lead.agent', agent, agentKinds)
     if (kind === undefined) throw new HttpError(400, 'lead.agent is required')
-    if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
-      throw new HttpError(400, 'lead.model must be text')
+    if (model !== undefined && !isModelName(model)) {
+      throw new HttpError(400, 'lead.model must be a model name, such as opus or gpt-5.5')
     }
     const level = oneOf('lead.effort', effort, efforts)
     return {
       agent: kind,
-      ...(typeof model === 'string' && { model: model.trim() }),
+      ...(model !== undefined && { model }),
       ...(level !== undefined && { effort: level }),
     }
   }

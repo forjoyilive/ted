@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { RunState } from '@ted/protocol'
+import { isModelName, type RunState } from '@ted/protocol'
 import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
 import { claudeChat } from './claude-chat.ts'
 
@@ -104,6 +104,9 @@ export function claudeAgent(binary: string): Agent {
     kind: 'claude',
     binary,
     launch({ prompt, runDir, env, resume, model, effort, permissions }) {
+      if (model !== undefined && !isModelName(model)) {
+        throw new Error(`“${model}” isn’t a model name`)
+      }
       const sessionId = resume ?? randomUUID()
       const settingsPath = path.join(runDir, 'settings.json')
       const hooks = Object.fromEntries(

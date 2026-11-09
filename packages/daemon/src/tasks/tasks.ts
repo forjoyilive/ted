@@ -1284,6 +1284,18 @@ export function createTasks(options: {
     return { task, runId: caller.runId }
   }
 
+  function taskLead(
+    ref: string,
+    caller: Caller,
+    does: string,
+  ): { task: StoredTask; runId: string } {
+    const owned = ownTask(ref, caller)
+    if (owned.task.leadRunId !== owned.runId) {
+      throw new RequestError(403, `only the Task Lead ${does}`)
+    }
+    return owned
+  }
+
   function factoryOf(task: Task) {
     const factory = store.getFactory(task.factoryId)
     if (!factory) throw new RequestError(409, `${task.displayId}’s Factory has no repo`)
@@ -3021,7 +3033,8 @@ export function createTasks(options: {
     },
 
     async block(ref, caller, by) {
-      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const task =
+        caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
       await beginning.get(task.id)?.catch(() => undefined)
       const blocker = find(by)
       if (blocker.id === task.id) {
@@ -3056,7 +3069,8 @@ export function createTasks(options: {
     },
 
     unblock(ref, caller, by) {
-      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const task =
+        caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
       const links = store.blockers(task.id)
       const blocker = by === undefined ? undefined : find(by)
       if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
@@ -3096,7 +3110,7 @@ export function createTasks(options: {
         return humanComment(find(ref), body)
       }
       const { task, runId } = ownTask(ref, caller)
-      if (store.getRun(runId)?.parentRunId !== undefined) {
+      if (task.leadRunId !== runId) {
         if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
             403,
@@ -3154,10 +3168,7 @@ export function createTasks(options: {
         }
         return set
       }
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead picks the Clarify depth')
-      }
+      const { task, runId } = taskLead(ref, caller, 'picks the Clarify depth')
       if (task.stage !== 'clarify') {
         throw new RequestError(
           409,
@@ -3199,10 +3210,7 @@ export function createTasks(options: {
     },
 
     writeBrief(ref, caller, text) {
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead writes the Task brief')
-      }
+      const { task, runId } = taskLead(ref, caller, 'writes the Task brief')
       if (!hasBriefHeadings(text)) {
         throw new RequestError(
           400,
@@ -3363,10 +3371,7 @@ export function createTasks(options: {
     },
 
     async reportOutcome(ref, caller, outcome) {
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead reports outcomes')
-      }
+      const { task, runId } = taskLead(ref, caller, 'reports outcomes')
       if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }
@@ -3539,7 +3544,7 @@ export function createTasks(options: {
     },
 
     async runChecks(ref, caller, only) {
-      const { task } = ownTask(ref, caller)
+      const { task } = taskLead(ref, caller, 'runs Checks')
       if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
         throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
       }

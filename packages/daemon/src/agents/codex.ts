@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
+import { isModelName, type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
 import type { Agent, AuthCheck, EarlierLine, PermissionPrompt } from './agent.ts'
 import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
@@ -343,6 +343,9 @@ export function codexAgent(binary: string): Agent {
     kind: 'codex',
     binary,
     launch({ prompt, env, resume, model, effort, permissions }) {
+      if (model !== undefined && !isModelName(model)) {
+        throw new Error(`“${model}” isn’t a model name`)
+      }
       const plan: CodexPlan = {
         thread:
           resume === undefined

@@ -73,6 +73,15 @@ describe('agent kinds', () => {
     expect(ultra.args[ultra.args.indexOf('--effort') + 1]).toBe('max')
   })
 
+  test('neither agent launches with a model that isn’t a plain model name', () => {
+    for (const kind of ['claude', 'codex'] as const) {
+      expect(() => agents.get(kind).launch({ ...run, model: '--settings=/tmp/x' })).toThrow(
+        /model name/,
+      )
+      expect(() => agents.get(kind).launch({ ...run, model: 'opus[1m]' })).not.toThrow()
+    }
+  })
+
   test('Codex gets the model and effort in its plan', () => {
     const plain = JSON.parse(agents.get('codex').launch(run).input)
     const chosen = JSON.parse(
