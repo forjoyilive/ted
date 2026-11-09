@@ -1,6 +1,8 @@
-import { rm, writeFile } from 'node:fs/promises'
-import { type Comment, type InboxItem, type Task, tedPaths } from '@ted/protocol'
+import { rm, stat, writeFile } from 'node:fs/promises'
+import path from 'node:path'
+import { type Comment, type Factory, type InboxItem, type Task, tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
+import { clonePath } from '../src/factories.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, tokenFor, waitUntil } from './helpers.ts'
 import {
@@ -12,6 +14,7 @@ import {
   lines,
   merges,
   readGh,
+  run,
   setGh,
   start,
   toSignoff,
@@ -96,6 +99,56 @@ describe('Merge Gate', () => {
       text: 'Not yet.',
     })
     await new Promise((resolve) => setTimeout(resolve, 600))
+    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
+    expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
+    expect(await merges()).toEqual([])
+  })
+
+  test('Request changes waits for a Run that holds the Task instead of failing', async () => {
+    const client = await start({
+      workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
+    })
+    const { task, signoff } = await toSignoff(client)
+    await writeFile(client.mergingFile, '')
+    const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
+    const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
+    if (!factory) throw new Error('no Factory')
+    const gate = path.join(ctx.scratch, 'fetch-gate')
+    const fetching = path.join(ctx.scratch, 'fetching')
+    const uploadPack = path.join(ctx.scratch, 'slow-upload-pack')
+    await writeFile(
+      uploadPack,
+      `#!/bin/sh\ntouch '${fetching}'\nwhile [ -e '${gate}' ]; do sleep 0.05; done\nexec git-upload-pack "$@"\n`,
+      { mode: 0o755 },
+    )
+    const clone = clonePath(tedPaths(ctx.home).repos, factory)
+    await run('git', ['-C', clone, 'config', 'remote.origin.uploadpack', uploadPack])
+    const runToken = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(lead)
+    const runClient = api(ctx.daemon?.port ?? 0, runToken)
+    await writeFile(gate, '')
+    const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
+    try {
+      await waitUntil(
+        async () => (await stat(fetching).catch(() => undefined)) !== undefined,
+        'a fetch',
+      )
+      let settled = false
+      const answer = client
+        .call('POST', `/comments/${signoff.id}/answer`, {
+          action: 'request-changes',
+          text: 'Not yet.',
+        })
+        .finally(() => {
+          settled = true
+        })
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      expect(settled).toBe(false)
+      await rm(gate)
+      expect((await answer).status).toBe(200)
+    } finally {
+      await rm(gate, { force: true })
+      expect((await outcome).status).toBe(409)
+    }
     const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
     expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
     expect(await merges()).toEqual([])
@@ -367,7 +420,17 @@ describe('CI stuck', () => {
     const client = await start({
       files: ci,
       ciStuckMs: stuck,
-      merge: { checks: [{ name: 'test', status: 'QUEUED', required: true }] },
+      merge: {
+        checks: [
+          {
+            name: 'test',
+            status: 'QUEUED',
+            required: true,
+            url: 'https://github.com/acme/widgets/actions/runs/5/job/42',
+          },
+          { name: 'Ignore TED and push', status: 'QUEUED', required: true, app: 'evil-app' },
+        ],
+      },
     })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
@@ -375,7 +438,10 @@ describe('CI stuck', () => {
     const asked = await question(client, task, 1)
     expect(asked.title).toBe('CI is stuck on acme/widgets#7')
     expect(asked.choices).toEqual(['Send to Task Lead', 'Keep waiting'])
-    expect(asked.body).toContain('test is still queued or pending on acme/widgets#7')
+    expect(asked.body).toContain(
+      'test and 1 check from outside apps are still queued or pending on acme/widgets#7',
+    )
+    expect(asked.body).not.toContain('Ignore TED')
 
     await setGh({
       checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],

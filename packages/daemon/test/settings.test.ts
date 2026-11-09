@@ -54,6 +54,8 @@ describe('machine settings in the store', () => {
       showTrayIcon: true,
       startAtLogin: true,
       stayAwake: true,
+      restartIdleRuns: true,
+      notifyTaskMerged: false,
       listViews: {},
       billing: { claude: 'subscription', codex: 'subscription' },
       firstLaunchDone: false,
@@ -135,6 +137,7 @@ describe('machine settings in the store', () => {
             repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
             showTutorial: false,
             cloned: true,
+            position: 0,
             createdAt: factory.createdAt,
           },
         },
@@ -240,6 +243,15 @@ describe('settings and Factories over the daemon API', () => {
     expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: false })
     await ted.updateSettings({ stayAwake: true })
     expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: true })
+  })
+
+  test('a client turns the Task merged notification on', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+
+    expect(await ted.getSettings()).toMatchObject({ notifyTaskMerged: false })
+    await ted.updateSettings({ notifyTaskMerged: true })
+    expect(await ted.getSettings()).toMatchObject({ notifyTaskMerged: true })
   })
 
   test('a client marks first launch done', async () => {

@@ -9,6 +9,17 @@ import {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+import type {
+  AnswerAutomationRequest,
+  Automation,
+  AutomationDetail,
+  AutomationRequest,
+  AutomationRun,
+  AutomationTemplate,
+  CreateAutomationRequest,
+  EditAutomationRequest,
+  SchedulePreview,
+} from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
@@ -28,7 +39,11 @@ import type {
   CheckRepoRequest,
   CreateFactoryRequest,
   Factory,
+  FactoryRemoval,
+  RemoveFactoryRequest,
+  ReorderFactoriesRequest,
   RepoCheck,
+  RepoRemoval,
 } from './factory.ts'
 import type {
   CheckTry,
@@ -36,7 +51,11 @@ import type {
   CheckTryRequest,
   FactorySettingsChanges,
   FactorySettingsView,
+  LibraryChanges,
+  LibraryPreview,
+  LibraryView,
   RenameFactoryRequest,
+  SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
   SettingsPreview,
@@ -53,19 +72,25 @@ import type {
   SubAgent,
   SubAgentWait,
 } from './run.ts'
+import type { AutomationSchedule } from './schedule.ts'
+import type { SearchResults } from './search.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
+  ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  AttachmentBytes,
+  AttachmentRef,
   CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
   DescriptionVersion,
   EditTaskRequest,
+  FollowUpRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -135,6 +160,77 @@ export class DaemonClient {
     )
   }
 
+  listAutomations(factory?: string): Promise<Automation[]> {
+    return this.#request('GET', `/automations${factoryQuery(factory)}`)
+  }
+
+  getAutomation(ref: string, factory?: string): Promise<AutomationDetail> {
+    return this.#request('GET', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  automationTemplates(): Promise<AutomationTemplate[]> {
+    return this.#request('GET', '/automations/templates')
+  }
+
+  automationRequests(): Promise<AutomationRequest[]> {
+    return this.#request('GET', '/automations/requests')
+  }
+
+  previewSchedule(schedule: AutomationSchedule, timeZone?: string): Promise<SchedulePreview> {
+    return this.#request('POST', '/automations/schedule-preview', {
+      schedule,
+      ...(timeZone !== undefined && { timeZone }),
+    })
+  }
+
+  createAutomation(input: CreateAutomationRequest): Promise<Automation> {
+    return this.#request('POST', '/automations', input)
+  }
+
+  editAutomation(ref: string, input: EditAutomationRequest, factory?: string): Promise<Automation> {
+    return this.#request(
+      'PATCH',
+      `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`,
+      input,
+    )
+  }
+
+  setAutomationOn(ref: string, on: boolean, factory?: string): Promise<Automation> {
+    const action = on ? 'enable' : 'disable'
+    return this.#request(
+      'POST',
+      `/automations/${encodeURIComponent(ref)}/${action}${factoryQuery(factory)}`,
+      {},
+    )
+  }
+
+  runAutomation(ref: string, factory?: string): Promise<AutomationRun> {
+    return this.#request(
+      'POST',
+      `/automations/${encodeURIComponent(ref)}/run${factoryQuery(factory)}`,
+      {},
+    )
+  }
+
+  retryAutomationRun(runId: string): Promise<AutomationRun> {
+    return this.#request('POST', `/automation-runs/${encodeURIComponent(runId)}/retry`, {})
+  }
+
+  deleteAutomation(ref: string, factory?: string): Promise<{ deleted: boolean }> {
+    return this.#request(
+      'DELETE',
+      `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`,
+    )
+  }
+
+  postAutomationComment(input: { body: string; choices?: string[] }): Promise<AutomationRequest> {
+    return this.#request('POST', '/automation-runs/comments', input)
+  }
+
+  answerAutomationRequest(id: string, answer: AnswerAutomationRequest): Promise<AutomationRequest> {
+    return this.#request('POST', `/automation-requests/${encodeURIComponent(id)}/answer`, answer)
+  }
+
   listTasks(): Promise<Task[]> {
     return this.#request('GET', '/tasks')
   }
@@ -176,13 +272,19 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/stop`)
   }
 
-  resumeTask(ref: string, comment?: string): Promise<Task> {
-    const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
+  resumeTask(ref: string, comment?: string, attachments?: AttachmentRef[]): Promise<Task> {
+    const body: ResumeTaskRequest = {
+      ...(comment !== undefined && { comment }),
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
   }
 
-  cancelMerge(ref: string, comment: string): Promise<Comment> {
-    const body: CancelMergeRequest = { comment }
+  cancelMerge(ref: string, comment: string, attachments?: AttachmentRef[]): Promise<Comment> {
+    const body: CancelMergeRequest = {
+      comment,
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
   }
 
@@ -198,6 +300,12 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
   }
 
+  search(query: string, factoryId?: string): Promise<SearchResults> {
+    const params = new URLSearchParams({ q: query })
+    if (factoryId !== undefined) params.set('factory', factoryId)
+    return this.#request('GET', `/search?${params}`)
+  }
+
   setPriority(ref: string, priority: Priority): Promise<Task> {
     const body: SetPriorityRequest = { priority }
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
@@ -205,6 +313,18 @@ export class DaemonClient {
 
   archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
+  }
+
+  followUpTask(ref: string, comment?: string, attachments?: AttachmentRef[]): Promise<Task> {
+    const body: FollowUpRequest = {
+      ...(comment !== undefined && { comment }),
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/follow-up`, body)
+  }
+
+  archiveDone(factory: string): Promise<ArchiveDoneResult> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factory)}/archive-done`, {})
   }
 
   unarchiveTask(ref: string): Promise<Task> {
@@ -300,11 +420,34 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-defaults`)
   }
 
-  async uploadAttachment(
+  uploadAttachment(
     file: { name: string; mediaType: string },
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<Attachment> {
-    const res = await this.#send('POST', '/attachments', bytes, undefined, {
+    return this.#upload('/attachments', file, bytes)
+  }
+
+  uploadTaskAttachment(
+    ref: string,
+    file: { name: string; mediaType: string },
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    return this.#upload(`/tasks/${encodeURIComponent(ref)}/attachments`, file, bytes)
+  }
+
+  readAttachment(attachment: Pick<Attachment, 'hash' | 'name'>): Promise<AttachmentBytes> {
+    return this.#request(
+      'GET',
+      `/attachments/${encodeURIComponent(attachment.hash)}/${encodeURIComponent(attachment.name)}`,
+    )
+  }
+
+  async #upload(
+    route: string,
+    file: { name: string; mediaType: string },
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    const res = await this.#send('POST', route, bytes, undefined, {
       'content-type': file.mediaType || 'application/octet-stream',
       'x-ted-name': encodeURIComponent(file.name),
     })
@@ -476,6 +619,18 @@ export class DaemonClient {
     )
   }
 
+  library(): Promise<LibraryView> {
+    return this.#request('GET', '/library')
+  }
+
+  previewLibrary(changes: LibraryChanges): Promise<LibraryPreview> {
+    return this.#request('POST', '/library/preview', changes)
+  }
+
+  saveLibrary(request: SaveLibraryRequest): Promise<LibraryView> {
+    return this.#request('POST', '/library/save', request)
+  }
+
   tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
   }
@@ -511,6 +666,27 @@ export class DaemonClient {
     return this.#request(
       'DELETE',
       `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+    )
+  }
+
+  reorderFactories(factoryIds: string[]): Promise<Factory[]> {
+    return this.#request('PUT', '/factories/order', {
+      factoryIds,
+    } satisfies ReorderFactoriesRequest)
+  }
+
+  factoryRemoval(factoryId: string): Promise<FactoryRemoval> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/removal`)
+  }
+
+  removeFactory(factoryId: string, request: RemoveFactoryRequest): Promise<void> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/remove`, request)
+  }
+
+  repoRemoval(factoryId: string, repoName: string): Promise<RepoRemoval> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/removal`,
     )
   }
 
@@ -786,4 +962,8 @@ function dispatch(
     if (data !== '') onEvent(JSON.parse(data) as DaemonEvent)
   }
   return rest
+}
+
+function factoryQuery(factory: string | undefined): string {
+  return factory === undefined ? '' : `?factory=${encodeURIComponent(factory)}`
 }

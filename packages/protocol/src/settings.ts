@@ -24,6 +24,8 @@ export interface MachineSettings {
   showTrayIcon: boolean
   startAtLogin: boolean
   stayAwake: boolean
+  restartIdleRuns: boolean
+  notifyTaskMerged: boolean
   listViews: Readonly<Record<string, ListView>>
   firstLaunchDone: boolean
   billing: Readonly<Record<AgentKind, Billing>>
@@ -39,6 +41,8 @@ export const defaultMachineSettings: MachineSettings = {
   showTrayIcon: true,
   startAtLogin: true,
   stayAwake: true,
+  restartIdleRuns: true,
+  notifyTaskMerged: false,
   listViews: {},
   firstLaunchDone: false,
   billing: { claude: 'subscription', codex: 'subscription' },

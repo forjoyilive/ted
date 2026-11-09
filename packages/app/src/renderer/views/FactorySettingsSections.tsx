@@ -9,6 +9,7 @@ import type {
   FactorySettingsView,
   InvalidSettings,
   LayerKind,
+  LibraryInvalid,
   StageId,
   StageRowView,
 } from '@ted/protocol'
@@ -54,7 +55,7 @@ function title(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1)
 }
 
-function Edited({ when }: { when: boolean }) {
+export function Edited({ when }: { when: boolean }) {
   return when ? <span className={base.edited}>Edited</span> : null
 }
 
@@ -97,7 +98,11 @@ export function Toggle({
   )
 }
 
-export function InvalidNotice({ invalid }: { invalid: InvalidSettings }) {
+export function InvalidNotice({
+  invalid,
+}: {
+  invalid: LibraryInvalid & Partial<Pick<InvalidSettings, 'url'>>
+}) {
   return (
     <section className={styles.invalid} role="alert" aria-label={`${invalid.file} has an error`}>
       <div className={styles.invalidHead}>
@@ -106,9 +111,11 @@ export function InvalidNotice({ invalid }: { invalid: InvalidSettings }) {
         </span>
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
-        <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url)}>
-          Open on GitHub
-        </Button>
+        {invalid.url !== undefined && (
+          <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url ?? '')}>
+            Open on GitHub
+          </Button>
+        )}
       </div>
       <p className={styles.invalidLine}>
         {invalid.line > 0 && (
@@ -767,7 +774,7 @@ export function PermissionsSection({
       <SectionHeading
         id="permissions"
         title="Permissions and limits"
-        help="Applies to every Run in this Factory: Task Leads, sub-agents, reviewers, Automations and Planning Runs."
+        help="Applies to Task Leads, sub-agents, reviewers and Planning Runs. Automations always run in Auto permissions."
       />
       <fieldset className={styles.radios}>
         <legend className={base.visuallyHidden}>Permission mode</legend>
@@ -805,7 +812,7 @@ export function PermissionsSection({
           <span>
             <strong>Bypass is on.</strong> Every Run in this Factory acts without asking: it can run
             any command, change any file and use the network on {machine}. Use it only when Runs
-            happen in an isolated machine or VM.
+            happen in an isolated machine or VM. Automations always run in Auto permissions.
           </span>
         </p>
       )}
@@ -904,7 +911,7 @@ export function NotesSection({
   )
 }
 
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   return (
     <>
       {keyed(markdownBlocks(text), (b) => `${b.kind}:${JSON.stringify(b)}`).map(({ key, item }) => (

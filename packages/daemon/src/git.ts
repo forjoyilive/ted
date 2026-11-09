@@ -3,15 +3,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { worktreeCommandEnv } from './command-env.ts'
+import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
 const execFileAsync = promisify(execFile)
 
 export class GitError extends Error {}
 
-// The daemon has no terminal, so a credential prompt would wait forever.
-const env = () => ({ ...process.env, GIT_TERMINAL_PROMPT: '0' })
+const env = () => gitEnv()
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
   try {

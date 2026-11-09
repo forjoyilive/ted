@@ -11,6 +11,7 @@ type Step =
   | { hook: string }
   | { lines: number; everyMs: number; pad?: number }
   | { waitFor: string }
+  | { readNextAfter: string }
   | { run: string[] }
   | { endTurn: true; usage?: Record<string, number> }
   | { exit: number }
@@ -118,6 +119,7 @@ const hook = (name: string) => {
 }
 
 let everyMessage: Step[] = []
+let inputGate: string | undefined
 let interrupted = false
 let gating = false
 let gate: ReturnType<typeof spawn> | undefined
@@ -211,6 +213,8 @@ async function runStep(step: Step): Promise<void> {
     }
   } else if ('waitFor' in step) {
     while (!existsSync(step.waitFor) && !interrupted) await sleep(25)
+  } else if ('readNextAfter' in step) {
+    inputGate = step.readNextAfter
   } else if ('run' in step) {
     const [command = '', ...args] = step.run
     const result = spawnSync(command, args, { encoding: 'utf8' })
@@ -272,6 +276,8 @@ createInterface({ input: process.stdin })
     wake?.()
   })
 for (;;) {
+  while (inputGate !== undefined && !existsSync(inputGate)) await sleep(25)
+  inputGate = undefined
   const message = messages.shift()
   if (!message) {
     if (closed) break

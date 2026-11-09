@@ -6,7 +6,14 @@ import { runStatusAction, type StatusAction, statusAction } from '../task-action
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
-import { ArchiveDialog, archiveTaskEvent, DeleteDialog } from './ArchiveDialogs.tsx'
+import {
+  ArchiveDialog,
+  archiveTaskEvent,
+  DeleteDialog,
+  deleteTaskEvent,
+  FollowUpDialog,
+  followUpTaskEvent,
+} from './ArchiveDialogs.tsx'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
 import styles from './TaskActions.module.css'
@@ -45,9 +52,9 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
             ?
           </span>
         </span>
-        {action.kind !== 'stop' && action.kind !== 'move-to-backlog' && (
-          <span className={styles.hint}>S</span>
-        )}
+        {action.kind !== 'stop' &&
+          action.kind !== 'move-to-backlog' &&
+          action.kind !== 'follow-up' && <span className={styles.hint}>S</span>}
       </button>
       {hover ? (
         <Tooltip id={id} className={styles.tooltip}>
@@ -102,9 +109,15 @@ function Choice({
   )
 }
 
-export function TaskActionsMenu({ task }: { task: Task }) {
+export function TaskActionsMenu({
+  task,
+  onFollowedUp,
+}: {
+  task: Task
+  onFollowedUp?: (followUp: Task) => void
+}) {
   const [open, setOpen] = useState(false)
-  const [dialog, setDialog] = useState<'archive' | 'delete' | 'edit'>()
+  const [dialog, setDialog] = useState<'archive' | 'delete' | 'edit' | 'follow-up'>()
   const [error, setError] = useState<string>()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -139,13 +152,29 @@ export function TaskActionsMenu({ task }: { task: Task }) {
         setDialog('edit')
       }
     }
+    const onDelete = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id) {
+        setOpen(false)
+        setDialog('delete')
+      }
+    }
+    const onFollowUp = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && task.stage === 'done') {
+        setOpen(false)
+        setDialog('follow-up')
+      }
+    }
     window.addEventListener(archiveTaskEvent, onArchive)
     window.addEventListener(editTaskEvent, onEdit)
+    window.addEventListener(deleteTaskEvent, onDelete)
+    window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
       window.removeEventListener(archiveTaskEvent, onArchive)
       window.removeEventListener(editTaskEvent, onEdit)
+      window.removeEventListener(deleteTaskEvent, onDelete)
+      window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
-  }, [task.id, task.archived])
+  }, [task.id, task.archived, task.stage])
 
   const action = statusAction(task)
   const linear = task.source?.linear
@@ -156,7 +185,7 @@ export function TaskActionsMenu({ task }: { task: Task }) {
     work().catch((failure: unknown) => setError(readableError(failure)))
   }
 
-  const choose = (which: 'archive' | 'delete' | 'edit') => {
+  const choose = (which: 'archive' | 'delete' | 'edit' | 'follow-up') => {
     setOpen(false)
     setError(undefined)
     setDialog(which)
@@ -165,6 +194,13 @@ export function TaskActionsMenu({ task }: { task: Task }) {
   const dialogs = (
     <>
       {dialog === 'archive' && <ArchiveDialog task={task} onClose={() => setDialog(undefined)} />}
+      {dialog === 'follow-up' && (
+        <FollowUpDialog
+          task={task}
+          onClose={() => setDialog(undefined)}
+          {...(onFollowedUp && { onCreated: onFollowedUp })}
+        />
+      )}
       {dialog === 'edit' && <EditTaskDialog task={task} onClose={() => setDialog(undefined)} />}
       {dialog === 'delete' && (
         <DeleteDialog
@@ -242,7 +278,11 @@ export function TaskActionsMenu({ task }: { task: Task }) {
             <>
               <FirstItem
                 action={action}
-                onChoose={() => act(() => runStatusAction(action.kind, task))}
+                onChoose={() =>
+                  action.kind === 'follow-up'
+                    ? choose('follow-up')
+                    : act(() => runStatusAction(action.kind, task))
+                }
               />
               <hr className={styles.separator} />
             </>

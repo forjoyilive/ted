@@ -1,4 +1,4 @@
-import { type Priority, priorities } from '@ted/protocol'
+import { type Priority, priorities, type QueuedForSlot, type SlotHolder } from '@ted/protocol'
 
 export const queueKinds = ['setup-task', 'sub-agent', 'planning', 'automation', 'task'] as const
 
@@ -45,4 +45,12 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
     if (factory !== undefined) byFactory[factory] = (byFactory[factory] ?? 0) + 1
   }
   return started
+}
+
+export interface QueueSource {
+  queued(): QueueEntry[]
+  runnable(id: string): boolean
+  begin(id: string): void
+  holders(): SlotHolder[]
+  describe(id: string, place: number): QueuedForSlot | undefined
 }

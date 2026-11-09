@@ -55,6 +55,43 @@ export const factoryRoutes: Route[] = [
     },
   },
   {
+    method: 'PUT',
+    path: /^\/factories\/order$/,
+    async handle({ req }, { factories }) {
+      const body = record(await readJson(req))
+      const ids = list(body.factoryIds, 'factoryIds').map((id) => text(id, 'a Factory id'))
+      return [200, await factories.reorder(ids)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/removal$/,
+    handle: async ({ params: [id = ''] }, { factoryRemovals }) => [
+      200,
+      factoryRemovals.summary(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/remove$/,
+    async handle({ req, params: [id = ''] }, { factoryRemovals }) {
+      const body = record(await readJson(req))
+      await factoryRemovals.remove(id, {
+        key: text(body.key, 'key'),
+        closePullRequests: body.closePullRequests !== false,
+      })
+      return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/repos\/([^/]+)\/removal$/,
+    handle: async ({ params: [id = '', name = ''] }, { factoryRemovals }) => [
+      200,
+      factoryRemovals.repo(id, decodeURIComponent(name)),
+    ],
+  },
+  {
     method: 'POST',
     path: /^\/factories\/check-repo$/,
     async handle({ req }, { factories }) {
@@ -219,7 +256,7 @@ function fileText(given: unknown, field: string): string {
   return value
 }
 
-function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInput>> {
+export function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInput>> {
   const body = record(given)
   const stages: Partial<Record<StageId, StageSettingsInput>> = {}
   for (const [id, value] of Object.entries(body)) {
@@ -254,7 +291,7 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
   return stages
 }
 
-function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
+export function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
   const files: Partial<Record<AgentStageId, string | null>> = {}
   for (const [id, value] of Object.entries(record(given))) {
     if (!agentStageIds.includes(id as AgentStageId)) throw new HttpError(400, `unknown Stage ${id}`)
@@ -280,7 +317,7 @@ function checkInput(given: unknown): CheckInput {
   }
 }
 
-function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
+export function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
   if (given === null) return null
   const body = record(given)
   const agent = optionalText(body.agent, `${role}.agent`)
@@ -296,7 +333,7 @@ function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
   }
 }
 
-function record(given: unknown): Record<string, unknown> {
+export function record(given: unknown): Record<string, unknown> {
   return typeof given === 'object' && given !== null && !Array.isArray(given)
     ? (given as Record<string, unknown>)
     : {}

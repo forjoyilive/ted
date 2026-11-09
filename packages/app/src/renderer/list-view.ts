@@ -159,6 +159,11 @@ export function queueView(scope: string, views?: Readonly<Record<string, ListVie
   return { ...view, sort: 'manual', group: 'none', filters: { statuses: ['queued'] } }
 }
 
+export function doneView(scope: string, views?: Readonly<Record<string, ListView>>): ListView {
+  const view = viewFor(views, scope)
+  return { ...view, sort: 'updated', group: 'none', filters: { stages: ['done'] } }
+}
+
 export function failedView(scope: string, views?: Readonly<Record<string, ListView>>): ListView {
   const view = viewFor(views, scope)
   return { ...view, filters: { statuses: ['failed'] } }

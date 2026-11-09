@@ -24,8 +24,10 @@ import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
+import { automationRoutes } from './routes/automations.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
+import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
 import {
   type BaseOptions,
@@ -36,6 +38,7 @@ import {
   readOptionalJson,
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
+import { searchRoutes } from './routes/search.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import type { Caller } from './tasks/tasks.ts'
 
@@ -140,8 +143,11 @@ const routes: Route[] = [
   ...taskRoutes,
   ...factoryRoutes,
   ...machineRoutes,
+  ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,
+  ...automationRoutes,
+  ...searchRoutes,
 ]
 
 const drainTimeoutMs = 10_000

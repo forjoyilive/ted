@@ -23,6 +23,7 @@ export type DaemonEvent =
   | { type: 'run-output'; runId: string }
   | { type: 'factory-added'; factory: Factory }
   | { type: 'factory-updated'; factory: Factory }
+  | { type: 'factory-removed'; factoryId: string }
   | { type: 'settings-changed'; settings: MachineSettings }
   | { type: 'banner-raised'; banner: Banner }
   | { type: 'banner-updated'; banner: Banner }
@@ -34,3 +35,6 @@ export type DaemonEvent =
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
   | { type: 'check-try-updated'; checkTry: CheckTry }
+  | { type: 'automation-updated'; automationId: string }
+  | { type: 'automation-deleted'; automationId: string }
+  | { type: 'library-changed' }

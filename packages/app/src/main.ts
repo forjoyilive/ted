@@ -14,6 +14,7 @@ import {
   type Activity,
   type AgentKind,
   type AnswerRequest,
+  type AttachmentRef,
   agentKinds,
   type Banner,
   type BannerActionInput,
@@ -29,6 +30,7 @@ import {
   downloadUrl,
   type EditTaskRequest,
   type FactorySettingsChanges,
+  type LibraryChanges,
   linearKeyPage,
   type MachineSettings,
   type MoveTaskRequest,
@@ -37,7 +39,9 @@ import {
   parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SaveLibraryRequest,
   type SaveSettingsRequest,
+  type Task,
   tedHome,
   tedPaths,
   tedVersion,
@@ -63,6 +67,7 @@ import {
   type MenuCommand,
   type MenuEntry,
   type MenuState,
+  mergedNotice,
   type Platform,
   problemNotice,
   quitAnswer,
@@ -88,11 +93,24 @@ const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
+function attachmentRefs(value: unknown): AttachmentRef[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item: unknown) => {
+    const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
+    return { hash: String(hash), name: String(name), mediaType: String(mediaType) }
+  })
+}
+
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
-  postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
-  cancelMerge: (client, taskId, comment) => client.cancelMerge(String(taskId), String(comment)),
+  postComment: (client, taskId, body, attachments) =>
+    client.postComment(String(taskId), {
+      body: String(body),
+      attachments: attachmentRefs(attachments),
+    }),
+  cancelMerge: (client, taskId, comment, attachments) =>
+    client.cancelMerge(String(taskId), String(comment), attachmentRefs(attachments)),
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
@@ -118,6 +136,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
   taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
+  search: (client, query, factoryId) =>
+    client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
@@ -131,8 +151,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
   stopTask: (client, taskId) => client.stopTask(String(taskId)),
-  resumeTask: (client, taskId, comment) =>
-    client.resumeTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  resumeTask: (client, taskId, comment, attachments) =>
+    client.resumeTask(
+      String(taskId),
+      typeof comment === 'string' ? comment : undefined,
+      attachmentRefs(attachments),
+    ),
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const link = task?.source && parseLinearUrl(task.source.url)
@@ -152,6 +176,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     })
   },
   unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  followUpTask: (client, taskId, comment, attachments) =>
+    client.followUpTask(
+      String(taskId),
+      typeof comment === 'string' ? comment : undefined,
+      attachmentRefs(attachments),
+    ),
+  archiveDone: (client, factoryId) => client.archiveDone(String(factoryId)),
   deleteTask: (client, taskId, options) => {
     const blocked = blockedChoices.find(
       (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
@@ -176,6 +207,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       new Uint8Array(bytes),
     )
   },
+  readAttachment: (client, hash, name) =>
+    client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
@@ -199,7 +232,29 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
   saveFactorySettings: (client, factoryId, request) =>
     client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
+  library: (client) => client.library(),
+  previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
+  saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  reorderFactories: (client, factoryIds) =>
+    client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),
+  factoryRemoval: (client, factoryId) => client.factoryRemoval(String(factoryId)),
+  removeFactory: (client, factoryId, request) => {
+    const given = request as { key?: unknown; closePullRequests?: unknown } | undefined
+    return client.removeFactory(String(factoryId), {
+      key: String(given?.key ?? ''),
+      closePullRequests: given?.closePullRequests !== false,
+    })
+  },
+  repoRemoval: (client, factoryId, repoName) =>
+    client.repoRemoval(String(factoryId), String(repoName)),
+  showFactoryFolder: async (client, factoryId) => {
+    const factory = (await client.listFactories()).find((f) => f.id === String(factoryId))
+    const folder = factory?.localFolder
+    if (!folder?.found) throw new Error('This Factory has no local folder')
+    const error = await shell.openPath(folder.path)
+    if (error !== '') throw new Error(error)
+  },
   tryCheck: (client, factoryId, request) =>
     client.tryCheck(String(factoryId), request as CheckTryRequest),
   stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),
@@ -412,6 +467,7 @@ function forward(event: DaemonEvent): void {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
   if (event.type === 'banner-raised') notifyProblem(event.banner)
+  if (event.type === 'task-updated') notifyMerged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
@@ -420,6 +476,18 @@ function forward(event: DaemonEvent): void {
 function notifyProblem(banner: Banner): void {
   const notice = problemNotice(banner)
   if (!notice || hiddenWindow || !Notification.isSupported()) return
+  const shown = new Notification({ title: notice.title, body: notice.body })
+  shown.on('click', () => run(notice.opens))
+  shown.show()
+}
+
+const mergedNotified = new Set<string>()
+
+function notifyMerged(task: Task): void {
+  const notice = mergedNotice(task, Date.now())
+  if (!notice || mergedNotified.has(task.id)) return
+  mergedNotified.add(task.id)
+  if (!settings.notifyTaskMerged || hiddenWindow || !Notification.isSupported()) return
   const shown = new Notification({ title: notice.title, body: notice.body })
   shown.on('click', () => run(notice.opens))
   shown.show()

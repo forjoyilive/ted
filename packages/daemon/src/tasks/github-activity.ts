@@ -6,7 +6,7 @@ import type { PullRequestPreview, StageId } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
 import type { RemoteCheck, RemotePullRequest } from './merge.ts'
 
-export type GitHubNoticeKind = 'ci' | 'review' | 'conflict' | 'outside'
+export type GitHubNoticeKind = 'ci' | 'outside-ci' | 'review' | 'conflict' | 'outside'
 
 export interface GitHubNotice {
   key: string
@@ -33,6 +33,47 @@ const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 
 export function trusted(author: RemotePullRequest['reviews'][number]['author']): boolean {
   return trustedAssociations.has(author.association ?? '')
+}
+
+const trustedCiApps = new Set(['buildkite', 'circleci-checks', 'azure-pipelines', 'travis-ci'])
+
+export function trustedCheck(pr: Pick<RemotePullRequest, 'url'>, check: RemoteCheck): boolean {
+  if (check.kind !== 'check' || check.app === undefined) return false
+  if (trustedCiApps.has(check.app)) return true
+  if (check.app !== 'github-actions' || check.url === undefined) return false
+  let base: URL
+  let details: URL
+  try {
+    base = new URL(pr.url)
+    details = new URL(check.url)
+  } catch {
+    return false
+  }
+  const repo = /^\/([^/]+)\/([^/]+)\/pull\/\d+\/?$/.exec(base.pathname)
+  const run = /^\/([^/]+)\/([^/]+)\/actions\/runs\/\d+(?:\/|$)/.exec(details.pathname)
+  return (
+    repo !== null &&
+    run !== null &&
+    base.host === details.host &&
+    repo[1]?.toLowerCase() === run[1]?.toLowerCase() &&
+    repo[2]?.toLowerCase() === run[2]?.toLowerCase()
+  )
+}
+
+export function checkList(
+  pr: Pick<RemotePullRequest, 'url'>,
+  checks: readonly RemoteCheck[],
+): string {
+  const names = checks
+    .filter((c) => trustedCheck(pr, c))
+    .map((c) => clean(c.name, 200) || 'unnamed check')
+  const outside = checks.length - names.length
+  const items = [...names, ...(outside > 0 ? [outsideCount(outside)] : [])]
+  return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+function outsideCount(n: number): string {
+  return `${n} ${n === 1 ? 'check' : 'checks'} from outside apps`
 }
 
 const maxBody = 4000
@@ -74,7 +115,40 @@ function ciNotices(
   pr: RemotePullRequest,
   tails: ReadonlyMap<string, string>,
 ): GitHubNotice[] {
-  const failed = failedChecks(pr)
+  const all = failedChecks(pr)
+  const failed = all.filter((c) => trustedCheck(pr, c))
+  const others = all.filter((c) => !trustedCheck(pr, c))
+  return [...trustedCiNotices(where, pr, failed, tails), ...outsideCiNotices(where, pr, others)]
+}
+
+function outsideCiNotices(
+  where: string,
+  pr: RemotePullRequest,
+  others: readonly RemoteCheck[],
+): GitHubNotice[] {
+  if (others.length === 0) return []
+  const link = safeUrl(pr.url)
+  return [
+    {
+      key: `ci-outside:${where}`,
+      sig: `${pr.headRefOid}:${others.length}`,
+      kind: 'outside-ci',
+      where,
+      detail: [
+        `CI failed: ${outsideCount(others.length)} on ${where}.`,
+        'TED doesn’t pass on what outside apps report.',
+        ...(link ? [`The human can look at them on the pull request: ${link}`] : []),
+      ].join(' '),
+    },
+  ]
+}
+
+function trustedCiNotices(
+  where: string,
+  pr: RemotePullRequest,
+  failed: readonly RemoteCheck[],
+  tails: ReadonlyMap<string, string>,
+): GitHubNotice[] {
   if (failed.length === 0) return []
   const names = failed.map((c) => clean(c.name, 200) || 'unnamed check')
   const detail = failed.map((check, i) => {
@@ -173,7 +247,11 @@ export function summary(notices: readonly Pick<GitHubNotice, 'kind' | 'where'>[]
     .map(([where, list]) => {
       const reviews = list.filter((n) => n.kind === 'review' || n.kind === 'outside').length
       const parts = [
-        ...(list.some((n) => n.kind === 'ci') ? ['CI failed'] : []),
+        ...(list.some((n) => n.kind === 'ci')
+          ? ['CI failed']
+          : list.some((n) => n.kind === 'outside-ci')
+            ? ['CI failed on checks from outside apps']
+            : []),
         ...(reviews > 0 ? [reviews === 1 ? '1 review comment' : `${reviews} review comments`] : []),
         ...(list.some((n) => n.kind === 'conflict') ? ['a merge conflict'] : []),
       ]

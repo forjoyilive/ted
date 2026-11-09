@@ -74,19 +74,25 @@ import {
   taskStatus,
   taskStatuses,
 } from '../tasks/status.ts'
+import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
   agentPauses,
+  automationComments,
+  automations,
+  automationTasks,
   banners,
   checkResults,
   checkRuns,
+  commentAttachments,
   comments,
   conversationEntries,
   conversationTabs,
   deletedTasks,
   events,
   factories,
+  factoryOrder,
   factoryRepos,
   heldRuns,
   localFolders,
@@ -232,6 +238,8 @@ export interface NewTask {
   blockedBy?: string[]
   attachments?: Attachment[]
   source?: TaskSource
+  followUpOf?: string
+  automation?: { automationId: string; firingId: string }
 }
 
 export interface PlannedStage {
@@ -327,6 +335,7 @@ export interface NewComment {
   choices?: string[]
   round?: Round
   gate?: NonNullable<Comment['gate']>
+  attachments?: readonly Attachment[]
 }
 
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
@@ -439,6 +448,8 @@ export interface TedStore {
   setLocalFolder(repo: string, path: string): void
   clearLocalFolder(repo: string): void
   renameFactory(factoryId: string, name: string): StoredFactory
+  reorderFactories(factoryIds: readonly string[]): StoredFactory[]
+  removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
@@ -480,6 +491,8 @@ export interface TedStore {
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  taskFiles(taskId: string): Attachment[]
+  filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
   answerComment(id: string, answer: CommentAnswer): Comment
   commentsDelivered(ids: readonly string[], runId: string): void
@@ -597,6 +610,7 @@ export interface TedStore {
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
   onWriteResult(listener: (error?: unknown) => void): () => void
+  automations: AutomationStore
   close(): Promise<void>
 }
 
@@ -681,15 +695,24 @@ export async function openStore({
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
+  const allFactoryOrder = queryDb(factoryOrder.orderBy('position', 'asc'))
   const listFactories = (): StoredFactory[] => {
     const repos = store.query(allFactoryRepos)
-    return store.query(allFactories).map(({ clonedAt, ...row }) => ({
-      ...row,
-      repos: repos
-        .filter((r) => r.factoryId === row.id)
-        .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
-      ...(clonedAt !== null && { clonedAt }),
-    }))
+    const placed = new Map(store.query(allFactoryOrder).map((r) => [r.factoryId, r.position]))
+    const rows = store.query(allFactories)
+    const after = Math.max(-1, ...placed.values()) + 1
+    const rank = (id: string, index: number) => placed.get(id) ?? after + index
+    return rows
+      .map((row, index) => ({ row, rank: rank(row.id, index) }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ row: { clonedAt, ...row } }, position) => ({
+        ...row,
+        position,
+        repos: repos
+          .filter((r) => r.factoryId === row.id)
+          .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
+        ...(clonedAt !== null && { clonedAt }),
+      }))
   }
   const requireFactory = (id: string) => {
     const found = listFactories().find((f) => f.id === id)
@@ -925,6 +948,11 @@ export async function openStore({
       }
     })
 
+  const commentFiles = (commentId: string): Attachment[] =>
+    store
+      .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
   const attachmentsOf = (taskId: string): Attachment[] =>
     store
       .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
@@ -973,6 +1001,7 @@ export async function openStore({
     stoppedRuns,
     stoppedWhy,
     failedAt,
+    followUpOf,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1096,6 +1125,17 @@ export async function openStore({
       return { kind: 'stopped', stage }
     }
     const source = sourceOf(row.id)
+    const original =
+      followUpOf === null ? undefined : (taskRow(followUpOf) ?? deletedRow(followUpOf))
+    const merged =
+      stage === 'done'
+        ? {
+            at: entries.findLast((e) => e.stage === 'done')?.at ?? row.createdAt,
+            pullRequests: repos.flatMap((r) =>
+              r.pullRequest?.state === 'merged' ? [r.pullRequest.number] : [],
+            ),
+          }
+        : undefined
     return {
       ...row,
       priority: row.priority as Priority,
@@ -1153,7 +1193,19 @@ export async function openStore({
             ...(waitingOnSubAgents.has(r.id) && { onSubAgents: true }),
           }
         }),
-      createdBy: 'human',
+      createdBy:
+        followUpOf !== null
+          ? 'follow-up'
+          : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+            ? 'automation'
+            : 'human',
+      ...(followUpOf !== null && {
+        followUpOf: {
+          id: followUpOf,
+          displayId: original ? `${factoryKey(original.factoryId)}-${original.number}` : followUpOf,
+        },
+      }),
+      ...(merged && { merged }),
       updatedAt,
       ...(archivedAt !== null && { archived: { at: archivedAt, ended: ended() } }),
     }
@@ -1237,7 +1289,13 @@ export async function openStore({
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+    ...withFiles(row.id),
   })
+
+  const withFiles = (commentId: string): { attachments?: Attachment[] } => {
+    const files = commentFiles(commentId)
+    return files.length > 0 ? { attachments: files } : {}
+  }
 
   const openPermissionRows = (runId: string, requestId?: string) =>
     store
@@ -1401,7 +1459,17 @@ export async function openStore({
     return comment
   }
   const commentPosted = (
-    { taskId, body, author, kind = 'note', title, choices, round, gate }: NewComment,
+    {
+      taskId,
+      body,
+      author,
+      kind = 'note',
+      title,
+      choices,
+      round,
+      gate,
+      attachments = [],
+    }: NewComment,
     createdAt: string,
   ) => {
     const id = randomUUID()
@@ -1422,7 +1490,18 @@ export async function openStore({
       round === undefined
         ? events.commentPostedV2(fields)
         : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
-    return { id, event }
+    const attached = attachments.map(({ hash, name, size, mediaType }, position) =>
+      events.commentAttachmentAdded({
+        commentId: id,
+        taskId,
+        hash,
+        name,
+        size,
+        mediaType,
+        position,
+      }),
+    )
+    return { id, event, attached }
   }
   const repoAt = (taskId: string, cwd: string) => {
     if (!path.isAbsolute(cwd)) return undefined
@@ -1497,14 +1576,23 @@ export async function openStore({
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
     const held = store.query(queryDb(heldRuns)).length
+    const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
+    const liveAutomations = store
+      .query(queryDb(automations.select()))
+      .filter((a) => factoryIds.has(a.factoryId))
+    const liveIds = new Set(liveAutomations.map((a) => a.id))
     return {
-      waitingOnYou: active.filter((run) => run.state === 'waiting').length,
+      waitingOnYou:
+        active.filter((run) => run.state === 'waiting').length +
+        store
+          .query(queryDb(automationComments.where({ kind: 'question', answer: null })))
+          .filter((c) => liveIds.has(c.automationId)).length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
         queued: 0,
       },
-      automationsOn: 0,
+      automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
       checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
     }
@@ -1538,7 +1626,15 @@ export async function openStore({
     return banner
   }
 
+  const automationStore = createAutomationStore({
+    store,
+    commit,
+    emit,
+    changed: () => noteActivity(),
+  })
+
   return {
+    automations: automationStore,
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       commit(events.factoryAdded(row))
@@ -1572,6 +1668,8 @@ export async function openStore({
       blockedBy = [],
       attachments = [],
       source,
+      followUpOf,
+      automation,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1614,11 +1712,20 @@ export async function openStore({
               }),
             ]
           : []),
+        ...(followUpOf !== undefined
+          ? [
+              events.taskFollowsUp({ taskId: id, originalId: followUpOf, at }),
+              events.taskFollowedUp({ taskId: followUpOf, followUpId: id, at }),
+            ]
+          : []),
+        ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
+      if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
+      if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
     },
     listTasks: () => listTasks().map(toPublicTask),
@@ -2115,6 +2222,17 @@ export async function openStore({
       commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
       return requireFactory(factoryId)
     },
+    reorderFactories(factoryIds) {
+      commit(
+        events.factoriesReordered({ factoryIds: [...factoryIds], at: new Date().toISOString() }),
+      )
+      return listFactories()
+    },
+    removeFactory(factoryId) {
+      commit(events.factoryRemoved({ factoryId, at: new Date().toISOString() }))
+      emit({ type: 'factory-removed', factoryId })
+      noteActivity()
+    },
     changeFactoryRepos(factoryId, repos) {
       commit(events.factoryReposChanged({ factoryId, repos, at: new Date().toISOString() }))
       return requireFactory(factoryId)
@@ -2203,9 +2321,20 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
+    taskFiles: (taskId) => [
+      ...attachmentsOf(taskId),
+      ...store
+        .query(queryDb(commentAttachments.where({ taskId })))
+        .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType })),
+    ],
+    filesInUse: () =>
+      new Set([
+        ...store.query(queryDb(taskAttachments)).map((a) => a.hash),
+        ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
+      ]),
     postComment(input) {
-      const { id, event } = commentPosted(input, new Date().toISOString())
-      commit(event)
+      const { id, event, attached } = commentPosted(input, new Date().toISOString())
+      commit(event, ...attached)
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
       if (comment.kind !== 'note') updatedTask(input.taskId)
@@ -2213,9 +2342,13 @@ export async function openStore({
     },
     supersedeComment(oldId, input) {
       const at = new Date().toISOString()
-      const { id, event } = commentPosted(input, at)
+      const { id, event, attached } = commentPosted(input, at)
       const answer: CommentAnswer = { kind: 'superseded', at, by: id }
-      commit(event, events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }))
+      commit(
+        event,
+        ...attached,
+        events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }),
+      )
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
       emitComment(oldId)

@@ -2,6 +2,7 @@ import type {
   DiffLine,
   FactorySettingsChanges,
   FactorySettingsView,
+  FileChange,
   SaveSettingsResult,
   SettingsPreview,
   SettingsSaveMode,
@@ -102,39 +103,7 @@ export function SaveSettingsDialog({
         </p>
         {!preview && error === undefined && <p className={styles.caption}>Preparing the diff…</p>}
         {preview?.files.map((file) => (
-          <section key={file.path} className={styles.diff} aria-label={`Changes to ${file.path}`}>
-            <div className={styles.diffHead}>
-              <span className={styles.mono}>{file.path}</span>
-              <span className={styles.spacer} />
-              <span className={styles.diffCounts}>
-                <span className={styles.removedCount}>−{file.removed}</span>{' '}
-                <span className={styles.addedCount}>+{file.added}</span>
-              </span>
-            </div>
-            <div className={styles.diffLines}>
-              {keyedLines(file.lines).map(({ key, line }) => (
-                <div
-                  key={key}
-                  className={
-                    line.kind === 'added'
-                      ? styles.addedLine
-                      : line.kind === 'removed'
-                        ? styles.removedLine
-                        : line.kind === 'gap'
-                          ? styles.gapLine
-                          : styles.sameLine
-                  }
-                >
-                  <span className={styles.diffMark} aria-hidden>
-                    {line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}
-                  </span>
-                  <span className={styles.diffText}>
-                    {line.kind === 'gap' ? `… ${line.text}` : line.text}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </section>
+          <FileDiff key={file.path} file={file} />
         ))}
         {preview && preview.problems.length > 0 && (
           <div className={styles.problems} role="alert">
@@ -154,7 +123,8 @@ export function SaveSettingsDialog({
             <p>
               <strong>This save turns on Bypass.</strong> Every Run in {factoryName} will act
               without asking: it can run any command, change any file and use the network. Use it
-              only when Runs happen in an isolated machine or VM.
+              only when Runs happen in an isolated machine or VM. Automations always run in Auto
+              permissions.
             </p>
             <label>
               <input
@@ -215,6 +185,44 @@ export function SaveSettingsDialog({
         </Button>
       </footer>
     </dialog>
+  )
+}
+
+export function FileDiff({ file, label }: { file: FileChange; label?: string }) {
+  return (
+    <section className={styles.diff} aria-label={label ?? `Changes to ${file.path}`}>
+      <div className={styles.diffHead}>
+        <span className={styles.mono}>{file.path}</span>
+        <span className={styles.spacer} />
+        <span className={styles.diffCounts}>
+          <span className={styles.removedCount}>−{file.removed}</span>{' '}
+          <span className={styles.addedCount}>+{file.added}</span>
+        </span>
+      </div>
+      <div className={styles.diffLines}>
+        {keyedLines(file.lines).map(({ key, line }) => (
+          <div
+            key={key}
+            className={
+              line.kind === 'added'
+                ? styles.addedLine
+                : line.kind === 'removed'
+                  ? styles.removedLine
+                  : line.kind === 'gap'
+                    ? styles.gapLine
+                    : styles.sameLine
+            }
+          >
+            <span className={styles.diffMark} aria-hidden>
+              {line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}
+            </span>
+            <span className={styles.diffText}>
+              {line.kind === 'gap' ? `… ${line.text}` : line.text}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
 

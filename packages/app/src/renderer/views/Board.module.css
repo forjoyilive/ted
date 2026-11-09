@@ -18,11 +18,27 @@
   white-space: nowrap;
 }
 
+.boardArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.emptyOverlay {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+}
+
 .board {
   display: flex;
   flex: 1;
   align-items: stretch;
   gap: 12px;
+  min-width: 0;
   min-height: 0;
   padding: 16px 20px;
   overflow: auto;
@@ -248,4 +264,56 @@
   font-size: var(--text-12);
   white-space: nowrap;
   pointer-events: none;
+}
+
+.columnMenu {
+  margin-left: auto;
+}
+
+.columnMore {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.columnMore:hover,
+.columnMore[aria-expanded='true'] {
+  background: var(--surface-inset);
+  color: var(--text-primary);
+}
+
+.doneCard {
+  gap: 2px;
+  padding: 8px 12px;
+  cursor: default;
+}
+
+.doneTitle {
+  color: var(--text-secondary);
+  font-size: var(--text-13-5);
+  font-weight: var(--weight-regular);
+  -webkit-line-clamp: 1;
+}
+
+.showAll {
+  align-self: flex-start;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-13);
+  cursor: pointer;
+}
+
+.showAll:hover {
+  text-decoration: underline;
 }

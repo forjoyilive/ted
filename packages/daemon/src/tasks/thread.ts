@@ -163,6 +163,12 @@ export function threadEvents(
       case 'v2.TaskCreated':
         add(entry, 'done', 'You created this Task')
         break
+      case 'v1.TaskFollowsUp':
+        add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
+        break
+      case 'v1.TaskFollowedUp':
+        add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
+        break
       case 'v1.TaskEdited': {
         const title = text(data.title)
         const version = typeof data.version === 'number' ? data.version : undefined
@@ -474,7 +480,11 @@ export function threadEvents(
         add(entry, 'quiet', `The pull request for ${text(data.name)} was closed on GitHub`)
         break
       case 'v1.GitHubActivitySent':
-        add(entry, 'run', `GitHub: ${gitHubSummary(data.notices)} · sent to the Task Lead`)
+        add(
+          entry,
+          'run',
+          `GitHub: ${gitHubSummary(data.notices)} · sent to the Task Lead${outsideCiNote(data.notices)}`,
+        )
         break
       case 'v1.GitHubActivityHeld':
         add(
@@ -487,7 +497,7 @@ export function threadEvents(
         add(
           entry,
           'run',
-          `GitHub: ${gitHubSummary(data.notices)} · a fresh Task Lead Run starts from the brief`,
+          `GitHub: ${gitHubSummary(data.notices)} · a fresh Task Lead Run starts from the brief${outsideCiNote(data.notices)}`,
         )
         break
       case 'v1.MergeStoppedPartway': {
@@ -516,11 +526,22 @@ export function threadEvents(
   return lines
 }
 
+function outsideCiNote(notices: unknown): string {
+  const list = Array.isArray(notices) ? (notices as { kind?: unknown }[]) : []
+  return list.some((n) => n.kind === 'outside-ci')
+    ? ' · TED passed on only how many checks from outside apps failed; look at them on GitHub'
+    : ''
+}
+
 function gitHubSummary(notices: unknown): string {
   const list = Array.isArray(notices) ? (notices as { kind?: unknown; where?: unknown }[]) : []
   return summary(
     list.flatMap((n) =>
-      (n.kind === 'ci' || n.kind === 'review' || n.kind === 'conflict' || n.kind === 'outside') &&
+      (n.kind === 'ci' ||
+        n.kind === 'outside-ci' ||
+        n.kind === 'review' ||
+        n.kind === 'conflict' ||
+        n.kind === 'outside') &&
       typeof n.where === 'string'
         ? [{ kind: n.kind, where: n.where }]
         : [],

@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import type http from 'node:http'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
-import type { Attachment } from '@ted/protocol'
+import type { Attachment, AttachmentBytes } from '@ted/protocol'
 import { RequestError } from './errors.ts'
 
 export const maxAttachmentBytes = 25 * 1024 * 1024
@@ -16,6 +16,7 @@ export interface Attachments {
   save(req: http.IncomingMessage): Promise<Attachment>
   find(input: { hash: string; name: string; mediaType: string }): Promise<Attachment>
   file(attachment: Pick<Attachment, 'hash' | 'name'>): string
+  read(attachment: Pick<Attachment, 'hash' | 'name'>): Promise<AttachmentBytes>
 }
 
 export function createAttachments(dir: string): Attachments {
@@ -54,6 +55,18 @@ export function createAttachments(dir: string): Attachments {
       } finally {
         await rm(temp, { force: true })
       }
+    },
+
+    async read({ hash, name }) {
+      const clean = cleanName(name)
+      if (!hashPattern.test(hash) || clean === '') {
+        throw new RequestError(400, 'an attachment needs a hash and a name')
+      }
+      const target = file({ hash, name: clean })
+      const found = await stat(target).catch(() => undefined)
+      if (!found?.isFile()) throw new RequestError(404, `no attachment ${clean}`)
+      const data = await readFile(target)
+      return { data: data.toString('base64') }
     },
 
     async find({ hash, name, mediaType }) {

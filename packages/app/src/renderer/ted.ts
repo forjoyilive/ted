@@ -3,8 +3,11 @@ import type {
   AgentHealth,
   AgentKind,
   AnswerRequest,
+  ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  AttachmentBytes,
+  AttachmentRef,
   BackupsSummary,
   Banner,
   BannerActionInput,
@@ -27,10 +30,14 @@ import type {
   EditTaskRequest,
   Factory,
   FactoryBoard,
+  FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
   InboxItem,
   IntegrationsHealth,
+  LibraryChanges,
+  LibraryPreview,
+  LibraryView,
   LinearLookup,
   LinearStatus,
   LogText,
@@ -39,7 +46,9 @@ import type {
   Priority,
   Profile,
   RemoveClonesResult,
+  RemoveFactoryRequest,
   RepoCheck,
+  RepoRemoval,
   RestoreBackupResult,
   Run,
   RunChat,
@@ -48,8 +57,10 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
+  SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
   StageEntry,
@@ -84,10 +95,10 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
-  cancelMerge: (taskId: string, comment: string) =>
-    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
-  postComment: (taskId: string, body: string) =>
-    window.ted.request('postComment', taskId, body) as Promise<Comment>,
+  cancelMerge: (taskId: string, comment: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('cancelMerge', taskId, comment, attachments) as Promise<Comment>,
+  postComment: (taskId: string, body: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('postComment', taskId, body, attachments) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>
     window.ted.request('markCommentsRead', taskId) as Promise<{ read: number }>,
   listThreadEvents: (taskId: string) =>
@@ -119,6 +130,8 @@ export const ted = {
     window.ted.request('editTask', taskId, edit) as Promise<Task>,
   taskDescriptions: (taskId: string) =>
     window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
+  search: (query: string, factoryId?: string) =>
+    window.ted.request('search', query, factoryId) as Promise<SearchResults>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
     window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
@@ -135,8 +148,8 @@ export const ted = {
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
   stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
-  resumeTask: (taskId: string, comment?: string) =>
-    window.ted.request('resumeTask', taskId, comment) as Promise<Task>,
+  resumeTask: (taskId: string, comment?: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('resumeTask', taskId, comment, attachments) as Promise<Task>,
   openTaskSource: (taskId: string) => window.ted.request('openTaskSource', taskId) as Promise<void>,
   moveTask: (taskId: string, request: MoveTaskRequest) =>
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
@@ -145,6 +158,10 @@ export const ted = {
   archiveTask: (taskId: string, options: ArchiveTaskRequest = {}) =>
     window.ted.request('archiveTask', taskId, options) as Promise<Task>,
   unarchiveTask: (taskId: string) => window.ted.request('unarchiveTask', taskId) as Promise<Task>,
+  followUpTask: (taskId: string, comment?: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('followUpTask', taskId, comment, attachments) as Promise<Task>,
+  archiveDone: (factoryId: string) =>
+    window.ted.request('archiveDone', factoryId) as Promise<ArchiveDoneResult>,
   deleteTask: (taskId: string, options: DeleteTaskRequest = {}) =>
     window.ted.request('deleteTask', taskId, options) as Promise<void>,
   openPullRequest: (taskId: string, repoName: string) =>
@@ -160,6 +177,12 @@ export const ted = {
     window.ted.request('factoryBoard', factoryId) as Promise<FactoryBoard>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
+  readAttachment: (attachment: Pick<Attachment, 'hash' | 'name'>) =>
+    window.ted.request(
+      'readAttachment',
+      attachment.hash,
+      attachment.name,
+    ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
@@ -177,6 +200,11 @@ export const ted = {
     window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
   saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
     window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  library: () => window.ted.request('library') as Promise<LibraryView>,
+  previewLibrary: (changes: LibraryChanges) =>
+    window.ted.request('previewLibrary', changes) as Promise<LibraryPreview>,
+  saveLibrary: (request: SaveLibraryRequest) =>
+    window.ted.request('saveLibrary', request) as Promise<LibraryView>,
   tryCheck: (factoryId: string, request: CheckTryRequest) =>
     window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
   stopCheckTry: (factoryId: string, name: string) =>
@@ -185,6 +213,16 @@ export const ted = {
     window.ted.request('checkTryOutput', factoryId, name) as Promise<CheckTryOutput>,
   renameFactory: (factoryId: string, name: string) =>
     window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
+  reorderFactories: (factoryIds: string[]) =>
+    window.ted.request('reorderFactories', factoryIds) as Promise<Factory[]>,
+  factoryRemoval: (factoryId: string) =>
+    window.ted.request('factoryRemoval', factoryId) as Promise<FactoryRemoval>,
+  removeFactory: (factoryId: string, request: RemoveFactoryRequest) =>
+    window.ted.request('removeFactory', factoryId, request) as Promise<void>,
+  repoRemoval: (factoryId: string, repoName: string) =>
+    window.ted.request('repoRemoval', factoryId, repoName) as Promise<RepoRemoval>,
+  showFactoryFolder: (factoryId: string) =>
+    window.ted.request('showFactoryFolder', factoryId) as Promise<void>,
   setRepoLocalFolder: (factoryId: string, repoName: string, folder: string) =>
     window.ted.request('setRepoLocalFolder', factoryId, repoName, folder) as Promise<Factory>,
   clearRepoLocalFolder: (factoryId: string, repoName: string) =>

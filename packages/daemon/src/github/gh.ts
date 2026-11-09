@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { ghEnv } from '../command-env.ts'
 import { redactSecrets } from '../redact.ts'
 
 export type GhErrorKind = 'missing' | 'auth' | 'rate-limit' | 'failed'
@@ -63,9 +64,7 @@ export function createGh(options: GhOptions): Gh {
     try {
       const stdout = await runFile(bin, args, {
         env: {
-          ...env,
-          GH_PROMPT_DISABLED: '1',
-          GH_NO_UPDATE_NOTIFIER: '1',
+          ...ghEnv(env),
           ...(runOptions.host !== undefined && { GH_HOST: runOptions.host }),
         },
         ...(runOptions.cwd !== undefined && { cwd: runOptions.cwd }),

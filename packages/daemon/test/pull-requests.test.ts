@@ -208,6 +208,45 @@ describe('Pushing and pull requests', () => {
     expect(await originBranches()).toContain('ted/')
   })
 
+  test('Remove Factory closes open pull requests when asked and keeps the branches', async () => {
+    const client = await start()
+    const task = await walkToSignoff(client, true)
+    await waitUntil(
+      async () => (await repoOf(client, task))?.pullRequest?.state === 'ready',
+      'the pull request to be ready',
+    )
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const summary = await client.ok<{ openPullRequests: number }>(
+      'GET',
+      `/factories/${factory?.id}/removal`,
+    )
+    expect(summary.openPullRequests).toBe(1)
+    await client.ok('POST', `/factories/${factory?.id}/remove`, {
+      key: 'NB',
+      closePullRequests: true,
+    })
+    expect((await prCalls('close')).map((c) => c.args.slice(2))).toEqual([
+      ['7', '--repo', 'acme/widgets'],
+    ])
+    expect(await originBranches()).toContain('ted/')
+  })
+
+  test('Remove Factory leaves open pull requests alone when not asked', async () => {
+    const client = await start()
+    const task = await walkToSignoff(client, true)
+    await waitUntil(
+      async () => (await repoOf(client, task))?.pullRequest?.state === 'ready',
+      'the pull request to be ready',
+    )
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('POST', `/factories/${factory?.id}/remove`, {
+      key: 'NB',
+      closePullRequests: false,
+    })
+    expect(await prCalls('close')).toEqual([])
+    expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
+  })
+
   test('Archive names the pull requests it closed, and Unarchive reopens them', async () => {
     const client = await start()
     const task = await walkToSignoff(client, true)

@@ -36,10 +36,17 @@ interface NewTaskDialogProps {
   factories: readonly Factory[]
   tasks: readonly Task[]
   factoryId: string | undefined
+  initialDescription?: string
   onClose: () => void
 }
 
-export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskDialogProps) {
+export function NewTaskDialog({
+  factories,
+  tasks,
+  factoryId,
+  initialDescription = '',
+  onClose,
+}: NewTaskDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -49,7 +56,7 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
   )
   const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
+  const [description, setDescription] = useState(initialDescription)
   const [priority, setPriority] = useState<Priority>('none')
   const [blockedBy, setBlockedBy] = useState<string[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])

@@ -16,7 +16,7 @@ import type { TedStore } from './store/index.ts'
 
 export interface Storage {
   summary(): Promise<StorageSummary>
-  removeUnusedClones(): Promise<RemoveClonesResult>
+  removeUnusedClones(only?: readonly string[]): Promise<RemoveClonesResult>
 }
 
 const largestShown = 10
@@ -135,12 +135,14 @@ export function createStorage(options: {
         backupsDir: `${displayPath(paths.backups)}${path.sep}`,
       }
     },
-    async removeUnusedClones() {
+    async removeUnusedClones(only) {
       const root = await realpath(paths.repos).catch(() => undefined)
       if (root === undefined) return { removed: [], bytes: 0 }
       const removed: string[] = []
       let bytes = 0
+      const wanted = only && new Set(only.map((repo) => repo.toLowerCase()))
       for (const { repo, dir } of await unusedClones()) {
+        if (wanted && !wanted.has(repo.toLowerCase())) continue
         const [owner, name] = repo.split('/')
         if (!owner || !name || ![owner, name].every(isSafeSegment)) continue
         const real = await realpath(dir).catch(() => undefined)

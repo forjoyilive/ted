@@ -21,11 +21,11 @@ import type { Agents } from '../agents/index.ts'
 import { compareVersions } from '../backups.ts'
 import type { Banners } from '../banners.ts'
 import { findBinSync } from '../cli-env.ts'
+import type { Environment } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import type { TedStore } from '../store/index.ts'
 import type { OpenTerminal } from '../terminal.ts'
 import { runCli, versionIn } from './cli.ts'
-import type { Environment } from './environment.ts'
 
 export const healthIntervalMs = 10 * 60 * 1000
 export const fixPollMs = 5_000
@@ -48,6 +48,7 @@ export interface AgentHealthMonitor {
   onReady(listener: (kind: AgentKind) => void): void
   onPaused(listener: (kind: AgentKind, state: AgentHealthState) => void): void
   onProbe(listener: (kind: AgentKind) => boolean): void
+  onVersion(listener: (kind: AgentKind, version: string) => void): void
   close(): void
 }
 
@@ -79,6 +80,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   const readyListeners = new Set<(kind: AgentKind) => void>()
   const pausedListeners = new Set<(kind: AgentKind, state: AgentHealthState) => void>()
   const probeListeners = new Set<(kind: AgentKind) => boolean>()
+  const versionListeners = new Set<(kind: AgentKind, version: string) => void>()
   const watches = new Map<AgentKind, NodeJS.Timeout>()
   const limits = new Map<AgentKind, Limit>()
   const wrongKeys = new Map<AgentKind, string | undefined>()
@@ -235,6 +237,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
 
   function apply(health: AgentHealth): AgentHealth {
     inspected.set(health.agent, health)
+    const { version } = health
+    if (version !== undefined)
+      for (const listener of versionListeners) listener(health.agent, version)
     if (health.state === 'ready') stopWatching(health.agent)
     return publish(health.agent) ?? health
   }
@@ -430,6 +435,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     },
     onProbe(listener) {
       probeListeners.add(listener)
+    },
+    onVersion(listener) {
+      versionListeners.add(listener)
     },
     close() {
       closed = true

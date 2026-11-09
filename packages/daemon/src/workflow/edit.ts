@@ -172,9 +172,13 @@ export function inputProblems(
   return problems
 }
 
+export type LayerChanges = Omit<FactorySettingsChanges, 'repos'> & {
+  repos?: RepoSettingsInput[]
+}
+
 export function applyChanges(
   text: string | undefined,
-  changes: FactorySettingsChanges,
+  changes: LayerChanges,
   current: readonly RepoSettingsInput[],
   basedOn: Partial<Record<AgentStageId, string | null>> = {},
 ): string {
@@ -182,6 +186,62 @@ export function applyChanges(
     text === undefined || text.trim() === '' ? new Document({ version: 1 }) : parseDocument(text)
   if (!isMap(doc.contents)) doc.contents = doc.createNode({ version: 1 }) as YAMLMap
   const root = doc.contents as YAMLMap
+  if (changes.repos !== undefined) writeRepos(doc, root, changes.repos, current)
+
+  for (const [id, stage] of Object.entries(changes.stages ?? {})) {
+    if (!stage) continue
+    const fields: [string, unknown][] = [
+      ['enabled', stage.enabled],
+      ['gate', stage.gate],
+      ['max_back', stage.maxBack],
+      ['depth', stage.depth],
+    ]
+    if (fields.every(([, value]) => value === undefined)) continue
+    const map = stageMap(doc, root, id)
+    for (const [key, value] of fields) if (value !== undefined) setKeepingStyle(map, key, value)
+  }
+  for (const [id, hash] of Object.entries(basedOn)) {
+    if (hash === undefined) continue
+    if (hash === null) {
+      const stages: unknown = root.get('stages', true)
+      const map = isMap(stages) ? stages.get(id, true) : undefined
+      if (isMap(map)) {
+        map.delete('based_on')
+        if (map.items.length === 0) (stages as unknown as YAMLMap).delete(id)
+      }
+      if (isMap(stages) && stages.items.length === 0) root.delete('stages')
+    } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
+  }
+  if (changes.checks !== undefined) {
+    const removed = new Set(
+      changes.repos === undefined
+        ? []
+        : current.map((r) => r.was).filter((was) => !changes.repos?.some((r) => r.was === was)),
+    )
+    const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
+    writeChecks(doc, root, kept)
+  }
+  for (const role of agentRoles) {
+    const choice = changes.agents?.[role]
+    if (choice === undefined) continue
+    if (choice === null) root.delete(role)
+    else writeAgent(doc, root, role, choice)
+  }
+  if (changes.permissions !== undefined) setRoot(root, 'permissions', changes.permissions)
+  if (changes.maxWorkingRuns === null) root.delete('max_working_runs')
+  else if (changes.maxWorkingRuns !== undefined) {
+    setRoot(root, 'max_working_runs', changes.maxWorkingRuns)
+  }
+  return keepOriginalStyle(text, doc.toString({ lineWidth: 0, flowCollectionPadding: false }))
+}
+
+function writeRepos(
+  doc: Document,
+  root: YAMLMap,
+  repos: readonly RepoSettingsInput[],
+  current: readonly RepoSettingsInput[],
+): void {
+  const changes = { repos }
   const existing = root.get('repos', true)
   const items = isSeq(existing) ? (existing.items as unknown[]) : []
   const originalIndex = (was: string) => current.findIndex((r) => r.was === was)
@@ -219,44 +279,6 @@ export function applyChanges(
       return true
     })
   }
-
-  for (const [id, stage] of Object.entries(changes.stages ?? {})) {
-    if (!stage) continue
-    const fields: [string, unknown][] = [
-      ['enabled', stage.enabled],
-      ['gate', stage.gate],
-      ['max_back', stage.maxBack],
-      ['depth', stage.depth],
-    ]
-    if (fields.every(([, value]) => value === undefined)) continue
-    const map = stageMap(doc, root, id)
-    for (const [key, value] of fields) if (value !== undefined) setKeepingStyle(map, key, value)
-  }
-  for (const [id, hash] of Object.entries(basedOn)) {
-    if (hash === undefined) continue
-    if (hash === null) {
-      const stages: unknown = root.get('stages', true)
-      const map = isMap(stages) ? stages.get(id, true) : undefined
-      if (isMap(map)) {
-        map.delete('based_on')
-        if (map.items.length === 0) (stages as unknown as YAMLMap).delete(id)
-      }
-      if (isMap(stages) && stages.items.length === 0) root.delete('stages')
-    } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
-  }
-  if (changes.checks !== undefined) writeChecks(doc, root, changes.checks)
-  for (const role of agentRoles) {
-    const choice = changes.agents?.[role]
-    if (choice === undefined) continue
-    if (choice === null) root.delete(role)
-    else writeAgent(doc, root, role, choice)
-  }
-  if (changes.permissions !== undefined) setRoot(root, 'permissions', changes.permissions)
-  if (changes.maxWorkingRuns === null) root.delete('max_working_runs')
-  else if (changes.maxWorkingRuns !== undefined) {
-    setRoot(root, 'max_working_runs', changes.maxWorkingRuns)
-  }
-  return keepOriginalStyle(text, doc.toString({ lineWidth: 0, flowCollectionPadding: false }))
 }
 
 const rootOrder = [

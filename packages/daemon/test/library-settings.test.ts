@@ -1,0 +1,362 @@
+import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import {
+  type DaemonEvent,
+  type Factory,
+  type FactorySettingsView,
+  type LibraryChanges,
+  type LibraryPreview,
+  type LibraryView,
+  readDaemonInfo,
+  type Task,
+} from '@ted/protocol'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { defaultsDir } from '../src/workflow/layers.ts'
+import {
+  api,
+  appClient,
+  killRunHosts,
+  makeOriginRepo,
+  makeTempHome,
+  stubClaudePath,
+  stubCodexPath,
+  tokenFor,
+  waitUntil,
+} from './helpers.ts'
+
+let home: string
+let cleanup: () => Promise<void>
+let scratch: string
+let origin: string
+let daemon: RunningDaemon | undefined
+
+beforeEach(async () => {
+  ;({ home, cleanup } = await makeTempHome())
+  scratch = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-library-')))
+  origin = await makeOriginRepo(scratch)
+})
+
+afterEach(async () => {
+  await daemon?.stop()
+  daemon = undefined
+  await killRunHosts(home)
+  await cleanup()
+  await rm(scratch, { recursive: true, force: true })
+})
+
+const libraryDir = () => path.join(home, 'library')
+const libraryFile = (file: string) =>
+  readFile(path.join(libraryDir(), file), 'utf8').catch(() => undefined)
+
+function blobHash(text: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest('hex')
+    .slice(0, 7)
+}
+
+async function start(options: { healthCheck?: boolean; codex?: boolean } = {}) {
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
+    ...(options.healthCheck && { checkAgentsOnStart: true }),
+  })
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+    const res = await client.call(method, route, body)
+    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+    return res.body as T
+  }
+  const view = () => ok<LibraryView>('GET', '/library')
+  const preview = (changes: LibraryChanges) =>
+    ok<LibraryPreview>('POST', '/library/preview', changes)
+  const save = (changes: LibraryChanges, version: string) =>
+    ok<LibraryView>('POST', '/library/save', { changes, version })
+  return { ...client, ok, view, preview, save }
+}
+
+describe('Library settings', () => {
+  test('with no Library every Stage and agent comes from TED’s defaults', async () => {
+    const client = await start()
+    const view = await client.view()
+    expect(view.path).toBe(libraryDir())
+    expect(view.invalid).toBeUndefined()
+    expect(view.stages.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'clarify',
+      'design',
+      'work',
+      'validate',
+      'review',
+      'merge',
+      'done',
+    ])
+    const design = view.stages.find((s) => s.id === 'design')
+    expect(design).toMatchObject({ from: 'ted', gate: true, enabled: true })
+    expect(design?.libraryFile).toBeUndefined()
+    expect(design?.defaultText).toBe(
+      await readFile(path.join(defaultsDir, 'stages/design.md'), 'utf8'),
+    )
+    expect(view.agents.map((a) => [a.role, a.from, a.own])).toEqual([
+      ['lead', 'ted', undefined],
+      ['reviewer', 'ted', undefined],
+      ['planner', 'ted', undefined],
+    ])
+    expect(view.agents[0]?.default).toEqual({ agent: 'claude' })
+  })
+
+  test('Edit in Library copies the default with based_on, and Save writes straight to the Library', async () => {
+    const client = await start()
+    const before = await client.view()
+    const review = before.stages.find((s) => s.id === 'review')?.defaultText ?? ''
+    const edited = `${review}\n## Also\n\nCheck the changelog.\n`
+    const changes: LibraryChanges = {
+      stages: { design: { gate: false } },
+      stageFiles: { review: edited },
+    }
+
+    const preview = await client.preview(changes)
+    expect(preview.valid).toBe(true)
+    expect(preview.files.map((f) => f.path)).toEqual(['workflow.yaml', 'stages/review.md'])
+
+    const after = await client.save(changes, before.version)
+    expect(await libraryFile('stages/review.md')).toBe(edited)
+    expect(await libraryFile('workflow.yaml')).toBe(
+      [
+        'version: 1',
+        'stages:',
+        '  design:',
+        '    gate: false',
+        '  review:',
+        `    based_on: ${blobHash(review)}`,
+        '',
+      ].join('\n'),
+    )
+    expect(after.stages.find((s) => s.id === 'review')).toMatchObject({
+      from: 'library',
+      libraryFile: edited,
+      basedOn: blobHash(review),
+    })
+    expect(after.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
+
+    const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    await waitUntil(
+      async () => (await client.call('GET', `/factories/${factory.id}/settings`)).status === 200,
+      'the clone',
+    )
+    const settings = await client.ok<FactorySettingsView>(
+      'GET',
+      `/factories/${factory.id}/settings`,
+    )
+    expect(settings.stages.find((s) => s.id === 'review')).toMatchObject({
+      from: 'library',
+      inherited: { layer: 'library', text: edited },
+    })
+    expect(settings.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
+  })
+
+  test('Reset to default deletes the Library copy and its based_on', async () => {
+    const client = await start()
+    const first = await client.view()
+    const work = first.stages.find((s) => s.id === 'work')?.defaultText ?? ''
+    const saved = await client.save({ stageFiles: { work: `${work}\nMore.\n` } }, first.version)
+    expect(await libraryFile('stages/work.md')).toBeDefined()
+
+    const reset = await client.save({ stageFiles: { work: null } }, saved.version)
+    expect(await libraryFile('stages/work.md')).toBeUndefined()
+    expect(await libraryFile('workflow.yaml')).toBe('version: 1\n')
+    expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ from: 'ted' })
+    expect(reset.stages.find((s) => s.id === 'work')?.basedOn).toBeUndefined()
+  })
+
+  test('a save that would leave an invalid Library writes nothing', async () => {
+    const client = await start()
+    const view = await client.view()
+    const preview = await client.preview({ stageFiles: { design: '  \n' } })
+    expect(preview.valid).toBe(false)
+    expect(preview.problems[0]).toMatchObject({ file: 'stages/design.md', severity: 'error' })
+
+    const res = await client.call('POST', '/library/save', {
+      changes: { stageFiles: { design: '  \n' } },
+      version: view.version,
+    })
+    expect(res.status).toBe(400)
+    expect(await readdir(libraryDir()).catch(() => [])).toEqual([])
+  })
+
+  test('a save after the Library changed on disk is refused', async () => {
+    const client = await start()
+    const view = await client.view()
+    await mkdir(libraryDir(), { recursive: true })
+    await writeFile(path.join(libraryDir(), 'workflow.yaml'), 'version: 1\nlead: codex\n')
+    const res = await client.call('POST', '/library/save', {
+      changes: { stages: { design: { gate: false } } },
+      version: view.version,
+    })
+    expect(res.status).toBe(409)
+    expect(await libraryFile('workflow.yaml')).toBe('version: 1\nlead: codex\n')
+  })
+
+  test('an edit made outside TED is picked up after validation, and an invalid one shows the notice', async () => {
+    const client = await start()
+    await client.view()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await appClient(info, daemon?.appToken).subscribe((e) => events.push(e))
+    try {
+      await mkdir(path.join(libraryDir(), 'stages'), { recursive: true })
+      await writeFile(
+        path.join(libraryDir(), 'workflow.yaml'),
+        'version: 1\nstages:\n  merge:\n    enabled: false\n',
+      )
+      await waitUntil(
+        async () => events.some((e) => e.type === 'library-changed') || undefined,
+        'library-changed',
+      )
+      const valid = await client.view()
+      expect(valid.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
+      expect(valid.invalid).toBeUndefined()
+
+      events.length = 0
+      await writeFile(path.join(libraryDir(), 'workflow.yaml'), 'version: 1\nstages:\n  merge: [\n')
+      await waitUntil(
+        async () => events.some((e) => e.type === 'library-changed') || undefined,
+        'library-changed',
+      )
+      const broken = await client.view()
+      expect(broken.invalid).toMatchObject({ file: 'workflow.yaml', line: expect.any(Number) })
+      expect(broken.invalid?.lastValid?.version).toMatch(/^[0-9a-f]{7}$/)
+      expect(broken.stages.find((s) => s.id === 'merge')).toMatchObject({ enabled: false })
+
+      const fixed = await client.save({ stages: { merge: { enabled: true } } }, broken.version)
+      expect(fixed.invalid).toBeUndefined()
+      expect(await libraryFile('workflow.yaml')).toBe(
+        'version: 1\nstages:\n  merge:\n    enabled: true\n',
+      )
+    } finally {
+      subscription.close()
+    }
+  })
+
+  test('agent defaults write to the Library’s workflow.yaml and show the Library tag', async () => {
+    const client = await start()
+    const view = await client.view()
+    const saved = await client.save(
+      { agents: { reviewer: { agent: 'codex', model: 'gpt-5.5-codex', effort: 'high' } } },
+      view.version,
+    )
+    expect(await libraryFile('workflow.yaml')).toBe(
+      'version: 1\nreviewer: {agent: codex, model: gpt-5.5-codex, effort: high}\n',
+    )
+    expect(saved.agents.find((a) => a.role === 'reviewer')).toMatchObject({
+      from: 'library',
+      own: { agent: 'codex', model: 'gpt-5.5-codex', effort: 'high' },
+    })
+
+    const task = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    await waitUntil(
+      async () => (await client.call('GET', `/factories/${task.id}/settings`)).status === 200,
+      'the clone',
+    )
+    const factory = await client.ok<FactorySettingsView>('GET', `/factories/${task.id}/settings`)
+    expect(factory.agents.find((a) => a.role === 'reviewer')).toMatchObject({
+      inheritedFrom: 'library',
+      inherited: { agent: 'codex', model: 'gpt-5.5-codex', effort: 'high' },
+    })
+
+    const reset = await client.save({ agents: { reviewer: null } }, saved.version)
+    expect(await libraryFile('workflow.yaml')).toBe('version: 1\n')
+    expect(reset.agents.find((a) => a.role === 'reviewer')).toMatchObject({ from: 'ted' })
+  })
+
+  test('the Reviewer’s default follows the Library’s Task Lead', async () => {
+    const client = await start({ codex: true })
+    expect((await client.view()).agents.find((a) => a.role === 'reviewer')?.default).toEqual({
+      agent: 'codex',
+    })
+    const view = await client.view()
+    const saved = await client.save({ agents: { lead: { agent: 'codex' } } }, view.version)
+    expect(saved.agents.find((a) => a.role === 'reviewer')).toMatchObject({
+      from: 'ted',
+      default: { agent: 'claude' },
+    })
+  })
+
+  test('only the TED app can change the Library', async () => {
+    const client = await start()
+    const view = await client.view()
+    const cli = api(daemon?.port ?? 0, await tokenFor(home))
+    const refused = { status: 403, body: { error: 'only the TED app can do this' } }
+    expect(
+      await cli.call('POST', '/library/save', { changes: { stages: {} }, version: view.version }),
+    ).toEqual(refused)
+    expect(await cli.call('POST', '/library/preview', {})).toEqual(refused)
+  })
+})
+
+describe('restart idle Runs onto new agent versions', () => {
+  const setStub = (state: Record<string, unknown>) =>
+    writeFile(path.join(home, 'stub-claude.json'), JSON.stringify(state))
+  const starts = async () =>
+    (
+      await readFile(
+        path.join(home, 'worktrees', 'NB-1', 'widgets', 'stub-starts.jsonl'),
+        'utf8',
+      ).catch(() => '')
+    )
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => JSON.parse(l) as { argv: string[] })
+
+  async function idleTask() {
+    const client = await start({ healthCheck: true })
+    await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    const task = await client.ok<Task>('POST', '/tasks', {
+      title: JSON.stringify({ steps: [{ endTurn: true }] }),
+      factory: 'NB',
+      start: true,
+    })
+    const run = await waitUntil(async () => {
+      const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      if (!current?.leadRunId) return undefined
+      const found = (await client.getRun(current.leadRunId)).run
+      return found.state === 'idle' ? found : undefined
+    }, 'an idle Task Lead Run')
+    return { client, run }
+  }
+
+  test('an idle Run resumes its session after a CLI update', async () => {
+    await setStub({ version: '2.1.319' })
+    const { client, run } = await idleTask()
+    expect(await starts()).toHaveLength(1)
+
+    await setStub({ version: '2.1.320' })
+    await client.ok('POST', '/agents/health/check')
+    const all = await waitUntil(async () => {
+      const found = await starts()
+      return found.length === 2 ? found : undefined
+    }, 'the Run to restart')
+    const argv = all[1]?.argv ?? []
+    expect(argv[argv.indexOf('--resume') + 1]).toBe(run.sessionId)
+    expect((await client.getRun(run.id)).run.state).not.toBe('finished')
+  })
+
+  test('with the setting off, a CLI update leaves idle Runs alone', async () => {
+    await setStub({ version: '2.1.319' })
+    const { client } = await idleTask()
+    await client.ok('PATCH', '/settings', { restartIdleRuns: false })
+
+    await setStub({ version: '2.1.320' })
+    await client.ok('POST', '/agents/health/check')
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    expect(await starts()).toHaveLength(1)
+  })
+})

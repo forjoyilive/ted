@@ -8,7 +8,14 @@ export interface BoardColumn {
   gate: boolean
   turnedOff: boolean
   tasks: Task[]
+  allDone?: number
 }
+
+export const doneDays = 7
+
+const dayMs = 24 * 60 * 60 * 1000
+
+const doneAt = (task: Task) => task.merged?.at ?? task.updatedAt
 
 export const builtInStages: readonly BoardStage[] = stageOrder.map((id) => ({
   id,
@@ -42,7 +49,11 @@ function columnOrder(stage: StageId, start: StageId | undefined) {
     (stage === start ? Number(isQueued(b)) - Number(isQueued(a)) : 0) || manualOrder(a, b)
 }
 
-export function boardColumns(stages: readonly BoardStage[], tasks: readonly Task[]): BoardColumn[] {
+export function boardColumns(
+  stages: readonly BoardStage[],
+  tasks: readonly Task[],
+  now: number = Date.now(),
+): BoardColumn[] {
   const live = tasks.filter((t) => !t.archived)
   const start = startStage(stages)
   const builtIn = (id: StageId) => stageOrder.indexOf(id)
@@ -52,7 +63,14 @@ export function boardColumns(stages: readonly BoardStage[], tasks: readonly Task
     const at = listed.findIndex((s) => builtIn(s.id) > builtIn(id))
     listed.splice(at === -1 ? listed.length : at, 0, { id, enabled: false, gate: false })
   }
-  return listed.flatMap(({ id, enabled, gate }) => {
+  return listed.flatMap(({ id, enabled, gate }): BoardColumn[] => {
+    if (id === 'done') {
+      const done = live.filter((t) => t.stage === 'done')
+      const recent = done
+        .filter((t) => now - Date.parse(doneAt(t)) <= doneDays * dayMs)
+        .sort((a, b) => doneAt(b).localeCompare(doneAt(a)))
+      return [{ stage: id, gate, turnedOff: !enabled, tasks: recent, allDone: done.length }]
+    }
     const inStage = live.filter((t) => t.stage === id).sort(columnOrder(id, start))
     if (!enabled && inStage.length === 0) return []
     return [{ stage: id, gate, turnedOff: !enabled, tasks: inStage }]
@@ -124,4 +142,15 @@ export function cardActivity(task: Task, now: number): string | undefined {
     return 'place' in status ? 'Waiting for a free Run slot' : status.hold
   }
   return undefined
+}
+
+export function mergedLine(task: Task, now: number): string | undefined {
+  if (task.stage !== 'done' || !task.merged) return undefined
+  const { at, pullRequests } = task.merged
+  const numbers = pullRequests.map((n) => `#${n}`).join(', ')
+  return `Merged ${ago(at, now)}${numbers === '' ? '' : ` · PR ${numbers}`}`
+}
+
+export function doneCardLine(task: Task, now: number): string {
+  return `${task.displayId} · Merged ${ago(doneAt(task), now)}`
 }

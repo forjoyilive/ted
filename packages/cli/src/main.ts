@@ -31,6 +31,7 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
+import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -38,6 +39,7 @@ const usage = `Usage:
   ted doctor                                 Run health checks and show every active problem
   ted open                                   Open TED, or bring its window to the front
   ted comment "<text>"                       Post a note on the Run’s Task (reads stdin if no text)
+  ted comment --attach <path> … ["<text>"]   Post a note with files; images show in the thread
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
@@ -74,9 +76,12 @@ const usage = `Usage:
   ted run wait <id>                          Wait for a sub-agent's final message and print it
   ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
   ted run stop <id>                          Stop a sub-agent
-  ted task create [--factory <key>] [--start] [--source <url>] "<title>"
+  ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]
+                [--follow-up <id>] "<title>"
                                              Create a Task (--start starts it); a Linear URL
-                                             as the source fills it in from Linear
+                                             as the source fills it in from Linear. TED refuses
+                                             a source it already tracks; --follow-up revisits
+                                             a Done Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task block [<id>] --by <id>            Make a Task wait until another Task merges
@@ -92,6 +97,7 @@ const usage = `Usage:
                                              when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev run show <run-id>                  Show a Run's state and Conversation
+${automationUsage}
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
 
@@ -105,11 +111,18 @@ function parse() {
       strict: true,
       options: {
         choice: { type: 'string', multiple: true },
+        attach: { type: 'string', multiple: true },
         agent: { type: 'string' },
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
         name: { type: 'string' },
+        description: { type: 'string' },
+        'follow-up': { type: 'string' },
+        schedule: { type: 'string' },
+        tz: { type: 'string' },
+        template: { type: 'string' },
+        off: { type: 'boolean' },
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
@@ -155,6 +168,26 @@ async function readStdin(): Promise<string> {
   return text
 }
 
+const mediaTypes: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.log': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+}
+
+function mediaTypeOf(file: string): string {
+  return mediaTypes[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
+}
+
 const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
 
 try {
@@ -168,14 +201,55 @@ try {
     await doctor()
   } else if (group === 'open' && command === undefined) {
     await openApp()
-  } else if (group === 'comment') {
-    const ref = taskRef()
+  } else if (group === 'automation') {
+    await automationCommand(home, command, rest, options)
+  } else if (
+    group === 'comment' &&
+    options.task === undefined &&
+    !process.env.TED_TASK &&
+    process.env.TED_AUTOMATION
+  ) {
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
     const choices = options.choice ?? []
     const comment = await withDaemon(home, (client) =>
-      client.postComment(ref, { body, ...(choices.length > 0 && { choices }) }),
+      client.postAutomationComment({ body, ...(choices.length > 0 && { choices }) }),
     )
+    console.log(
+      comment.kind === 'question'
+        ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+        : 'Posted',
+    )
+  } else if (group === 'comment') {
+    const ref = taskRef()
+    const files = options.attach ?? []
+    const text = [command, ...rest].filter((s) => s !== undefined).join(' ')
+    const body = text || (await readStdin())
+    if (body.trim() === '' && files.length === 0) {
+      throw new UsageError('give the Comment as text or on stdin')
+    }
+    const choices = options.choice ?? []
+    if (files.length > 0 && choices.length > 0) {
+      throw new UsageError('a question can’t carry files; post them in a note first')
+    }
+    const contents = await Promise.all(
+      files.map(async (file) => ({
+        name: path.basename(file),
+        mediaType: mediaTypeOf(file),
+        bytes: new Uint8Array(await readFile(file)),
+      })),
+    )
+    const comment = await withDaemon(home, async (client) => {
+      const attachments = []
+      for (const { bytes, ...file } of contents) {
+        attachments.push(await client.uploadTaskAttachment(ref, file, bytes))
+      }
+      return client.postComment(ref, {
+        body,
+        ...(choices.length > 0 && { choices }),
+        ...(attachments.length > 0 && { attachments }),
+      })
+    })
     console.log(
       comment.kind === 'question'
         ? `Asked the human (request ${comment.id}). TED sends you their answer.`
@@ -317,7 +391,8 @@ try {
     (rest.length > 0 || options.source !== undefined)
   ) {
     const title = rest.join(' ')
-    const { factory, source, start } = options
+    const { factory, source, start, description } = options
+    const followUp = options['follow-up']
     const task = await withDaemon(home, async (client) => {
       if (source !== undefined && parseLinearUrl(source)) {
         const lookup = await client.lookupLinear(source)
@@ -333,6 +408,8 @@ try {
         ...(title !== '' && { title }),
         ...(factory !== undefined && { factory }),
         ...(source !== undefined && { source }),
+        ...(description !== undefined && { description }),
+        ...(followUp !== undefined && { followUp }),
         ...(start !== undefined && { start }),
       })
     })
@@ -419,6 +496,9 @@ try {
   if (error instanceof NothingToCheckError) {
     console.error(`ted: ${error.message}`)
     process.exitCode = 1
+  } else if (error instanceof AutomationUsageError) {
+    console.error(error.message === '' ? usage : `ted: ${error.message}`)
+    process.exitCode = 2
   } else if (error instanceof UsageError) {
     console.error(error.message === '' ? usage : `ted: ${error.message}`)
     process.exitCode = 2
