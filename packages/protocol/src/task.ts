@@ -307,6 +307,7 @@ export interface Comment {
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
+  failed?: { runId: string }
 }
 
 export interface PermissionAsk {

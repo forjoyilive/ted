@@ -46,6 +46,15 @@ function copyLine(data: Record<string, unknown>): string | undefined {
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
+function leadFailedLine(data: Record<string, unknown>): string {
+  if (data.resumeFailed === true)
+    return 'Resume failed · started a fresh Task Lead Run from the brief'
+  const what = `Task Lead Run ${text(data.reason)}`
+  if (data.recovery === 'resume') return `${what} · resuming the session`
+  if (data.recovery === 'failed') return `${what} · Task marked Failed`
+  return `${what} · starting a fresh Task Lead Run from the brief`
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -139,6 +148,12 @@ export function threadEvents(
       }
       case 'v1.TaskResumed':
         add(entry, 'run', 'You resumed the Task')
+        break
+      case 'v1.TaskRetried':
+        add(entry, 'run', 'You retried the Task')
+        break
+      case 'v1.TaskLeadFailed':
+        add(entry, 'failure', leadFailedLine(data))
         break
       case 'v1.TaskLeadNudged':
         add(entry, 'run', `TED nudged the Task Lead: “${nudgeMessage}”`)

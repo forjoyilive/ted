@@ -41,6 +41,7 @@ import {
   type Priority,
   type Round,
   type Run,
+  type RunEnding,
   type RunMessage,
   type RunProblem,
   type RunState,
@@ -116,6 +117,16 @@ export interface RunOutput {
   closedPermissions?: string[]
   autoModeUnavailable?: boolean
   agentRestarted?: boolean
+  ending?: RunEnding
+}
+
+export interface LeadFailure {
+  taskId: string
+  runId: string
+  reason: string
+  recovery: 'resume' | 'fresh' | 'failed'
+  resumeFailed: boolean
+  ask?: { title: string; body: string }
 }
 
 export interface NewPermissionPrompt {
@@ -342,6 +353,8 @@ export interface TedStore {
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
   leadNudged(taskId: string, runId: string): void
+  leadFailed(failure: LeadFailure): Task
+  retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
@@ -418,6 +431,8 @@ export interface TedStore {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   restartRun(runId: string, flags: RunFlags): Run
+  reviveRun(runId: string): Run
+  lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
@@ -694,6 +709,7 @@ export async function openStore({
     stoppedAt,
     stoppedRuns,
     stoppedWhy,
+    failedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -723,6 +739,7 @@ export async function openStore({
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
+      ...(failedAt !== null && { failed: true }),
       ...(stoppedAt !== null && {
         stopped: {
           at: stoppedAt,
@@ -860,6 +877,8 @@ export async function openStore({
     failure,
     permissions,
     manualPermissions,
+    revivedAt,
+    ended,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
@@ -876,6 +895,8 @@ export async function openStore({
     ...(usesDefaultModel && { usesDefaultModel }),
     ...(problem !== null && { problem: problem as RunProblem }),
     ...(taskId !== null && { taskId }),
+    ...(revivedAt !== null && { revivedAt }),
+    ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
   })
 
   const toComment = ({
@@ -892,6 +913,7 @@ export async function openStore({
     readAt,
     permission,
     answerHeld: _,
+    failedRunId,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -910,6 +932,7 @@ export async function openStore({
     ...(deliveredRunId !== null &&
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
+    ...(failedRunId !== null && { failed: { runId: failedRunId } }),
   })
 
   const openPermissionRows = (runId: string, requestId?: string) =>
@@ -1425,6 +1448,37 @@ export async function openStore({
       commit(events.taskLeadNudged({ taskId, runId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask }) {
+      const at = new Date().toISOString()
+      const id = ask && randomUUID()
+      commit(
+        events.taskLeadFailed({
+          taskId,
+          runId,
+          reason,
+          recovery,
+          resumeFailed,
+          rank: recovery === 'fresh' ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null,
+          ask: ask && id ? { id, ...ask } : null,
+          at,
+        }),
+      )
+      if (id) emit({ type: 'comment-posted', comment: requireComment(id) })
+      const task = updatedTask(taskId)
+      if (recovery === 'fresh') updatedQueue(taskId)
+      return task
+    },
+    retryTask(taskId, { waitForBlockers }) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      const at = new Date().toISOString()
+      commit(
+        events.taskRetried({ taskId, rank, at }),
+        ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(
         events.taskWorktreeSetupStarted({
@@ -1807,6 +1861,8 @@ export async function openStore({
         manualPermissions: false,
         state: 'working',
         readOffset: 0,
+        revivedAt: null,
+        ended: null,
       })
       emit({ type: 'run-updated', run })
       if (taskId !== undefined) updatedTask(taskId)
@@ -1871,6 +1927,7 @@ export async function openStore({
         closedPermissions = [],
         autoModeUnavailable,
         agentRestarted,
+        ending,
       },
     ) {
       const current = runRow(runId)
@@ -1922,6 +1979,7 @@ export async function openStore({
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
         ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
         ...(stateChanged && target !== undefined
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
@@ -1971,6 +2029,22 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
+    reviveRun(runId) {
+      const at = new Date().toISOString()
+      commit(events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }))
+      const row = runRow(runId)
+      if (!row) throw new Error(`no Run ${runId}`)
+      const run = toRun(row)
+      emit({ type: 'run-updated', run })
+      const taskId = taskIdOfRun(runId)
+      noteActivity()
+      if (taskId !== undefined) updatedTask(taskId)
+      return run
+    },
+    lastOutputAt: (runId) =>
+      store
+        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'desc').limit(1)))
+        .at(0)?.at ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)

@@ -55,6 +55,7 @@ export const tasks = State.SQLite.table({
     stoppedAt: State.SQLite.text({ nullable: true }),
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
+    failedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -126,6 +127,8 @@ export const runs = State.SQLite.table({
     state: State.SQLite.text(),
     readOffset: State.SQLite.integer(),
     startedAt: State.SQLite.text(),
+    revivedAt: State.SQLite.text({ nullable: true }),
+    ended: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -196,6 +199,7 @@ export const comments = State.SQLite.table({
     deliveredAt: State.SQLite.text({ nullable: true }),
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
+    failedRunId: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -1089,6 +1093,37 @@ export const events = {
     name: 'v1.RunFailed',
     schema: Schema.Struct({ runId: Schema.String, error: Schema.String, at: Schema.String }),
   }),
+  runEnded: Events.synced({
+    name: 'v1.RunEnded',
+    schema: Schema.Struct({ runId: Schema.String, ending: Schema.String, at: Schema.String }),
+  }),
+  runRevived: Events.synced({
+    name: 'v1.RunRevived',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadFailed: Events.synced({
+    name: 'v1.TaskLeadFailed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      reason: Schema.String,
+      recovery: Schema.String,
+      resumeFailed: Schema.Boolean,
+      rank: Schema.NullOr(Schema.Number),
+      ask: Schema.NullOr(
+        Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  taskRetried: Events.synced({
+    name: 'v1.TaskRetried',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -1134,6 +1169,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
+  'v1.TaskLeadFailed': (args) =>
+    task(args, {
+      runId: args.runId,
+      reason: args.reason,
+      recovery: args.recovery,
+      resumeFailed: args.resumeFailed,
+    }),
+  'v1.TaskRetried': (args) => task(args),
+  'v1.RunRevived': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
@@ -1376,6 +1420,47 @@ const materializers = counted(
         tasks
           .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
           .where({ id: taskId }),
+      'v1.RunEnded': ({ runId, ending }) => runs.update({ ended: ending }).where({ id: runId }),
+      'v1.RunRevived': ({ runId, at }) =>
+        runs
+          .update({ state: 'working', ended: null, problem: null, revivedAt: at })
+          .where({ id: runId }),
+      'v1.TaskLeadFailed': ({ taskId, runId, recovery, rank, ask, at }) => [
+        ...(recovery === 'fresh' && rank !== null
+          ? [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]
+          : []),
+        tasks
+          .update({ changedAt: at, ...(recovery === 'failed' && { failedAt: at }) })
+          .where({ id: taskId }),
+        ...(ask === null
+          ? []
+          : [
+              comments.insert({
+                id: ask.id,
+                taskId,
+                kind: 'question',
+                body: ask.body,
+                title: ask.title,
+                choices: JSON.stringify(['Retry']),
+                authorKind: 'ted',
+                authorRunId: null,
+                failedRunId: runId,
+                createdAt: at,
+              }),
+            ]),
+      ],
+      'v1.TaskRetried': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({
+            failedAt: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+      ],
       'v1.TedCommentPosted': (comment) =>
         comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
       'v1.RunOutputRead': ({ runId, toOffset, entries }) => [

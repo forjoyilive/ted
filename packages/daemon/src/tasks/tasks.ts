@@ -75,6 +75,17 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import {
+  alreadyFailed,
+  asksForFreshRun,
+  endingReason,
+  failedAsk,
+  freshAfterFailure,
+  recentFailures,
+  retryChoice,
+  revivedMessage,
+  silentReason,
+} from './failures.ts'
 import { placeBetween } from './order.ts'
 import {
   createPullRequests,
@@ -174,6 +185,7 @@ export function createTasks(options: {
   idle?: IdleTimer
   gh?: Gh
   nudgeAfterMs?: number
+  stallAfterMs?: number
 }): Tasks {
   const {
     store,
@@ -198,6 +210,11 @@ export function createTasks(options: {
   const stoppingByHand = new Set<string>()
   const nudgeTimers = new Map<string, NodeJS.Timeout>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
+  const stallAfterMs = options.stallAfterMs ?? 30 * 60_000
+  const silent = new Map<string, string>()
+  const pausedAt = new Map<string, number>()
+  const recovering = new Set<string>()
+  const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -302,15 +319,35 @@ export function createTasks(options: {
     })
   }
 
+  function revivesReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return [...awaitingRevive].flatMap((taskId) => {
+      const pending = pendingRevive(taskId)
+      if (!pending) {
+        awaitingRevive.delete(taskId)
+        return []
+      }
+      if (paused[pending.run.agent] !== undefined || holds.has(taskId)) return []
+      return [{ id: taskId, kind: 'task' as const, rank: -1, factoryId: pending.task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
     if (store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0) return
-    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    if (queued.length === 0 && held.length === 0 && revives.length === 0) return
+    const { use } = await slotUse(
+      [...revives, ...held, ...queued].flatMap((q) => q.factoryId ?? []),
+    )
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
-      if (heldIds.has(entry.id)) relaunch(entry.id)
+    const reviveIds = new Set(revives.map((r) => r.id))
+    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (reviveIds.has(entry.id)) {
+        awaitingRevive.delete(entry.id)
+        inBackground('resume a Task Lead session', () => reviveLead(entry.id))
+      } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
@@ -1557,9 +1594,7 @@ export function createTasks(options: {
 
   function pendingPickUp(task: StoredTask): string | undefined {
     const log = store.taskLog(task.id)
-    const asked = log.findLastIndex(
-      (e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers',
-    )
+    const asked = log.findLastIndex(asksForFreshRun)
     const started = log.findLastIndex(
       (e) => e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted',
     )
@@ -1572,9 +1607,10 @@ export function createTasks(options: {
   }
 
   function freshRunNote(task: StoredTask): string {
-    const last = store
-      .taskLog(task.id)
-      .findLast((e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers')
+    const last = store.taskLog(task.id).findLast(asksForFreshRun)
+    if (last?.name === 'v1.TaskRetried' || last?.name === 'v1.TaskLeadFailed') {
+      return fromTheBrief(task, freshAfterFailure(last))
+    }
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
@@ -1694,12 +1730,21 @@ export function createTasks(options: {
 
   async function leadStopped(run: Run): Promise<void> {
     if (run.taskId === undefined) return
+    const silence = silent.get(run.id)
+    silent.delete(run.id)
+    pausedAt.delete(run.id)
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
       return
     }
     const [checked] = await health.check([run.agent])
-    if (checked?.state === 'ready') return
+    if (checked?.state === 'ready') {
+      const ended = store.getRun(run.id)?.ended
+      if (silence !== undefined || (ended !== undefined && ended.how !== 'stopped')) {
+        await leadFailed(run.id, silence)
+      }
+      return
+    }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
     if (now.waitsForBlockers || now.stopped) return
@@ -1708,6 +1753,125 @@ export function createTasks(options: {
       agent: run.agent,
       ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
     })
+  }
+
+  async function leadFailed(runId: string, silence?: string): Promise<void> {
+    if (recovering.has(runId)) return
+    recovering.add(runId)
+    try {
+      await recover(runId, silence)
+    } finally {
+      recovering.delete(runId)
+    }
+  }
+
+  async function recover(runId: string, silence?: string): Promise<void> {
+    const run = store.getRun(runId)
+    if (!run?.taskId || run.state !== 'finished') return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.waitsForBlockers) return
+    if (task.status?.kind === 'failed' || stoppingByHand.has(task.id)) return
+    if (stoppingForBlockers.has(task.id) || store.queue().some((q) => q.id === task.id)) return
+    if (store.heldRuns().some((h) => h.taskId === task.id)) return
+    const log = store.taskLog(task.id)
+    if (alreadyFailed(log, run.id, run.revivedAt ?? run.startedAt)) return
+    const ended = run.ended
+    const reason = silence ?? endingReason(ended)
+    const resumeFailed = silence === undefined && ended?.resumeFailed === true
+    const now = Date.now()
+    const earlier = recentFailures(log, now)
+    const canResume =
+      run.sessionId !== undefined &&
+      (task.lead?.agent ?? run.agent) === run.agent &&
+      store.newWorkHold() === undefined
+    const recovery = resumeFailed
+      ? 'fresh'
+      : earlier.length > 0
+        ? 'failed'
+        : canResume
+          ? 'resume'
+          : 'fresh'
+    const first = earlier[0]
+    store.leadFailed({
+      taskId: task.id,
+      runId: run.id,
+      reason,
+      recovery,
+      resumeFailed,
+      ...(recovery === 'failed' && {
+        ask: failedAsk(run.agent, first ? log.slice(log.indexOf(first)) : [], reason, ended, now),
+      }),
+    })
+    if (recovery === 'resume') awaitingRevive.add(task.id)
+    void pump()
+  }
+
+  function pendingRevive(
+    taskId: string,
+  ): { task: StoredTask; run: Run; reason: string } | undefined {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
+    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    const last = store.taskLog(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
+    if (last?.data.recovery !== 'resume') return undefined
+    const run = store.getRun(String(last.data.runId))
+    if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
+    if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
+    return { task, run, reason: String(last.data.reason) }
+  }
+
+  async function reviveLead(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    const pending = pendingRevive(taskId)
+    if (!pending) return release()
+    const { task, run, reason } = pending
+    try {
+      const repo = task.repos.find((r) => !r.removed)
+      const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
+      await runs.revive(run.id, {
+        prompt: revivedMessage(reason),
+        env: { ...env, TED_TASK: task.displayId },
+      })
+      await sendWaiting(task.id)
+    } catch (error) {
+      console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
+      const now = store.getTask(task.id)
+      if (now && !now.stopped && !now.archived && store.getRun(run.id)?.state === 'finished') {
+        store.leadFailed({
+          taskId: task.id,
+          runId: run.id,
+          reason,
+          recovery: 'fresh',
+          resumeFailed: true,
+        })
+      }
+    } finally {
+      release()
+    }
+  }
+
+  function checkSilence(): void {
+    if (closed) return
+    const paused = store.agentPauses()
+    const now = Date.now()
+    for (const run of store.listRuns()) {
+      if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
+        if (run.state !== 'working') pausedAt.delete(run.id)
+        continue
+      }
+      if (store.getTask(run.taskId)?.leadRunId !== run.id) continue
+      if (paused[run.agent] !== undefined) {
+        pausedAt.set(run.id, now)
+        continue
+      }
+      const heard = [store.lastOutputAt(run.id), run.revivedAt, run.startedAt]
+        .flatMap((at) => (at === undefined ? [] : [Date.parse(at)]))
+        .concat(pausedAt.get(run.id) ?? [], runs.lastHeard(run.id) ?? [])
+      if (now - Math.max(...heard) < stallAfterMs) continue
+      silent.set(run.id, silentReason(stallAfterMs))
+      inBackground('stop a silent Task Lead', () => runs.stop(run.id))
+    }
   }
 
   async function stopByHand(ref: string): Promise<Task> {
@@ -1749,7 +1913,16 @@ export function createTasks(options: {
     }
     const text = comment?.trim() ?? ''
     if (text !== '') store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
-    store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
+    const waitForBlockers = unmergedBlockers(task.id).length > 0
+    if (task.status?.kind === 'failed') {
+      const at = new Date().toISOString()
+      for (const ask of openRequests(task.id).filter((c) => c.failed !== undefined)) {
+        store.answerComment(ask.id, { kind: 'answered', at, choice: retryChoice })
+      }
+      store.retryTask(task.id, { waitForBlockers })
+    } else {
+      store.resumeTask(task.id, { waitForBlockers })
+    }
     await pump()
     return publicTask(task.id)
   }
@@ -1897,6 +2070,20 @@ export function createTasks(options: {
   for (const run of store.listRuns()) {
     if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
+
+  for (const task of store.listTasks()) {
+    if (pendingRevive(task.id)) {
+      awaitingRevive.add(task.id)
+      continue
+    }
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    }
+  }
+
+  const silenceTimer = setInterval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))
+  silenceTimer.unref()
 
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
     store.finishChecks(checkRun.id, 'interrupted')
@@ -2283,6 +2470,14 @@ export function createTasks(options: {
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
       }
+      if (comment.failed !== undefined && comment.answer === undefined) {
+        if (request.action === 'answer' && request.choice === retryChoice) {
+          await resumeByHand(task.id, { comment: text })
+        } else {
+          await humanComment(find(task.id), text)
+        }
+        return store.getComment(id) ?? comment
+      }
       return holding(task, async () => {
         const current = store.getComment(id)
         if (current?.answer?.kind === 'withdrawn') {
@@ -2577,6 +2772,7 @@ export function createTasks(options: {
     async close() {
       closed = true
       subAgents.close()
+      clearInterval(silenceTimer)
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
       nudgeTimers.clear()
       unsubscribe()

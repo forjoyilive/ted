@@ -52,6 +52,9 @@ try {
     ...(Number(process.env.TED_NUDGE_AFTER_MS) > 0 && {
       nudgeAfterMs: Number(process.env.TED_NUDGE_AFTER_MS),
     }),
+    ...(Number(process.env.TED_STALL_AFTER_MS) > 0 && {
+      stallAfterMs: Number(process.env.TED_STALL_AFTER_MS),
+    }),
     ...(values['exit-when-idle'] && {
       idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
     }),

@@ -1493,6 +1493,51 @@ describe('Stop and Resume', () => {
   })
 })
 
+describe('Failed', () => {
+  test('a Task Lead that keeps dying shows Failed, the FAILED ask and the sidebar line; Retry starts again', async () => {
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ resumeFails: true }))
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--start',
+      JSON.stringify({ steps: [{ say: 'Starting.' }, { exit: 1 }] }),
+    )
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.status?.kind, { timeout: 30_000 })
+      .toBe('failed')
+
+    const window = await launchApp()
+    const sidebar = window.getByRole('navigation')
+    await sidebar.getByRole('button', { name: '1 failed' }).click()
+    await taskRow(window, 'NB-1').filter({ hasText: 'Failed' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('Waiting on you to retry').waitFor()
+    await thread.getByText('Resume failed · started a fresh Task Lead Run from the brief').waitFor()
+    const card = thread.getByRole('region', { name: 'FAILED' })
+    await card.getByText('The Task Lead stopped twice in 30 minutes').waitFor()
+    await card.getByText('claude exited with code 1').waitFor()
+
+    await card.getByRole('button', { name: 'Open last Run' }).click()
+    await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
+    await card.getByRole('button', { name: 'Retry' }).click()
+
+    await thread.getByText('You retried the Task').waitFor()
+    const comments = await client.listComments('NB-1')
+    expect(comments.some((c) => c.body === 'Try a smaller change.')).toBe(true)
+  }, 90_000)
+})
+
 describe('daemon crashes', () => {
   const reconnecting = (window: Page) =>
     window.getByRole('status', { name: 'Reconnecting to TED…' })

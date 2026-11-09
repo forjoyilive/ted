@@ -415,7 +415,7 @@ export function TaskThread({
           {pinned ? (
             <div className={styles.pinned}>
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard key={pinned.id} request={pinned} task={task} />
+              <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
             </div>
           ) : (
             <div className={styles.pinned}>
