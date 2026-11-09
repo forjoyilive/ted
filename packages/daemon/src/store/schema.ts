@@ -64,6 +64,14 @@ export const comments = State.SQLite.table({
   },
 })
 
+export const machineSettings = State.SQLite.table({
+  name: 'machineSettings',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    appearance: State.SQLite.text(),
+  },
+})
+
 const runStartedFields = {
   id: Schema.String,
   agent: Schema.String,
@@ -141,6 +149,10 @@ export const events = {
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
   }),
+  appearanceChanged: Events.synced({
+    name: 'v1.AppearanceChanged',
+    schema: Schema.Struct({ appearance: Schema.String, at: Schema.String }),
+  }),
 }
 
 const materializers = State.SQLite.materializers(events, {
@@ -159,10 +171,12 @@ const materializers = State.SQLite.materializers(events, {
     ),
   ],
   'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+  'v1.AppearanceChanged': ({ appearance }) =>
+    machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
 })
 
 const state = State.SQLite.makeState({
-  tables: { factories, tasks, runs, conversationEntries, comments },
+  tables: { factories, tasks, runs, conversationEntries, comments, machineSettings },
   materializers,
 })
 

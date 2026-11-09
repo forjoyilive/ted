@@ -1,4 +1,4 @@
-import type { Comment, DaemonEvent, Task } from '@ted/protocol'
+import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -15,5 +15,9 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
+  getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
+  updateSettings: (changes: Partial<MachineSettings>) =>
+    window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

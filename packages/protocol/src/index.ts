@@ -16,6 +16,7 @@ export type {
   RunWithConversation,
   StartDevRunRequest,
 } from './run.ts'
+export { type Appearance, appearances, type MachineSettings } from './settings.ts'
 export type {
   Comment,
   CreateTaskRequest,

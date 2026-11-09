@@ -1,4 +1,8 @@
+import '@fontsource-variable/geist'
+import '@fontsource-variable/geist-mono'
+import './styles/tokens.css'
+import './styles/base.css'
 import { createRoot } from 'react-dom/client'
-import { TaskList } from './TaskList.tsx'
+import { App } from './App.tsx'
 
-createRoot(document.getElementById('root') as HTMLElement).render(<TaskList />)
+createRoot(document.getElementById('root') as HTMLElement).render(<App />)
