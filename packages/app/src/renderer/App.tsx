@@ -13,14 +13,7 @@ import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
-import {
-  useBanners,
-  useConnection,
-  useFactories,
-  useSettings,
-  useSlots,
-  useTasks,
-} from './data.ts'
+import { useBanners, useConnection, useFactories, useSettings, useSlots, useTasks } from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
