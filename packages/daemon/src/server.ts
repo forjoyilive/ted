@@ -12,6 +12,7 @@ import {
   agentStageIds,
   appearances,
   type BannerActionInput,
+  type BlockTaskRequest,
   type CheckRepoRequest,
   type CreateFactoryRequest,
   type CreateTaskRequest,
@@ -171,6 +172,25 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/blockers$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<BlockTaskRequest> | null
+      const by = typeof body?.by === 'string' ? body.by.trim() : ''
+      if (by === '') throw new HttpError(400, 'by is required')
+      return [200, await tasks.block(ref, caller, by)]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
+    runToken: true,
+    async handle({ params: [ref = '', by], caller }, { tasks }) {
+      return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
+    },
   },
   {
     method: 'GET',

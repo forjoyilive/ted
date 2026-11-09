@@ -31,7 +31,7 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.stopped) return { kind: 'stopped' }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
-  if (blocker !== undefined) return { kind: 'blocked', by: blocker }
+  if (blocker !== undefined && facts.runs.length === 0) return { kind: 'blocked', by: blocker }
   if (facts.queue) return { kind: 'queued', ...facts.queue }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
@@ -54,7 +54,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `Queued · ${ordinal(facts.queue.place)}`
   }
   const blocker = facts.blockedBy?.[0]
-  if (blocker !== undefined) return `Starts when ${blocker} merges`
+  if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
 }

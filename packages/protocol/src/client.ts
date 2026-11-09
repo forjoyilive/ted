@@ -72,6 +72,15 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
   }
 
+  blockTask(ref: string, by: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/blockers`, { by })
+  }
+
+  unblockTask(ref: string, by?: string): Promise<Task> {
+    const route = `/tasks/${encodeURIComponent(ref)}/blockers`
+    return this.#request('DELETE', by === undefined ? route : `${route}/${encodeURIComponent(by)}`)
+  }
+
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
   }

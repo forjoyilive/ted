@@ -42,6 +42,7 @@ export const tasks = State.SQLite.table({
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
     startRequested: State.SQLite.boolean({ default: false }),
+    waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
@@ -66,6 +67,7 @@ export const taskBlockers = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
     blockerId: State.SQLite.text(),
+    setByRunId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -351,6 +353,40 @@ export const events = {
   taskBlockerAdded: Events.synced({
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
+  }),
+  taskBlockerAddedV2: Events.synced({
+    name: 'v2.TaskBlockerAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBlockerRemoved: Events.synced({
+    name: 'v1.TaskBlockerRemoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskStartRequestChanged: Events.synced({
+    name: 'v1.TaskStartRequestChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      startRequested: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  taskWaitingForBlockers: Events.synced({
+    name: 'v1.TaskWaitingForBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskRequeuedAfterBlockers: Events.synced({
+    name: 'v1.TaskRequeuedAfterBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
@@ -688,6 +724,22 @@ const materializers = counted(
       taskBlockers
         .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
         .onConflict('id', 'ignore'),
+    'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
+      taskBlockers
+        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
+        .onConflict('id', 'replace'),
+    'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
+      taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+    'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
+      tasks.update({ startRequested }).where({ id: taskId }),
+    'v1.TaskWaitingForBlockers': ({ taskId }) => [
+      taskQueue.delete().where({ taskId }),
+      tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
+    ],
+    'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+      tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+    ],
     'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
       taskAttachments
         .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })

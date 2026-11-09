@@ -119,7 +119,18 @@ export interface NewFactory {
 export interface StoredTask extends Task {
   worktree?: string
   startRequested: boolean
+  waitsForBlockers: boolean
 }
+
+export interface BlockerLink {
+  blockerId: string
+  displayId: string
+  merged: boolean
+  setByRunId?: string
+  at: string
+}
+
+export type AfterBlocking = 'backlog' | 'wait'
 
 export interface NewTask {
   title: string
@@ -219,6 +230,17 @@ export interface TedStore {
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
   queue(): QueuedTask[]
+  dequeue(taskId: string): Task
+  blockers(taskId: string): BlockerLink[]
+  addBlocker(
+    taskId: string,
+    blockerId: string,
+    options?: { runId?: string; then?: AfterBlocking },
+  ): Task
+  removeBlocker(taskId: string, blockerId: string, runId?: string): Task
+  setStartRequested(taskId: string, startRequested: boolean): Task
+  waitForBlockers(taskId: string): Task
+  requeueAfterBlockers(taskId: string): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
@@ -389,10 +411,22 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
-  const blockersOf = (taskId: string) =>
-    store
-      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
-      .map((row) => row.blockerId)
+  const blockerRows = (taskId: string) =>
+    store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+
+  const blockersOf = (taskId: string) => blockerRows(taskId).map((row) => row.blockerId)
+
+  const blockerLinks = (taskId: string): BlockerLink[] =>
+    blockerRows(taskId).map((row) => {
+      const blocker = taskRow(row.blockerId)
+      return {
+        blockerId: row.blockerId,
+        displayId: blocker ? `${factoryKey(blocker.factoryId)}-${blocker.number}` : row.blockerId,
+        merged: blocker?.stage === 'done',
+        ...(row.setByRunId !== null && { setByRunId: row.setByRunId }),
+        at: row.at,
+      }
+    })
 
   const attachmentsOf = (taskId: string): Attachment[] =>
     store
@@ -415,6 +449,7 @@ export async function openStore({
     leadAgent,
     leadModel,
     leadEffort,
+    waitsForBlockers,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -461,6 +496,7 @@ export async function openStore({
         },
       }),
       blockedBy,
+      waitsForBlockers,
       repos,
       attachments: attachmentsOf(row.id),
       stage,
@@ -486,7 +522,12 @@ export async function openStore({
     }
   }
 
-  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
+  const toPublicTask = ({
+    worktree: _,
+    startRequested: __,
+    waitsForBlockers: ___,
+    ...task
+  }: StoredTask): Task => task
 
   const toRun = ({
     readOffset: _,
@@ -724,7 +765,9 @@ export async function openStore({
           startRequested,
           createdAt: at,
         }),
-        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...blockedBy.map((blockerId) =>
+          events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
+        ),
         ...attachments.map((attachment) =>
           events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
         ),
@@ -767,6 +810,59 @@ export async function openStore({
       return task
     },
     queue,
+    dequeue(taskId) {
+      store.commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    blockers: blockerLinks,
+    addBlocker(taskId, blockerId, { runId, then } = {}) {
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskBlockerAddedV2({ taskId, blockerId, runId: runId ?? null, at }),
+        ...(then === 'backlog'
+          ? [
+              events.taskMovedToBacklog({ taskId, at }),
+              events.taskStartRequestChanged({ taskId, startRequested: true, at }),
+            ]
+          : []),
+        ...(then === 'wait' ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      if (then !== undefined) updatedQueue(taskId)
+      return task
+    },
+    removeBlocker(taskId, blockerId, runId) {
+      store.commit(
+        events.taskBlockerRemoved({
+          taskId,
+          blockerId,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    setStartRequested(taskId, startRequested) {
+      store.commit(
+        events.taskStartRequestChanged({ taskId, startRequested, at: new Date().toISOString() }),
+      )
+      return updatedTask(taskId)
+    },
+    waitForBlockers(taskId) {
+      store.commit(events.taskWaitingForBlockers({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    requeueAfterBlockers(taskId) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      store.commit(events.taskRequeuedAfterBlockers({ taskId, rank, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       store.commit(
         events.taskWorktreeSetupStarted({

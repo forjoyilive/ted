@@ -135,6 +135,10 @@ export interface CreateTaskRequest {
   start?: boolean
 }
 
+export interface BlockTaskRequest {
+  by: string
+}
+
 export const commentKinds = [
   'note',
   'question',

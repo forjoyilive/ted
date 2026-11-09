@@ -164,7 +164,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (dialogOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
       if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
-      if (task?.stage !== 'backlog') return
+      if (task?.stage !== 'backlog' || task.markers.some((m) => m.kind === 'blocked-by')) return
       event.preventDefault()
       ted.startTask(task.id).catch((error: unknown) => console.error(error))
     }

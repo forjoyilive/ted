@@ -42,9 +42,12 @@ const usage = `Usage:
                                              without --file)
   ted brief show                             Show the latest Task brief
   ted status [--task <id>] "<text>"          Set the Task's activity line
-  ted task create [--factory <key>] "<title>"  Create a Task
+  ted task create [--factory <key>] [--start] "<title>"
+                                             Create a Task (--start starts it)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted task block [<id>] --by <id>            Make a Task wait until another Task merges
+  ted task unblock [<id>] [--by <id>]        Remove one blocker, or all of them
   ted backup list                            List backups of TED's data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
   ted task lead <id> claude|codex [--model <name>] [--effort <level>]
@@ -80,6 +83,8 @@ function parse() {
         findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        by: { type: 'string' },
+        start: { type: 'boolean' },
         skip: { type: 'boolean' },
         task: { type: 'string' },
         to: { type: 'string' },
@@ -96,8 +101,8 @@ const [group, command, ...rest] = parsed?.positionals ?? []
 const options = parsed?.values ?? {}
 const home = tedHome()
 
-function taskRef(): string {
-  const ref = options.task ?? process.env.TED_TASK
+function taskRef(given?: string): string {
+  const ref = given ?? options.task ?? process.env.TED_TASK
   if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
   return ref
 }
@@ -187,8 +192,13 @@ try {
   } else if (group === 'task' && command === 'create' && rest.length > 0) {
     const title = rest.join(' ')
     const factory = options.factory
+    const start = options.start
     const task = await withDaemon(home, (client) =>
-      client.createTask({ title, ...(factory !== undefined && { factory }) }),
+      client.createTask({
+        title,
+        ...(factory !== undefined && { factory }),
+        ...(start !== undefined && { start }),
+      }),
     )
     console.log(`Created ${task.displayId}  ${task.title}`)
   } else if (group === 'task' && command === 'list' && rest.length === 0) {
@@ -205,6 +215,21 @@ try {
       task.status?.kind === 'queued'
         ? `Queued ${task.displayId} · ${'place' in task.status ? `${ordinal(task.status.place)} in line for a slot` : task.status.hold}`
         : `Started ${task.displayId} on branch ${task.branch}`,
+    )
+  } else if (group === 'task' && command === 'block' && rest.length <= 1) {
+    const ref = taskRef(rest[0])
+    const by = options.by
+    if (by === undefined) throw new UsageError('name the blocker with --by <id>')
+    const task = await withDaemon(home, (client) => client.blockTask(ref, by))
+    console.log(`${task.displayId} waits for ${by}`)
+  } else if (group === 'task' && command === 'unblock' && rest.length <= 1) {
+    const ref = taskRef(rest[0])
+    const by = options.by
+    const task = await withDaemon(home, (client) => client.unblockTask(ref, by))
+    console.log(
+      by === undefined
+        ? `${task.displayId} no longer waits for any Task`
+        : `${task.displayId} no longer waits for ${by}`,
     )
   } else if (group === 'backup' && command === 'list' && rest.length === 0) {
     const { backups } = await withDaemon(home, (client) => client.listBackups())

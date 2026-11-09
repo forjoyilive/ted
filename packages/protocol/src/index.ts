@@ -118,6 +118,7 @@ export {
   type AnswerRequest,
   type Attachment,
   agentStageIds,
+  type BlockTaskRequest,
   briefHeadings,
   type ClarifyDepth,
   type Comment,
