@@ -41,7 +41,7 @@ import type {
   ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, parseLinearUrl } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -96,6 +96,7 @@ import {
   revivedMessage,
   silentReason,
 } from './failures.ts'
+import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import {
   chooseMethod,
   deleteBranch,
@@ -173,6 +174,7 @@ export interface Tasks {
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
   brief(ref: string, caller: Caller): TaskBrief
   inbox(): InboxItem[]
+  answered(): InboxItem[]
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
@@ -3218,18 +3220,11 @@ export function createTasks(options: {
     },
 
     inbox() {
-      const tasks = new Map(store.listTasks().map((t) => [t.id, t]))
-      const rank = (task: Task) => priorities.indexOf(task.priority)
-      return store
-        .listOpenRequests()
-        .flatMap((request) => {
-          const task = tasks.get(request.taskId)
-          return task && !task.archived ? [{ request, task }] : []
-        })
-        .sort(
-          (a, b) =>
-            rank(a.task) - rank(b.task) || a.request.createdAt.localeCompare(b.request.createdAt),
-        )
+      return waitingItems(store.listOpenRequests(), store.listTasks())
+    },
+
+    answered() {
+      return answeredItems(store.listAnsweredRequests(), store.listTasks(), new Date())
     },
 
     async answer(id, request) {

@@ -225,6 +225,10 @@ export class DaemonClient {
     return this.#request('GET', '/inbox')
   }
 
+  listAnswered(): Promise<InboxItem[]> {
+    return this.#request('GET', '/inbox/answered')
+  }
+
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
   }

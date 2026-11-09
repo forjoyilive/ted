@@ -269,6 +269,11 @@ export const taskRoutes: Route[] = [
     handle: async (_, { tasks }) => [200, tasks.inbox()],
   },
   {
+    method: 'GET',
+    path: /^\/inbox\/answered$/,
+    handle: async (_, { tasks }) => [200, tasks.answered()],
+  },
+  {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/answer$/,
     async handle({ req, params: [id = ''] }, { tasks }) {

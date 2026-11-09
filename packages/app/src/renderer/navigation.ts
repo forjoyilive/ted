@@ -14,7 +14,7 @@ export type SettingsSectionId = (typeof settingsSectionIds)[number]
 export type FactoryView = 'board' | 'list' | 'plans' | 'automations' | 'settings'
 
 export type Screen =
-  | { kind: 'inbox' }
+  | { kind: 'inbox'; factoryId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
   | { kind: 'factory'; factoryId: string; view: FactoryView }
   | { kind: 'search' }
