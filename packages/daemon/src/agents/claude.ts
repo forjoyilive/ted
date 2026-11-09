@@ -67,5 +67,26 @@ export function claudeAgent(binary: string): Agent {
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
     sessionIdFrom: () => undefined,
+    tokensFrom(line) {
+      let message: { type?: unknown; usage?: Record<string, unknown> }
+      try {
+        message = JSON.parse(line)
+      } catch {
+        return undefined
+      }
+      if (message?.type !== 'result' || typeof message.usage !== 'object') return undefined
+      const count = (name: string) => {
+        const value = message.usage?.[name]
+        return typeof value === 'number' ? value : 0
+      }
+      return {
+        input:
+          count('input_tokens') +
+          count('cache_creation_input_tokens') +
+          count('cache_read_input_tokens'),
+        output: count('output_tokens'),
+        total: false,
+      }
+    },
   }
 }

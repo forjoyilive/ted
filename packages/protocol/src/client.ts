@@ -1,9 +1,10 @@
 import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
+import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
-import type { MachineSettings } from './settings.ts'
+import type { MachineSettings, Profile } from './settings.ts'
 import type { Attachment, Comment, CreateTaskRequest, Outcome, Task, TaskDefaults } from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
@@ -88,6 +89,26 @@ export class DaemonClient {
 
   updateSettings(changes: Partial<MachineSettings>): Promise<MachineSettings> {
     return this.#request('PATCH', '/settings', changes)
+  }
+
+  getProfile(): Promise<Profile> {
+    return this.#request('GET', '/profile')
+  }
+
+  getDiagnostics(): Promise<Diagnostics> {
+    return this.#request('GET', '/diagnostics')
+  }
+
+  getReport(): Promise<{ text: string }> {
+    return this.#request('GET', '/diagnostics/report')
+  }
+
+  readDaemonLog(): Promise<LogText> {
+    return this.#request('GET', '/logs/daemon')
+  }
+
+  readRunOutput(id: string): Promise<LogText> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}/raw`)
   }
 
   listBanners(): Promise<Banner[]> {

@@ -9,11 +9,19 @@ import {
 } from './banners.ts'
 import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useBanners, useFactories, useTasks } from './data.ts'
-import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
+import { useBanners, useFactories, useSettings, useTasks } from './data.ts'
+import {
+  backLink,
+  currentFactoryId,
+  initialNavigation,
+  navigate,
+  type SettingsSectionId,
+  settingsSectionIds,
+} from './navigation.ts'
+import { SettingsShell } from './settings/SettingsShell.tsx'
 import { ted } from './ted.ts'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
-import { AppSettings, Inbox, Stub } from './views/OtherViews.tsx'
+import { Inbox, Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
 import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
 
@@ -22,6 +30,17 @@ const factoryViewTitles = {
   automations: 'Automations',
   settings: 'Factory settings',
 } as const
+
+function sectionsStoppingWork(banners: readonly Banner[]) {
+  const stopping: Partial<Record<SettingsSectionId, boolean>> = {}
+  for (const banner of banners) {
+    const place = banner.action?.opens
+    if (banner.severity !== 'stops-work' || place?.kind !== 'settings') continue
+    const section = settingsSectionIds.find((id) => id === place.section)
+    if (section !== undefined) stopping[section] = true
+  }
+  return stopping
+}
 
 const stubTitles = { search: 'Search', 'add-factory': 'Add Factory' }
 
@@ -36,16 +55,41 @@ export function App() {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
   const factories = useFactories()
+  const settings = useSettings()
+  const settingsOpen = navigation.settings !== undefined
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const openNewTask = () => setNewTaskOpen(true)
+  const inboxCount = 0
+
+  useEffect(() => {
+    if (settings === undefined) return
+    document.documentElement.style.setProperty(
+      '--terminal-font-size',
+      `${settings.terminalFontSize}px`,
+    )
+  }, [settings])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (newTaskOpen) return
+      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault()
+        dispatch({ type: 'open-settings' })
+      } else if (event.key === 'Escape' && settingsOpen && !event.defaultPrevented) {
+        dispatch({ type: 'close-settings' })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [settingsOpen, newTaskOpen])
   const banners = useBanners()
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
-  const [newTaskOpen, setNewTaskOpen] = useState(false)
-  const openNewTask = () => setNewTaskOpen(true)
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (newTaskOpen || event.altKey || event.shiftKey) return
+      if (newTaskOpen || settingsOpen || event.altKey || event.shiftKey) return
       const command = event.metaKey || event.ctrlKey
       const newTask = command
         ? event.key.toLowerCase() === 'n'
@@ -56,7 +100,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [newTaskOpen])
+  }, [newTaskOpen, settingsOpen])
   const openTaskByRef = (ref: string) => {
     const found = tasks.find((t) => t.displayId === ref || t.id === ref)
     if (found) openTask(found)
@@ -67,7 +111,8 @@ export function App() {
     if (!place) {
       await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
     } else if (place.kind === 'settings') {
-      dispatch({ type: 'open', screen: { kind: 'settings' } })
+      const section = settingsSectionIds.find((id) => id === place.section)
+      dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
     } else if (place.kind === 'factory-settings') {
       dispatch({
         type: 'open',
@@ -115,8 +160,6 @@ export function App() {
             onNewTask={openNewTask}
           />
         )
-      case 'settings':
-        return <AppSettings />
       case 'factory': {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
@@ -137,13 +180,33 @@ export function App() {
     }
   }
 
+  if (navigation.settings) {
+    return (
+      <div className={styles.app}>
+        <div className={styles.main}>
+          {bannerStack('Problems', appWideBanners(banners))}
+          <div className={styles.panes}>
+            <SettingsShell
+              section={navigation.settings.section}
+              settings={settings}
+              factories={factories}
+              inboxCount={inboxCount}
+              stopsWork={sectionsStoppingWork(banners)}
+              dispatch={dispatch}
+            />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.app}>
       <Sidebar
         navigation={navigation}
         factories={factories}
         currentFactoryId={currentFactoryId(navigation, tasks)}
-        inboxCount={0}
+        inboxCount={inboxCount}
         badges={Object.fromEntries(
           [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
         )}

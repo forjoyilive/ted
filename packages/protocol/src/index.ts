@@ -18,6 +18,13 @@ export {
   type Subscription,
 } from './client.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export type {
+  Diagnostics,
+  LogText,
+  ProcessInfo,
+  RunDiagnostics,
+  TokenUse,
+} from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
@@ -30,7 +37,14 @@ export {
   type RunWithConversation,
   type StartDevRunRequest,
 } from './run.ts'
-export { type Appearance, appearances, type MachineSettings } from './settings.ts'
+export {
+  type Appearance,
+  appearances,
+  defaultMachineSettings,
+  type MachineSettings,
+  type Profile,
+  terminalFontSizes,
+} from './settings.ts'
 export {
   type AgentStageId,
   type Attachment,
