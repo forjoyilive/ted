@@ -1541,6 +1541,7 @@ export async function openStore({
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
+      if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
     },
     listTasks: () => listTasks().map(toPublicTask),

@@ -295,6 +295,7 @@ export function FollowUpDialog({
   const [error, setError] = useState<string>()
 
   async function followUp() {
+    if (busy) return
     setBusy(true)
     setError(undefined)
     try {
