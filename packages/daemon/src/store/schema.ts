@@ -71,6 +71,7 @@ export const tasks = State.SQLite.table({
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
     partlyMergedAt: State.SQLite.text({ nullable: true }),
+    setup: State.SQLite.boolean({ default: false }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -301,6 +302,7 @@ export const comments = State.SQLite.table({
     talkStartedAt: State.SQLite.text({ nullable: true }),
     talkDoneAt: State.SQLite.text({ nullable: true }),
     design: State.SQLite.text({ nullable: true }),
+    tutorial: State.SQLite.boolean({ default: false }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -1998,6 +2000,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  setupTaskCreated: Events.synced({
+    name: 'v1.SetupTaskCreated',
+    schema: Schema.Struct({ taskId: Schema.String, factoryId: Schema.String, at: Schema.String }),
+  }),
+  commentMarkedTutorial: Events.synced({
+    name: 'v1.CommentMarkedTutorial',
+    schema: Schema.Struct({ commentId: Schema.String }),
+  }),
   automationTaskCreated: Events.synced({
     name: 'v1.AutomationTaskCreated',
     schema: Schema.Struct({
@@ -2119,6 +2129,7 @@ const runStarted = (args: Args): Logged => ({
 
 const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
+  'v1.SetupTaskCreated': (args) => ({ taskId: str(args.taskId), at: String(args.at) }),
   'v2.TaskCreated': (args) => ({
     taskId: str(args.id),
     at: String(args.createdAt),
@@ -2388,6 +2399,9 @@ const materializers = counted(
         commentAttachments
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.SetupTaskCreated': ({ taskId }) => tasks.update({ setup: true }).where({ id: taskId }),
+      'v1.CommentMarkedTutorial': ({ commentId }) =>
+        comments.update({ tutorial: true }).where({ id: commentId }),
       'v1.CommentDesignAttached': ({ commentId, design }) =>
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>

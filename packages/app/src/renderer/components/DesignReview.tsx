@@ -1,5 +1,6 @@
-import type { Attachment, DesignFile, DesignReview } from '@ted/protocol'
+import type { Attachment, DesignFile, DesignReview, SetupProposal } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { stageName } from '../list-view.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { useBytes } from './CommentFiles.tsx'
@@ -215,6 +216,105 @@ function FigmaRow({
   )
 }
 
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const rest = seconds % 60
+  return `${Math.floor(seconds / 60)}m ${rest.toString().padStart(2, '0')}s`
+}
+
+function Result({ passed }: { passed: boolean }) {
+  return passed ? (
+    <span className={styles.passed} role="img" aria-label="Passed">
+      ✓
+    </span>
+  ) : (
+    <span className={styles.failedMark} role="img" aria-label="Failed">
+      ✕
+    </span>
+  )
+}
+
+function SetupSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <section className={styles.setupSection} aria-label={label}>
+      <h3 className={styles.setupHeading}>{label}</h3>
+      {children}
+    </section>
+  )
+}
+
+function SetupProposalView({ setup }: { setup: SetupProposal }) {
+  return (
+    <>
+      {setup.workflow.length > 0 && (
+        <SetupSection label="Workflow">
+          <dl className={styles.setupStages}>
+            {setup.workflow.map((line) => (
+              <div key={line.stage} className={styles.setupStage}>
+                <dt>{stageName(line.stage)}</dt>
+                <dd className={line.setting === undefined ? styles.asDefault : undefined}>
+                  {line.setting ?? 'As TED’s default'}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </SetupSection>
+      )}
+      {setup.checks.length > 0 && (
+        <SetupSection label="Checks · tried on main">
+          <ul className={styles.setupRows}>
+            {setup.checks.map((check) => (
+              <li key={check.name} className={styles.checkRow}>
+                <Result passed={check.passed} />
+                <span className={styles.setupName}>{check.name}</span>
+                <code className={styles.command}>{check.command}</code>
+                <span className={styles.meta}>{check.repo ?? ''}</span>
+                {check.passed ? (
+                  <span className={styles.meta}>{duration(check.durationMs)}</span>
+                ) : (
+                  <span className={styles.leftOff}>{`${check.reason ?? 'Failed'} · left off`}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </SetupSection>
+      )}
+      {setup.apps.length > 0 && (
+        <SetupSection label="Apps · started on main">
+          <ul className={styles.setupRows}>
+            {setup.apps.map((app) => (
+              <li key={app.name} className={styles.appRow}>
+                <Result passed={app.passed} />
+                <span className={styles.setupName}>{app.name}</span>
+                <span className={styles.meta}>{app.repo ?? ''}</span>
+                {app.passed ? (
+                  <span className={styles.appReady}>{`${app.kind} · ${app.ready}`}</span>
+                ) : (
+                  <span
+                    className={styles.leftOff}
+                  >{`${app.reason ?? 'Didn’t start'} · left off`}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </SetupSection>
+      )}
+      <SetupSection label="Files it will write">
+        <ul className={styles.setupRows}>
+          {setup.files.map((file) => (
+            <li key={file.path} className={styles.fileRow}>
+              <code className={styles.filePath}>{file.path}</code>
+              <span className={styles.fileAbout}>{file.about}</span>
+            </li>
+          ))}
+        </ul>
+      </SetupSection>
+      {setup.defaults !== undefined && <p className={styles.defaults}>{setup.defaults}</p>}
+    </>
+  )
+}
+
 export function DesignReviewContent({
   design,
   files,
@@ -238,6 +338,7 @@ export function DesignReviewContent({
           {design.video && <VideoTile file={design.video} files={files} />}
         </div>
       )}
+      {design.setup && <SetupProposalView setup={design.setup} />}
       {design.prototype && <Prototype file={design.prototype} />}
       {design.figma && <FigmaRow figma={design.figma} taskId={taskId} commentId={commentId} />}
       {design.worthYourEye && design.worthYourEye.length > 0 && (

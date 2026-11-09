@@ -104,6 +104,7 @@ export function createFactories(options: FactoriesOptions): Factories {
       ...basicFactory(factory),
       repos,
       ...(primary && { localFolder: primary }),
+      ...(store.lastValidWorkflowLayer(`factory:${factory.id}`) && { hasSettings: true as const }),
       ...(factory.clonedAt === undefined && {
         setup: factory.repos.map(
           ({ repo }) => states?.get(repo) ?? { repo, state: 'waiting' as const },

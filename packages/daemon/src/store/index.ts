@@ -268,6 +268,7 @@ export interface NewTask {
   splitFrom?: string
   automation?: { automationId: string; firingId: string }
   plan?: { planId: string; row: number }
+  setup?: boolean
 }
 
 export interface PlannedStage {
@@ -337,7 +338,7 @@ export interface SendBackAsk {
 }
 
 export interface QueuedTask extends QueueEntry {
-  kind: 'task'
+  kind: 'task' | 'setup-task'
   priority: Priority
   factoryId: string
 }
@@ -368,6 +369,7 @@ export interface NewComment {
   attachments?: readonly Attachment[]
   lineComments?: readonly string[]
   design?: DesignReview
+  tutorial?: boolean
 }
 
 export interface NewLineComment {
@@ -958,7 +960,7 @@ export async function openStore({
           ? [
               {
                 id: taskId,
-                kind: 'task' as const,
+                kind: task.setup ? ('setup-task' as const) : ('task' as const),
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
@@ -1105,6 +1107,7 @@ export async function openStore({
     splitFrom,
     needsPlanningAt,
     partlyMergedAt,
+    setup,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -1301,8 +1304,10 @@ export async function openStore({
             ...(waitingOnSubAgents.has(r.id) && { onSubAgents: true }),
           }
         }),
-      createdBy:
-        followUpOf !== null
+      ...(setup && { setup: true as const }),
+      createdBy: setup
+        ? 'setup'
+        : followUpOf !== null
           ? 'follow-up'
           : splitFrom !== null
             ? 'split'
@@ -1406,6 +1411,7 @@ export async function openStore({
     talkStartedAt,
     talkDoneAt,
     design,
+    tutorial,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -1436,6 +1442,7 @@ export async function openStore({
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
+    ...(tutorial && { tutorial: true as const }),
     ...(design !== null && { design: JSON.parse(design) as DesignReview }),
     ...withFiles(row.id),
     ...withLineComments(row.id),
@@ -1701,6 +1708,7 @@ export async function openStore({
       gate,
       attachments = [],
       design,
+      tutorial = false,
     }: NewComment,
     createdAt: string,
   ) => {
@@ -1745,6 +1753,7 @@ export async function openStore({
       ...(design === undefined
         ? []
         : [events.commentDesignAttached({ commentId: id, design: JSON.stringify(design) })]),
+      ...(tutorial ? [events.commentMarkedTutorial({ commentId: id })] : []),
     ]
     return { id, event, attached }
   }
@@ -1931,11 +1940,16 @@ export async function openStore({
       splitFrom,
       automation,
       plan,
+      setup = false,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
-      const number =
-        Math.max(0, ...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)) + 1
+      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const awaitingSetup =
+        !setup &&
+        listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
+        factoryId !== placeholderFactory.id
+      const number = setup && !used.includes(1) ? 1 : Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
       commit(
@@ -1988,6 +2002,7 @@ export async function openStore({
           : []),
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
         ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
+        ...(setup ? [events.setupTaskCreated({ taskId: id, factoryId, at })] : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)

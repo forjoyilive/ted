@@ -64,6 +64,11 @@ export const factoryRoutes: Route[] = [
     },
   },
   {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/setup-task$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [201, await tasks.newSetupTask(id)],
+  },
+  {
     method: 'GET',
     path: /^\/factories\/([^/]+)\/removal$/,
     handle: async ({ params: [id = ''] }, { factoryRemovals }) => [

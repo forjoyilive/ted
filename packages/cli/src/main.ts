@@ -43,6 +43,7 @@ const usage = `Usage:
   ted open                                   Open TED, or bring its window to the front
   ted comment "<text>"                       Post a note on the Run’s Task (reads stdin if no text)
   ted comment --attach <path> … ["<text>"]   Post a note with files; images show in the thread
+  ted comment --tutorial "<text>"            In a setup Task, post a Comment with a Tutorial chip
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
@@ -140,6 +141,7 @@ function parse() {
         agent: { type: 'string' },
         'default-model': { type: 'boolean' },
         design: { type: 'string' },
+        tutorial: { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
         name: { type: 'string' },
@@ -288,6 +290,7 @@ try {
         body,
         ...(choices.length > 0 && { choices }),
         ...(attachments.length > 0 && { attachments }),
+        ...(options.tutorial === true && { tutorial: true }),
       })
     })
     console.log(

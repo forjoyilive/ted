@@ -40,6 +40,7 @@ export type QueuedForSlot =
       title: string
       factoryId: string
       priority: Priority
+      setup?: true
     }
   | {
       kind: 'sub-agent'

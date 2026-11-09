@@ -185,13 +185,18 @@ export function threadEvents(
       ...(extra?.changes !== undefined && { changes: extra.changes }),
     })
 
+  const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
   for (const entry of log) {
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
-        add(entry, 'done', 'You created this Task')
+        add(
+          entry,
+          'done',
+          setup ? 'TED created this Task to set up this Factory' : 'You created this Task',
+        )
         break
       case 'v1.TaskFollowsUp':
         add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)

@@ -1,4 +1,5 @@
 import type { Task } from '@ted/protocol'
+import { startTask } from './setup-notice.ts'
 import { ted } from './ted.ts'
 
 export type StatusActionKind =
@@ -72,10 +73,10 @@ export function shortcutAction(task: Task): StatusAction | undefined {
     : undefined
 }
 
-export function runStatusAction(kind: StatusActionKind, task: Task): Promise<Task> {
+export function runStatusAction(kind: StatusActionKind, task: Task): Promise<Task | undefined> {
   switch (kind) {
     case 'start':
-      return ted.startTask(task.id)
+      return startTask(task)
     case 'move-to-backlog':
       return ted.moveToBacklog(task.id)
     case 'resume':

@@ -286,3 +286,126 @@
   border-radius: 6px;
   background: var(--surface-card);
 }
+
+.setupSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.setupHeading {
+  margin: 4px 0 2px;
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.setupStages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--text-13);
+}
+
+.setupStage {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 12px;
+}
+
+.setupStage dt {
+  color: var(--text-primary);
+}
+
+.setupStage dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.setupStage dd.asDefault {
+  color: var(--text-caption);
+}
+
+.setupRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-13);
+}
+
+.checkRow,
+.appRow,
+.fileRow {
+  display: grid;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.checkRow {
+  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) minmax(0, 120px) 1fr;
+}
+
+.appRow {
+  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) 1fr;
+}
+
+.fileRow {
+  grid-template-columns: minmax(150px, 190px) 1fr;
+}
+
+.passed {
+  color: var(--status-success-fg);
+}
+
+.failedMark {
+  color: var(--status-failed-fg);
+}
+
+.setupName {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command,
+.filePath {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filePath {
+  color: var(--text-primary);
+}
+
+.leftOff {
+  color: var(--status-failed-fg);
+  font-size: var(--text-12-5);
+}
+
+.appReady,
+.fileAbout {
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+}
+
+.defaults {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: var(--leading-body);
+}

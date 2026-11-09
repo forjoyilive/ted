@@ -79,7 +79,14 @@ export const taskStatusKinds = [
 
 export type TaskStatusKind = (typeof taskStatusKinds)[number]
 
-export const createdByKinds = ['human', 'automation', 'planning', 'split', 'follow-up'] as const
+export const createdByKinds = [
+  'human',
+  'automation',
+  'planning',
+  'split',
+  'follow-up',
+  'setup',
+] as const
 
 export type CreatedBy = (typeof createdByKinds)[number]
 
@@ -178,6 +185,7 @@ export interface Task {
   repos: TaskRepo[]
   chosenRepos: string[]
   createdBy: CreatedBy
+  setup?: true
   followUpOf?: TaskLink
   splitFrom?: TaskLink
   fromPlan?: { id: string; title: string; deleted?: boolean }
@@ -508,6 +516,7 @@ export interface Comment {
   attachments?: Attachment[]
   lineComments?: LineComment[]
   design?: DesignReview
+  tutorial?: true
 }
 
 export interface DesignFile {
@@ -523,6 +532,43 @@ export interface DesignReview {
   prototype?: DesignFile
   figma?: { url: string; label?: string }
   worthYourEye?: string[]
+  setup?: SetupProposal
+}
+
+export interface SetupProposal {
+  workflow: SetupStageLine[]
+  checks: SetupCheckTried[]
+  apps: SetupAppTried[]
+  files: SetupFileLine[]
+  defaults?: string
+}
+
+export interface SetupStageLine {
+  stage: StageId
+  setting?: string
+}
+
+export interface SetupCheckTried {
+  name: string
+  command: string
+  repo?: string
+  passed: boolean
+  durationMs: number
+  reason?: string
+}
+
+export interface SetupAppTried {
+  name: string
+  repo?: string
+  kind: string
+  ready: string
+  passed: boolean
+  reason?: string
+}
+
+export interface SetupFileLine {
+  path: string
+  about: string
 }
 
 export type DesignFileInput = AttachmentRef & { caption?: string }
@@ -535,6 +581,7 @@ export interface DesignReviewInput {
   prototype?: DesignFileInput
   figma?: { url: string; label?: string }
   worthYourEye?: string[]
+  setup?: SetupProposal
 }
 
 export interface CommentGate {
@@ -629,6 +676,7 @@ export interface PostCommentRequest {
   sizeCheck?: SizeCheckInput
   supersedes?: string
   attachments?: AttachmentRef[]
+  tutorial?: boolean
 }
 
 export interface AttachmentBytes {

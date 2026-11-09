@@ -36,6 +36,7 @@ import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
+import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
 import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { pickBlockerEvent, TaskDialog, type TaskDialogKind } from './components/TaskActions.tsx'
@@ -80,6 +81,12 @@ import {
   withHistory,
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import {
+  type SetupNotice,
+  type SetupNoticeRequest,
+  setupNotice,
+  setupNoticeEvent,
+} from './setup-notice.ts'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
@@ -212,6 +219,25 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     template?: TemplateChoice
     editing?: Automation
   }>()
+  const [asking, setAsking] = useState<{ request: SetupNoticeRequest; notice: SetupNotice }>()
+  const latest = useRef({ tasks, factories })
+  latest.current = { tasks, factories }
+  useEffect(() => {
+    const ask = (event: Event) => {
+      const request = (event as CustomEvent<SetupNoticeRequest>).detail
+      const { tasks: all, factories: known } = latest.current
+      const notice = setupNotice(
+        known.find((f) => f.id === request.task.factoryId),
+        all,
+        request.task,
+      )
+      if (!notice) return
+      event.preventDefault()
+      setAsking({ request, notice })
+    }
+    window.addEventListener(setupNoticeEvent, ask)
+    return () => window.removeEventListener(setupNoticeEvent, ask)
+  }, [])
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [paletteChoose, setPaletteChoose] = useState<Command>()
   const [sheetOpen, setSheetOpen] = useState(false)
@@ -739,6 +765,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                 dispatch({ type: 'open-settings', section: 'integrations' })
               }
               onRemoveFactory={() => setRemoving(factory)}
+              onOpenTask={openTask}
             />
           )
         }
@@ -887,6 +914,22 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             initialDescription: newTaskOpen.description,
           })}
           onClose={() => setNewTaskOpen(undefined)}
+          onOpenTask={openTask}
+        />
+      )}
+      {asking && (
+        <SetupNoticeDialog
+          task={asking.request.task}
+          notice={asking.notice}
+          onStart={() => {
+            asking.request.resolve(true)
+            setAsking(undefined)
+          }}
+          onCancel={() => {
+            asking.request.resolve(false)
+            setAsking(undefined)
+          }}
+          onOpenTask={openTask}
         />
       )}
       {automationDialog && (

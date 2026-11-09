@@ -31,6 +31,7 @@ export interface Factory {
   repos: FactoryRepo[]
   showTutorial: boolean
   cloned: boolean
+  hasSettings?: true
   setup?: RepoSetup[]
   position: number
   createdAt: string

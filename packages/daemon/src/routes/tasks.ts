@@ -31,7 +31,9 @@ import {
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetTaskReposRequest,
+  type SetupProposal,
   type SizeCheckInput,
+  type StageId,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
@@ -451,6 +453,7 @@ export const taskRoutes: Route[] = [
           ...(sizeCheck && { sizeCheck }),
           ...(supersedes !== undefined && { supersedes }),
           ...(files.length > 0 && { attachments: files }),
+          ...(body?.tutorial === true && { tutorial: true }),
         }),
       ]
     },
@@ -1084,7 +1087,9 @@ async function designReview(value: unknown, attachments: Attachments): Promise<D
   if (points.length > maxWorthYourEye) {
     throw new HttpError(400, `Worth your eye holds at most ${maxWorthYourEye} points`)
   }
+  const setup = input.setup === undefined ? undefined : setupProposal(input.setup)
   return {
+    ...(setup && { setup }),
     ...(title !== undefined && { title }),
     ...(summary !== undefined && summary !== '' && { summary }),
     ...(screenshots.length > 0 && { screenshots }),
@@ -1093,6 +1098,97 @@ async function designReview(value: unknown, attachments: Attachments): Promise<D
     ...(figma && { figma }),
     ...(points.length > 0 && { worthYourEye: points }),
   }
+}
+
+const maxSetupItems = 40
+const setupStages: readonly StageId[] = ['backlog', ...agentStageIds, 'done']
+
+function setupList(value: unknown, what: string): Record<string, unknown>[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new HttpError(400, `the setup proposal’s ${what} must be a list`)
+  if (value.length > maxSetupItems) {
+    throw new HttpError(400, `the setup proposal lists at most ${maxSetupItems} ${what}`)
+  }
+  return value.map((item) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      throw new HttpError(400, `each of the setup proposal’s ${what} must be an object`)
+    }
+    return item as Record<string, unknown>
+  })
+}
+
+function needed(value: unknown, what: string, limit: number): string {
+  const text = shortText(value, what, limit)
+  if (text === undefined) throw new HttpError(400, `${what} is required`)
+  return text
+}
+
+function passedFlag(value: unknown, what: string): boolean {
+  if (typeof value !== 'boolean') throw new HttpError(400, `${what} needs passed: true or false`)
+  return value
+}
+
+function setupProposal(value: unknown): SetupProposal {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'setup must be an object')
+  }
+  const input = value as Record<string, unknown>
+  const workflow = setupList(input.workflow, 'Stages').map((line) => {
+    const stage = setupStages.find((id) => id === line.stage)
+    if (!stage) throw new HttpError(400, `${String(line.stage)} isn’t a Stage`)
+    const setting = shortText(line.setting, `${stage}’s setting`, 200)
+    return { stage, ...(setting !== undefined && { setting }) }
+  })
+  const checks = setupList(input.checks, 'Checks').map((check) => {
+    const name = needed(check.name, 'each Check’s name', 80)
+    const passed = passedFlag(check.passed, `the Check ${name}`)
+    const reason = shortText(check.reason, `${name}’s reason`, 200)
+    if (!passed && reason === undefined) {
+      throw new HttpError(400, `${name} failed on the default branch; say why in its reason`)
+    }
+    const durationMs = check.durationMs
+    if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
+      throw new HttpError(400, `${name} needs durationMs, the time it took in milliseconds`)
+    }
+    const repo = shortText(check.repo, `${name}’s repo`, 100)
+    return {
+      name,
+      command: needed(check.command, `${name}’s command`, 300),
+      ...(repo !== undefined && { repo }),
+      passed,
+      durationMs: Math.round(durationMs),
+      ...(reason !== undefined && { reason }),
+    }
+  })
+  const apps = setupList(input.apps, 'Apps').map((app) => {
+    const name = needed(app.name, 'each App’s name', 80)
+    const passed = passedFlag(app.passed, `the App ${name}`)
+    const reason = shortText(app.reason, `${name}’s reason`, 200)
+    if (!passed && reason === undefined) {
+      throw new HttpError(400, `${name} didn’t start on the default branch; say why in its reason`)
+    }
+    const repo = shortText(app.repo, `${name}’s repo`, 100)
+    return {
+      name,
+      ...(repo !== undefined && { repo }),
+      kind: needed(app.kind, `${name}’s kind`, 40),
+      ready: needed(app.ready, `how ${name} became ready`, 200),
+      passed,
+      ...(reason !== undefined && { reason }),
+    }
+  })
+  const files = setupList(input.files, 'files').map((file) => {
+    const where = needed(file.path, 'each file’s path', 200)
+    if (!/^\.ted\/[A-Za-z0-9._/-]+$/.test(where) || where.includes('..')) {
+      throw new HttpError(400, `${where} isn’t a file in .ted/`)
+    }
+    return { path: where, about: needed(file.about, `what ${where} holds`, 300) }
+  })
+  if (files.length === 0) {
+    throw new HttpError(400, 'the setup proposal names the files it will write')
+  }
+  const defaults = shortText(input.defaults, 'the line on what stays at TED’s defaults', 300)
+  return { workflow, checks, apps, files, ...(defaults !== undefined && { defaults }) }
 }
 
 function judgments(value: unknown): ValidateJudgments | undefined {

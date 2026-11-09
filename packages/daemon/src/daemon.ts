@@ -246,7 +246,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         emit,
         login: () =>
           integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
-        onCloned: (factory) => started?.wake(factory.id),
+        onCloned: (factory) => {
+          const tasks = started
+          if (!tasks) return
+          void tasks
+            .setUpFactory(factory.id)
+            .catch((error: unknown) =>
+              console.error(`couldn’t create ${factory.name}’s setup Task:`, error),
+            )
+            .finally(() => tasks.wake(factory.id))
+        },
         onReposRemoved: (repos) =>
           void storage?.removeUnusedClones(repos).catch((error: unknown) => {
             console.error('couldn’t remove the clones of removed repos:', error)

@@ -31,6 +31,7 @@ import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
 import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
 import { useNow } from '../requests.ts'
+import { startTask } from '../setup-notice.ts'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
 import listStyles from './TaskList.module.css'
@@ -236,7 +237,7 @@ export function Board({
     endDrag()
     if (!moving || !landed) return
     const { task } = moving
-    if (landed.drop === 'start') await ted.startTask(task.id)
+    if (landed.drop === 'start') await startTask(task)
     if (landed.drop === 'unstart') await ted.moveToBacklog(task.id)
     const { after, before } = landed.placement
     if (after === undefined && before === undefined) return
@@ -310,7 +311,7 @@ export function Board({
                 aria-label={`Start ${task.displayId}`}
                 title="Start"
                 onClick={() => {
-                  ted.startTask(task.id).catch(report)
+                  startTask(task).catch(report)
                 }}
               >
                 <PlayIcon />

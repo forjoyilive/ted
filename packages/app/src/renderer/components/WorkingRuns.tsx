@@ -178,7 +178,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.title}`}
-                    detail={`${name(entry.factoryId)} · ${priorityLabels[entry.priority]}`}
+                    detail={`${name(entry.factoryId)} · ${entry.setup ? 'setup Task' : priorityLabels[entry.priority]}`}
                   />
                 ),
               )}

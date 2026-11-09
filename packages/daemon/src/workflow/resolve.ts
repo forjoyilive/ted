@@ -58,6 +58,14 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
     if (layer.notes !== undefined) notes = layer.notes
   }
 
+  return built(settings, (id) => stageFiles.get(id), notes)
+}
+
+function built(
+  settings: WorkflowSettings,
+  stageFile: (id: AgentStageId) => ResolvedStageFile | undefined,
+  notes: string | undefined,
+): ResolvedWorkflow {
   const enabled = (id: StageId) => settings.stages[id]?.enabled !== false
   const order: AgentStageId[] = settings.order ?? ['intake', 'work']
   const stages: StageId[] = [
@@ -71,7 +79,7 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
     order,
     settings,
     ...(notes !== undefined && { notes }),
-    stageFile: (id) => stageFiles.get(id),
+    stageFile,
     next(current) {
       if (current === 'done') return 'done'
       const index = stages.indexOf(current)
@@ -121,6 +129,44 @@ export function onDefaultBranch(workflow: ResolvedWorkflow): ResolvedWorkflow {
   if (primary?.base_branch === undefined) return workflow
   const { base_branch: _, ...kept } = primary
   return { ...workflow, settings: { ...workflow.settings, repos: [kept, ...rest] } }
+}
+
+const setupForced: Partial<Record<AgentStageId, StageSettings>> = {
+  clarify: { enabled: true, depth: 'grilling' },
+  design: { enabled: true, gate: true },
+  review: { enabled: true, gate: true },
+}
+
+export function setupWorkflow(
+  workflow: ResolvedWorkflow,
+  instructions?: (stage: AgentStageId) => string,
+): ResolvedWorkflow {
+  const order = [...workflow.order]
+  for (const id of Object.keys(setupForced) as AgentStageId[]) {
+    if (order.includes(id)) continue
+    const rank = builtInOrder.indexOf(id)
+    const before = order.findIndex((other) => builtInOrder.indexOf(other) > rank)
+    order.splice(before === -1 ? order.length : before, 0, id)
+  }
+  const stages = { ...workflow.settings.stages }
+  for (const [id, forced] of Object.entries(setupForced) as [AgentStageId, StageSettings][]) {
+    stages[id] = { ...stages[id], ...forced }
+  }
+  const stageFile = (id: AgentStageId) => {
+    const file = workflow.stageFile(id)
+    const more = instructions?.(id)
+    return file && more ? { ...file, text: `${file.text.trim()}\n\n${more}` } : file
+  }
+  const repos = workflow.settings.repos?.map((repo, i) => {
+    if (i > 0) return repo
+    const { base_branch: _, ...primary } = repo
+    return primary
+  })
+  return built(
+    { ...workflow.settings, order, stages, ...(repos && { repos }) },
+    stageFile,
+    workflow.notes,
+  )
 }
 
 export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {

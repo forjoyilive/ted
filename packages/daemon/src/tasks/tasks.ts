@@ -47,6 +47,7 @@ import type {
   RunSlots,
   SetClarifyDepthRequest,
   SetTaskReposRequest,
+  SetupProposal,
   SignOffChanges,
   SimulatorSlots,
   SizeCheckInput,
@@ -70,6 +71,7 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  bannerId,
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
@@ -103,17 +105,20 @@ import type {
   TedStore,
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
-import type { WorkflowSettings } from '../workflow/check.ts'
+import { type CheckSettings, checkLayer, type WorkflowSettings } from '../workflow/check.ts'
+import { readGitLayer } from '../workflow/layers.ts'
 import {
   boardStages,
   onDefaultBranch,
   type ResolvedWorkflow,
+  setupWorkflow,
   withForcedGates,
 } from '../workflow/resolve.ts'
 import {
   backStageMessage,
   loopCheckInstructions,
   nextStageMessage,
+  setupInstructions,
   stageTitle,
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
@@ -254,6 +259,7 @@ export interface DesignSubmission {
   prototype?: DesignSubmissionFile
   figma?: { url: string; label?: string }
   worthYourEye?: string[]
+  setup?: SetupProposal
 }
 
 type AdvanceRequest = Extract<ReportOutcomeRequest, { outcome: 'advance' }>
@@ -266,6 +272,8 @@ export interface Tasks {
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   defaults(factoryId: string): Promise<TaskDefaults>
+  setUpFactory(factoryId: string): Promise<Task | undefined>
+  newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
@@ -296,6 +304,7 @@ export interface Tasks {
       sizeCheck?: SizeCheckInput
       supersedes?: string
       attachments?: Attachment[]
+      tutorial?: boolean
     },
   ): Promise<Comment>
   upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
@@ -598,12 +607,13 @@ export function createTasks(options: {
     task: StoredTask,
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
-    const resolution = await resolveWorkflow(factoryOf(task), options)
+    const factory = factoryOf(task)
+    const resolution = await resolveWorkflow(factory, options)
     const forced = withForcedGates(resolution.workflow, task.forcedGates)
-    return {
-      ...resolution,
-      workflow: task.changesSettings ? onDefaultBranch(forced) : forced,
-    }
+    const workflow = task.changesSettings ? onDefaultBranch(forced) : forced
+    if (!task.setup) return { ...resolution, workflow }
+    const instructions = await setupInstructions(factory.showTutorial)
+    return { ...resolution, workflow: setupWorkflow(workflow, instructions) }
   }
 
   async function capOf(factoryId: string): Promise<number | undefined> {
@@ -792,6 +802,7 @@ export function createTasks(options: {
           title: task.title,
           factoryId: task.factoryId,
           priority: task.priority,
+          ...(task.setup && { setup: true as const }),
         },
       ]
     })
@@ -877,6 +888,29 @@ export function createTasks(options: {
   const checkLog = (task: Task, checkRunId: string, position: number) =>
     path.join(checkDir(task, checkRunId), `${position + 1}.log`)
 
+  async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
+    const factory = factoryOf(task)
+    const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
+    if (!primary) return []
+    const found = await readGitLayer(primary.worktree, 'HEAD').catch(() => undefined)
+    if (!found) return []
+    const layer = checkLayer({ kind: 'factory', files: found.files, primaryRepo: factory.repo })
+    if (!layer.valid) return []
+    const proposal = store
+      .listComments(task.id)
+      .findLast(
+        (c) => c.gate && c.stage === 'design' && c.answer?.kind === 'approved' && c.design?.setup,
+      )?.design?.setup
+    const key = (name: string, command: string, repo: string | undefined) =>
+      [name, command, repo ?? primary.name].join('\0')
+    const approved = new Set(
+      (proposal?.checks ?? []).filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
+    )
+    return (layer.settings.stages.validate?.checks ?? []).filter((c) =>
+      approved.has(key(c.name, c.run, c.repo)),
+    )
+  }
+
   async function beginChecks(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -899,7 +933,9 @@ export function createTasks(options: {
         }),
     )
     const plan = await planChecks({
-      checks: resolution.workflow.settings.stages.validate?.checks ?? [],
+      checks: task.setup
+        ? await approvedSetupChecks(task)
+        : (resolution.workflow.settings.stages.validate?.checks ?? []),
       repos,
       primary: entries[0]?.name ?? '',
       ...(only !== undefined && { only }),
@@ -4286,6 +4322,86 @@ export function createTasks(options: {
     await finish(find(taskId), resolution)
   }
 
+  const creatingSetup = new Set<string>()
+
+  function openSetupTask(factoryId: string): Task | undefined {
+    return store
+      .listTasks()
+      .find((t) => t.factoryId === factoryId && t.setup && !t.archived && t.stage !== 'done')
+  }
+
+  async function makeSetupTask(factory: StoredFactory, byHand: boolean): Promise<Task> {
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    if (creatingSetup.has(factory.id)) {
+      throw new RequestError(409, `TED is already creating ${factory.name}’s setup Task`)
+    }
+    creatingSetup.add(factory.id)
+    try {
+      return await createSetupTask(factory, byHand)
+    } finally {
+      creatingSetup.delete(factory.id)
+    }
+  }
+
+  async function createSetupTask(factory: StoredFactory, byHand: boolean): Promise<Task> {
+    const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
+      (error: unknown) => {
+        console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
+        return undefined
+      },
+    )
+    const hasSettings = resolution?.layers.some(
+      (l) => l.layer === 'factory' && l.status !== 'absent',
+    )
+    const task = await store.createTask({
+      title: `Set up ${factory.name}`,
+      description: hasSettings ? laterSetupDescription : firstSetupDescription,
+      priority: 'urgent',
+      clarifyDepth: 'grilling',
+      lead: leadFrom(resolution?.workflow.settings),
+      factoryId: factory.id,
+      setup: true,
+    })
+    reportSetup(factory.id)
+    if (!resolution || (hasSettings && !byHand)) return task
+    return start(task.id)
+  }
+
+  function factoryHasSettings(factoryId: string): boolean {
+    return store.lastValidWorkflowLayer(`factory:${factoryId}`) !== undefined
+  }
+
+  function reportSetup(factoryId: string): void {
+    const factory = store.getFactory(factoryId)
+    if (!factory) return
+    const ref = { problem: setupProblem, factoryId }
+    const setupTasks = store.listTasks().filter((t) => t.factoryId === factoryId && t.setup)
+    const open = openSetupTask(factoryId)
+    const done =
+      factoryHasSettings(factoryId) ||
+      setupTasks.length === 0 ||
+      setupTasks.some((t) => store.isMerged(t.id))
+    if (done || factory.clonedAt === undefined) {
+      if (store.getBanner(bannerId(ref))) banners.clear(ref)
+      return
+    }
+    banners.raise({
+      ...ref,
+      severity: 'warning',
+      ...(open
+        ? {
+            text: `Setup isn’t finished · Tasks use TED’s defaults until ${open.displayId} merges`,
+            action: { label: `Open ${open.displayId}`, opens: { kind: 'task', taskId: open.id } },
+          }
+        : {
+            text: 'Setup isn’t finished · This Factory hasn’t been set up',
+            action: { label: 'New setup Task' },
+          }),
+    })
+  }
+
   async function start(ref: string): Promise<Task> {
     const task = live(ref)
     const factory = factoryOf(task)
@@ -4556,7 +4672,7 @@ export function createTasks(options: {
     const resolution =
       original.lead && !input.automation
         ? undefined
-        : await resolveWorkflow(factoryOf(original), {
+        : await taskWorkflow(original, {
             fetch: input.automation !== undefined && cloned(original.factoryId),
           })
     const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
@@ -5176,7 +5292,20 @@ export function createTasks(options: {
     ) {
       void pump()
     }
+    if ((event.type === 'task-created' || event.type === 'task-updated') && event.task.setup) {
+      const { factoryId } = event.task
+      setImmediate(() => {
+        if (!closed) reportSetup(factoryId)
+      })
+    }
   })
+  banners.onAction(setupProblem, async ({ factoryId }) => {
+    if (factoryId !== undefined && !openSetupTask(factoryId)) {
+      const factory = store.getFactory(factoryId)
+      if (factory) await makeSetupTask(factory, true)
+    }
+  })
+  for (const factory of store.listFactories()) reportSetup(factory.id)
   void pump()
   wake()
   watch?.poke()
@@ -5264,6 +5393,24 @@ export function createTasks(options: {
       if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
+    },
+
+    async setUpFactory(factoryId) {
+      const factory = store.getFactory(factoryId)
+      if (!factory || store.listTasks().some((t) => t.factoryId === factoryId && t.setup)) {
+        return undefined
+      }
+      return makeSetupTask(factory, false)
+    },
+
+    async newSetupTask(factoryId) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, 'no such Factory')
+      const open = openSetupTask(factoryId)
+      if (open) {
+        throw new RequestError(409, `${open.displayId} is already setting up ${factory.name}`)
+      }
+      return makeSetupTask(factory, true)
     },
 
     async defaults(factoryId) {
@@ -5480,7 +5627,16 @@ export function createTasks(options: {
     async comment(
       ref,
       caller,
-      { body, choices = [], round, proposal, sizeCheck, supersedes, attachments = [] },
+      {
+        body,
+        choices = [],
+        round,
+        proposal,
+        sizeCheck,
+        supersedes,
+        attachments = [],
+        tutorial = false,
+      },
     ) {
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
@@ -5508,6 +5664,21 @@ export function createTasks(options: {
       }
       const { task, runId } = ownTask(ref, caller)
       checkOwnFiles(task, attachments)
+      if (tutorial) {
+        if (!task.setup || task.leadRunId !== runId) {
+          throw new RequestError(403, 'only a setup Task’s Task Lead posts tutorial Comments')
+        }
+        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
+          throw new RequestError(400, 'a tutorial Comment is a plain note')
+        }
+        return store.postComment({
+          taskId: task.id,
+          body,
+          author: { kind: 'run', runId },
+          attachments,
+          tutorial: true,
+        })
+      }
       if (task.leadRunId !== runId) {
         if (
           choices.length > 0 ||
@@ -5846,6 +6017,21 @@ export function createTasks(options: {
             throw new RequestError(400, 'only Design posts a design review')
           }
           checkOwnFiles(task, designFiles(outcome.design))
+          if (outcome.design.setup && !task.setup) {
+            throw new RequestError(400, 'only a setup Task proposes TED settings')
+          }
+        }
+        if (
+          task.setup &&
+          task.stage === 'design' &&
+          outcome.outcome === 'advance' &&
+          outcome.skip !== true &&
+          !outcome.design?.setup
+        ) {
+          throw new RequestError(
+            400,
+            'a setup Task posts its proposal with `ted outcome advance --design <file>` and a setup section; see the setup instructions for Design',
+          )
         }
         if (pendingLoopCheck(task.id)) {
           throw new RequestError(
@@ -5925,6 +6111,9 @@ export function createTasks(options: {
               409,
               `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
             )
+          }
+          if (current.setup) {
+            throw new RequestError(409, 'a setup Task always goes through Clarify and Design')
           }
           const since = visitStart(current)
           if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
@@ -6147,7 +6336,9 @@ export function createTasks(options: {
       checking.add(task.id)
       try {
         const resolution = await taskWorkflow(task, { fetch: false })
-        const listed = resolution.workflow.settings.stages.validate?.checks ?? []
+        const listed = task.setup
+          ? await approvedSetupChecks(task)
+          : (resolution.workflow.settings.stages.validate?.checks ?? [])
         if (
           only !== undefined &&
           only !== tedSettingsCheck &&
@@ -6202,6 +6393,7 @@ export function createTasks(options: {
     },
 
     wake(factoryId) {
+      if (closed) return
       if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
       for (const task of store.listTasks()) {
@@ -6398,6 +6590,7 @@ function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {
     ...(design.prototype && { prototype: file(design.prototype) }),
     ...(design.figma && { figma: design.figma }),
     ...(design.worthYourEye && { worthYourEye: design.worthYourEye }),
+    ...(design.setup && { setup: design.setup }),
   }
 }
 
@@ -6586,3 +6779,11 @@ function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
+
+const setupProblem = 'setup-unfinished'
+
+const firstSetupDescription =
+  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
+
+const laterSetupDescription =
+  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'

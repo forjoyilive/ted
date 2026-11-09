@@ -313,6 +313,8 @@ export const ted = {
     window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
   reorderFactories: (factoryIds: string[]) =>
     window.ted.request('reorderFactories', factoryIds) as Promise<Factory[]>,
+  newSetupTask: (factoryId: string) =>
+    window.ted.request('newSetupTask', factoryId) as Promise<Task>,
   factoryRemoval: (factoryId: string) =>
     window.ted.request('factoryRemoval', factoryId) as Promise<FactoryRemoval>,
   removeFactory: (factoryId: string, request: RemoveFactoryRequest) =>

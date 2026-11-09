@@ -32,6 +32,31 @@ export async function preambleText(): Promise<string> {
   return (await readFile(new URL('preamble.md', defaults), 'utf8')).trim()
 }
 
+export async function setupInstructions(
+  tutorial: boolean,
+): Promise<(stage: AgentStageId) => string> {
+  const text = (await readFile(new URL('setup.md', defaults), 'utf8')).trim()
+  const [intro = '', ...parts] = text.split(/^## /m)
+  const sections = new Map(
+    parts.map((part) => {
+      const [heading = '', ...body] = part.split('\n')
+      return [heading.trim().toLowerCase(), body.join('\n').trim()] as const
+    }),
+  )
+  return (stage) => {
+    const title = stageTitle(stage)
+    return [
+      intro.trim(),
+      ...(sections.has(stage) ? [`## ${title} in a setup Task\n\n${sections.get(stage)}`] : []),
+      ...(tutorial
+        ? [
+            `The human turned on the tutorial for this Factory. As ${title} starts, before anything else, post one Comment with \`ted comment --tutorial "<text>"\`: what ${title} does, what it will do in this setup, and, as its last line, “Change it later: Factory settings → Workflow → ${title}.”`,
+          ]
+        : []),
+    ].join('\n\n')
+  }
+}
+
 export async function subAgentPreamble(): Promise<string> {
   return (await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim()
 }

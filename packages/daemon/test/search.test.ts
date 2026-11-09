@@ -40,6 +40,8 @@ describe('search over the store', () => {
       defaultBranch: 'main',
       showTutorial: false,
     })
+    store.factoryCloned(notebook.id)
+    store.factoryCloned(site.id)
     return { notebook, site }
   }
 

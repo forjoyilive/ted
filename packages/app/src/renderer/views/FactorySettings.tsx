@@ -12,6 +12,7 @@ import type {
   RepoSource,
   SaveSettingsResult,
   SettingsMergeMethod,
+  Task,
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
 import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
@@ -69,6 +70,7 @@ interface FactorySettingsProps {
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
   onRemoveFactory: () => void
+  onOpenTask: (task: Task) => void
 }
 
 export function FactorySettings({
@@ -77,6 +79,7 @@ export function FactorySettings({
   onOpenFactory,
   onOpenGitHubSettings,
   onRemoveFactory,
+  onOpenTask,
 }: FactorySettingsProps) {
   const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
@@ -86,6 +89,7 @@ export function FactorySettings({
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
   const [home, setHome] = useState<string>()
+  const [setupError, setSetupError] = useState<string>()
   const pendingFolders = useRef(new Map<string, string>())
   const { epoch } = useConnection()
   const scroller = useRef<HTMLDivElement>(null)
@@ -199,7 +203,20 @@ export function FactorySettings({
           <span className={styles.crumb}>Settings</span>
         </h1>
         <span className={views.headerSpacer} />
-        <Button size="small" disabled title="Setup Tasks aren’t in this TED build yet.">
+        {setupError !== undefined && (
+          <span className={styles.setupError} role="alert">
+            {setupError}
+          </span>
+        )}
+        <Button
+          size="small"
+          onClick={() => {
+            setSetupError(undefined)
+            ted
+              .newSetupTask(factory.id)
+              .then(onOpenTask, (error: unknown) => setSetupError(readableError(error)))
+          }}
+        >
           New setup Task
         </Button>
       </header>
