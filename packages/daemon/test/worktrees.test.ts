@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, Run, Task } from '@ted/protocol'
+import type { Factory, Run, RunSlots, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -189,6 +189,36 @@ describe('worktree setup outcomes', () => {
       `/tasks/${task.id}/repos/widgets/setup-log`,
     )
     expect(log.text).toBe('installing\nhttps://[redacted]@example.com\n')
+  })
+
+  test('Stop during setup frees the slot, and Resume runs setup again before the Task Lead', async () => {
+    const go = path.join(scratch, 'go')
+    await workflow(`      setup: "while [ ! -e '${go}' ]; do sleep 0.05; done"\n`)
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    await client.ok<Task>('POST', `/tasks/${task.id}/start`)
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.repos[0]?.setup?.state === 'running',
+      'setup to start',
+    )
+
+    const stopped = await client.ok<Task>('POST', `/tasks/${task.id}/stop`)
+
+    expect(stopped.status?.kind).toBe('stopped')
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
+      'the slot to be free',
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.status?.kind === 'working',
+      'setup to run again',
+    )
+    expect((await getTask(client, task.id))?.leadRunId).toBeUndefined()
+    await writeFile(go, '')
+    await leadRun(client, task)
   })
 
   test('the Task shows Setting up while setup runs, and the Task Lead waits for it', async () => {

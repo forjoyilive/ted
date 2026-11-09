@@ -12,4 +12,9 @@ export {
 } from './check.ts'
 export { checkWorkflowPath, NothingToCheckError, type PathProblem } from './check-path.ts'
 export { contentVersion, readDefaultLayer, readGitLayer, readLayerDirectory } from './layers.ts'
-export { type ResolvedStageFile, type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
+export {
+  boardStages,
+  type ResolvedStageFile,
+  type ResolvedWorkflow,
+  resolveWorkflow,
+} from './resolve.ts'

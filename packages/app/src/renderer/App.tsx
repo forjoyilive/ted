@@ -1,4 +1,4 @@
-import type { AgentHealth, Banner, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, ListFilters, Task } from '@ted/protocol'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -36,14 +36,16 @@ import {
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { factoryCapLine, runsLine } from './slots.ts'
+import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
+import { Board } from './views/Board.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { Stub } from './views/OtherViews.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
-import { Board, factoryName } from './views/TaskViews.tsx'
+import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
   plans: 'Plans',
@@ -98,6 +100,7 @@ export function App() {
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [addFactoryOpen, setAddFactoryOpen] = useState(false)
+  const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen = newTaskOpen || addFactoryOpen
   const openNewTask = () => setNewTaskOpen(true)
   const inbox = useInbox()
@@ -167,9 +170,10 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (dialogOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
       if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
-      if (task?.stage !== 'backlog' || task.markers.some((m) => m.kind === 'blocked-by')) return
+      const action = task && shortcutAction(task)
+      if (!task || !action) return
       event.preventDefault()
-      ted.startTask(task.id).catch((error: unknown) => console.error(error))
+      runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -296,8 +300,26 @@ export function App() {
           onNewTask: openNewTask,
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
+        const openPlans = () =>
+          dispatch({
+            type: 'open',
+            screen: { kind: 'factory', factoryId: screen.factoryId, view: 'plans' },
+          })
         if (screen.view === 'board') {
-          return <Board {...view} onOpenTask={openTaskByRef} factory={factory} />
+          return (
+            <Board
+              {...view}
+              factoryId={screen.factoryId}
+              factory={factory}
+              queue={slots?.queue ?? []}
+              filters={boardFilters[screen.factoryId] ?? {}}
+              onFilters={(filters) =>
+                setBoardFilters((all) => ({ ...all, [screen.factoryId]: filters }))
+              }
+              onOpenTask={openTaskByRef}
+              onPlan={openPlans}
+            />
+          )
         }
         if (screen.view === 'list') {
           return (
@@ -307,12 +329,7 @@ export function App() {
               breadcrumb="List"
               settings={settings}
               onOpenTask={openTaskByRef}
-              onPlan={() =>
-                dispatch({
-                  type: 'open',
-                  screen: { kind: 'factory', factoryId: screen.factoryId, view: 'plans' },
-                })
-              }
+              onPlan={openPlans}
             />
           )
         }

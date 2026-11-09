@@ -316,6 +316,45 @@ describe('Gates', () => {
     expect(work).toContain('# Work')
   })
 
+  test('an approval while the Task Lead is paused reaches the resumed Run', async () => {
+    const client = await start()
+    const go = path.join(scratch, 'go')
+    const task = await startTask(
+      client,
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { waitFor: go },
+      { authError: true },
+      { exit: 1 },
+    )
+    const { request } = await waitForRequest(client)
+    const first = await leadRun(client, task)
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+    await writeFile(go, '')
+    await waitUntil(
+      async () => (await getTask(client, task.id)).statuses.includes('paused'),
+      'the Task Lead to be held',
+    )
+
+    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'work')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+    await client.ok('POST', '/agents/health/check')
+
+    const resumed = await waitUntil(async () => {
+      const run = await leadRun(client, task)
+      return run.id !== first.id ? run : undefined
+    }, 'the resumed Run')
+    const prompt = (resumed as Run & { prompt?: string }).prompt ?? ''
+    expect(prompt).toContain('the human answered')
+    expect(prompt).toContain('approved')
+    expect(prompt).toContain('TED moved this Task to Work.')
+    expect(prompt).toContain('# Work')
+    const answered = (await comments(client, task)).find((c) => c.id === request.id)
+    expect(answered?.answer?.kind).toBe('approved')
+  })
+
   test('Request changes sends the text into the live Task Lead Run and keeps the Stage', async () => {
     const client = await start()
     const task = await startTask(

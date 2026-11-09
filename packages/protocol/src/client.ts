@@ -38,6 +38,7 @@ import type {
   PostCommentRequest,
   Priority,
   ReportOutcomeRequest,
+  ResumeTaskRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
@@ -45,7 +46,7 @@ import type {
   TaskDefaults,
   ThreadEvent,
 } from './task.ts'
-import type { StageEntry } from './workflow.ts'
+import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
 
@@ -113,6 +114,15 @@ export class DaemonClient {
 
   moveToBacklog(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  stopTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/stop`)
+  }
+
+  resumeTask(ref: string, comment?: string): Promise<Task> {
+    const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
   }
 
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
@@ -199,6 +209,10 @@ export class DaemonClient {
 
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
+  }
+
+  factoryBoard(factoryId: string): Promise<FactoryBoard> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/board`)
   }
 
   taskDefaults(factoryId: string): Promise<TaskDefaults> {

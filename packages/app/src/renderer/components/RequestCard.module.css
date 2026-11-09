@@ -68,6 +68,24 @@
   font-size: var(--text-14);
 }
 
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quoted {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-size: var(--text-13-5);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .choices {
   display: flex;
   flex-direction: column;
@@ -175,6 +193,44 @@
 
 .neutral {
   color: var(--text-caption);
+}
+
+.bad {
+  color: var(--status-failed-fg);
+}
+
+.command,
+.commandDetails {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.commandDetails {
+  max-height: 240px;
+  overflow: auto;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.commandRepo {
+  color: var(--text-secondary);
+}
+
+.answeredCommand {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .quote {

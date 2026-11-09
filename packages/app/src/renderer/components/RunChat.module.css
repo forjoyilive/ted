@@ -313,3 +313,72 @@
   color: var(--text-caption);
   font-size: var(--text-12);
 }
+
+.permission {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-inset);
+}
+
+.permission[data-open='true'] {
+  border-color: var(--status-waiting-fg);
+  background: var(--surface-card);
+}
+
+.permissionHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-13);
+}
+
+.permissionKind {
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.permission[data-open='true'] .permissionKind {
+  color: var(--status-waiting-fg);
+}
+
+.permissionCommand {
+  margin: 0;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12-5);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.permissionAnswer {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.permissionButtons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.good {
+  color: var(--status-success-fg);
+}
+
+.bad {
+  color: var(--status-failed-fg);
+}
+
+.quiet {
+  color: var(--text-caption);
+}
