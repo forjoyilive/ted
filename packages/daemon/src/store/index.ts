@@ -91,6 +91,7 @@ import {
   deletedTasks,
   events,
   factories,
+  factoryOrder,
   factoryRepos,
   heldRuns,
   localFolders,
@@ -445,6 +446,8 @@ export interface TedStore {
   setLocalFolder(repo: string, path: string): void
   clearLocalFolder(repo: string): void
   renameFactory(factoryId: string, name: string): StoredFactory
+  reorderFactories(factoryIds: readonly string[]): StoredFactory[]
+  removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
@@ -688,15 +691,24 @@ export async function openStore({
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
+  const allFactoryOrder = queryDb(factoryOrder.orderBy('position', 'asc'))
   const listFactories = (): StoredFactory[] => {
     const repos = store.query(allFactoryRepos)
-    return store.query(allFactories).map(({ clonedAt, ...row }) => ({
-      ...row,
-      repos: repos
-        .filter((r) => r.factoryId === row.id)
-        .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
-      ...(clonedAt !== null && { clonedAt }),
-    }))
+    const placed = new Map(store.query(allFactoryOrder).map((r) => [r.factoryId, r.position]))
+    const rows = store.query(allFactories)
+    const after = Math.max(-1, ...placed.values()) + 1
+    const rank = (id: string, index: number) => placed.get(id) ?? after + index
+    return rows
+      .map((row, index) => ({ row, rank: rank(row.id, index) }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ row: { clonedAt, ...row } }, position) => ({
+        ...row,
+        position,
+        repos: repos
+          .filter((r) => r.factoryId === row.id)
+          .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
+        ...(clonedAt !== null && { clonedAt }),
+      }))
   }
   const requireFactory = (id: string) => {
     const found = listFactories().find((f) => f.id === id)
@@ -2173,6 +2185,17 @@ export async function openStore({
     renameFactory(factoryId, name) {
       commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
       return requireFactory(factoryId)
+    },
+    reorderFactories(factoryIds) {
+      commit(
+        events.factoriesReordered({ factoryIds: [...factoryIds], at: new Date().toISOString() }),
+      )
+      return listFactories()
+    },
+    removeFactory(factoryId) {
+      commit(events.factoryRemoved({ factoryId, at: new Date().toISOString() }))
+      emit({ type: 'factory-removed', factoryId })
+      noteActivity()
     },
     changeFactoryRepos(factoryId, repos) {
       commit(events.factoryReposChanged({ factoryId, repos, at: new Date().toISOString() }))

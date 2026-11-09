@@ -73,6 +73,7 @@ export interface Automations {
   runNow(ref: string, caller: Caller, factory?: string): Promise<AutomationRun>
   retry(firingId: string, caller: Caller): Promise<AutomationRun>
   delete(ref: string, caller: Caller, factory?: string): Promise<void>
+  removeFactory(factoryId: string): Promise<void>
   requests(): AutomationRequest[]
   comment(caller: Caller, input: { body: string; choices?: string[] }): AutomationRequest
   answer(id: string, input: AnswerAutomationRequest): Promise<AutomationRequest>
@@ -869,21 +870,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     async delete(ref, caller, factory) {
       refuseRun(caller)
-      const automation = find(ref, factory)
-      const open = saved
-        .firings(automation.id)
-        .filter((f) => f.state === 'started' && store.getRun(f.id)?.state !== 'finished')
-      saved.delete(automation.id)
-      banners.clear({
-        problem: automationFailingProblem,
-        factoryId: automation.factoryId,
-        subject: automation.id,
-      })
-      for (const firing of open) {
-        await runs.stop(firing.id).catch((error: unknown) => console.error(error))
+      await remove(find(ref, factory))
+    },
+    async removeFactory(factoryId) {
+      for (const automation of saved.list().filter((a) => a.factoryId === factoryId)) {
+        await remove(automation)
       }
-      changed()
-      pump()
     },
     requests() {
       const ids = new Set(live().map((a) => a.id))
@@ -934,6 +926,23 @@ export function createAutomations(options: AutomationsOptions): Automations {
       releaseIdle?.()
       releaseIdle = undefined
     },
+  }
+
+  async function remove(automation: StoredAutomation): Promise<void> {
+    const open = saved
+      .firings(automation.id)
+      .filter((f) => f.state === 'started' && store.getRun(f.id)?.state !== 'finished')
+    saved.delete(automation.id)
+    banners.clear({
+      problem: automationFailingProblem,
+      factoryId: automation.factoryId,
+      subject: automation.id,
+    })
+    for (const firing of open) {
+      await runs.stop(firing.id).catch((error: unknown) => console.error(error))
+    }
+    changed()
+    pump()
   }
 
   function switchOn(automation: StoredAutomation, on: boolean): void {

@@ -208,6 +208,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
+  restartIdleRuns: onOff('restartIdleRuns'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
   firstLaunchDone: onOff('firstLaunchDone'),
   billing(value) {

@@ -5,7 +5,7 @@ import type {
   CheckTry,
   FactorySettingsChanges,
   FactorySettingsView,
-  InvalidSettings,
+  LibraryInvalid,
   RepoSettingsInput,
   RepoSettingsView,
 } from '@ted/protocol/factory-settings'
@@ -309,7 +309,13 @@ export function timeAgo(then: number, now: number): string {
   return days === 1 ? '1 day ago' : `${days} days ago`
 }
 
-export function lastValidLine(invalid: InvalidSettings, now: number): string {
+export function lastValidLine(invalid: LibraryInvalid & { url?: string }, now: number): string {
+  if (invalid.url === undefined) {
+    if (!invalid.lastValid) {
+      return 'TED has no earlier valid version, so TED’s defaults apply. Saving from here replaces the broken file.'
+    }
+    return `TED is using the last valid version, from ${invalid.lastValid.version}, ${timeAgo(Date.parse(invalid.lastValid.at), now)}. This page shows that version. Saving from here replaces the broken file.`
+  }
   if (!invalid.lastValid) {
     return 'TED has no earlier valid version, so the inherited settings apply. Saving from here replaces the broken file.'
   }

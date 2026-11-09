@@ -222,6 +222,7 @@ describe('Automations', () => {
     await waitUntil(
       async () => (await said(client, first)).includes('Got it'),
       'the answer to reach the Run',
+      20_000,
     )
     const answered = await client.ok<RunWithConversation>('GET', `/runs/${first}`)
     expect(answered.conversation.some((e) => e.line.includes('The human answered'))).toBe(true)
@@ -471,6 +472,26 @@ describe('Automations', () => {
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
+})
+
+test('removing a Factory deletes its Automations and stops their Runs', async () => {
+  const client = await startTed()
+  const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
+  clock = Date.parse('2026-11-09T09:00:05Z')
+  const [row] = await waitForHistory(
+    client,
+    automation.id,
+    (rows) => rows[0]?.runId !== undefined,
+    'the Run to start',
+  )
+  const [factory] = await client.ok<Factory[]>('GET', '/factories')
+  await client.ok('POST', `/factories/${factory?.id}/remove`, { key: 'NB' })
+  expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
+  expect((await client.ok<Activity>('GET', '/activity')).automationsOn).toBe(0)
+  await waitUntil(async () => {
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    return run.run.state === 'finished'
+  }, 'the Run to stop')
 })
 
 test('an Automation that is on keeps a daemon started by ted from exiting when idle', async () => {

@@ -245,3 +245,57 @@ function command(given: WorktreeCommandInput | undefined) {
   if (run === '') return undefined
   return { run, timeout: given?.timeout?.trim() || undefined }
 }
+
+export interface LibraryChanges {
+  stages?: Partial<Record<StageId, StageSettingsInput>>
+  stageFiles?: Partial<Record<AgentStageId, string | null>>
+  agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
+}
+
+export interface LibraryStageRow {
+  id: StageId
+  inOrder: boolean
+  enabled: boolean
+  gate: boolean
+  maxBack?: number
+  depth?: ClarifyDepth
+  from: LayerKind
+  libraryFile?: string
+  defaultText?: string
+  basedOn?: string
+}
+
+export interface LibraryAgentRow {
+  role: AgentRole
+  own?: AgentChoiceInput
+  default: AgentChoiceInput
+  from: LayerKind
+}
+
+export interface LibraryInvalid {
+  file: string
+  line: number
+  column: number
+  message: string
+  lastValid?: { version: string; at: string }
+}
+
+export interface LibraryView {
+  path: string
+  version: string
+  stages: LibraryStageRow[]
+  agents: LibraryAgentRow[]
+  problems: WorkflowProblem[]
+  invalid?: LibraryInvalid
+}
+
+export interface LibraryPreview {
+  files: FileChange[]
+  problems: WorkflowProblem[]
+  valid: boolean
+}
+
+export interface SaveLibraryRequest {
+  changes: LibraryChanges
+  version: string
+}

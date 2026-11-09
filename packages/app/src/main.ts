@@ -29,6 +29,7 @@ import {
   downloadUrl,
   type EditTaskRequest,
   type FactorySettingsChanges,
+  type LibraryChanges,
   linearKeyPage,
   type MachineSettings,
   type MoveTaskRequest,
@@ -37,6 +38,7 @@ import {
   parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SaveLibraryRequest,
   type SaveSettingsRequest,
   type Task,
   tedHome,
@@ -204,7 +206,29 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
   saveFactorySettings: (client, factoryId, request) =>
     client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
+  library: (client) => client.library(),
+  previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
+  saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  reorderFactories: (client, factoryIds) =>
+    client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),
+  factoryRemoval: (client, factoryId) => client.factoryRemoval(String(factoryId)),
+  removeFactory: (client, factoryId, request) => {
+    const given = request as { key?: unknown; closePullRequests?: unknown } | undefined
+    return client.removeFactory(String(factoryId), {
+      key: String(given?.key ?? ''),
+      closePullRequests: given?.closePullRequests !== false,
+    })
+  },
+  repoRemoval: (client, factoryId, repoName) =>
+    client.repoRemoval(String(factoryId), String(repoName)),
+  showFactoryFolder: async (client, factoryId) => {
+    const factory = (await client.listFactories()).find((f) => f.id === String(factoryId))
+    const folder = factory?.localFolder
+    if (!folder?.found) throw new Error('This Factory has no local folder')
+    const error = await shell.openPath(folder.path)
+    if (error !== '') throw new Error(error)
+  },
   tryCheck: (client, factoryId, request) =>
     client.tryCheck(String(factoryId), request as CheckTryRequest),
   stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),

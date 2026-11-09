@@ -24,6 +24,7 @@ export interface MachineSettings {
   showTrayIcon: boolean
   startAtLogin: boolean
   stayAwake: boolean
+  restartIdleRuns: boolean
   notifyTaskMerged: boolean
   listViews: Readonly<Record<string, ListView>>
   firstLaunchDone: boolean
@@ -40,6 +41,7 @@ export const defaultMachineSettings: MachineSettings = {
   showTrayIcon: true,
   startAtLogin: true,
   stayAwake: true,
+  restartIdleRuns: true,
   notifyTaskMerged: false,
   listViews: {},
   firstLaunchDone: false,

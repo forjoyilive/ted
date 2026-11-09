@@ -1,4 +1,4 @@
-import type { DiffLine, FileChange } from '@ted/protocol'
+import type { DiffLine, FileChange } from './factory-settings.ts'
 
 const context = 2
 

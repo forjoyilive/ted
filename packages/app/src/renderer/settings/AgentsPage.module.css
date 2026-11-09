@@ -188,3 +188,22 @@
 .error {
   color: var(--status-failed-fg);
 }
+
+.roleKey {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+}
+
+.modelInput {
+  width: 112px;
+}
+
+.agentSelect {
+  width: 112px;
+}
+
+.roleTitle {
+  white-space: nowrap;
+}

@@ -27,6 +27,7 @@ import { redactSecrets } from './redact.ts'
 import { automationRoutes } from './routes/automations.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
+import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
 import {
   type BaseOptions,
@@ -141,6 +142,7 @@ const routes: Route[] = [
   ...taskRoutes,
   ...factoryRoutes,
   ...machineRoutes,
+  ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,
   ...automationRoutes,

@@ -28,10 +28,14 @@ import type {
   EditTaskRequest,
   Factory,
   FactoryBoard,
+  FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
   InboxItem,
   IntegrationsHealth,
+  LibraryChanges,
+  LibraryPreview,
+  LibraryView,
   LinearLookup,
   LinearStatus,
   LogText,
@@ -40,7 +44,9 @@ import type {
   Priority,
   Profile,
   RemoveClonesResult,
+  RemoveFactoryRequest,
   RepoCheck,
+  RepoRemoval,
   RestoreBackupResult,
   Run,
   RunChat,
@@ -49,6 +55,7 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
   SetTaskReposRequest,
@@ -182,6 +189,11 @@ export const ted = {
     window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
   saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
     window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  library: () => window.ted.request('library') as Promise<LibraryView>,
+  previewLibrary: (changes: LibraryChanges) =>
+    window.ted.request('previewLibrary', changes) as Promise<LibraryPreview>,
+  saveLibrary: (request: SaveLibraryRequest) =>
+    window.ted.request('saveLibrary', request) as Promise<LibraryView>,
   tryCheck: (factoryId: string, request: CheckTryRequest) =>
     window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
   stopCheckTry: (factoryId: string, name: string) =>
@@ -190,6 +202,16 @@ export const ted = {
     window.ted.request('checkTryOutput', factoryId, name) as Promise<CheckTryOutput>,
   renameFactory: (factoryId: string, name: string) =>
     window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
+  reorderFactories: (factoryIds: string[]) =>
+    window.ted.request('reorderFactories', factoryIds) as Promise<Factory[]>,
+  factoryRemoval: (factoryId: string) =>
+    window.ted.request('factoryRemoval', factoryId) as Promise<FactoryRemoval>,
+  removeFactory: (factoryId: string, request: RemoveFactoryRequest) =>
+    window.ted.request('removeFactory', factoryId, request) as Promise<void>,
+  repoRemoval: (factoryId: string, repoName: string) =>
+    window.ted.request('repoRemoval', factoryId, repoName) as Promise<RepoRemoval>,
+  showFactoryFolder: (factoryId: string) =>
+    window.ted.request('showFactoryFolder', factoryId) as Promise<void>,
   setRepoLocalFolder: (factoryId: string, repoName: string, folder: string) =>
     window.ted.request('setRepoLocalFolder', factoryId, repoName, folder) as Promise<Factory>,
   clearRepoLocalFolder: (factoryId: string, repoName: string) =>
