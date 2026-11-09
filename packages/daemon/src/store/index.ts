@@ -360,6 +360,10 @@ export interface TedStore {
     entry: NewStageEntry
     repo: NewWorktree
   }): Task
+  setTaskRepos(
+    taskId: string,
+    input: { repos: string[]; names: string[]; by: 'human' | 'task-lead'; runId?: string },
+  ): Task
   worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
   recordedSetup(taskId: string, name: string): RecordedSetup | undefined
   worktreeSetupFinished(
@@ -925,6 +929,7 @@ export async function openStore({
     clarifyDepthBy,
     branch,
     worktree,
+    chosenRepos,
     activity,
     activityEntries,
     leadAgent,
@@ -1061,6 +1066,12 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       repos,
+      chosenRepos:
+        chosenRepos !== null
+          ? (JSON.parse(chosenRepos) as string[])
+          : listFactories()
+              .filter((f) => f.id === row.factoryId)
+              .map((f) => f.repo),
       attachments: attachmentsOf(row.id),
       ...(source && { source }),
       stage,
@@ -1764,6 +1775,19 @@ export async function openStore({
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
+    },
+    setTaskRepos(taskId, { repos, names, by, runId }) {
+      commit(
+        events.taskReposSet({
+          taskId,
+          repos,
+          names,
+          by,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
     },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(

@@ -21,9 +21,11 @@ import {
   isShowing,
   minGhVersion,
   parseLinearUrl,
+  type RepoSetupReport,
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
+  type SetTaskReposRequest,
   type TaskLead,
   tedHome,
   tedPaths,
@@ -79,6 +81,9 @@ const usage = `Usage:
   ted task start <id>                        Start a Task from Backlog
   ted task block [<id>] --by <id>            Make a Task wait until another Task merges
   ted task unblock [<id>] [--by <id>]        Remove one blocker, or all of them
+  ted task repos set <name> …                Set which of the Factory's repos the Task changes
+  ted task repos add <name>                  Add a repo; prints its setup output when done
+  ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
   ted backup list                            List backups of TED's data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
   ted task lead <id> claude|codex [--model <name>] [--effort <level>]
@@ -362,6 +367,13 @@ try {
         ? `${task.displayId} no longer waits for any Task`
         : `${task.displayId} no longer waits for ${by}`,
     )
+  } else if (
+    group === 'task' &&
+    command === 'repos' &&
+    (rest[0] === 'set' || rest[0] === 'add' || rest[0] === 'remove') &&
+    rest.length >= 2
+  ) {
+    await taskRepos(rest[0], rest.slice(1))
   } else if (group === 'backup' && command === 'list' && rest.length === 0) {
     const { backups } = await withDaemon(home, (client) => client.listBackups())
     console.log(
@@ -414,6 +426,66 @@ try {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   }
+}
+
+async function taskRepos(action: 'set' | 'add' | 'remove', names: string[]): Promise<void> {
+  const ref = taskRef()
+  const confirm = options.yes === true
+  const request: SetTaskReposRequest =
+    action === 'set'
+      ? { set: names, confirm }
+      : action === 'add'
+        ? { add: names }
+        : { remove: names, confirm }
+  const { changed, setups } = await withDaemon(home, async (client) => {
+    const changed = await client.setTaskRepos(ref, request)
+    const setups: RepoSetupReport[] = []
+    if (changed.confirm) return { changed, setups }
+    for (const name of changed.added) {
+      for (;;) {
+        const report = await client.repoSetup(ref, name)
+        if (report.state !== 'running') {
+          setups.push(report)
+          break
+        }
+        await sleep(500)
+      }
+    }
+    return { changed, setups }
+  })
+  if (changed.confirm) {
+    for (const { name, commits } of changed.confirm) {
+      console.error(
+        `ted: ${printable(name)}’s worktree has ${commits} ${commits === 1 ? 'commit' : 'commits'} that would be lost. Ask the human first; if they agree, run the command again with --yes.`,
+      )
+    }
+    process.exitCode = 1
+    return
+  }
+  for (const report of setups) console.log(printable(addedLine(report)))
+  for (const name of changed.removed) {
+    console.log(`Removed ${printable(name)}; its worktree is gone.`)
+  }
+  console.log(`${changed.task.displayId}’s repos: ${changed.repos.map(printable).join(', ')}`)
+}
+
+function addedLine(report: RepoSetupReport): string {
+  if (report.worktree === undefined) {
+    return `Added ${report.name}. TED makes its worktree when the Task starts.`
+  }
+  const added = `Added ${report.name} at ${report.worktree}.`
+  if (report.state === 'none' || report.command === undefined) return added
+  const how =
+    report.state === 'passed'
+      ? 'passed'
+      : report.state === 'timed-out'
+        ? 'timed out'
+        : `failed${report.exitCode !== undefined ? ` with exit code ${report.exitCode}` : ''}`
+  const output = report.output.trimEnd()
+  return [
+    `${added} Its setup, \`${report.command}\`, ${how}.`,
+    ...(output === '' ? [] : ['Setup output:', output]),
+  ].join('\n')
 }
 
 function judgments(): ValidateJudgments | undefined {
