@@ -5,13 +5,13 @@ import { withDaemon } from '@ted/daemon/launch'
 import {
   type AgentKind,
   type Automation,
+  type AutomationInput,
   type AutomationNow,
   type AutomationRun,
   type AutomationTemplateId,
   agentKinds,
   automationTemplateIds,
   type CreateAutomationRequest,
-  type EditAutomationRequest,
   type Effort,
   efforts,
   scheduleFromExpression,
@@ -168,8 +168,10 @@ async function createInput(
   }
 }
 
-async function editInput(options: AutomationOptions): Promise<EditAutomationRequest> {
-  const input: EditAutomationRequest = {}
+async function editInput(
+  options: AutomationOptions,
+): Promise<Partial<Omit<AutomationInput, 'template'>>> {
+  const input: Partial<Omit<AutomationInput, 'template'>> = {}
   if (options.name !== undefined) input.name = options.name
   if (options.schedule !== undefined) input.schedule = scheduleFromExpression(options.schedule)
   if (options.tz !== undefined) input.timeZone = options.tz

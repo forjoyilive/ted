@@ -14,8 +14,10 @@ import {
   type Activity,
   type AgentKind,
   type AgentStageId,
+  type AnswerAutomationRequest,
   type AnswerRequest,
   type AttachmentRef,
+  type AutomationSchedule,
   agentKinds,
   type Banner,
   type BannerActionInput,
@@ -23,12 +25,14 @@ import {
   type CheckRepoRequest,
   type CheckTryRequest,
   type ClarifyDepth,
+  type CreateAutomationRequest,
   type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type EditAutomationRequest,
   type EditTaskRequest,
   type FactorySettingsChanges,
   type LibraryChanges,
@@ -373,6 +377,25 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   removeLinearKey: (client) => client.removeLinearKey(),
   lookupLinear: (client, url) => client.lookupLinear(String(url)),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
+  listAutomations: (client, factory) =>
+    client.listAutomations(factory === undefined ? undefined : String(factory)),
+  getAutomation: (client, id) => client.getAutomation(String(id)),
+  automationTemplates: (client) => client.automationTemplates(),
+  automationRequests: (client) => client.automationRequests(),
+  previewSchedule: (client, schedule, timeZone) =>
+    client.previewSchedule(
+      schedule as AutomationSchedule,
+      timeZone === undefined ? undefined : String(timeZone),
+    ),
+  createAutomation: (client, input) => client.createAutomation(input as CreateAutomationRequest),
+  editAutomation: (client, id, input) =>
+    client.editAutomation(String(id), input as EditAutomationRequest),
+  setAutomationOn: (client, id, on) => client.setAutomationOn(String(id), on === true),
+  runAutomation: (client, id) => client.runAutomation(String(id)),
+  retryAutomationRun: (client, runId) => client.retryAutomationRun(String(runId)),
+  deleteAutomation: (client, id) => client.deleteAutomation(String(id)),
+  answerAutomationRequest: (client, id, answer) =>
+    client.answerAutomationRequest(String(id), answer as AnswerAutomationRequest),
 }
 
 const pictureSize = 256

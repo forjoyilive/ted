@@ -398,3 +398,8 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+.subDot {
+  display: inline-flex;
+  margin-left: 6px;
+}

@@ -454,7 +454,36 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
   }
 }
 
-function Composer({ run }: { run: RunSummary }) {
+export interface ChatExtra {
+  id: string
+  at: string
+  node: ReactNode
+}
+
+export interface ChatOptions {
+  bar?: boolean
+  extra?: readonly ChatExtra[]
+  pinned?: ReactNode
+  placeholder?: string
+  help?: string
+}
+
+function withExtras(items: readonly ChatItem[], extra: readonly ChatExtra[]) {
+  const rows: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
+  for (const added of [...extra].sort((a, b) => a.at.localeCompare(b.at))) {
+    let at = rows.length
+    while (at > 0) {
+      const before = rows[at - 1]
+      const when = before && ('item' in before ? before.item.at : before.extra.at)
+      if (when === undefined || when <= added.at) break
+      at--
+    }
+    rows.splice(at, 0, { extra: added })
+  }
+  return rows
+}
+
+function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -497,7 +526,7 @@ function Composer({ run }: { run: RunSummary }) {
           aria-label="Message to this Run"
           placeholder={
             live
-              ? `Message the ${run.name}’s Run…`
+              ? (options.placeholder ?? `Message the ${run.name}’s Run…`)
               : 'This Run has finished. Its chat is read-only.'
           }
           disabled={!live}
@@ -511,8 +540,8 @@ function Composer({ run }: { run: RunSummary }) {
         />
         <span className={styles.boxHelp}>
           <Help>
-            Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To
-            leave a Comment on the Task, use the Thread tab.
+            {options.help ??
+              'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'}
           </Help>
         </span>
       </div>
@@ -559,13 +588,22 @@ function Composer({ run }: { run: RunSummary }) {
   )
 }
 
-function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) | undefined }) {
+export function ChatBody({
+  chat,
+  onStopTask,
+  options = {},
+}: {
+  chat: Chat
+  onStopTask: (() => void) | undefined
+  options?: ChatOptions
+}) {
   const { run, items } = chat
+  const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const now = useTicking(running)
   const list = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
-  const count = items.length
+  const count = rows.length
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   useEffect(() => {
@@ -577,7 +615,7 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
 
   return (
     <>
-      <RunBar run={run} onStopTask={onStopTask} />
+      {options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
       <div
         ref={list}
         className={styles.items}
@@ -586,11 +624,16 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
         }}
       >
-        {items.map((item) => (
-          <ChatRow key={`${item.kind}:${item.id}`} item={item} run={run} now={now} />
-        ))}
+        {rows.map((row) =>
+          'item' in row ? (
+            <ChatRow key={`${row.item.kind}:${row.item.id}`} item={row.item} run={run} now={now} />
+          ) : (
+            <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
+          ),
+        )}
       </div>
-      <Composer run={run} />
+      {options.pinned}
+      <Composer run={run} options={options} />
     </>
   )
 }
