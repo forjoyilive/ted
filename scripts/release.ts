@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -85,12 +85,31 @@ function linuxCi(): void {
   step('Wait for GitHub CI', 'gh', ['run', 'watch', id, '--exit-status', '--interval', '60'])
 }
 
+const installed = '/Applications/TED.app'
+const built = path.join(root, 'packages/app/dist/release/mac-arm64/TED.app')
+
+function running(): boolean {
+  return spawnSync('pgrep', ['-f', `${installed}/Contents/MacOS/`]).status === 0
+}
+
+function install(): void {
+  console.log(`\n== Install into ${installed}`)
+  if (!existsSync(built)) fail(`the build isn’t at ${built}`)
+  if (running()) fail(`quit TED first (TED menu → Quit), then run: pnpm release --install`)
+  rmSync(installed, { recursive: true, force: true })
+  step('Copy', 'ditto', [built, installed])
+}
+
 function main(): void {
+  if (process.argv.includes('--install')) {
+    install()
+    return
+  }
   const args = process.argv.slice(2)
-  const skipLinux = args.includes('--skip-linux')
+  const linux = args.includes('--linux')
   const version = args.find((arg) => !arg.startsWith('--'))
   const current = currentVersion()
-  if (version === undefined) fail(`usage: pnpm release <version> [--skip-linux] (now ${current})`)
+  if (version === undefined) fail(`usage: pnpm release <version> [--linux] (now ${current})`)
   if (parseVersion(version) === undefined) fail(`“${version}” isn’t a version like 1.2.3`)
 
   if (git('branch', '--show-current') !== 'main') fail('switch to main first')
@@ -107,7 +126,7 @@ function main(): void {
   step('Typecheck', 'pnpm', ['typecheck'])
   step('Lint', 'pnpm', ['lint'])
   step('Test', 'pnpm', ['test'])
-  if (!skipLinux) linuxCi()
+  if (linux) linuxCi()
 
   if (version !== current) {
     setVersion(version)
@@ -115,9 +134,9 @@ function main(): void {
   }
   step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `TED ${version}`])
   step('Push', 'git', ['push', '--atomic', 'origin', 'main', `v${version}`])
-  console.log(`\nPushed v${version}. GitHub is building the installers into a draft release:`)
-  console.log('  gh run list --workflow "Release builds" --limit 1')
-  console.log('Publish the draft on GitHub when it looks right.')
+  step('Build', 'pnpm', ['package', '--mac', '--arm64', '--dir'])
+  install()
+  console.log(`\nTED ${version} is tagged, pushed and installed in ${installed}.`)
 }
 
 if (import.meta.main) main()
