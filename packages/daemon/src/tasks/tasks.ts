@@ -28,6 +28,7 @@ import type {
 import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
+import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
@@ -359,11 +360,8 @@ export function createTasks(options: {
   const commandLog = (task: Task, kind: 'setup' | 'teardown', name: string) =>
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
-  const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv => ({
-    ...process.env,
-    ...env,
-    TED_TASK: task.displayId,
-  })
+  const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv =>
+    worktreeCommandEnv(env, { TED_TASK: task.displayId })
 
   const checkDir = (task: Task, checkRunId: string) =>
     path.join(logsDir, 'checks', task.displayId, checkRunId)

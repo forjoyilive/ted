@@ -371,8 +371,17 @@ describe('Checks over the send-back limit and across restarts', () => {
       const all = await leadMessages(client, task)
       return all.some((m) => m.includes('# A Check failed')) ? all : undefined
     }, 'the note that TED asked the human')
-    expect(messages.at(-1)).toContain('asked the human')
-    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
+      'the Task Lead to finish',
+      40_000,
+    )
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.repos.every((r) => r.removed) || undefined,
+      'the worktree to be removed',
+      40_000,
+    )
   }, 90_000)
 
   test('Checks cut short by a daemon restart run again from the start', async () => {
@@ -421,6 +430,79 @@ describe('Checks over the send-back limit and across restarts', () => {
       const all = await leadMessages(client, task)
       return all.some((m) => m.includes('None failed')) || undefined
     }, 'the Validate instructions')
+  }, 90_000)
+})
+
+describe('the Checks’ environment', () => {
+  test('Checks get worktree.env, CI=1 and TED_TASK, and none of the daemon’s TED_ names or agent credentials', async () => {
+    const seen = path.join(scratch, 'env-seen.txt')
+    const planted = {
+      ANTHROPIC_API_KEY: 'anthropic-secret',
+      ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
+      OPENAI_API_KEY: 'openai-secret',
+      CODEX_API_KEY: 'codex-secret',
+      TED_APP_WEB_PORT: '5174',
+      TED_PRIVATE_THING: 'internal',
+      KEEP_ME: 'kept',
+    }
+    const before = { ...process.env }
+    Object.assign(process.env, planted)
+    try {
+      await commitToOrigin(scratch, {
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'order: [intake, work, validate]',
+          'repos:',
+          '  - name: widgets',
+          '    worktree:',
+          '      env:',
+          '        GREETING: hello',
+          'stages:',
+          '  validate:',
+          '    checks:',
+          `      - { name: Env, run: "env > '${seen}'" }`,
+          '',
+        ].join('\n'),
+      })
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { everyMessage: [{ endTurn: true }] },
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          advance,
+          advance,
+        ),
+      )
+      await finishedRuns(client, task, 1)
+    } finally {
+      for (const name of Object.keys(planted)) {
+        if (before[name] === undefined) delete process.env[name]
+        else process.env[name] = before[name]
+      }
+    }
+    const env = Object.fromEntries(
+      (await readFile(seen, 'utf8'))
+        .split('\n')
+        .filter((line) => line.includes('='))
+        .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+    )
+    expect(env.CI).toBe('1')
+    expect(env.TED_TASK).toBe('NB-1')
+    expect(env.GREETING).toBe('hello')
+    expect(env.KEEP_ME).toBe('kept')
+    for (const name of [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'OPENAI_API_KEY',
+      'CODEX_API_KEY',
+      'TED_APP_WEB_PORT',
+      'TED_PRIVATE_THING',
+      'TED_HOME',
+    ]) {
+      expect(env[name], name).toBeUndefined()
+    }
   }, 90_000)
 })
 

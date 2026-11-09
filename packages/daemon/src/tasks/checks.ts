@@ -1,6 +1,7 @@
 import { mkdir, open, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
+import { worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
@@ -137,10 +138,7 @@ export function checkEnv(
   taskDisplayId: string,
   repoEnv: Record<string, string>,
 ): NodeJS.ProcessEnv {
-  const inherited = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith('TED_APP_')),
-  )
-  return { ...inherited, ...repoEnv, CI: '1', TED_TASK: taskDisplayId }
+  return worktreeCommandEnv(repoEnv, { CI: '1', TED_TASK: taskDisplayId })
 }
 
 async function checkSettings(
