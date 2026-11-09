@@ -167,6 +167,11 @@ describe('TED app', () => {
     await details.getByRole('button', { name: 'Save' }).click()
 
     await details.getByText('Codex · gpt-6-mini · low').waitFor()
+
+    await ted('task', 'lead', 'DEV-1', 'claude', '--model', 'opus')
+    await expect.poll(() => details.getByLabel('Model').inputValue()).toBe('opus')
+    expect(await details.getByLabel('Agent').inputValue()).toBe('claude')
+    expect(await details.getByLabel('Effort').inputValue()).toBe('')
   })
 
   test('a model the plan doesn’t include shows Model unavailable until the human picks the default', async () => {

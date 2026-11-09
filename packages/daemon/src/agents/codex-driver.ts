@@ -39,6 +39,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   let threadId: string | undefined
   const pending: string[] = []
   let effort: Effort | undefined
+  let model = plan.model
 
   const request = (method: string, params: unknown) => {
     const id = ++nextId
@@ -53,10 +54,15 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     })
     if (init.error !== undefined) return stop()
     send(JSON.stringify({ method: 'initialized' }))
-    if (plan.effort !== undefined) effort = clampEffort(plan, await request('model/list', {}))
+    const resumingOnDefault = plan.thread.method === 'thread/resume' && model === undefined
+    if (plan.effort !== undefined || resumingOnDefault) {
+      const models = listedModels(await request('model/list', {}))
+      if (resumingOnDefault) model = defaultModel(models)
+      effort = clampEffort(models, model, plan.effort)
+    }
     const opened = await request(plan.thread.method, {
       ...plan.thread.params,
-      ...(plan.model !== undefined && { model: plan.model }),
+      ...(model !== undefined && { model }),
     })
     const openedId = opened.result?.thread?.id
     if (opened.error !== undefined || typeof openedId !== 'string') return stop()
@@ -72,7 +78,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     return request('turn/start', {
       threadId,
       input: [{ type: 'text', text, text_elements: [] }],
-      ...(plan.model !== undefined && { model: plan.model }),
+      ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
     })
   }
@@ -115,12 +121,23 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   }
 }
 
-function clampEffort(plan: CodexPlan, listed: RpcMessage): Effort | undefined {
-  const wanted = plan.effort
+function listedModels(listed: RpcMessage): ListedModel[] {
+  return Array.isArray(listed.result?.data) ? (listed.result.data as ListedModel[]) : []
+}
+
+function defaultModel(models: ListedModel[]): string | undefined {
+  const found = models.find((m) => m.isDefault === true)?.model
+  return typeof found === 'string' ? found : undefined
+}
+
+function clampEffort(
+  models: ListedModel[],
+  name: string | undefined,
+  wanted: Effort | undefined,
+): Effort | undefined {
   if (wanted === undefined) return undefined
-  const models = Array.isArray(listed.result?.data) ? (listed.result.data as ListedModel[]) : []
   const model = models.find((m) =>
-    plan.model === undefined ? m.isDefault === true : m.model === plan.model || m.id === plan.model,
+    name === undefined ? m.isDefault === true : m.model === name || m.id === name,
   )
   const supported = (model?.supportedReasoningEfforts ?? [])
     .map((e) => e.reasoningEffort)

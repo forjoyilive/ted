@@ -365,8 +365,8 @@ describe('Model unavailable', () => {
     await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
     await waitUntil(async () => {
       const resumes = (await codexRequests()).filter((r) => r.method === 'thread/resume')
-      return resumes.length === 1 && resumes[0]?.params?.model === undefined ? true : undefined
-    }, 'Codex to resume its thread on the default model')
+      return resumes.length === 1 && resumes[0]?.params?.model === 'gpt-6-astra' ? true : undefined
+    }, 'Codex to resume its thread on the default model, named explicitly')
   })
 
   test('use the default model is refused when the model isn’t the problem', async () => {

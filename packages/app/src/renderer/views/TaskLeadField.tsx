@@ -17,6 +17,12 @@ export function TaskLeadField({ task }: { task: Task }) {
   const [error, setError] = useState<string | undefined>()
 
   useEffect(() => {
+    setAgent(lead?.agent ?? 'claude')
+    setModel(lead?.model ?? '')
+    setEffort(lead?.effort ?? '')
+  }, [lead?.agent, lead?.model, lead?.effort])
+
+  useEffect(() => {
     const runId = task.leadRunId
     if (runId === undefined) return setRun(undefined)
     const unsubscribe = ted.onEvent((event) => {
