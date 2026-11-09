@@ -28,7 +28,11 @@ import type {
   CheckRepoRequest,
   CreateFactoryRequest,
   Factory,
+  FactoryRemoval,
+  RemoveFactoryRequest,
+  ReorderFactoriesRequest,
   RepoCheck,
+  RepoRemoval,
 } from './factory.ts'
 import type {
   CheckTry,
@@ -538,6 +542,27 @@ export class DaemonClient {
     return this.#request(
       'DELETE',
       `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+    )
+  }
+
+  reorderFactories(factoryIds: string[]): Promise<Factory[]> {
+    return this.#request('PUT', '/factories/order', {
+      factoryIds,
+    } satisfies ReorderFactoriesRequest)
+  }
+
+  factoryRemoval(factoryId: string): Promise<FactoryRemoval> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/removal`)
+  }
+
+  removeFactory(factoryId: string, request: RemoveFactoryRequest): Promise<void> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/remove`, request)
+  }
+
+  repoRemoval(factoryId: string, repoName: string): Promise<RepoRemoval> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/removal`,
     )
   }
 

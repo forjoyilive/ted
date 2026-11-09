@@ -1,4 +1,4 @@
-import type { AgentHealth, Banner, ListFilters, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, Factory, ListFilters, Task } from '@ted/protocol'
 import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -14,6 +14,7 @@ import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
 import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
+import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
@@ -110,6 +111,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [newTaskFactory, setNewTaskFactory] = useState<string>()
+  const [removing, setRemoving] = useState<Factory>()
   const [addFactoryOpen, setAddFactoryOpen] = useState(false)
   const addFactoryPending = useRef(addFactoryFirst)
   useEffect(() => {
@@ -118,8 +121,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setAddFactoryOpen(true)
   }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
-  const dialogOpen = newTaskOpen || addFactoryOpen
-  const openNewTask = () => setNewTaskOpen(true)
+  const dialogOpen = newTaskOpen || addFactoryOpen || removing !== undefined
+  const openNewTask = (factoryId?: string) => {
+    setNewTaskFactory(factoryId)
+    setNewTaskOpen(true)
+  }
   const inbox = useInbox()
   const inboxCount = inbox.length
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
@@ -164,6 +170,28 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setNewTaskOpen(false)
     setAddFactoryOpen(false)
   }, [offline])
+
+  const shownFactoryId =
+    navigation.screen.kind === 'factory' ? navigation.screen.factoryId : undefined
+  useEffect(() => {
+    if (!factoriesLoaded || shownFactoryId === undefined) return
+    if (!factories.some((f) => f.id === shownFactoryId)) {
+      dispatch({ type: 'open', screen: { kind: 'inbox' } })
+    }
+  }, [factories, factoriesLoaded, shownFactoryId])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || !(event.metaKey || event.ctrlKey)) return
+      if (event.altKey || event.shiftKey || !/^[1-9]$/.test(event.key)) return
+      const factory = factories[Number(event.key) - 1]
+      if (!factory) return
+      event.preventDefault()
+      dispatch({ type: 'open-factory', factoryId: factory.id })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, factories])
 
   useEffect(() => {
     if (!offline) return
@@ -236,6 +264,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         : event.key === 'c' && !isTyping(event.target)
       if (!newTask) return
       event.preventDefault()
+      setNewTaskFactory(undefined)
       setNewTaskOpen(true)
     }
     window.addEventListener('keydown', onKeyDown)
@@ -270,7 +299,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   onMenuCommand.current = (command) => {
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
-    if (command.kind === 'new-task') setNewTaskOpen(true)
+    if (command.kind === 'new-task') openNewTask()
     if (command.kind === 'open-task') {
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }
@@ -361,7 +390,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             settings={settings}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
-            onNewTask={openNewTask}
+            onNewTask={() => openNewTask()}
           />
         )
       case 'factory': {
@@ -374,7 +403,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           tasks: inFactory,
           factories,
           onOpen: openTask,
-          onNewTask: openNewTask,
+          onNewTask: () => openNewTask(),
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () =>
@@ -433,6 +462,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               onOpenGitHubSettings={() =>
                 dispatch({ type: 'open-settings', section: 'integrations' })
               }
+              onRemoveFactory={() => setRemoving(factory)}
             />
           )
         }
@@ -514,6 +544,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           dispatch={dispatch}
           onNewTask={openNewTask}
           onAddFactory={() => setAddFactoryOpen(true)}
+          onRemoveFactory={setRemoving}
         />
         {runsOpen && slots && (
           <WorkingRunsPopover
@@ -563,8 +594,18 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         <NewTaskDialog
           factories={factories}
           tasks={tasks}
-          factoryId={currentFactoryId(navigation, tasks)}
+          factoryId={newTaskFactory ?? currentFactoryId(navigation, tasks)}
           onClose={() => setNewTaskOpen(false)}
+        />
+      )}
+      {removing && (
+        <RemoveFactoryDialog
+          factory={removing}
+          onClose={() => setRemoving(undefined)}
+          onRemoved={() => {
+            setRemoving(undefined)
+            dispatch({ type: 'open', screen: { kind: 'inbox' } })
+          }}
         />
       )}
     </>,

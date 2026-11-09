@@ -32,6 +32,7 @@ import { fileChange } from '@ted/protocol/diff'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
+import { openTasksUsing } from './factory-removal.ts'
 import type { Factories } from './factory-setup.ts'
 import * as git from './git.ts'
 import type { Gh } from './github/gh.ts'
@@ -202,7 +203,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     factory: StoredFactory,
     changes: FactorySettingsChanges,
   ): { problems: WorkflowProblem[]; files: Record<string, string | null> } {
-    const problems = inputProblems(changes, base.repos)
+    const problems = [
+      ...inputProblems(changes, base.repos),
+      ...removalProblems(base, factory, changes),
+    ]
     if (problems.length > 0) return { problems, files: {} }
     const inherited = resolveWorkflow(base.inherited)
     const basedOn: Partial<Record<AgentStageId, string | null>> = {}
@@ -243,6 +247,27 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       if (next !== before) writes[`.ted/${name}`] = next
     }
     return { problems: [], files: writes }
+  }
+
+  function removalProblems(
+    base: Base,
+    factory: StoredFactory,
+    changes: FactorySettingsChanges,
+  ): WorkflowProblem[] {
+    return base.repos.flatMap((repo) => {
+      if (changes.repos.some((r) => r.was === repo.was)) return []
+      const open = openTasksUsing(store, factory, repo.repo)
+      if (open.length === 0) return []
+      return [
+        {
+          severity: 'error' as const,
+          file: '.ted/workflow.yaml',
+          line: 0,
+          column: 0,
+          message: `${repo.repo} is in the Repos field of open Tasks ${open.map((t) => t.displayId).join(', ')}. Remove it from them, or finish or archive them, first.`,
+        },
+      ]
+    })
   }
 
   function turnsOnBypass(base: Base, changes: FactorySettingsChanges): boolean {

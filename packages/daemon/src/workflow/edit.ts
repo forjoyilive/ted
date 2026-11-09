@@ -212,7 +212,10 @@ export function applyChanges(
       if (isMap(stages) && stages.items.length === 0) root.delete('stages')
     } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
   }
-  if (changes.checks !== undefined) writeChecks(doc, root, changes.checks)
+  if (changes.checks !== undefined) {
+    const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
+    writeChecks(doc, root, kept)
+  }
   for (const role of agentRoles) {
     const choice = changes.agents?.[role]
     if (choice === undefined) continue
