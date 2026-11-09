@@ -361,6 +361,17 @@ export function TaskThread({
                   {task.followUpOf.displayId}
                 </button>
               </>
+            ) : task.splitFrom ? (
+              <>
+                {'Split from '}
+                <button
+                  type="button"
+                  className={styles.metaLink}
+                  onClick={() => task.splitFrom && onOpenTask(task.splitFrom.id)}
+                >
+                  {task.splitFrom.displayId}
+                </button>
+              </>
             ) : (
               'Created by you'
             )}

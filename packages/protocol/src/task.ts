@@ -176,6 +176,7 @@ export interface Task {
   chosenRepos: string[]
   createdBy: CreatedBy
   followUpOf?: TaskLink
+  splitFrom?: TaskLink
   merged?: TaskMerged
   createdAt: string
   updatedAt: string
@@ -377,6 +378,60 @@ export interface RoundInput {
   questions: RoundQuestion[]
 }
 
+export interface ProposalRow {
+  title: string
+  scope: string
+  description?: string
+  priority: Priority
+  blockedBy: number[]
+}
+
+export interface Proposal {
+  rows: ProposalRow[]
+  firstPiece?: TaskLink
+}
+
+export interface ProposalRowInput {
+  title: string
+  scope: string
+  description?: string
+  priority?: Priority
+  blockedBy?: number[]
+}
+
+export interface ProposalInput {
+  title: string
+  summary?: string
+  tasks: ProposalRowInput[]
+}
+
+export interface ProposalChoice {
+  skip?: number[]
+  startUnblocked?: boolean
+}
+
+export interface ProposalCreated {
+  tasks: { row: number; id: string; displayId: string }[]
+  skipped: number[]
+  startUnblocked: boolean
+}
+
+export const sizeChoices = {
+  chat: 'Plan in chat',
+  split: 'Split it',
+  outside: 'Plan it outside TED',
+  grill: 'Grill anyway',
+} as const
+
+export interface SizeCheck {
+  settle: string[]
+}
+
+export interface SizeCheckInput {
+  why: string
+  settle: string[]
+}
+
 export interface RoundAnswer {
   answer: string
   note?: string
@@ -389,7 +444,7 @@ export interface RoundAnswerInput {
 }
 
 export type CommentAnswer =
-  | { kind: 'approved'; at: string; text?: string }
+  | { kind: 'approved'; at: string; text?: string; created?: ProposalCreated }
   | { kind: 'changes-requested'; at: string; text: string }
   | { kind: 'answered'; at: string; choice?: string; text?: string; answers?: RoundAnswer[] }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
@@ -411,6 +466,8 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
+  proposal?: Proposal
+  sizeCheck?: SizeCheck
   gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer
@@ -495,7 +552,7 @@ export interface InboxItem {
 }
 
 export type AnswerRequest =
-  | { action: 'approve'; text?: string }
+  | { action: 'approve'; text?: string; proposal?: ProposalChoice }
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
   | { action: 'answer'; choice?: string; text?: string }
@@ -508,6 +565,8 @@ export interface PostCommentRequest {
   body?: string
   choices?: string[]
   round?: RoundInput
+  proposal?: ProposalInput
+  sizeCheck?: SizeCheckInput
   supersedes?: string
   attachments?: AttachmentRef[]
 }

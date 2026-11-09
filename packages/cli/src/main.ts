@@ -20,6 +20,7 @@ import {
   type IntegrationsHealth,
   isShowing,
   minGhVersion,
+  type ProposalInput,
   parseLinearUrl,
   type RepoSetupReport,
   type RoundInput,
@@ -50,6 +51,11 @@ const usage = `Usage:
                                              recommended answer and optional choices
   ted clarify depth none|few|grilling "<why>"
                                              Pick the Clarify depth and say why
+  ted clarify too-big "<why>" --settle "<point>" … [--supersedes <request-id>]
+                                             Ask the human what to do with a Task too big for
+                                             one pull request per repo; each --settle names
+                                             something a plan must settle (reads why from stdin
+                                             if no text)
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
                 [--changes "<one line>"]       On a re-sign-off, say what changed since the human
@@ -84,6 +90,11 @@ const usage = `Usage:
                                              a Done Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted task propose --file <file> [--supersedes <request-id>]
+                                             Propose splitting the Task: a JSON file with a
+                                             title, an optional summary and tasks, each with a
+                                             title, scope, optional description, priority and
+                                             blockedBy row numbers; row 1 is this Task
   ted task block [<id>] --by <id>            Make a Task wait until another Task merges
   ted task unblock [<id>] [--by <id>]        Remove one blocker, or all of them
   ted task repos set <name> …                Set which of the Factory's repos the Task changes
@@ -134,6 +145,7 @@ function parse() {
         visual: { type: 'string' },
         'visual-notes': { type: 'string' },
         round: { type: 'string' },
+        settle: { type: 'string', multiple: true },
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
@@ -277,6 +289,36 @@ try {
       client.setClarifyDepth(ref, { depth: depth as ClarifyDepth, why: reason }),
     )
     console.log(`${task.displayId}’s Clarify depth is ${depth}`)
+  } else if (group === 'clarify' && command === 'too-big') {
+    const ref = taskRef()
+    const why = rest.join(' ') || (await readStdin())
+    if (why.trim() === '') throw new UsageError('say why the Task is too big')
+    const settle = options.settle ?? []
+    if (settle.length === 0) {
+      throw new UsageError('name what a plan must settle with --settle "<point>"')
+    }
+    const supersedes = options.supersedes
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, {
+        sizeCheck: { why, settle },
+        ...(supersedes !== undefined && { supersedes }),
+      }),
+    )
+    console.log(
+      `Asked the human what to do with this Task (request ${request.id}). TED sends you their answer.`,
+    )
+  } else if (group === 'task' && command === 'propose' && rest.length === 0) {
+    const ref = taskRef()
+    if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
+    const proposal = await readJsonFile<ProposalInput>(options.file, 'proposal')
+    const supersedes = options.supersedes
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, { proposal, ...(supersedes !== undefined && { supersedes }) }),
+    )
+    const rows = request.proposal?.rows.length ?? 0
+    console.log(
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the human’s answer.`,
+    )
   } else if (group === 'ask' && options.supersedes !== undefined) {
     const ref = taskRef()
     const supersedes = options.supersedes
@@ -859,13 +901,17 @@ function summarize(line: string): string {
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
 }
 
-async function readRound(file: string): Promise<RoundInput> {
+function readRound(file: string): Promise<RoundInput> {
+  return readJsonFile<RoundInput>(file, 'round')
+}
+
+async function readJsonFile<T>(file: string, what: string): Promise<T> {
   const text = await readFile(path.resolve(file), 'utf8')
   try {
-    return JSON.parse(text) as RoundInput
+    return JSON.parse(text) as T
   } catch (error) {
     throw new UsageError(
-      `the round file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
+      `the ${what} file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
     )
   }
 }

@@ -79,6 +79,12 @@ describe('taskStatus', () => {
     ])
   })
 
+  test('a Task that needs planning says so in its activity line', () => {
+    expect(taskActivity(at({ stage: 'backlog', needsPlanning: true }))).toBe(
+      'Waiting for a plan made outside TED',
+    )
+  })
+
   test('a blocked Task with a higher status shows Blocked by as a marker', () => {
     const facts = at({ failed: true, blockedBy: ['MS-7'] })
     expect(taskStatus(facts)).toEqual({ kind: 'failed' })

@@ -6,6 +6,7 @@ import type {
   SignOffChanges,
   Task,
 } from '@ted/protocol'
+import { sizeChoices } from '@ted/protocol/task'
 import { useEffect, useRef, useState } from 'react'
 import { useCheckRuns, useComments, useThreadEvents } from '../data.ts'
 import {
@@ -25,6 +26,7 @@ import { Button } from './Button.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { Help } from './Help.tsx'
+import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 
@@ -36,7 +38,7 @@ function CardHead({ request, task, now }: { request: Comment; task: Task; now: n
         {requestLabel(request)}
       </span>
       <span>
-        {`${request.round ? ` · Round ${request.round.number}` : ''}${again ? ' · again' : ''}${request.gate?.pullRequests ? ' · Merge' : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
+        {`${request.round ? ` · Round ${request.round.number}` : ''}${request.proposal ? ` · ${request.proposal.rows.length} Tasks` : ''}${again ? ' · again' : ''}${request.gate?.pullRequests ? ' · Merge' : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
       </span>
     </div>
   )
@@ -349,7 +351,33 @@ export function RequestCard({
           onSend={(answer) => void send(answer)}
         />
       )}
-      {request.round && error !== undefined && (
+      {request.proposal &&
+        (readOnly ? (
+          <ProposalRows
+            proposal={request.proposal}
+            skip={(request.answer?.kind === 'approved' && request.answer.created?.skipped) || []}
+            created={request.answer?.kind === 'approved' ? request.answer.created : undefined}
+            disabled
+          />
+        ) : (
+          <ProposalAnswer
+            proposal={request.proposal}
+            readOnly={readOnly}
+            sending={sending}
+            onSend={(answer) => void send(answer)}
+          />
+        ))}
+      {request.sizeCheck && (
+        <section className={styles.content} aria-label="A plan needs to settle">
+          <h3 className={styles.sectionHeading}>A plan needs to settle</h3>
+          <ul className={styles.decisions}>
+            {request.sizeCheck.settle.map((point) => (
+              <li key={point}>{point}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {(request.round || request.proposal) && error !== undefined && (
         <p className={styles.error} role="alert">
           {error}
         </p>
@@ -357,20 +385,24 @@ export function RequestCard({
       <PermissionCommand request={request} />
       {actionChoice === undefined && request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
-          {request.choices.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              className={styles.choice}
-              disabled={sending || readOnly}
-              onClick={() => void send({ action: 'answer', choice, ...withText })}
-            >
-              {choice}
-            </button>
-          ))}
+          {request.choices.map((choice) => {
+            const later = request.sizeCheck !== undefined && choice === sizeChoices.chat
+            return (
+              <button
+                key={choice}
+                type="button"
+                className={later ? `${styles.choice} ${styles.later}` : styles.choice}
+                disabled={sending || readOnly || later}
+                title={later ? 'Planning chats aren’t in TED yet' : undefined}
+                onClick={() => void send({ action: 'answer', choice, ...withText })}
+              >
+                {choice}
+              </button>
+            )
+          })}
         </div>
       )}
-      {!readOnly && !request.round && (
+      {!readOnly && !request.round && !request.proposal && (
         <>
           <textarea
             className={styles.box}
@@ -504,6 +536,14 @@ function answerLine(
   if (!answer) return undefined
   switch (answer.kind) {
     case 'approved':
+      if (answer.created) {
+        const count = answer.created.tasks.length
+        return {
+          mark: '✓',
+          tone: 'good',
+          text: `You approved · created ${count} ${count === 1 ? 'Task' : 'Tasks'}`,
+        }
+      }
       return {
         mark: '✓',
         tone: 'good',
@@ -633,6 +673,14 @@ export function AnsweredCard({
       )}
       {request.answer?.kind === 'answered' && request.answer.answers && (
         <RoundAnswers request={request} answers={request.answer.answers} />
+      )}
+      {request.proposal && request.answer?.kind === 'approved' && request.answer.created && (
+        <ProposalRows
+          proposal={request.proposal}
+          skip={request.answer.created.skipped}
+          created={request.answer.created}
+          disabled
+        />
       )}
       {line && request.answer && (
         <div className={styles.answerLine}>

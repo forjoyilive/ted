@@ -2375,6 +2375,109 @@ describe('Inbox and Gates', () => {
     await thread.getByText('Task Lead picked Clarify depth: Few · two small questions').waitFor()
   })
 
+  test('the size check offers four choices, and a split proposal creates the checked rows', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const proposalFile = path.join(home, 'proposal.json')
+    await writeFile(
+      proposalFile,
+      JSON.stringify({
+        title: 'Offline editing for notes, in five Tasks',
+        tasks: [
+          {
+            title: 'Local note cache',
+            scope: 'Notes save to a local cache first.',
+            priority: 'high',
+          },
+          {
+            title: 'Sync queue with retry',
+            scope: 'Queue offline edits and send them in order.',
+            priority: 'high',
+            blockedBy: [1],
+          },
+          {
+            title: 'Line-level merge',
+            scope: 'Merge edits to different lines.',
+            priority: 'medium',
+            blockedBy: [2],
+          },
+          {
+            title: 'Conflict view',
+            scope: 'Show both versions of a clashing line.',
+            priority: 'medium',
+            blockedBy: [3],
+          },
+          { title: 'Offline badge', scope: 'A badge while edits wait to sync.', priority: 'low' },
+        ],
+      }),
+    )
+    await addFactory(origin, 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          { run: ['ted', 'outcome', 'advance'] },
+          {
+            run: [
+              'ted',
+              'clarify',
+              'too-big',
+              '--settle',
+              'How conflicts are resolved',
+              'Offline editing spans storage, sync and the editor.',
+            ],
+          },
+          { endTurn: true },
+          { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const question = inbox.getByRole('button').filter({ hasText: 'Too big for one pull request' })
+    await question.waitFor()
+    await question.click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const ask = thread.getByRole('region', { name: 'Question', exact: true })
+    await ask
+      .getByRole('region', { name: 'A plan needs to settle' })
+      .getByText('How conflicts are resolved')
+      .waitFor()
+    expect(await ask.getByRole('button', { name: 'Plan in chat' }).isDisabled()).toBe(true)
+    await ask.getByRole('button', { name: 'Split it' }).click()
+
+    const row = inbox.getByRole('button').filter({ hasText: 'Offline editing for notes' })
+    await row.waitFor({ timeout: 20_000 })
+    await row.click()
+    const card = thread.getByRole('region', { name: 'Proposal', exact: true })
+    await card.getByText('NB-1').waitFor()
+    await card.getByText('(row 5 would start)').waitFor()
+    await card.getByRole('button', { name: 'Create 4 Tasks' }).waitFor()
+    expect(await card.getByRole('checkbox', { name: /^Create row 1/ }).isDisabled()).toBe(true)
+    await card.getByRole('checkbox', { name: /^Create row 3/ }).uncheck()
+    await card
+      .getByText('Blocked by row 3, which won’t be created. This Task will have no blocker.')
+      .waitFor()
+    await card.getByText('(rows 4 and 5 would start)').waitFor()
+    await card.getByRole('button', { name: 'Create 3 Tasks' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Proposal, answered' })
+    await answered.getByText('You approved · created 3 Tasks').waitFor()
+    await answered.getByText('NB-2').waitFor()
+    const titles = (await (await daemonClient()).listTasks()).map((t) => t.title).sort()
+    expect(titles).toEqual([
+      'Conflict view',
+      'Local note cache',
+      'Offline badge',
+      'Sync queue with retry',
+    ])
+  })
+
   test('the grilling sign-off lists Decisions so far, the open questions and what each button does', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const briefFile = path.join(home, 'brief.md')

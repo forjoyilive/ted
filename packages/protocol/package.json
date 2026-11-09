@@ -19,6 +19,7 @@
     "./storage": "./src/storage.ts",
     "./checks": "./src/checks.ts",
     "./diff": "./src/diff.ts",
-    "./search": "./src/search.ts"
+    "./search": "./src/search.ts",
+    "./proposal": "./src/proposal.ts"
   }
 }

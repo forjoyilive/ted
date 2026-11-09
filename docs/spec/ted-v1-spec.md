@@ -787,6 +787,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted comment [--attach <path>] [--choice "…"]` | Post a Comment (note, question with choice buttons, review, sign-off), optionally with files copied into TED’s store. | KRI-11, KRI-55 |
 | `ted ask --round <file>` | Post a Clarify or planning round. | KRI-19 |
 | `ted clarify depth <none\|few\|grilling> "<why>"` | Pick the Clarify depth and say why. | KRI-142 |
+| `ted clarify too-big "<why>" --settle "<point>"` | Ask the size check: Plan in chat, Split it, Plan it outside TED, Grill anyway. | KRI-144 |
 | `ted ask --supersedes <id>` | Replace the poster’s own unanswered request. | KRI-61 |
 | `ted ask --close --summary <file>` | Close a round after Talk it through, posting the summary note. | KRI-60 |
 | `ted brief write` | Write a new version of the Task brief. | KRI-11 |

@@ -66,6 +66,8 @@ export const tasks = State.SQLite.table({
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
+    splitFrom: State.SQLite.text({ nullable: true }),
+    needsPlanningAt: State.SQLite.text({ nullable: true }),
     partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -282,6 +284,8 @@ export const comments = State.SQLite.table({
     title: State.SQLite.text({ nullable: true }),
     choices: State.SQLite.text({ nullable: true }),
     round: State.SQLite.text({ nullable: true }),
+    proposal: State.SQLite.text({ nullable: true }),
+    sizeCheck: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
     permission: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
@@ -890,6 +894,51 @@ export const events = {
       round: Schema.NullOr(Schema.String),
       gate: Schema.NullOr(Schema.String),
       createdAt: Schema.String,
+    }),
+  }),
+  commentPostedV4: Events.synced({
+    name: 'v4.CommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      authorKind: Schema.String,
+      authorRunId: Schema.NullOr(Schema.String),
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      round: Schema.NullOr(Schema.String),
+      proposal: Schema.NullOr(Schema.String),
+      sizeCheck: Schema.NullOr(Schema.String),
+      gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  taskSplitFrom: Events.synced({
+    name: 'v1.TaskSplitFrom',
+    schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskSplit: Events.synced({
+    name: 'v1.TaskSplit',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      pieceIds: Schema.Array(Schema.String),
+      narrowedTo: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskNeedsPlanning: Events.synced({
+    name: 'v1.TaskNeedsPlanning',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  taskStartedAfterPlanning: Events.synced({
+    name: 'v1.TaskStartedAfterPlanning',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stage: Schema.String,
+      rank: Schema.Number,
+      at: Schema.String,
     }),
   }),
   clarifyDepthSet: Events.synced({
@@ -1807,6 +1856,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
+  'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
+  'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
+  'v1.TaskNeedsPlanning': (args) => task(args, { runId: args.runId }),
+  'v1.TaskStartedAfterPlanning': (args) => task(args, { stage: args.stage }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
@@ -2016,6 +2069,19 @@ const materializers = counted(
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
       'v1.TaskFollowedUp': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TaskSplitFrom': ({ taskId, originalId }) =>
+        tasks.update({ splitFrom: originalId }).where({ id: taskId }),
+      'v1.TaskSplit': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.TaskNeedsPlanning': ({ taskId, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks
+          .update({ stage: 'backlog', needsPlanningAt: at, activity: null, changedAt: at })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskStartedAfterPlanning': ({ taskId, stage, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks.update({ stage, needsPlanningAt: null, changedAt: at }).where({ id: taskId }),
+      ],
       'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
       'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
         tasks.update({ stage, branch, worktree }).where({ id: taskId }),
@@ -2126,6 +2192,8 @@ const materializers = counted(
       'v2.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
       'v3.CommentPosted': ({ choices, ...comment }) =>
+        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v4.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
       'v1.ClarifyDepthSet': ({ taskId, depth, by, at }) =>
         tasks

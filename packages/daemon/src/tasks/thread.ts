@@ -133,6 +133,17 @@ export function threadEvents(
   let held = false
   let judged: Record<string, unknown> | undefined
   let depthSet = false
+  const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
+  const descriptionChanges = (version: unknown) => {
+    const versions = context.descriptions ?? []
+    const at = typeof version === 'number' ? version : undefined
+    const before = versions.find((v) => v.version === (at ?? 0) - 1)
+    const after = versions.find((v) => v.version === at)
+    return before && after ? { changes: diffTexts('Description', before.text, after.text) } : {}
+  }
+  const edits = new Map(
+    log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
+  )
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
@@ -169,7 +180,31 @@ export function threadEvents(
       case 'v1.TaskFollowedUp':
         add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
         break
+      case 'v1.TaskSplitFrom':
+        add(entry, 'edit', `Split from ${context.displayIdOf(text(data.originalId))}`)
+        break
+      case 'v1.TaskSplit': {
+        const pieces = Array.isArray(data.pieceIds)
+          ? data.pieceIds.map((id) => context.displayIdOf(text(id)))
+          : []
+        add(
+          entry,
+          'done',
+          `TED created ${pieces.length} ${pieces.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${pieces.join(', ')}. ${context.displayIdOf(taskId)} narrowed to ${text(data.narrowedTo)}.`,
+          undefined,
+          undefined,
+          descriptionChanges(edits.get(entry.at)),
+        )
+        break
+      }
+      case 'v1.TaskNeedsPlanning':
+        add(entry, 'edit', 'Moved to Backlog to be planned outside TED')
+        break
+      case 'v1.TaskStartedAfterPlanning':
+        add(entry, 'edit', `Task started again after planning · ${stageTitle(text(data.stage))}`)
+        break
       case 'v1.TaskEdited': {
+        if (splits.has(entry.at)) break
         const title = text(data.title)
         const version = typeof data.version === 'number' ? data.version : undefined
         const renamed = title === '' ? '' : `renamed this Task to “${title}”`
