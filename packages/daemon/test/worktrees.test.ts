@@ -163,7 +163,9 @@ describe('worktree setup', () => {
 
 describe('worktree setup outcomes', () => {
   test('a failing setup still starts the Task Lead, with the output first', async () => {
-    await workflow('      setup: "echo installing; echo broken >&2; exit 3"\n')
+    await workflow(
+      `      setup: "echo installing; echo https://me:hun''ter2@example.com >&2; exit 3"\n`,
+    )
     const client = await startWithStub()
     await addFactory(client)
     const task = await createTask(client, steps({ endTurn: true }))
@@ -173,11 +175,12 @@ describe('worktree setup outcomes', () => {
     const first = await firstMessage(client, task)
     expect(first.startsWith('# Setup failed')).toBe(true)
     expect(first).toContain('exit code 3')
-    expect(first).toContain('installing\nbroken')
+    expect(first).toContain('installing\nhttps://[redacted]@example.com')
+    expect(first).not.toContain('hunter2')
     expect(first.indexOf('installing')).toBeLessThan(first.indexOf('ted help'))
     const [repo] = (await getTask(client, task.id))?.repos ?? []
     expect(repo?.setup).toEqual({
-      command: 'echo installing; echo broken >&2; exit 3',
+      command: "echo installing; echo https://me:hun''ter2@example.com >&2; exit 3",
       state: 'failed',
       exitCode: 3,
     })
@@ -185,7 +188,7 @@ describe('worktree setup outcomes', () => {
       'GET',
       `/tasks/${task.id}/repos/widgets/setup-log`,
     )
-    expect(log.text).toBe('installing\nbroken\n')
+    expect(log.text).toBe('installing\nhttps://[redacted]@example.com\n')
   })
 
   test('the Task shows Setting up while setup runs, and the Task Lead waits for it', async () => {
@@ -203,6 +206,10 @@ describe('worktree setup outcomes', () => {
       'setup to start',
     )
     expect(running.state).toBe('running')
+    expect(await getTask(client, task.id)).toMatchObject({
+      status: { kind: 'working' },
+      activity: 'Setting up the worktree',
+    })
     expect(started.repos).toMatchObject([{ name: 'widgets', worktree: worktreeOf() }])
     await writeFile(go, '')
     await leadRun(client, task)
