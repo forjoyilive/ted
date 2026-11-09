@@ -1,22 +1,18 @@
-import {
-  type ArchivedFilter,
-  archivedFilters,
-  createdByKinds,
-  type Factory,
-  type ListColumn,
-  type ListFilters,
-  type ListGroup,
-  type ListSort,
-  type ListView,
-  listColumns,
-  listGroups,
-  listSorts,
-  type MachineSettings,
-  type Priority,
-  priorities,
-  type StatusFilter,
-  type Task,
+import type {
+  ArchivedFilter,
+  Factory,
+  ListColumn,
+  ListFilters,
+  ListGroup,
+  ListSort,
+  ListView,
+  MachineSettings,
+  Priority,
+  StatusFilter,
+  Task,
 } from '@ted/protocol'
+import { archivedFilters, listColumns, listGroups, listSorts } from '@ted/protocol/list-view'
+import { createdByKinds, priorities } from '@ted/protocol/task'
 import {
   type DragEvent,
   type KeyboardEvent,

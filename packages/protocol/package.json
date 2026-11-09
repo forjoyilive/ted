@@ -13,6 +13,8 @@
     "./linear": "./src/linear.ts",
     "./settings": "./src/settings.ts",
     "./factory": "./src/factory.ts",
-    "./version": "./src/version.ts"
+    "./version": "./src/version.ts",
+    "./list-view": "./src/list-view.ts",
+    "./storage": "./src/storage.ts"
   }
 }
