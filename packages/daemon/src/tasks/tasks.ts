@@ -23,7 +23,14 @@ import * as git from '../git.ts'
 import type { IdleTimer } from '../idle.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { NewTask, RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/index.ts'
+import type {
+  NewTask,
+  RecordedSetup,
+  RunFlags,
+  StoredFactory,
+  StoredTask,
+  TedStore,
+} from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
@@ -119,6 +126,13 @@ export function createTasks(options: {
   function remember(factoryId: string, resolution: WorkflowResolution): WorkflowResolution {
     caps.set(factoryId, resolution.workflow.settings.max_working_runs)
     return resolution
+  }
+
+  async function resolveWorkflow(
+    factory: StoredFactory,
+    options?: { fetch?: boolean },
+  ): Promise<WorkflowResolution> {
+    return remember(factory.id, await workflows.resolve(factory, options))
   }
 
   async function capOf(factoryId: string): Promise<number | undefined> {
@@ -224,7 +238,7 @@ export function createTasks(options: {
   }
 
   async function publishSlots(): Promise<void> {
-    if (closed || listeners.size === 0) return
+    if (closed) return
     const current = await slots().catch(() => undefined)
     const shown = JSON.stringify(current)
     if (!current || closed || shown === shownSlots) return
@@ -329,7 +343,7 @@ export function createTasks(options: {
     const factory = factoryOf(task)
     const repo = task.repos.find((r) => !r.removed)
     if (!repo) throw new Error(`${task.displayId} has no worktree`)
-    const resolution = await workflows.resolve(factory, { fetch: false })
+    const resolution = await resolveWorkflow(factory, { fetch: false })
     const env =
       store.recordedSetup(task.id, repo.name)?.env ??
       primaryRepoWorktree(resolution.workflow, factory).env
@@ -522,7 +536,7 @@ export function createTasks(options: {
     const repo = task.repos.find((r) => !r.removed)
     if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
     const factory = factoryOf(task)
-    const resolution = await workflows.resolve(factory, { fetch: false })
+    const resolution = await resolveWorkflow(factory, { fetch: false })
     const recorded = store.recordedSetup(task.id, repo.name)
     const setup = repo.setup
     if (recorded && setup?.state === 'running') {
@@ -561,7 +575,7 @@ export function createTasks(options: {
     starting.add(task.id)
     try {
       await ensureClone({ banners, reposDir }, factory)
-      const resolution = remember(factory.id, await workflows.resolve(factory, { fetch: false }))
+      const resolution = await resolveWorkflow(factory, { fetch: false })
       store.queueTask(task.id, resolution.workflow.next('backlog'))
     } finally {
       starting.delete(task.id)
@@ -578,7 +592,7 @@ export function createTasks(options: {
     {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
-      const resolution = remember(factory.id, await workflows.resolve(factory, { fetch: false }))
+      const resolution = await resolveWorkflow(factory, { fetch: false })
       if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       const stage = resolution.workflow.next('backlog') as AgentStageId
       const settings = primaryRepoWorktree(resolution.workflow, factory)
@@ -657,7 +671,7 @@ export function createTasks(options: {
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
-        ? await workflows.resolve(factory).catch((error: unknown) => {
+        ? await resolveWorkflow(factory).catch((error: unknown) => {
             failure = error
             return undefined
           })
@@ -686,7 +700,7 @@ export function createTasks(options: {
     async defaults(factoryId) {
       const factory = store.getFactory(factoryId)
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
-      const resolution = await workflows.resolve(factory, { fetch: false })
+      const resolution = await resolveWorkflow(factory, { fetch: false })
       const depth = resolution.workflow.settings.stages.clarify?.depth
       return {
         lead: leadFrom(resolution.workflow.settings),
@@ -737,7 +751,7 @@ export function createTasks(options: {
       }
       advancing.add(task.id)
       try {
-        const resolution = await workflows.resolve(factoryOf(task))
+        const resolution = await resolveWorkflow(factoryOf(task))
         const next = resolution.workflow.next(task.stage) as AgentStageId | 'done'
         const moved = store.changeStage(task.id, next, entryFor(resolution, next))
         if (next === 'done') {

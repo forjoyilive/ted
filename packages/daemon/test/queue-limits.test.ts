@@ -169,6 +169,23 @@ describe('the queue', () => {
     }
   })
 
+  test('changing the limit with nothing queued still reaches a client that subscribed late', async () => {
+    const client = await startWithStub()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const events: DaemonEvent[] = []
+    const subscription = await new DaemonClient(info).subscribe((event) => events.push(event))
+    try {
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 3 })
+      await waitUntil(
+        () => events.some((e) => e.type === 'slots-changed' && e.slots.limit === 3),
+        'slots-changed with the new limit',
+      )
+    } finally {
+      subscription.close()
+    }
+  })
+
   test('a waiting Run frees its slot, and when it works again it isn’t held back', async () => {
     const client = await startWithStub()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
@@ -204,6 +221,27 @@ describe('the queue', () => {
     expect(slots.factories).toEqual([expect.objectContaining({ cap: 1, working: 1 })])
 
     await writeFile(free, '')
+    await waitForLead(client, b)
+  })
+
+  test('a raised max_working_runs applies from the next Stage entry', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+    const client = await startWithStub()
+    const advance = path.join(scratch, 'advance')
+    await startTask(
+      client,
+      steps(
+        { waitFor: advance },
+        { run: ['ted', 'outcome', 'advance'] },
+        { waitFor: path.join(scratch, 'never') },
+      ),
+    )
+    const b = await startTask(client, workingUntil(path.join(scratch, 'never')))
+    expect(b.status).toEqual({ kind: 'queued', place: 1 })
+
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 2\n' })
+    await writeFile(advance, '')
+
     await waitForLead(client, b)
   })
 
