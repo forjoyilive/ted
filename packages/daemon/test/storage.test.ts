@@ -140,7 +140,9 @@ describe('Settings → Storage', () => {
     await start()
     const paths = tedPaths(home)
     await waitUntil(() => excluded.length > 0 || undefined, 'the Time Machine exclusion')
-    expect(excluded).toEqual([[paths.worktrees, paths.repos, paths.simulators, paths.scratch]])
+    expect(excluded).toEqual([
+      [paths.worktrees, paths.repos, paths.simulators, paths.scratch, paths.plans],
+    ])
   })
 
   test('the exclusion runs tmutil addexclusion on macOS only', async () => {

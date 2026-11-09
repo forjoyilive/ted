@@ -37,6 +37,7 @@ export interface StoredPlan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  from?: { planId: string; title: string; context: string }
 }
 
 export interface PlanTaskRecord {
@@ -61,8 +62,12 @@ export interface PlanStore {
   list(): StoredPlan[]
   get(id: string): StoredPlan | undefined
   start(
-    input: Pick<StoredPlan, 'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort'>,
+    input: Pick<
+      StoredPlan,
+      'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'from'
+    >,
   ): StoredPlan
+  retried(id: string, retry: { fresh: boolean; checkout: PlanCheckout[] }): void
   rename(id: string, title: string): void
   delete(id: string): void
   began(id: string, checkout: PlanCheckout[]): void
@@ -105,6 +110,13 @@ export function createPlanStore({
     createdAt: row.createdAt,
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.fromPlanId !== null && {
+      from: {
+        planId: row.fromPlanId,
+        title: row.fromPlanTitle ?? '',
+        context: row.context ?? '',
+      },
+    }),
   })
 
   const toRequest = (row: typeof planRequests.Type): PlanRequest => ({
@@ -143,16 +155,22 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, ...input }) {
+    start({ model, effort, from, ...input }) {
       const id = randomUUID()
+      const at = now()
       commit(
-        events.planStarted({
-          ...input,
-          id,
-          model: model ?? null,
-          effort: effort ?? null,
-          at: now(),
-        }),
+        events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
+        ...(from
+          ? [
+              events.planContinued({
+                id,
+                fromPlanId: from.planId,
+                fromTitle: from.title,
+                context: from.context,
+                at,
+              }),
+            ]
+          : []),
       )
       updated(id)
       const started = get(id)
@@ -167,6 +185,15 @@ export function createPlanStore({
     },
     began: (id, checkout) =>
       planEvent(id, (at) => events.planRunBegan({ id, checkout: JSON.stringify(checkout), at })),
+    retried: (id, { fresh, checkout }) =>
+      planEvent(id, (at) =>
+        events.planRetried({
+          id,
+          fresh,
+          checkout: checkout.length === 0 ? null : JSON.stringify(checkout),
+          at,
+        }),
+      ),
     resumeQueued: (id, error) =>
       planEvent(id, (at) => events.planRunResumeQueued({ id, error, at })),
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),

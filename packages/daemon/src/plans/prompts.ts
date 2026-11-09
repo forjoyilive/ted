@@ -1,4 +1,4 @@
-import type { PlanRequest, RoundAnswer } from '@ted/protocol'
+import type { PlanRequest, PlanTask, RoundAnswer } from '@ted/protocol'
 import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
 
@@ -17,8 +17,9 @@ export function plannerInstructions(input: {
   factory: StoredFactory
   entries: readonly FactoryRepoEntry[]
   folder: string
+  earlier?: string
 }): string {
-  const { factory, entries, folder } = input
+  const { factory, entries, folder, earlier } = input
   const where =
     entries.length === 1
       ? `Your working folder is a fresh checkout of ${entries[0]?.repo ?? factory.repo} at the latest base branch.`
@@ -34,8 +35,75 @@ export function plannerInstructions(input: {
       '- If the human asks for changes, post a revised proposal the same way; it replaces the old one.',
       '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
     ].join('\n'),
+    ...(earlier !== undefined && earlier !== ''
+      ? [
+          '## The earlier planning chat this one builds on',
+          `The human started this chat from an earlier one with **Plan more from here**. Build on what it settled and created; don’t ask again what it already answered.\n\n${earlier}`,
+        ]
+      : []),
     planOpening,
   ].join('\n\n')
+}
+
+function answerLines(request: PlanRequest): string[] {
+  const answers = request.answer?.kind === 'answered' ? (request.answer.answers ?? []) : []
+  return (request.round?.questions ?? []).flatMap((question, i) => {
+    const answer = answers[i]
+    return [
+      `- ${question.question}`,
+      answer
+        ? `  Answer: ${answer.answer}${answer.note !== undefined ? ` (note: ${answer.note})` : ''}`
+        : '  Not answered.',
+    ]
+  })
+}
+
+export function earlierPlanContext(input: {
+  title: string
+  message: string
+  requests: readonly PlanRequest[]
+  tasks: readonly PlanTask[]
+}): string {
+  const { title, message, requests, tasks } = input
+  const rounds = requests.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded')
+  const proposal = requests.findLast((r) => r.kind === 'proposal')
+  const parts = [`### “${title}”`, `The human’s first message:\n\n${message}`]
+  for (const round of rounds) {
+    parts.push(
+      [`#### Round ${round.round?.number ?? ''}: ${round.title ?? ''}`, ...answerLines(round)].join(
+        '\n',
+      ),
+    )
+  }
+  if (proposal?.proposal) {
+    const outcome =
+      proposal.answer?.kind === 'approved'
+        ? 'approved'
+        : proposal.answer?.kind === 'changes-requested'
+          ? `changes requested: ${proposal.answer.text}`
+          : 'not approved'
+    parts.push(
+      [
+        `#### Latest proposal: ${proposal.title ?? ''} (${outcome})`,
+        ...proposal.proposal.rows.map(
+          (row, i) =>
+            `${i + 1}. ${row.title}: ${row.scope}${row.blockedBy.length > 0 ? ` (blocked by ${row.blockedBy.join(', ')})` : ''}`,
+        ),
+      ].join('\n'),
+    )
+  }
+  parts.push(
+    tasks.length === 0
+      ? 'It created no Tasks.'
+      : [
+          '#### Tasks it created',
+          ...tasks.map(
+            (t) =>
+              `- ${t.displayId} ${t.title} (${t.stage}${t.blockedBy.length > 0 ? `, blocked by ${t.blockedBy.join(', ')}` : ''})`,
+          ),
+        ].join('\n'),
+  )
+  return parts.join('\n\n')
 }
 
 export function planRoundAnswerMessage(

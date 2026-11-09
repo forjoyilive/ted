@@ -351,3 +351,114 @@ describe('Planning chats', () => {
     expect(await client.ok<Plan[]>('GET', '/plans')).toEqual([])
   })
 })
+
+describe('Plans list', () => {
+  test('a chat waiting on the human says what it waits on', async () => {
+    const client = await startTed()
+    const roundFile = await file('round.json', round)
+    const plan = await start(
+      client,
+      `Plan sharing\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
+    )
+    const waiting = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
+    expect(waiting.plan.waitingOn).toBe('Round 1 · 2 questions')
+    const [listed] = await client.ok<Plan[]>('GET', '/plans?factory=NB')
+    expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1 · 2 questions' })
+    await client.ok('POST', `/plans/${plan.id}/stop`)
+  })
+
+  test('Retry resumes a failed chat in a fresh checkout', async () => {
+    const client = await startTed()
+    const stubState = path.join(home, 'stub-claude.json')
+    await writeFile(stubState, JSON.stringify({ resumeFails: true }))
+    const plan = await start(client, `Plan sharing\n${steps({ say: 'Reading' }, { exit: 1 })}`)
+    const failed = await waitForPlan(client, plan.id, (d) => d.plan.status === 'failed', 'failure')
+    expect(failed.plan.error).toBeDefined()
+    const folder = path.join(home, 'plans', plan.id)
+    await waitUntil(async () => !existsSync(folder) || undefined, 'the checkout to go')
+    await writeFile(stubState, '{}')
+    const retried = await client.ok<Plan>('POST', `/plans/${plan.id}/retry`)
+    expect(retried.status).not.toBe('failed')
+    const now = await waitForPlan(
+      client,
+      plan.id,
+      (d) => d.plan.status === 'working',
+      'the planner to resume',
+    )
+    expect(now.plan.error).toBeUndefined()
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(existsSync(run.run.cwd)).toBe(true)
+    const again = await client.call('POST', `/plans/${plan.id}/retry`, {})
+    expect(again.status).toBe(409)
+    await client.ok('POST', `/plans/${plan.id}/stop`)
+  })
+
+  test('Plan more from here carries the old chat’s rounds, answers, proposal and Tasks', async () => {
+    const client = await startTed()
+    const roundFile = await file('round.json', round)
+    const proposalFile = await file('proposal.json', proposal)
+    const plan = await start(
+      client,
+      `Plan notebook sharing\n${steps(
+        { run: ['ted', 'ask', '--round', roundFile] },
+        { endTurn: true },
+        { waitFor: gate('answered') },
+        { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+        { endTurn: true },
+      )}`,
+    )
+    const asked = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
+    const roundId = asked.requests.find((r) => r.kind === 'round')?.id
+    const early = await client.call('POST', '/plans', {
+      factory: 'NB',
+      message: 'More',
+      from: plan.id,
+    })
+    expect(early.status).toBe(409)
+    await client.ok('POST', `/plan-requests/${roundId}/answer`, { action: 'accept-recommended' })
+    await open('answered')
+    const proposed = await waitForPlan(
+      client,
+      plan.id,
+      (d) => d.requests.some((r) => r.kind === 'proposal'),
+      'the proposal',
+    )
+    const proposalId = proposed.requests.find((r) => r.kind === 'proposal')?.id
+    await client.ok('POST', `/plan-requests/${proposalId}/answer`, {
+      action: 'approve',
+      proposal: { skip: [], startUnblocked: false },
+    })
+    await waitForPlan(client, plan.id, (d) => d.plan.status === 'finished', 'the plan to finish')
+
+    const next = await start(
+      client,
+      `Now plan comments\n${steps({ say: 'Carrying on' }, { endTurn: true })}`,
+      { from: plan.id },
+    )
+    expect(next.fromPlan).toEqual({ id: plan.id, title: plan.title })
+    expect(next.title).toBe('Now plan comments')
+    await waitForPlan(client, next.id, (d) => d.plan.runId !== undefined, 'the next planner')
+    const chat = JSON.stringify(await client.ok<RunChat>('GET', `/runs/${next.id}/chat`))
+    for (const part of [
+      'Plan notebook sharing',
+      'Who can share a notebook?',
+      'The owner only',
+      'Sharing, in two Tasks',
+      'Share dialog',
+      'NB-1',
+      'NB-2',
+    ]) {
+      expect(chat).toContain(part)
+    }
+
+    await client.ok('DELETE', `/plans/${plan.id}`)
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks.map((t) => [t.displayId, t.fromPlan])).toEqual([
+      ['NB-1', { id: plan.id, title: '', deleted: true }],
+      ['NB-2', { id: plan.id, title: '', deleted: true }],
+    ])
+    const after = await detail(client, next.id)
+    expect(after.plan.fromPlan).toEqual({ id: plan.id, title: plan.title, deleted: true })
+    await client.ok('POST', `/plans/${next.id}/stop`)
+  })
+})

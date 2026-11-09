@@ -342,7 +342,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         automations.check()
       }
       disk.start()
-      const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
+      const backupless = [
+        paths.worktrees,
+        paths.repos,
+        paths.simulators,
+        paths.scratch,
+        paths.plans,
+      ]
       const excludeFromBackups =
         diskOptions.excludeFromBackups ??
         (process.env.TED_TIME_MACHINE === 'off' ? async () => undefined : excludeFromTimeMachine)
