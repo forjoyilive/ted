@@ -11,6 +11,7 @@
     "./health": "./src/health.ts",
     "./integrations": "./src/integrations.ts",
     "./settings": "./src/settings.ts",
-    "./factory": "./src/factory.ts"
+    "./factory": "./src/factory.ts",
+    "./version": "./src/version.ts"
   }
 }

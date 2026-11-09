@@ -40,6 +40,7 @@ import {
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
+import type { CommandLine } from './command-line.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
@@ -63,6 +64,7 @@ export interface BaseOptions {
   appStreams: Set<http.ServerResponse>
   onShutdown: () => void
   home: string
+  commandLine: CommandLine
 }
 
 export type ServerOptions = BaseOptions & Services
@@ -122,6 +124,16 @@ const dataRoutes: Route<BaseOptions>[] = [
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
+  },
+  {
+    method: 'GET',
+    path: /^\/command-line$/,
+    handle: async (_, { commandLine }) => [200, await commandLine.status()],
+  },
+  {
+    method: 'POST',
+    path: /^\/command-line\/install$/,
+    handle: async (_, { commandLine }) => [200, await commandLine.install()],
   },
   {
     method: 'POST',

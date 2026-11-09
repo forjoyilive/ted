@@ -25,6 +25,7 @@ export {
   DaemonUnreachableError,
   type Subscription,
 } from './client.ts'
+export type { CommandLineStatus } from './command-line.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,
@@ -32,7 +33,6 @@ export {
   type BackupsSummary,
   backupKinds,
   type DataStatus,
-  downloadUrl,
   type RestoreBackupRequest,
   type RestoreBackupResult,
 } from './data.ts'
@@ -91,6 +91,7 @@ export {
   type RunFixResult,
 } from './integrations.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
   type AgentKind,
   agentKinds,

@@ -1,5 +1,6 @@
 import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { CommandLineStatus } from './command-line.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -236,6 +237,14 @@ export class DaemonClient {
 
   shutdown(): Promise<void> {
     return this.#request('POST', '/shutdown')
+  }
+
+  getCommandLine(): Promise<CommandLineStatus> {
+    return this.#request('GET', '/command-line')
+  }
+
+  installCommandLine(): Promise<CommandLineStatus> {
+    return this.#request('POST', '/command-line/install')
   }
 
   openApp(): Promise<OpenAppResult> {
