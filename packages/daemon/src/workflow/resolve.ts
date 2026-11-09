@@ -116,6 +116,13 @@ export function withForcedGates(
   }
 }
 
+export function onDefaultBranch(workflow: ResolvedWorkflow): ResolvedWorkflow {
+  const [primary, ...rest] = workflow.settings.repos ?? []
+  if (primary?.base_branch === undefined) return workflow
+  const { base_branch: _, ...kept } = primary
+  return { ...workflow, settings: { ...workflow.settings, repos: [kept, ...rest] } }
+}
+
 export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {
   const { stages } = workflow.settings
   return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => ({

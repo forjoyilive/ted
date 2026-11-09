@@ -128,11 +128,15 @@ function unchanged(view: FactorySettingsView): FactorySettingsChanges {
 const reviewRow = (view: FactorySettingsView | LibraryView) =>
   view.stages.find((s) => s.id === 'review')
 
-async function driftedFactory(override = `${libraryV1}- Also check the docs.\n`) {
+async function driftedFactory(
+  override = `${libraryV1}- Also check the docs.\n`,
+  repos: string[] = [],
+) {
   await writeLibrary({ 'stages/review.md': libraryV1 })
   const client = await start({
     workflow: [
       'version: 1',
+      ...repos,
       'order: [intake, work, review]',
       'stages:',
       `  review: { gate: false, based_on: ${blobHash(libraryV1)} }`,
@@ -201,7 +205,7 @@ describe('Drift in Factory settings', () => {
     expect(after?.drift).toBeUndefined()
   })
 
-  test('Merge with an agent creates a Task with Intake filled in and the Review Gate forced on', async () => {
+  test('Merge with an agent creates a Task on the default branch with Intake filled in and the Review Gate forced on', async () => {
     const briefFile = path.join(scratch, 'brief.md')
     await writeFile(
       briefFile,
@@ -234,7 +238,11 @@ describe('Drift in Factory settings', () => {
       ],
     })
     const override = `${libraryV1}${steps}\n`
-    const { client } = await driftedFactory(override)
+    const { client } = await driftedFactory(override, [
+      'repos:',
+      '  - name: widgets',
+      '    base_branch: develop',
+    ])
 
     const task = await client.ok<Task>(
       'POST',

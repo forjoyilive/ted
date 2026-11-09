@@ -608,6 +608,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         priority: 'none',
         clarifyDepth: 'none',
         forcedGates: ['review'],
+        changesSettings: true,
         start: true,
       })
     },

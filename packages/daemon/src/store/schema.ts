@@ -59,6 +59,7 @@ export const tasks = State.SQLite.table({
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
+    changesSettings: State.SQLite.boolean({ default: false }),
     partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -671,6 +672,10 @@ export const events = {
       stages: Schema.Array(Schema.String),
       at: Schema.String,
     }),
+  }),
+  taskChangesSettings: Events.synced({
+    name: 'v1.TaskChangesSettings',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   stageFileTextSeen: Events.synced({
     name: 'v1.StageFileTextSeen',
@@ -1835,6 +1840,8 @@ const materializers = counted(
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>
         tasks.update({ forcedGates: JSON.stringify(stages) }).where({ id: taskId }),
+      'v1.TaskChangesSettings': ({ taskId }) =>
+        tasks.update({ changesSettings: true }).where({ id: taskId }),
       'v1.StageFileTextSeen': ({ at, ...seen }) =>
         stageFileTexts.insert({ ...seen, seenAt: at }).onConflict('hash', 'ignore'),
       'v1.TaskFollowedUp': ({ taskId, at }) =>

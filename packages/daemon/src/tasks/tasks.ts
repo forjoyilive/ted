@@ -80,7 +80,12 @@ import type {
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
-import { boardStages, type ResolvedWorkflow, withForcedGates } from '../workflow/resolve.ts'
+import {
+  boardStages,
+  onDefaultBranch,
+  type ResolvedWorkflow,
+  withForcedGates,
+} from '../workflow/resolve.ts'
 import {
   backStageMessage,
   loopCheckInstructions,
@@ -358,7 +363,11 @@ export function createTasks(options: {
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
     const resolution = await resolveWorkflow(factoryOf(task), options)
-    return { ...resolution, workflow: withForcedGates(resolution.workflow, task.forcedGates) }
+    const forced = withForcedGates(resolution.workflow, task.forcedGates)
+    return {
+      ...resolution,
+      workflow: task.changesSettings ? onDefaultBranch(forced) : forced,
+    }
   }
 
   async function capOf(factoryId: string): Promise<number | undefined> {
@@ -746,7 +755,7 @@ export function createTasks(options: {
 
   async function pullRequestTargets(task: StoredTask): Promise<PullRequestTarget[]> {
     const factory = factoryOf(task)
-    const { workflow } = await resolveWorkflow(factory, { fetch: false })
+    const { workflow } = await taskWorkflow(task, { fetch: false })
     const entries = factoryRepos(workflow, factory)
     const live = task.repos.filter((r) => !r.removed)
     return Promise.all(
@@ -1908,7 +1917,7 @@ export function createTasks(options: {
     if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const factory = factoryOf(task)
-    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const entries = factoryRepos(resolution.workflow, factory)
     if (entries.length < 2) {
       throw new RequestError(

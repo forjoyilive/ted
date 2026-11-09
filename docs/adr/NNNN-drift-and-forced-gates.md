@@ -14,6 +14,8 @@ KRI-149 shows when a Stage file a Factory or the Library overrides has changed u
 
 **Forced Gates.** `NewTask.forcedGates` commits `v1.TaskGatesForced` with the Task’s creation. `tasks.ts` resolves a Task’s Workflow through `taskWorkflow(task)`, which applies `withForcedGates`: each forced Stage is turned on with a Gate, and put into `order` before the first later built-in Stage if the Factory left it out. The drift merge Task forces the Review Gate. A forced Gate is not part of the public `Task`.
 
+**Settings Tasks start from the default branch.** `NewTask.changesSettings` commits `v1.TaskChangesSettings`; for such a Task `taskWorkflow` drops the primary repo’s `base_branch`, so its worktree starts from, and its pull request targets, the GitHub default branch that `.ted/` is read from (spec 4.3), whatever `base_branch` says. The drift merge Task sets it.
+
 ## Considered Options
 
 - **Shipping a table of past default hashes and texts with each TED build.** Would give the right diff even for copies made on another machine, but grows with every release. Recording what this machine has seen covers the common case; the fallback diff covers the rest.

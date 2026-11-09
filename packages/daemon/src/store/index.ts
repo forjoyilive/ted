@@ -204,6 +204,7 @@ export interface NewFactory {
 
 export interface StoredTask extends Task {
   forcedGates: AgentStageId[]
+  changesSettings: boolean
   worktree?: string
   startRequested: boolean
   waitsForBlockers: boolean
@@ -244,6 +245,7 @@ export interface NewTask {
   source?: TaskSource
   followUpOf?: string
   forcedGates?: AgentStageId[]
+  changesSettings?: boolean
 }
 
 export interface PlannedStage {
@@ -989,6 +991,7 @@ export async function openStore({
     failedAt,
     followUpOf,
     forcedGates,
+    changesSettings,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1141,6 +1144,7 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
+      changesSettings,
       repos,
       chosenRepos:
         chosenRepos !== null
@@ -1196,6 +1200,7 @@ export async function openStore({
 
   const toPublicTask = ({
     forcedGates: _____,
+    changesSettings: ______,
     worktree: _,
     startRequested: __,
     waitsForBlockers: ___,
@@ -1610,6 +1615,7 @@ export async function openStore({
       source,
       followUpOf,
       forcedGates = [],
+      changesSettings = false,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1655,6 +1661,7 @@ export async function openStore({
         ...(forcedGates.length > 0
           ? [events.taskGatesForced({ taskId: id, stages: forcedGates, at })]
           : []),
+        ...(changesSettings ? [events.taskChangesSettings({ taskId: id, at })] : []),
         ...(followUpOf !== undefined
           ? [
               events.taskFollowsUp({ taskId: id, originalId: followUpOf, at }),
