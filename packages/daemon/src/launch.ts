@@ -1,10 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { appendFile, mkdir, open } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import {
   DaemonClient,
   type DaemonEvent,
+  type DaemonInfo,
+  DaemonRequestError,
   DaemonUnreachableError,
   readDaemonInfo,
   type Subscription,
@@ -25,21 +28,29 @@ export class DaemonDidNotStartError extends Error {}
 export async function withDaemon<T>(
   home: string,
   call: (client: DaemonClient) => Promise<T>,
-  options: { startTimeoutMs?: number } = {},
+  options: { startTimeoutMs?: number; appToken?: string } = {},
 ): Promise<T> {
   const timeoutMs = options.startTimeoutMs ?? startTimeoutMs
   const deadline = Date.now() + timeoutMs
+  const { appToken } = options
   let child: ChildProcess | undefined
   for (;;) {
     const info = await readDaemonInfo(home)
     if (info) {
       try {
-        return await call(new DaemonClient(info, process.env.TED_RUN_TOKEN || info.token))
+        if (appToken === undefined) {
+          return await call(new DaemonClient(info, process.env.TED_RUN_TOKEN || info.token))
+        }
+        const client = new DaemonClient(info, appToken)
+        if (await knowsApp(client)) return await call(client)
+        await handOver(home, info, deadline)
+        child = undefined
+        continue
       } catch (error) {
         if (!(error instanceof DaemonUnreachableError)) throw error
       }
     }
-    if (!child) child = await startDaemon(home)
+    if (!child) child = await startDaemon(home, appToken)
     else if (exited(child) && !(await anotherDaemonStarting(home))) {
       throw new DaemonDidNotStartError(
         `TED's daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
@@ -65,7 +76,33 @@ async function anotherDaemonStarting(home: string): Promise<boolean> {
   }
 }
 
-async function startDaemon(home: string): Promise<ChildProcess> {
+async function knowsApp(client: DaemonClient): Promise<boolean> {
+  try {
+    return (await client.caller()).kind === 'app'
+  } catch (error) {
+    if (error instanceof DaemonRequestError) return false
+    throw error
+  }
+}
+
+async function handOver(home: string, info: DaemonInfo, deadline: number): Promise<void> {
+  const asked = await new DaemonClient(info).shutdown({ keepRuns: true }).then(
+    () => true,
+    (error: unknown) => {
+      if (error instanceof DaemonUnreachableError) return true
+      if (error instanceof DaemonRequestError) return false
+      throw error
+    },
+  )
+  do {
+    if (Date.now() > deadline) {
+      throw new DaemonDidNotStartError('TED’s daemon didn’t stop to hand over to the app')
+    }
+    await sleep(retryDelayMs)
+  } while (asked && (await anotherDaemonStarting(home)))
+}
+
+async function startDaemon(home: string, appToken?: string): Promise<ChildProcess> {
   const paths = tedPaths(home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
   await mkdir(paths.logs, { recursive: true, mode: 0o700 })
@@ -75,13 +112,18 @@ async function startDaemon(home: string): Promise<ChildProcess> {
   })
   const output = await open(paths.daemonOutput, 'a')
   const daemonMain = fileURLToPath(new URL('./main.ts', import.meta.url))
-  const daemon = nodeEntry(daemonMain, ['--exit-when-idle'])
+  const daemon = nodeEntry(daemonMain, [
+    '--exit-when-idle',
+    ...(appToken === undefined ? [] : ['--app-token-stdin']),
+  ])
   // Under Electron, process.execPath is the Electron binary; plain Node ignores the variable.
   const child = spawn(daemon.command, daemon.args, {
     detached: true,
-    stdio: ['ignore', output.fd, output.fd],
+    stdio: [appToken === undefined ? 'ignore' : 'pipe', output.fd, output.fd],
     env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },
   })
+  child.stdin?.on('error', () => undefined)
+  child.stdin?.end(`${appToken}\n`)
   child.unref()
   await output.close()
   return child
@@ -103,6 +145,7 @@ export interface SuperviseOptions {
   onEvent: (event: DaemonEvent) => void
   onConnection: (connection: DaemonConnection) => void
   app?: boolean
+  appToken?: string
   restartDelaysMs?: readonly number[]
   crashWindowMs?: number
   crashLimit?: number
@@ -117,12 +160,14 @@ export async function superviseDaemon(
     onEvent,
     onConnection,
     app = false,
+    appToken: givenAppToken,
     restartDelaysMs = daemonRestartDelaysMs,
     crashWindowMs = 10 * 60_000,
     crashLimit = 3,
     restartTimeoutMs = 30_000,
   }: SuperviseOptions,
 ): Promise<DaemonSupervisor> {
+  const appToken = app ? (givenAppToken ?? randomBytes(32).toString('hex')) : undefined
   let connection: DaemonConnection = { state: 'connected' }
   let crashes: number[] = []
   let closed = false
@@ -141,7 +186,10 @@ export async function superviseDaemon(
     ;[client, subscription] = await withDaemon(
       home,
       async (c) => [c, await c.subscribe(onEvent, { app, onClose: onCrash })] as const,
-      timeoutMs === undefined ? {} : { startTimeoutMs: timeoutMs },
+      {
+        ...(timeoutMs !== undefined && { startTimeoutMs: timeoutMs }),
+        ...(appToken !== undefined && { appToken }),
+      },
     )
   }
 

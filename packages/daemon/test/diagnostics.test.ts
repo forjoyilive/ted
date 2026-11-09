@@ -12,7 +12,6 @@ import {
   makeTempHome,
   rawRequest,
   stubClaudePath,
-  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -36,7 +35,7 @@ afterEach(async () => {
 
 async function start() {
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  return api(daemon.port, await tokenFor(home))
+  return api(daemon.port, daemon.appToken)
 }
 
 describe('Diagnostics', () => {

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
-import { makeTempHome, rawRequest, tokenFor } from './helpers.ts'
+import { makeTempHome, rawRequest } from './helpers.ts'
 
 const picture =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
@@ -161,7 +161,7 @@ describe('settings and Factories over the daemon API', () => {
   async function client(): Promise<DaemonClient> {
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    return new DaemonClient(info)
+    return new DaemonClient(info, daemon?.appToken)
   }
 
   test('a client reads and changes Appearance, and subscribers hear the change', async () => {
@@ -199,7 +199,7 @@ describe('settings and Factories over the daemon API', () => {
     ['a body that is not an object', ['dark']],
   ])('refuses %s', async (_, body) => {
     daemon = await startDaemon({ home, version: '9.9.9' })
-    const token = await tokenFor(home)
+    const token = daemon.appToken
 
     const res = await rawRequest(daemon.port, {
       method: 'PATCH',

@@ -20,7 +20,6 @@ import {
   pretendStateSchemaChanged,
   storeDbFiles,
   stubClaudePath,
-  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -48,7 +47,7 @@ async function start(version: string, statuses: DataStatus[] = []) {
     claudeBin: stubClaudePath,
     onDataStatus: (status) => statuses.push(status),
   })
-  return api(daemon.port, await tokenFor(home))
+  return api(daemon.port, daemon.appToken)
 }
 
 async function stop(): Promise<void> {
@@ -198,7 +197,7 @@ describe('store migrations', () => {
       claudeBin: stubClaudePath,
       onShutdown: () => shutdowns++,
     })
-    const closed = api(daemon.port, await tokenFor(home))
+    const closed = api(daemon.port, daemon.appToken)
 
     expect((await closed.call('GET', '/data-status')).body).toMatchObject({ state: 'needs-newer' })
     expect((await closed.call('POST', '/app/open')).body).toEqual({ opened: false })
@@ -221,16 +220,17 @@ describe('store migrations', () => {
         home,
         version: '1.1.0',
         claudeBin: stubClaudePath,
+        appToken: 'app-token',
         onShutdown: () => shutdowns++,
         onDataStatus: (status) => {
           if (status.state !== 'updating' || shutdown) return
           shutdown = (async () => {
             const info = await readDaemonInfo(home)
-            return api(info?.port ?? 0, await tokenFor(home)).call('POST', '/shutdown')
+            return api(info?.port ?? 0, 'app-token').call('POST', '/shutdown')
           })()
         },
       })
-      ted = api(daemon.port, await tokenFor(home))
+      ted = api(daemon.port, daemon.appToken)
 
       expect((await shutdown)?.status).toBe(200)
       expect((await ted.getRun(run.id)).run.state).toBe('finished')

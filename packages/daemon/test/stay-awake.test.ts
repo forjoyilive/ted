@@ -5,7 +5,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { holdAwakeWithOs, stayAwakeCommand } from '../src/stay-awake.ts'
-import { api, isAlive, killRunHosts, makeTempHome, stubClaudePath, tokenFor } from './helpers.ts'
+import { api, isAlive, killRunHosts, makeTempHome, stubClaudePath } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -39,7 +39,7 @@ async function start() {
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return { ted: new DaemonClient(info), raw: api(daemon.port, await tokenFor(home)) }
+  return { ted: new DaemonClient(info, daemon.appToken), raw: api(daemon.port, daemon.appToken) }
 }
 
 const gate = (name: string) => path.join(cwd, name)

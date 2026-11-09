@@ -80,7 +80,7 @@ const linearGroup = (window: Page) => window.getByRole('group', { name: 'Linear'
 async function client(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return new DaemonClient(info, process.env.TED_APP_TOKEN)
 }
 
 async function openIntegrations(window: Page): Promise<void> {

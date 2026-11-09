@@ -53,7 +53,7 @@ async function start(): Promise<DaemonClient> {
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return new DaemonClient(info, daemon?.appToken)
 }
 
 async function withFactory(): Promise<{ client: DaemonClient; factory: Factory }> {

@@ -3,7 +3,7 @@ import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { DaemonEvent, RestoreBackupRequest } from '@ted/protocol'
+import type { CallerInfo, DaemonEvent, RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
 import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
@@ -11,7 +11,13 @@ import { redactSecrets } from './redact.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { machineRoutes } from './routes/machine.ts'
-import { type BaseOptions, type RequestContext, type Route, readJson } from './routes/route.ts'
+import {
+  type BaseOptions,
+  type RequestContext,
+  type Route,
+  readJson,
+  readOptionalJson,
+} from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import type { Caller } from './tasks/tasks.ts'
@@ -29,6 +35,11 @@ const dataRoutes: Route<BaseOptions>[] = [
   },
   {
     method: 'GET',
+    path: /^\/caller$/,
+    handle: async ({ caller }) => [200, { kind: caller.kind } satisfies CallerInfo],
+  },
+  {
+    method: 'GET',
     path: /^\/data-status$/,
     handle: async (_, { data }) => [200, data.status()],
   },
@@ -40,6 +51,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/backups\/restore$/,
+    fileToken: true,
     async handle({ req }, { data }) {
       const body = (await readJson(req)) as Partial<RestoreBackupRequest> | null
       const name = typeof body?.name === 'string' ? body.name : ''
@@ -50,9 +62,17 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/shutdown$/,
-    async handle({ res }, { data, onShutdown }) {
+    fileToken: true,
+    async handle({ req, res, caller }, { data, onShutdown }) {
+      const body = (await readOptionalJson(req)) as Partial<ShutdownRequest> | null
+      const keepRuns = body?.keepRuns === true
+      if (caller.kind === 'file' && !keepRuns) {
+        throw new HttpError(403, 'only the TED app can do this')
+      }
       await settled(data)
-      if (data.status().state === 'ready') await (await data.services()).runs.stopAll()
+      if (!keepRuns && data.status().state === 'ready') {
+        await (await data.services()).runs.stopAll()
+      }
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
@@ -70,6 +90,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/app\/open$/,
+    fileToken: true,
     async handle(_, { appStreams }) {
       for (const stream of appStreams) send(stream, { type: 'open-requested' })
       return [200, { opened: appStreams.size > 0 }]
@@ -166,6 +187,9 @@ function find<O>(
     if (caller.kind === 'run' && !route.runToken) {
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
+    if (caller.kind === 'file' && route.method !== 'GET' && !route.fileToken) {
+      throw new HttpError(403, 'only the TED app can do this')
+    }
     return {
       route,
       params: found.slice(1).map((param) => (param === undefined ? '' : decodeParam(param))),
@@ -201,7 +225,8 @@ function streamEvents(
 
 function identify(authorization: string | undefined, options: BaseOptions): Caller | undefined {
   const given = authorization?.replace(/^Bearer /, '') ?? ''
-  if (equalSecrets(given, options.token)) return { kind: 'daemon' }
+  if (equalSecrets(given, options.appToken)) return { kind: 'app' }
+  if (equalSecrets(given, options.token)) return { kind: 'file' }
   const runId = options.runTokens.verify(given)
   return runId === undefined ? undefined : { kind: 'run', runId }
 }

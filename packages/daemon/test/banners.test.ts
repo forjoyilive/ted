@@ -231,7 +231,7 @@ describe('banners over the daemon API', () => {
   async function client(): Promise<DaemonClient> {
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    return new DaemonClient(info)
+    return new DaemonClient(info, daemon?.appToken)
   }
 
   async function start() {

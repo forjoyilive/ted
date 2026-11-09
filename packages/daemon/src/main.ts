@@ -17,8 +17,18 @@ logConsoleTo(openRollingLog(paths.daemonLog, tedLogLimits))
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
-  options: { 'exit-when-idle': { type: 'boolean' } },
+  options: { 'exit-when-idle': { type: 'boolean' }, 'app-token-stdin': { type: 'boolean' } },
 })
+
+async function readAppToken(): Promise<string> {
+  let text = ''
+  for await (const chunk of process.stdin) text += chunk
+  const token = text.trim()
+  if (token === '') throw new Error('--app-token-stdin was given but stdin held no token')
+  return token
+}
+
+const appToken = values['app-token-stdin'] ? await readAppToken() : undefined
 
 let daemon: RunningDaemon | undefined
 let stopping = false
@@ -36,6 +46,7 @@ try {
     version: tedVersion,
     onShutdown: () => void shutdown(),
     checkAgentsOnStart: true,
+    ...(appToken !== undefined && { appToken }),
     ...(process.env.TED_STAY_AWAKE !== 'off' && { holdAwake: holdAwakeWithOs() }),
     ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
     ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),

@@ -66,8 +66,6 @@ const usage = `Usage:
   ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
   ted dev factory local-folder <key> <dir>   Set the folder new worktrees copy files from
-  ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
-                                             Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
@@ -81,9 +79,7 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
-        agent: { type: 'string' },
         choice: { type: 'string', multiple: true },
-        cwd: { type: 'string' },
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
@@ -339,21 +335,6 @@ try {
     const folder = path.resolve(rest[2] ?? '')
     const factory = await withDaemon(home, (client) => client.setLocalFolder(key, folder))
     console.log(`${factory.key} copies files from ${factory.localFolder?.path ?? folder}`)
-  } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
-    const cwd = path.resolve(options.cwd ?? process.cwd())
-    const prompt = rest.slice(1).join(' ')
-    const agent = options.agent
-    if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude or codex')
-    }
-    const run = await withDaemon(home, (client) =>
-      client.startDevRun({
-        prompt,
-        cwd,
-        ...(agent !== undefined && { agent: agent as AgentKind }),
-      }),
-    )
-    console.log(`Started Run ${run.id}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'show' && rest.length === 2) {
     const id = rest[1] ?? ''
     console.log(formatRun(await withDaemon(home, (client) => client.getRun(id))))

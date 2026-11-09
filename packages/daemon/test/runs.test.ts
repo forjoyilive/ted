@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -14,8 +14,9 @@ import {
   hostRecords,
   killRunHosts,
   makeTempHome,
+  spawnDaemonProcess,
   stubClaudePath,
-  tokenFor,
+  testAppToken,
   waitUntil,
 } from './helpers.ts'
 
@@ -39,7 +40,7 @@ afterEach(async () => {
 
 async function startWithStub() {
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  return api(daemon.port, await tokenFor(home))
+  return api(daemon.port, daemon.appToken)
 }
 
 interface StubRecord {
@@ -249,7 +250,7 @@ describe('Runs', () => {
 })
 
 describe('Runs across daemon restarts', () => {
-  const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
+  const _mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
   let child: ChildProcess | undefined
 
   afterEach(async () => {
@@ -262,12 +263,13 @@ describe('Runs across daemon restarts', () => {
 
   async function startDaemonProcess() {
     await rm(path.join(home, 'daemon.json'), { force: true })
-    child = spawn(process.execPath, [mainPath], {
-      env: { ...process.env, TED_HOME: home, TED_CLAUDE_BIN: stubClaudePath },
-      stdio: 'ignore',
+    child = spawnDaemonProcess([], {
+      ...process.env,
+      TED_HOME: home,
+      TED_CLAUDE_BIN: stubClaudePath,
     })
     const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
-    return api(info.port, info.token)
+    return api(info.port, testAppToken)
   }
 
   test('killing and restarting the daemon mid-turn loses no output and the Run keeps going', async () => {

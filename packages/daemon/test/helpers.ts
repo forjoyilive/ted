@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -57,6 +57,18 @@ export async function tokenFor(home: string): Promise<string> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error(`no daemon.json in ${home}`)
   return info.token
+}
+
+export const testAppToken = 'test-app-token'
+
+export function spawnDaemonProcess(args: string[], env: NodeJS.ProcessEnv): ChildProcess {
+  const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
+  const child = spawn(process.execPath, [mainPath, '--app-token-stdin', ...args], {
+    env,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  })
+  child.stdin?.end(`${testAppToken}\n`)
+  return child
 }
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))

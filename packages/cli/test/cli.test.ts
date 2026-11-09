@@ -17,9 +17,12 @@ import {
   commitToOrigin,
   isAlive,
   makeOriginRepo,
+  spawnDaemonProcess,
   stopDaemonIn,
   stubCodexPath,
+  testAppToken,
   waitForExit,
+  waitUntil,
 } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
@@ -56,6 +59,22 @@ async function client(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
   return new DaemonClient(info)
+}
+
+async function startAsApp(): Promise<DaemonClient> {
+  spawnDaemonProcess([], {
+    ...process.env,
+    TED_HOME: home,
+    TED_CLAUDE_BIN: stubClaudePath,
+    TED_CODEX_BIN: stubCodexPath,
+  })
+  const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
+  return new DaemonClient(info, testAppToken)
+}
+
+async function startDevRun(prompt: string, agent?: 'codex'): Promise<string> {
+  const app = await startAsApp()
+  return (await app.startDevRun({ prompt, cwd: home, ...(agent && { agent }) })).id
 }
 
 async function daemonPid(): Promise<number> {
@@ -200,14 +219,12 @@ describe('ted task', () => {
 })
 
 describe('ted dev run', () => {
-  test('start runs the agent in a Run, and show prints its state and Conversation', async () => {
+  test('show prints a Run’s state and Conversation', async () => {
     const prompt = JSON.stringify({
       steps: [{ say: 'hi from the stub' }, { endTurn: true }, { exit: 0 }],
     })
 
-    const started = await ted(['dev', 'run', 'start', prompt])
-    const id = started.stdout.trim().replace(/^Started Run /, '')
-    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+    const id = await startDevRun(prompt)
 
     let shown = ''
     for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
@@ -221,13 +238,12 @@ describe('ted dev run', () => {
     expect(lines).toContain('system hook_started Stop')
   })
 
-  test('start --agent codex runs Codex, and show prints its thread and messages', async () => {
+  test('show prints a Codex Run’s thread and messages', async () => {
     const prompt = JSON.stringify({
       steps: [{ say: 'hi from Codex' }, { endTurn: true }, { exit: 0 }],
     })
 
-    const started = await ted(['dev', 'run', 'start', '--agent', 'codex', prompt])
-    const id = started.stdout.trim().replace(/^Started Run /, '')
+    const id = await startDevRun(prompt, 'codex')
 
     let shown = ''
     for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
@@ -241,19 +257,14 @@ describe('ted dev run', () => {
     expect(lines).toContain('turn/completed')
   })
 
-  test('start refuses an unknown agent kind', async () => {
-    await expect(ted(['dev', 'run', 'start', '--agent', 'gemini', 'x'])).rejects.toMatchObject({
-      code: 2,
-      stderr: 'ted: --agent must be claude or codex\n',
-    })
+  test('there is no ted dev run start: only the app starts a Run outside a Task', async () => {
+    await expect(ted(['dev', 'run', 'start', 'x'])).rejects.toMatchObject({ code: 2 })
   })
 
   test('show strips terminal control characters from agent output', async () => {
     const hostile = 'a\u001b]0;pwned\u0007b\u001b[31mc\u009bd'
     const prompt = JSON.stringify({ steps: [{ say: hostile }, { endTurn: true }, { exit: 0 }] })
-    const id = (await ted(['dev', 'run', 'start', prompt])).stdout
-      .trim()
-      .replace(/^Started Run /, '')
+    const id = await startDevRun(prompt)
 
     let shown = ''
     for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
@@ -307,10 +318,10 @@ describe('ted backup', () => {
   })
 
   test('restore asks to stop running Runs, saves current data, and restores', async () => {
+    const prompt = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+    await startDevRun(prompt)
     await ted(['task', 'create', 'After the backup'])
     const daily = (await ted(['backup', 'list'])).stdout.split(' ')[0] ?? ''
-    const prompt = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
-    await ted(['dev', 'run', 'start', prompt])
 
     const declined = await tedWithInput(['backup', 'restore', daily], 'n\n')
     expect(declined.code).toBe(1)
@@ -384,12 +395,11 @@ describe('ted dev factory and ted task start', () => {
   test('with the limit full, ted task start says the Task is queued and its place', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const forever = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+    const app = await startAsApp()
     await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
     await ted(['task', 'create', '--factory', 'NB', forever])
     await ted(['task', 'create', '--factory', 'NB', 'Second'])
-    const info = await readDaemonInfo(home)
-    if (!info) throw new Error('no daemon.json')
-    await new DaemonClient(info).updateSettings({ maxWorkingRuns: 1 })
+    await app.updateSettings({ maxWorkingRuns: 1 })
 
     await ted(['task', 'start', 'NB-1'])
     const queued = await ted(['task', 'start', 'NB-2'])
@@ -511,12 +521,10 @@ describe('ted status and ted doctor', () => {
 
   test('status and doctor print every active banner, dismissed or not', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const app = await startAsApp()
     await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
-    const info = await readDaemonInfo(home)
-    if (!info) throw new Error('no daemon.json')
-    const client = new DaemonClient(info)
-    const [banner] = await client.listBanners()
-    await client.dismissBanner(banner?.id ?? '')
+    const [banner] = await app.listBanners()
+    await app.dismissBanner(banner?.id ?? '')
 
     const status = (await ted(['status'])).stdout
     expect(status).toContain('1 problem:')

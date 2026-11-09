@@ -398,7 +398,7 @@ describe('integrations over HTTP', () => {
     })
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('no daemon.json')
-    const ted = new DaemonClient(info)
+    const ted = new DaemonClient(info, daemon?.appToken)
 
     const health: IntegrationsHealth = await ted.getIntegrations()
     expect(health.github.cli.state).toBe('ready')
@@ -411,7 +411,7 @@ describe('integrations over HTTP', () => {
     const bad = await rawRequest(daemon.port, {
       method: 'POST',
       path: '/integrations/fix',
-      headers: { authorization: `Bearer ${info.token}` },
+      headers: { authorization: `Bearer ${daemon.appToken}` },
       body: JSON.stringify({ fix: 'rm' }),
     })
     expect(bad.status).toBe(400)

@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type CommandLineOptions, createCommandLine } from '../src/command-line.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { api, makeTempHome, tokenFor } from './helpers.ts'
+import { api, makeTempHome } from './helpers.ts'
 
 const run = promisify(execFile)
 
@@ -216,7 +216,7 @@ describe('the command line over HTTP', () => {
       version: '9.9.9',
       commandLine: { platform: 'darwin', ...copy, env: {}, systemBinDir },
     })
-    const app = api(daemon.port, await tokenFor(home))
+    const app = api(daemon.port, daemon.appToken)
     const target = path.join(systemBinDir, 'ted')
 
     expect(await app.call('GET', '/command-line')).toEqual({

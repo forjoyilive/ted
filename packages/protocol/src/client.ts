@@ -4,12 +4,13 @@ import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { DaemonInfo } from './daemon-info.ts'
+import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
   DataStatus,
   RestoreBackupRequest,
   RestoreBackupResult,
+  ShutdownRequest,
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
@@ -330,8 +331,12 @@ export class DaemonClient {
     return this.#request('GET', '/activity')
   }
 
-  shutdown(): Promise<void> {
-    return this.#request('POST', '/shutdown')
+  shutdown(request: ShutdownRequest = {}): Promise<void> {
+    return this.#request('POST', '/shutdown', request)
+  }
+
+  caller(): Promise<CallerInfo> {
+    return this.#request('GET', '/caller')
   }
 
   getCommandLine(): Promise<CommandLineStatus> {

@@ -16,3 +16,7 @@ export async function readDaemonInfo(home: string): Promise<DaemonInfo | undefin
     throw error
   }
 }
+
+export interface CallerInfo {
+  kind: 'app' | 'file' | 'run'
+}

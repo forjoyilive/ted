@@ -80,7 +80,7 @@ import {
   runWorktreeCommand,
 } from './worktree.ts'
 
-export type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
+export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
 export interface CreateTaskInput
   extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source'> {
@@ -1821,7 +1821,7 @@ export function createTasks(options: {
         ...(then !== undefined && { then }),
       })
       const run = liveLead(current)
-      if (unmerged && run && caller.kind === 'daemon' && !existing) await tellLead(blocker, run)
+      if (unmerged && run && caller.kind !== 'run' && !existing) await tellLead(blocker, run)
       return updated
     },
 
@@ -1840,7 +1840,7 @@ export function createTasks(options: {
         }
       }
       const current = find(task.id)
-      if (caller.kind === 'daemon' && wasBlocked && unmergedBlockers(task.id).length === 0) {
+      if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(task.id).length === 0) {
         if (current.stage === 'backlog' && current.startRequested) {
           store.setStartRequested(task.id, false)
         } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
@@ -1857,7 +1857,7 @@ export function createTasks(options: {
     },
 
     async comment(ref, caller, { body, choices = [], supersedes }) {
-      if (caller.kind === 'daemon') {
+      if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')

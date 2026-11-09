@@ -87,7 +87,7 @@ async function start(keyring: Record<string, unknown> = {}): Promise<DaemonClien
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return new DaemonClient(info, daemon?.appToken)
 }
 
 const failure = (promise: Promise<unknown>) =>

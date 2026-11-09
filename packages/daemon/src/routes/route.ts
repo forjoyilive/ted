@@ -12,6 +12,7 @@ import type { Caller } from '../tasks/tasks.ts'
 export interface BaseOptions {
   version: string
   token: string
+  appToken: string
   data: Data
   idle?: IdleTimer
   keepaliveMs: number
@@ -39,6 +40,7 @@ export interface Route<O = ServerOptions> {
   method: string
   path: RegExp
   runToken?: true
+  fileToken?: true
   handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
 }
 

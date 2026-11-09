@@ -2,7 +2,12 @@ import { mkdir, readFile, rm } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { type DaemonConnection, type DaemonSupervisor, superviseDaemon } from '../src/launch.ts'
+import {
+  type DaemonConnection,
+  type DaemonSupervisor,
+  superviseDaemon,
+  withDaemon,
+} from '../src/launch.ts'
 import { isAlive, makeTempHome, waitUntil } from './helpers.ts'
 
 let home: string
@@ -113,6 +118,50 @@ test('a daemon that won’t start is tried at once, then after each delay, then 
   expect(states).toEqual(['reconnecting', 'stopped'])
   const output = await readFile(tedPaths(home).daemonOutput, 'utf8')
   expect(output.match(/starting TED’s daemon/g)).toHaveLength(4)
+})
+
+const fileTokenClient = async () => {
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('no daemon.json')
+  return new DaemonClient(info)
+}
+
+test('the app’s token lives only in its memory; daemon.json’s token can’t change settings', async () => {
+  const supervised = await supervise({ app: true })
+
+  expect(await supervised.client.caller()).toEqual({ kind: 'app' })
+  await supervised.client.updateSettings({ maxWorkingRuns: 3 })
+  const file = await fileTokenClient()
+  expect(await file.caller()).toEqual({ kind: 'file' })
+  await expect(file.updateSettings({ maxWorkingRuns: 99 })).rejects.toMatchObject({
+    status: 403,
+    message: 'only the TED app can do this',
+  })
+})
+
+test('a daemon the supervisor restarts after a crash still knows the app', async () => {
+  const supervised = await supervise({ app: true })
+
+  await crash()
+  await connectedAgain(1)
+
+  expect(await supervised.client.caller()).toEqual({ kind: 'app' })
+  await supervised.client.updateSettings({ maxWorkingRuns: 4 })
+})
+
+test('the app takes over a daemon it didn’t start, and the new daemon knows only the app', async () => {
+  const cliDaemon = await withDaemon(home, async (client) => {
+    expect(await client.caller()).toEqual({ kind: 'file' })
+    return readDaemonInfo(home)
+  })
+
+  const supervised = await supervise({ app: true })
+
+  expect((await readDaemonInfo(home))?.pid).not.toBe(cliDaemon?.pid)
+  await waitUntil(() => !isAlive(cliDaemon?.pid ?? 0), 'the old daemon to exit')
+  expect(await supervised.client.caller()).toEqual({ kind: 'app' })
+  expect(await (await fileTokenClient()).caller()).toEqual({ kind: 'file' })
+  expect(states).toEqual([])
 })
 
 test('the daemon writes its log to TED’s logs folder', async () => {

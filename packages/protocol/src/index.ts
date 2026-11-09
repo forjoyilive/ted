@@ -51,7 +51,7 @@ export {
   type Subscription,
 } from './client.ts'
 export type { CommandLineStatus } from './command-line.ts'
-export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,
   type BackupKind,
@@ -60,6 +60,7 @@ export {
   type DataStatus,
   type RestoreBackupRequest,
   type RestoreBackupResult,
+  type ShutdownRequest,
 } from './data.ts'
 export type {
   Diagnostics,

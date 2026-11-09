@@ -24,8 +24,10 @@ import {
   hostRecords,
   isAlive,
   makeOriginRepo,
+  spawnDaemonProcess,
   stopDaemonIn,
   waitForExit,
+  waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
@@ -98,10 +100,16 @@ async function openAllTasks(window: Page): Promise<void> {
 
 const taskRow = (window: Page, text: string) => window.getByRole('row').filter({ hasText: text })
 
+async function startDaemonAsApp(): Promise<void> {
+  await rm(path.join(home, 'daemon.json'), { force: true })
+  spawnDaemonProcess(['--exit-when-idle'], env())
+  await waitUntil(() => readDaemonInfo(home), 'daemon.json')
+}
+
 async function daemonClient(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return new DaemonClient(info, process.env.TED_APP_TOKEN)
 }
 
 const background = (window: Page) =>
@@ -217,6 +225,7 @@ describe('TED app', () => {
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
+    await startDaemonAsApp()
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
     const edit = {
       emit: {
@@ -502,7 +511,7 @@ describe('TED app', () => {
     expect(isAlive(electronPid)).toBe(false)
   })
 
-  test('the app connects to a daemon that ted started instead of starting another', async () => {
+  test('the app takes over a daemon that ted started, which never learned the app’s token', async () => {
     await ted('task', 'create', 'Fix login')
     const pid = await daemonPid()
 
@@ -510,7 +519,8 @@ describe('TED app', () => {
 
     await openAllTasks(window)
     await taskRow(window, 'DEV-1').waitFor()
-    expect(await daemonPid()).toBe(pid)
+    expect(await daemonPid()).not.toBe(pid)
+    expect(await (await daemonClient()).caller()).toEqual({ kind: 'app' })
   })
 
   test('the renderer has no Node, filesystem or store access, only the bridge', async () => {
@@ -664,7 +674,7 @@ describe('TED app frame', () => {
   })
 
   test('the Appearance setting applies when the app starts', async () => {
-    await ted('task', 'list')
+    await startDaemonAsApp()
     await (await daemonClient()).updateSettings({ appearance: 'dark' })
 
     const window = await launchApp()
@@ -1524,7 +1534,7 @@ describe('daemon crashes', () => {
 
     await killDaemon()
     await reconnecting(window).waitFor()
-    await ted('task', 'list')
+    await startDaemonAsApp()
     await (await daemonClient()).updateSettings({ maxWorkingRuns: 7 })
 
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })

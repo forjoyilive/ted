@@ -1,4 +1,4 @@
-import { readFile, stat } from 'node:fs/promises'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -124,5 +124,55 @@ describe('daemon HTTP API', () => {
     })
 
     expect(res.status).toBe(400)
+  })
+})
+
+describe('the token in daemon.json and the app’s token', () => {
+  test.each([
+    ['answer a request', 'POST', '/comments/c1/answer', { action: 'approve' }],
+    ['change settings', 'PATCH', '/settings', { developerMode: true }],
+    ['start a Run outside a Task', 'POST', '/dev/runs', { prompt: 'x', cwd: '/' }],
+    ['message a Run', 'POST', '/runs/r1/messages', { text: 'go ahead' }],
+    ['save a Linear key', 'PUT', '/integrations/linear/key', { key: 'lin_api_x' }],
+    ['archive a Task', 'POST', '/tasks/DEV-1/archive', {}],
+    ['install the ted command', 'POST', '/command-line/install', {}],
+    ['stop the daemon and its Runs', 'POST', '/shutdown', {}],
+  ])('daemon.json’s token can’t %s', async (_, method, route, body) => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const res = await rawRequest(daemon.port, {
+      method,
+      path: route,
+      headers: { authorization: `Bearer ${await tokenFor(home)}` },
+      body: JSON.stringify(body),
+    })
+
+    expect(res.status).toBe(403)
+    expect(JSON.parse(res.body)).toEqual({ error: 'only the TED app can do this' })
+  })
+
+  test('the app’s token is never written to TED’s folder', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const files = await readdir(home, { recursive: true, withFileTypes: true })
+
+    for (const file of files.filter((f) => f.isFile())) {
+      const text = await readFile(path.join(file.parentPath, file.name), 'latin1')
+      expect(text.includes(daemon.appToken), file.name).toBe(false)
+    }
+  })
+
+  test('daemon.json’s token may ask the daemon to hand over without stopping Runs', async () => {
+    let shutdowns = 0
+    daemon = await startDaemon({ home, version: '9.9.9', onShutdown: () => shutdowns++ })
+
+    const res = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/shutdown',
+      headers: { authorization: `Bearer ${await tokenFor(home)}` },
+      body: JSON.stringify({ keepRuns: true }),
+    })
+
+    expect(res.status).toBe(200)
+    await expect.poll(() => shutdowns).toBe(1)
   })
 })

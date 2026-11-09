@@ -5,7 +5,7 @@ import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/p
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { api, killRunHosts, makeTempHome, rawRequest, stubClaudePath, tokenFor } from './helpers.ts'
+import { api, killRunHosts, makeTempHome, rawRequest, stubClaudePath } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -38,7 +38,7 @@ async function start() {
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return { ted: new DaemonClient(info), raw: api(daemon.port, await tokenFor(home)) }
+  return { ted: new DaemonClient(info, daemon.appToken), raw: api(daemon.port, daemon.appToken) }
 }
 
 const idle = {
@@ -134,7 +134,7 @@ describe('quitting', () => {
     const res = await rawRequest(daemon?.port ?? 0, {
       method: 'PATCH',
       path: '/settings',
-      headers: { authorization: `Bearer ${await tokenFor(home)}` },
+      headers: { authorization: `Bearer ${daemon?.appToken}` },
       body: JSON.stringify(body),
     })
 

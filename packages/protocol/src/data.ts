@@ -20,6 +20,10 @@ export interface RestoreBackupRequest {
   stopRuns?: boolean
 }
 
+export interface ShutdownRequest {
+  keepRuns?: boolean
+}
+
 export interface RestoreBackupResult {
   restored: string
   saved: string

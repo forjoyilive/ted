@@ -55,6 +55,7 @@ export const factoryRoutes: Route[] = [
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/local-folder$/,
+    fileToken: true,
     async handle({ req, params: [key = ''] }, { factories }) {
       const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
       const folder = typeof body?.path === 'string' ? body.path : ''
@@ -65,6 +66,7 @@ export const factoryRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/dev\/factories$/,
+    fileToken: true,
     async handle({ req }, { store, reposDir, workflows, factories }) {
       const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
