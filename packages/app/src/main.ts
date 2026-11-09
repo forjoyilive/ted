@@ -26,6 +26,7 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type EditTaskRequest,
   type FactorySettingsChanges,
   linearKeyPage,
   type MachineSettings,
@@ -112,6 +113,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
+  editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
+  taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),

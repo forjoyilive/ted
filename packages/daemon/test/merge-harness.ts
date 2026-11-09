@@ -223,7 +223,12 @@ export const getTask = async (client: Client, id: string) => {
 
 export async function approve(client: Client, signoff: Comment) {
   await writeFile(client.mergingFile, '')
-  await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+  await waitUntil(async () => {
+    const res = await client.call('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    if (res.status < 300) return true
+    if (res.status === 409 && JSON.stringify(res.body).includes('already moving')) return false
+    throw new Error(`approve: ${JSON.stringify(res.body)}`)
+  }, 'the approval')
 }
 
 export const waitForStage = (client: Client, task: Task, stage: string) =>

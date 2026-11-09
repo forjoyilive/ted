@@ -16,6 +16,8 @@ import type {
   CommentAnswer,
   DaemonEvent,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   Effort,
   FactoryBoard,
   GitHubWait,
@@ -49,7 +51,8 @@ import type {
   ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, parseLinearUrl } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, clarifyIsOver, parseLinearUrl } from '@ted/protocol'
+import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -187,6 +190,8 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
+  edit(ref: string, request: EditTaskRequest): Promise<Task>
+  descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
@@ -1045,7 +1050,13 @@ export function createTasks(options: {
     )
     if (open.length === 0) return []
     const methods = resolution.workflow.settings.repos ?? []
-    return (await pullRequestTargets(task)).flatMap((target) => {
+    const order = factoryRepos(resolution.workflow, factoryOf(task))
+    const rank = (repo: string) => {
+      const i = order.findIndex((e) => sameRepo(e.repo, repo))
+      return i === -1 ? order.length : i
+    }
+    const targets = (await pullRequestTargets(task)).sort((a, b) => rank(a.repo) - rank(b.repo))
+    return targets.flatMap((target) => {
       const repo = open.find((r) => r.name === target.name)
       const pr = repo?.pullRequest
       if (!repo || !pr) return []
@@ -1117,6 +1128,11 @@ export function createTasks(options: {
   ): Promise<MergeCycle> {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
+    const split = mergeSplit(task)
+    if (split && !task.statuses.includes('partly-merged')) {
+      store.mergeStoppedPartway(taskId, split)
+    }
+    const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
     const { stages } = resolution.workflow
     const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
@@ -1130,12 +1146,19 @@ export function createTasks(options: {
         find(taskId),
         resolution,
         'merge',
-        { outcome: 'back', to, findings },
+        { outcome: 'back', to, findings: told },
         checkRunId,
         options,
       ),
     )
     return outcome.request ? 'wait' : 'done'
+  }
+
+  function mergeSplit(task: StoredTask): { merged: string[]; open: string[] } | undefined {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    const merged = opened.filter((r) => r.pullRequest?.state === 'merged').map((r) => r.name)
+    const open = opened.filter((r) => r.pullRequest?.state !== 'merged').map((r) => r.name)
+    return merged.length > 0 && open.length > 0 ? { merged, open } : undefined
   }
 
   async function finishMerge(taskId: string): Promise<MergeCycle> {
@@ -1149,6 +1172,9 @@ export function createTasks(options: {
     })
     return 'done'
   }
+
+  const partwayFindings = ({ merged, open }: { merged: string[]; open: string[] }) =>
+    `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
 
   const needsSignOff = (target: MergeWork, why: string) =>
     `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
@@ -1710,7 +1736,8 @@ export function createTasks(options: {
           if (ciState(target, pr, { mergeAnyway: anyway }) === 'pending') {
             waitingForCi.push({ target, pr })
           }
-          if (step.autoMerge && mode === 'merge') await enableAutoMerge(gh, task, target, pr)
+          if (step.autoMerge && mode === 'merge' && targets.length === 1)
+            await enableAutoMerge(gh, task, target, pr)
           break
         case 'merge':
           ready.push({ target, pr, noCi: step.noCi })
@@ -1734,7 +1761,31 @@ export function createTasks(options: {
         setWait(taskId, target.name, 'merge')
         return 'wait'
       }
-      await mergePullRequest(gh, target, method, { auto: false })
+      try {
+        await mergePullRequest(gh, target, method, { auto: false })
+      } catch (error) {
+        if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+          setWait(taskId, target.name, 'sign-in')
+          throw error
+        }
+        const reread = watch && (await watch.next({ now: true }))
+        const now = reread
+          ? (() => {
+              try {
+                return remoteOf(taskId, [target], reread).get(target.name)
+              } catch {
+                return undefined
+              }
+            })()
+          : undefined
+        if (now?.state !== 'MERGED') {
+          if (!mergeSplit(find(taskId))) throw error
+          return mergeSendBack(
+            taskId,
+            `TED couldn’t merge ${target.repo}#${target.number}: ${redactSecrets(textOf(error))}`,
+          )
+        }
+      }
       store.pullRequestMerged(taskId, target.name, {
         method,
         requested: target.method,
@@ -2394,7 +2445,7 @@ export function createTasks(options: {
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
-              task,
+              withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
               attachmentFile,
@@ -2409,7 +2460,7 @@ export function createTasks(options: {
             ),
             ...(note !== undefined ? [note] : []),
           ]
-        : [continueMessage]),
+        : [continueMessage, ...editedSince(current)]),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -2436,6 +2487,27 @@ export function createTasks(options: {
     )
     store.releaseTaskRun(task.id)
     await sendWaiting(task.id)
+  }
+
+  function withOriginal(task: StoredTask, current: StoredTask): StoredTask & { original?: string } {
+    const [first] = store.descriptionVersions(task.id)
+    const edited = { ...task, title: current.title, description: current.description }
+    return first && first.text !== current.description
+      ? { ...edited, original: first.text }
+      : edited
+  }
+
+  function editedSince(task: StoredTask): string[] {
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (!run) return []
+    const edited = store
+      .taskLog(task.id)
+      .some((e) => e.name === 'v1.TaskEdited' && e.at >= run.startedAt)
+    if (!edited) return []
+    const current = find(task.id)
+    return [
+      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+    ]
   }
 
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
@@ -3786,7 +3858,7 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: revivedMessage(reason),
+        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
@@ -4261,6 +4333,25 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
+    async edit(ref, { title, description }) {
+      const task = live(ref)
+      const before = store.descriptionVersions(task.id).at(-1)?.text ?? task.description
+      const edited = store.editTask(task.id, {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+      })
+      const renamed = edited.title !== task.title
+      const changed = edited.description !== task.description
+      if ((renamed || changed) && liveLead(find(task.id))) {
+        await deliver(task, editMessage(task, edited, before, renamed, changed))
+      }
+      return edited
+    },
+
+    descriptions(ref) {
+      return store.descriptionVersions(find(ref).id)
+    },
+
     archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
       const task = live(ref)
       if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
@@ -4397,6 +4488,12 @@ export function createTasks(options: {
         if (task.archived || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
         }
+        if (clarifyIsOver(task.stage)) {
+          throw new RequestError(
+            409,
+            `Clarify is over for ${task.displayId}, so changing its Clarify depth would do nothing`,
+          )
+        }
         const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
         if (liveLead(find(task.id))) {
           await deliver(
@@ -4446,6 +4543,7 @@ export function createTasks(options: {
         comments: store.listComments(task.id),
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
+        descriptions: store.descriptionVersions(task.id),
       })
     },
 
@@ -5040,6 +5138,31 @@ function permissionMessage(approved: boolean, command: string, text: string): st
     : `The human denied this request and said:\n\n${text}`
 }
 
+function editMessage(
+  task: Task,
+  edited: Task,
+  before: string,
+  renamed: boolean,
+  changed: boolean,
+): string {
+  const marks = { context: '  ', added: '+ ', removed: '- ' } as const
+  const diff = diffTexts('description', before, edited.description)
+  return [
+    `The human edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
+    ...(renamed ? [`Title was: ${task.title}\nTitle now: ${edited.title}`] : []),
+    ...(changed
+      ? [
+          'Changes to the description (lines starting “- ” were removed, “+ ” were added):',
+          [
+            ...diff.lines.map((line) => `${marks[line.kind]}${line.text}`),
+            ...(diff.truncated ? ['(longer than shown; read the full description below)'] : []),
+          ].join('\n'),
+          `The description now reads:\n\n${edited.description}`,
+        ]
+      : []),
+  ].join('\n\n')
+}
+
 function humanMessage(body: string): string {
   return `The human posted a Comment on this Task:\n\n${body}`
 }
@@ -5119,4 +5242,9 @@ function slug(title: string): string {
   const cut = words.slice(0, slugLength + 1)
   const boundary = cut.lastIndexOf('-')
   return `-${boundary > 0 ? cut.slice(0, boundary) : words.slice(0, slugLength)}`
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }

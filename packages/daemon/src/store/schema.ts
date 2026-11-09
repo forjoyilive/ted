@@ -57,6 +57,7 @@ export const tasks = State.SQLite.table({
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
+    partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -291,6 +292,17 @@ export const taskBriefs = State.SQLite.table({
     stage: State.SQLite.text(),
     runId: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskDescriptions = State.SQLite.table({
+  name: 'taskDescriptions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    version: State.SQLite.integer(),
+    text: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -713,6 +725,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskEdited: Events.synced({
+    name: 'v1.TaskEdited',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      title: Schema.NullOr(Schema.String),
+      description: Schema.NullOr(Schema.String),
+      version: Schema.NullOr(Schema.Number),
+      previous: Schema.NullOr(Schema.String),
+      previousAt: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -965,6 +989,15 @@ export const events = {
       taskId: Schema.String,
       name: Schema.String,
       commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  mergeStoppedPartway: Events.synced({
+    name: 'v1.MergeStoppedPartway',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      merged: Schema.Array(Schema.String),
+      open: Schema.Array(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -1531,6 +1564,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -1593,6 +1627,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { name: args.name, method: args.method, requested: args.requested }),
   'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
   'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
   'v1.PullRequestClosedOnGitHub': (args) => task(args, { name: args.name }),
   'v1.GitHubActivitySent': (args) => task(args, { runId: args.runId, notices: args.notices }),
@@ -1770,6 +1805,35 @@ const materializers = counted(
         tasks.update({ rank }).where({ id: taskId }),
         taskQueue.update({ rank }).where({ taskId }),
       ],
+      'v1.TaskEdited': ({ taskId, title, description, version, previous, previousAt, at }) => [
+        tasks
+          .update({
+            ...(title !== null && { title }),
+            ...(description !== null && { description }),
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        ...(description === null || version === null
+          ? []
+          : [
+              ...(previous === null || previousAt === null
+                ? []
+                : [
+                    taskDescriptions
+                      .insert({
+                        id: `${taskId}:${version - 1}`,
+                        taskId,
+                        version: version - 1,
+                        text: previous,
+                        at: previousAt,
+                      })
+                      .onConflict('id', 'ignore'),
+                  ]),
+              taskDescriptions
+                .insert({ id: `${taskId}:${version}`, taskId, version, text: description, at })
+                .onConflict('id', 'replace'),
+            ]),
+      ],
       'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
       'v1.TaskArchived': ({ taskId, at }) => [
@@ -1809,6 +1873,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
+        taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
@@ -2096,6 +2161,8 @@ const materializers = counted(
         pullRequests
           .update({ previewUrl: url, previewSource: source, previewLabel: label })
           .where({ id: `${taskId}:${name}` }),
+      'v1.MergeStoppedPartway': ({ taskId, at }) =>
+        tasks.update({ partlyMergedAt: at, changedAt: at }).where({ id: taskId }),
       'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
         pullRequests
           .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })
@@ -2172,6 +2239,7 @@ const state = State.SQLite.makeState({
     comments,
     taskLog,
     taskBriefs,
+    taskDescriptions,
     sendBacks,
     sendBackResets,
     checkRuns,

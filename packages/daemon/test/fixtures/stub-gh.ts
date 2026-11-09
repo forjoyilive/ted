@@ -9,8 +9,14 @@ interface StubState {
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
   paths?: Record<string, { status?: number; message?: string; body?: unknown }>
-  pr?: { number?: number; createFails?: string; numbered?: boolean }
+  pr?: {
+    number?: number
+    numbers?: Record<string, number>
+    createFails?: string
+    numbered?: boolean
+  }
   heads?: Record<string, string>
+  prRepos?: Record<string, string>
   merge?: StubMerge
   logs?: Record<string, string>
 }
@@ -33,6 +39,9 @@ interface StubAuthor {
 
 interface StubMerge {
   origin?: string
+  origins?: Record<string, string>
+  prs?: Record<string, Omit<StubMerge, 'prs' | 'origins'>>
+  mergeFails?: string
   disableAutoFails?: boolean
   title?: string
   mergeState?: string
@@ -97,9 +106,15 @@ const gitEnv = {
 const runGit = (cwd: string, ...gitArgs: string[]) =>
   execFileSync('git', gitArgs, { cwd, env: gitEnv, encoding: 'utf8' }).trim()
 
+const mergeOf = (number: string): StubMerge => ({
+  ...state.merge,
+  ...state.merge?.prs?.[number],
+})
+
 const headOf = (number: string): string => {
   const branch = state.heads?.[number] ?? ''
-  const origin = state.merge?.origin
+  const repo = state.prRepos?.[number] ?? ''
+  const origin = state.merge?.origins?.[repo] ?? state.merge?.origin
   return origin && branch ? runGit(origin, 'rev-parse', `refs/heads/${branch}`) : ''
 }
 
@@ -142,15 +157,14 @@ function checkNode(c: StubCheck) {
 const author = (a: StubAuthor) => ({ __typename: a.bot ? 'Bot' : 'User', login: a.login })
 
 function pullRequests(variables: Record<string, unknown>) {
-  const merge = state.merge ?? {}
-  const allowed = merge.allowed ?? ['squash', 'merge', 'rebase']
   const data: Record<string, unknown> = {}
   for (let i = 0; `p${i}` in variables; i++) {
     const number = String(variables[`p${i}`])
+    const merge = mergeOf(number)
     data[`r${i}`] = {
-      squashMergeAllowed: allowed.includes('squash'),
-      mergeCommitAllowed: allowed.includes('merge'),
-      rebaseMergeAllowed: allowed.includes('rebase'),
+      squashMergeAllowed: (merge.allowed ?? ['squash', 'merge', 'rebase']).includes('squash'),
+      mergeCommitAllowed: (merge.allowed ?? ['squash', 'merge', 'rebase']).includes('merge'),
+      rebaseMergeAllowed: (merge.allowed ?? ['squash', 'merge', 'rebase']).includes('rebase'),
       autoMergeAllowed: merge.autoMergeAllowed ?? false,
       deleteBranchOnMerge: merge.deleteBranchOnMerge ?? false,
       pullRequest: {
@@ -250,21 +264,28 @@ function rebaseBranch(): string {
 }
 
 function mergePullRequest(): void {
-  const merge = state.merge ?? {}
+  const number = args[2] ?? ''
+  const own = state.merge?.prs?.[number]
+  const merge = own ?? state.merge ?? {}
   if (args.includes('--disable-auto')) {
     if (merge.disableAutoFails) {
       process.stderr.write('GraphQL: Something went wrong (disablePullRequestAutoMerge)\n')
       process.exit(1)
     }
     delete merge.autoMerge
-    state.merge = merge
+    if (!own) state.merge = merge
     save()
     return
   }
   const method = ['squash', 'merge', 'rebase'].find((m) => args.includes(`--${m}`)) ?? ''
   const expected = args[args.indexOf('--match-head-commit') + 1]
-  if (expected !== headOf(args[2] ?? '')) {
+  if (expected !== headOf(number)) {
     process.stderr.write('GraphQL: Head branch was modified. Review and try the merge again.\n')
+    process.exit(1)
+  }
+  const fails = mergeOf(number).mergeFails
+  if (fails !== undefined) {
+    process.stderr.write(`${fails}\n`)
     process.exit(1)
   }
   if (args.includes('--auto')) merge.autoMerge = method
@@ -275,7 +296,7 @@ function mergePullRequest(): void {
       runGit(merge.origin, 'update-ref', 'refs/heads/main', expected)
     }
   }
-  state.merge = merge
+  if (!own) state.merge = merge
   save()
 }
 
@@ -332,13 +353,14 @@ if (args[0] === '--version') {
   const repo = args[args.indexOf('--repo') + 1] ?? 'acme/widgets'
   const number = state.pr?.numbered
     ? 7 + Object.keys(state.heads ?? {}).length
-    : (state.pr?.number ?? 7)
+    : (state.pr?.numbers?.[repo] ?? state.pr?.number ?? 7)
   if (args[1] === 'create' && state.pr?.createFails) {
     process.stderr.write(`${state.pr.createFails}\n`)
     process.exit(1)
   }
   if (args[1] === 'create') {
     state.heads = { ...state.heads, [String(number)]: args[args.indexOf('--head') + 1] ?? '' }
+    state.prRepos = { ...state.prRepos, [String(number)]: repo }
     save()
     process.stdout.write(`https://github.com/${repo}/pull/${number}\n`)
   } else if (args[1] === 'list') process.stdout.write('[]\n')

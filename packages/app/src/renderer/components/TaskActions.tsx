@@ -1,10 +1,11 @@
 import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
-import { clarifyDepths, priorities } from '@ted/protocol/task'
+import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
 import { ArchiveDialog, archiveTaskEvent, DeleteDialog } from './ArchiveDialogs.tsx'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
@@ -101,13 +102,9 @@ function Choice({
   )
 }
 
-function clarifyAhead(task: Task): boolean {
-  return task.stage === 'backlog' || task.stage === 'intake' || task.stage === 'clarify'
-}
-
 export function TaskActionsMenu({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
-  const [dialog, setDialog] = useState<'archive' | 'delete'>()
+  const [dialog, setDialog] = useState<'archive' | 'delete' | 'edit'>()
   const [error, setError] = useState<string>()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -136,8 +133,18 @@ export function TaskActionsMenu({ task }: { task: Task }) {
         setDialog('archive')
       }
     }
+    const onEdit = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && !task.archived) {
+        setOpen(false)
+        setDialog('edit')
+      }
+    }
     window.addEventListener(archiveTaskEvent, onArchive)
-    return () => window.removeEventListener(archiveTaskEvent, onArchive)
+    window.addEventListener(editTaskEvent, onEdit)
+    return () => {
+      window.removeEventListener(archiveTaskEvent, onArchive)
+      window.removeEventListener(editTaskEvent, onEdit)
+    }
   }, [task.id, task.archived])
 
   const action = statusAction(task)
@@ -149,7 +156,7 @@ export function TaskActionsMenu({ task }: { task: Task }) {
     work().catch((failure: unknown) => setError(readableError(failure)))
   }
 
-  const choose = (which: 'archive' | 'delete') => {
+  const choose = (which: 'archive' | 'delete' | 'edit') => {
     setOpen(false)
     setError(undefined)
     setDialog(which)
@@ -158,6 +165,7 @@ export function TaskActionsMenu({ task }: { task: Task }) {
   const dialogs = (
     <>
       {dialog === 'archive' && <ArchiveDialog task={task} onClose={() => setDialog(undefined)} />}
+      {dialog === 'edit' && <EditTaskDialog task={task} onClose={() => setDialog(undefined)} />}
       {dialog === 'delete' && (
         <DeleteDialog
           task={task}
@@ -267,18 +275,30 @@ export function TaskActionsMenu({ task }: { task: Task }) {
               ))}
             </Submenu>
           )}
-          {clarifyAhead(task) && (
-            <Submenu label="Clarify depth" hint={clarifyDepthLabels[task.clarifyDepth]}>
-              {clarifyDepths.map((depth) => (
-                <Choice
-                  key={depth}
-                  label={clarifyDepthLabels[depth]}
-                  checked={task.clarifyDepth === depth}
-                  onChoose={() => act(() => ted.setClarifyDepth(task.id, depth))}
-                />
-              ))}
-            </Submenu>
-          )}
+          {task.stage !== 'done' &&
+            (clarifyIsOver(task.stage) ? (
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                aria-disabled
+                title="Clarify is over, so changing its depth would do nothing."
+              >
+                <span className={styles.label}>Clarify depth</span>
+                <span className={styles.hint}>Clarify is over</span>
+              </button>
+            ) : (
+              <Submenu label="Clarify depth" hint={clarifyDepthLabels[task.clarifyDepth]}>
+                {clarifyDepths.map((depth) => (
+                  <Choice
+                    key={depth}
+                    label={clarifyDepthLabels[depth]}
+                    checked={task.clarifyDepth === depth}
+                    onChoose={() => act(() => ted.setClarifyDepth(task.id, depth))}
+                  />
+                ))}
+              </Submenu>
+            ))}
           {task.stage !== 'done' && (
             <button
               type="button"
@@ -292,6 +312,15 @@ export function TaskActionsMenu({ task }: { task: Task }) {
               <span className={styles.label}>Blocked by…</span>
             </button>
           )}
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.item}
+            onClick={() => choose('edit')}
+          >
+            <span className={styles.label}>Edit title and description…</span>
+            <span className={styles.hint}>E</span>
+          </button>
           {linear && (
             <>
               <hr className={styles.separator} />
