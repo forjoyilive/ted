@@ -72,6 +72,10 @@ export async function showFile(repo: string, commit: string, file: string): Prom
   return stdout
 }
 
+export async function deleteBranch(repo: string, branch: string): Promise<void> {
+  await git(repo, 'branch', '-D', branch)
+}
+
 export async function removeWorktree(repo: string, worktree: string): Promise<void> {
   await git(repo, 'worktree', 'remove', '--force', worktree)
 }

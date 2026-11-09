@@ -1,5 +1,15 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -225,6 +235,92 @@ describe('worktree setup outcomes', () => {
     await writeFile(go, '')
 
     await leadRun(client, task)
+  })
+})
+
+describe('worktree safety', () => {
+  test('worktree.env can’t replace PATH, TED_ variables or loader and agent variables', async () => {
+    await workflow(
+      [
+        '      setup: "printf \'%s|%s|%s|%s\' \\"$PATH\\" \\"$TED_TASK\\" \\"$NODE_OPTIONS\\" \\"$KEEP\\" > env-seen.txt"',
+        '      env:',
+        '        PATH: /nowhere',
+        '        TED_TASK: XX-1',
+        '        NODE_OPTIONS: --require=/tmp/evil.js',
+        '        DYLD_INSERT_LIBRARIES: /tmp/evil.dylib',
+        '        ANTHROPIC_API_KEY: stolen',
+        '        KEEP: kept',
+        '',
+      ].join('\n'),
+    )
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ run: ['printenv', 'KEEP'] }, { endTurn: true }))
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+
+    const run = await leadRun(client, task)
+    const [seenPath, seenTask, seenNodeOptions, kept] = (
+      await readFile(path.join(worktreeOf(), 'env-seen.txt'), 'utf8')
+    ).split('|')
+    expect(seenPath).toBe(process.env.PATH)
+    expect(seenTask).toBe('NB-1')
+    expect(seenNodeOptions).toBe(process.env.NODE_OPTIONS ?? '')
+    expect(kept).toBe('kept')
+    const record = await waitUntil(
+      () =>
+        readFile(path.join(worktreeOf(), 'stub-record.json'), 'utf8')
+          .then((s) => JSON.parse(s) as { env: Record<string, string> })
+          .catch(() => undefined),
+      'the Task Lead to start',
+    )
+    expect(record.env.DYLD_INSERT_LIBRARIES).toBeUndefined()
+    expect(record.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(record.env.KEEP).toBe('kept')
+    expect(run.cwd).toBe(worktreeOf())
+  })
+
+  test('a resumed setup runs the command recorded when it started, not a newer one', async () => {
+    const go = path.join(scratch, 'go')
+    const count = path.join(scratch, 'count')
+    await workflow(
+      `      setup: "echo first >> '${count}'; while [ ! -e '${go}' ]; do sleep 0.05; done"\n`,
+    )
+    let client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitUntil(() => exists(count), 'setup to start')
+
+    await daemon?.stop()
+    await workflow(`      setup: "echo second >> '${count}'"\n`)
+    await execFileAsync('git', ['fetch', 'origin'], {
+      cwd: path.join(home, 'repos', 'acme', 'widgets'),
+    })
+    client = await startWithStub()
+    await waitUntil(
+      async () => (await readFile(count, 'utf8')) === 'first\nfirst\n',
+      'the recorded setup to run again',
+    )
+    await writeFile(go, '')
+    await leadRun(client, task)
+  })
+
+  test('a copy that fails removes the new worktree and branch, so start can be retried', async () => {
+    await writeFile(path.join(localFolder, '.env'), 'A=1\n')
+    await chmod(path.join(localFolder, '.env'), 0o000)
+    await workflow('      copy: [".env"]\n')
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, 'Fix login')
+
+    const failed = await client.call('POST', `/tasks/${task.id}/start`)
+    await chmod(path.join(localFolder, '.env'), 0o600)
+    const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
+
+    expect(failed.status).toBe(409)
+    expect(started.branch).toBe('ted/nb-1-fix-login')
+    expect(await readFile(path.join(worktreeOf(), '.env'), 'utf8')).toBe('A=1\n')
   })
 })
 

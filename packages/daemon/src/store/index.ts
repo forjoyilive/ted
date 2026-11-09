@@ -56,6 +56,12 @@ export interface NewWorktree {
   skipped: CopySkip[]
 }
 
+export interface RecordedSetup {
+  command: string
+  timeoutMs: number
+  env: Record<string, string>
+}
+
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
 
 export interface AcceptedLayer {
@@ -79,7 +85,8 @@ export interface TedStore {
     entry: NewStageEntry
     repo: NewWorktree
   }): Task
-  worktreeSetupStarted(taskId: string, name: string, command: string): void
+  worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
+  recordedSetup(taskId: string, name: string): RecordedSetup | undefined
   worktreeSetupFinished(
     taskId: string,
     name: string,
@@ -273,11 +280,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       )
       return updatedTask(taskId)
     },
-    worktreeSetupStarted(taskId, name, command) {
+    worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       store.commit(
-        events.taskWorktreeSetupStarted({ taskId, name, command, at: new Date().toISOString() }),
+        events.taskWorktreeSetupStarted({
+          taskId,
+          name,
+          command,
+          timeoutMs,
+          env: JSON.stringify(env),
+          at: new Date().toISOString(),
+        }),
       )
       updatedTask(taskId)
+    },
+    recordedSetup(taskId, name) {
+      const row = store.query(queryDb(taskRepos.where({ id: `${taskId}:${name}` }))).at(0)
+      if (!row?.setupCommand || row.setupTimeoutMs === null || row.setupEnv === null)
+        return undefined
+      return {
+        command: row.setupCommand,
+        timeoutMs: row.setupTimeoutMs,
+        env: JSON.parse(row.setupEnv) as Record<string, string>,
+      }
     },
     worktreeSetupFinished(taskId, name, { outcome, exitCode }) {
       store.commit(

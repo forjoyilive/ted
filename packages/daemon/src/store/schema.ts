@@ -99,6 +99,8 @@ export const taskRepos = State.SQLite.table({
     copied: State.SQLite.text(),
     skipped: State.SQLite.text(),
     setupCommand: State.SQLite.text({ nullable: true }),
+    setupTimeoutMs: State.SQLite.integer({ nullable: true }),
+    setupEnv: State.SQLite.text({ nullable: true }),
     setupState: State.SQLite.text({ nullable: true }),
     setupExitCode: State.SQLite.integer({ nullable: true }),
     teardownCommand: State.SQLite.text({ nullable: true }),
@@ -230,6 +232,8 @@ export const events = {
       taskId: Schema.String,
       name: Schema.String,
       command: Schema.String,
+      timeoutMs: Schema.Number,
+      env: Schema.String,
       at: Schema.String,
     }),
   }),
@@ -298,9 +302,15 @@ const materializers = State.SQLite.materializers(events, {
         createdAt: at,
       })
       .onConflict('id', 'replace'),
-  'v1.TaskWorktreeSetupStarted': ({ taskId, name, command }) =>
+  'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
     taskRepos
-      .update({ setupCommand: command, setupState: 'running', setupExitCode: null })
+      .update({
+        setupCommand: command,
+        setupTimeoutMs: timeoutMs,
+        setupEnv: env,
+        setupState: 'running',
+        setupExitCode: null,
+      })
       .where({ id: `${taskId}:${name}` }),
   'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
     taskRepos

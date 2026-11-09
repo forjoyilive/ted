@@ -163,7 +163,10 @@ export async function runWorktreeCommand(input: {
     })
     clearTimeout(timer)
     input.signal?.removeEventListener('abort', onAbort)
-    if (reason) return { outcome: reason }
+    if (reason) {
+      killGroup(child.pid, 'SIGKILL')
+      return { outcome: reason }
+    }
     if (code === 0) return { outcome: 'passed', exitCode: 0 }
     return { outcome: 'failed', ...(code !== null && { exitCode: code }) }
   } finally {

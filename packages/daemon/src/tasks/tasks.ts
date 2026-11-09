@@ -14,7 +14,7 @@ import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { StoredTask, TedStore } from '../store/index.ts'
+import type { RecordedSetup, StoredTask, TedStore } from '../store/index.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import {
@@ -22,7 +22,6 @@ import {
   copyFiles,
   outputTail,
   primaryRepoWorktree,
-  type RepoWorktree,
   runWorktreeCommand,
 } from './worktree.ts'
 
@@ -69,9 +68,9 @@ export function createTasks(options: {
   const commandLog = (task: Task, kind: 'setup' | 'teardown', name: string) =>
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
-  const commandEnv = (task: Task, settings: RepoWorktree): NodeJS.ProcessEnv => ({
+  const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv => ({
     ...process.env,
-    ...settings.env,
+    ...env,
     TED_TASK: task.displayId,
   })
 
@@ -122,7 +121,7 @@ export function createTasks(options: {
         result = await runWorktreeCommand({
           command: teardown,
           cwd: repo.worktree,
-          env: commandEnv(task, settings),
+          env: commandEnv(task, settings.env),
           log: commandLog(task, 'teardown', repo.name),
           signal: stopping.signal,
         }).catch((error: unknown) => {
@@ -154,7 +153,7 @@ export function createTasks(options: {
     task: StoredTask,
     resolution: WorkflowResolution,
     repo: TaskRepo,
-    settings: RepoWorktree,
+    env: Record<string, string>,
     setupReport?: string,
   ): Promise<void> {
     const prompt = await taskLeadPrompt(
@@ -168,7 +167,7 @@ export function createTasks(options: {
       prompt,
       cwd: repo.worktree,
       taskId: task.id,
-      env: { ...settings.env, TED_TASK: task.displayId },
+      env: { ...env, TED_TASK: task.displayId },
     })
   }
 
@@ -176,16 +175,14 @@ export function createTasks(options: {
     task: StoredTask,
     resolution: WorkflowResolution,
     repo: TaskRepo,
-    settings: RepoWorktree,
+    setup: RecordedSetup,
   ): Promise<void> {
-    const setup = settings.setup
-    if (!setup) return launch(task, resolution, repo, settings)
-    store.worktreeSetupStarted(task.id, repo.name, setup.run)
+    store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
     const result = await runWorktreeCommand({
-      command: setup,
+      command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
-      env: commandEnv(task, settings),
+      env: commandEnv(task, setup.env),
       log,
       signal: stopping.signal,
     })
@@ -197,8 +194,8 @@ export function createTasks(options: {
     const report =
       result.outcome === 'passed'
         ? undefined
-        : setupFailure(setup.run, result, await outputTail(log))
-    await launch(find(task.id), resolution, repo, settings, report)
+        : setupFailure(setup.command, result, await outputTail(log))
+    await launch(find(task.id), resolution, repo, setup.env, report)
   }
 
   async function resume(taskId: string): Promise<void> {
@@ -207,13 +204,13 @@ export function createTasks(options: {
     if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
     const factory = factoryOf(task)
     const resolution = await workflows.resolve(factory, { fetch: false })
-    const settings = primaryRepoWorktree(resolution.workflow, factory)
+    const recorded = store.recordedSetup(task.id, repo.name)
     const setup = repo.setup
-    if (setup?.state === 'running' || (settings.setup && !setup)) {
-      return setUpAndLaunch(task, resolution, repo, settings)
+    if (recorded && setup?.state === 'running') {
+      return setUpAndLaunch(task, resolution, repo, recorded)
     }
     const report =
-      setup && setup.state !== 'passed'
+      setup && setup.state !== 'passed' && setup.state !== 'running'
         ? setupFailure(
             setup.command,
             {
@@ -223,7 +220,8 @@ export function createTasks(options: {
             await outputTail(commandLog(task, 'setup', repo.name)),
           )
         : undefined
-    await launch(task, resolution, repo, settings, report)
+    const env = recorded?.env ?? primaryRepoWorktree(resolution.workflow, factory).env
+    await launch(task, resolution, repo, env, report)
   }
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
@@ -255,7 +253,16 @@ export function createTasks(options: {
             `couldn’t make ${task.displayId}’s worktree from origin/${settings.baseBranch}: ${error instanceof Error ? error.message : String(error)}`,
           )
         })
-      const copy = await copyFiles(store.localFolder(factory.repo), worktree, settings.copy)
+      const copy = await copyFiles(store.localFolder(factory.repo), worktree, settings.copy).catch(
+        async (error: unknown) => {
+          await git.removeWorktree(clone, worktree)
+          await git.deleteBranch(clone, branch)
+          throw new RequestError(
+            409,
+            `couldn’t copy files into ${task.displayId}’s worktree: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        },
+      )
       store.startTask({
         taskId: task.id,
         stage,
@@ -267,12 +274,17 @@ export function createTasks(options: {
       const started = find(task.id)
       const repo = started.repos.find((r) => r.name === settings.name)
       if (!repo) throw new Error(`${task.displayId} has no worktree record`)
-      if (settings.setup) {
+      const setup = settings.setup
+      if (setup) {
         inBackground(`set up ${task.displayId}’s worktree`, () =>
-          setUpAndLaunch(started, resolution, repo, settings),
+          setUpAndLaunch(started, resolution, repo, {
+            command: setup.run,
+            timeoutMs: setup.timeoutMs,
+            env: settings.env,
+          }),
         )
       } else {
-        await launch(started, resolution, repo, settings)
+        await launch(started, resolution, repo, settings.env)
       }
       const { worktree: _, ...current } = find(task.id)
       return current
