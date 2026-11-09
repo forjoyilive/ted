@@ -17,6 +17,7 @@ import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
+import type { Conversations } from './runs/conversations.ts'
 import type { Storage } from './storage.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
@@ -34,6 +35,7 @@ export interface Services {
   disk: DiskWatch
   storage: Storage
   factories: Factories
+  conversations: Conversations
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {

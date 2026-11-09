@@ -15,6 +15,7 @@ type Step =
   | { endTurn: true }
   | { exit: number }
   | { authError: true }
+  | { notify: string; params: Record<string, unknown> }
 
 interface Message {
   id?: number | string
@@ -85,7 +86,8 @@ const status = (status: Record<string, unknown>) =>
   notify('thread/status/changed', { threadId, status })
 
 async function runStep(step: Step): Promise<void> {
-  if ('authError' in step) {
+  if ('notify' in step) notify(step.notify, { threadId, turnId: 'turn-1', ...step.params })
+  else if ('authError' in step) {
     notify('error', {
       threadId,
       turnId: 'turn-1',
