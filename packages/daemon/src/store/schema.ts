@@ -1056,6 +1056,24 @@ export const events = {
     name: 'v1.LocalFolderSet',
     schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
   }),
+  localFolderCleared: Events.synced({
+    name: 'v1.LocalFolderCleared',
+    schema: Schema.Struct({ repo: Schema.String, at: Schema.String }),
+  }),
+  factoryRenamed: Events.synced({
+    name: 'v1.FactoryRenamed',
+    schema: Schema.Struct({ factoryId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  factoryReposChanged: Events.synced({
+    name: 'v1.FactoryReposChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -1985,6 +2003,15 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+      'v1.LocalFolderCleared': ({ repo }) => localFolders.delete().where({ repo }),
+      'v1.FactoryRenamed': ({ factoryId, name }) =>
+        factories.update({ name }).where({ id: factoryId }),
+      'v1.FactoryReposChanged': ({ factoryId, repos }) => [
+        factoryRepos.delete().where({ factoryId }),
+        ...repos.map((repo, position) =>
+          factoryRepos.insert({ ...repo, id: `${factoryId}:${position}`, factoryId, position }),
+        ),
+      ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
           .insert({ layer, files, version, acceptedAt: at })

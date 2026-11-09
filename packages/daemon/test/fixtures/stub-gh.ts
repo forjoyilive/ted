@@ -38,6 +38,7 @@ interface StubMerge {
   merged?: boolean
   autoMerge?: string
   mergedWith?: string
+  updateBase?: boolean
 }
 
 const readyHosts = {
@@ -192,6 +193,9 @@ function mergePullRequest(): void {
   else {
     merge.merged = true
     merge.mergedWith = method
+    if (merge.updateBase && merge.origin && expected) {
+      runGit(merge.origin, 'update-ref', 'refs/heads/main', expected)
+    }
   }
   state.merge = merge
   save()
