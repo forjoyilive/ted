@@ -1,3 +1,4 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   Banner,
   Comment,
@@ -9,9 +10,49 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { nextReturn } from './banners.ts'
 import { type TedEvent, ted } from './ted.ts'
+
+export interface Connection {
+  connection: DaemonConnection
+  epoch: number
+}
+
+export const ConnectionContext = createContext<Connection>({
+  connection: { state: 'connected' },
+  epoch: 0,
+})
+
+export function useConnectionState(): Connection {
+  const [current, setCurrent] = useState<Connection>({
+    connection: { state: 'connected' },
+    epoch: 0,
+  })
+
+  useEffect(() => {
+    const update = (connection: DaemonConnection) =>
+      setCurrent((previous) => ({
+        connection,
+        epoch:
+          connection.state === 'connected' && previous.connection.state !== 'connected'
+            ? previous.epoch + 1
+            : previous.epoch,
+      }))
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'connection') update(event.connection)
+      if (event.type === 'data-status' && event.status.state === 'ready') {
+        setCurrent((previous) => ({ ...previous, epoch: previous.epoch + 1 }))
+      }
+    })
+    void ted.connection().then(update)
+    return unsubscribe
+  }, [])
+
+  return current
+}
+
+export const useConnection = () => useContext(ConnectionContext)
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   const byId = new Map(current.map((item) => [item.id, item]))
@@ -25,17 +66,30 @@ function useLive<T extends { id: string }>(
   order: (a: T, b: T) => number,
 ): T[] {
   const [items, setItems] = useState<T[]>([])
+  const { epoch } = useConnection()
+
+  const loaded = useRef(load)
 
   useEffect(() => {
-    setItems([])
-    const add = (incoming: T[]) => setItems((current) => mergeById(current, incoming).sort(order))
+    void epoch
+    if (loaded.current !== load) setItems([])
+    loaded.current = load
+    let fresh: T[] | undefined = []
     const unsubscribe = ted.onEvent((event) => {
       const item = pick(event)
-      if (item) add([item])
+      if (!item) return
+      fresh?.push(item)
+      setItems((current) => mergeById(current, [item]).sort(order))
     })
-    void load().then(add)
+    void load().then(
+      (loaded) => {
+        setItems(mergeById(loaded, fresh ?? []).sort(order))
+        fresh = undefined
+      },
+      () => undefined,
+    )
     return unsubscribe
-  }, [load, pick, order])
+  }, [load, pick, order, epoch])
 
   return items
 }
@@ -71,14 +125,24 @@ export function useComments(taskId: string): Comment[] {
 
 export function useSettings(): MachineSettings | undefined {
   const [settings, setSettings] = useState<MachineSettings>()
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
+    let changed = false
     const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'settings-changed') setSettings(event.settings)
+      if (event.type !== 'settings-changed') return
+      changed = true
+      setSettings(event.settings)
     })
-    void ted.getSettings().then((loaded) => setSettings((current) => current ?? loaded))
+    void ted.getSettings().then(
+      (loaded) => {
+        if (!changed) setSettings(loaded)
+      },
+      () => undefined,
+    )
     return unsubscribe
-  }, [])
+  }, [epoch])
 
   return settings
 }
@@ -105,34 +169,49 @@ export function useSlots(): RunSlots | undefined {
 
 export function useDataStatus(): DataStatus | undefined {
   const [status, setStatus] = useState<DataStatus>()
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
+    let changed = false
     const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'data-status') setStatus(event.status)
+      if (event.type !== 'data-status') return
+      changed = true
+      setStatus(event.status)
     })
-    void ted.getDataStatus().then((loaded) => setStatus((current) => current ?? loaded))
+    void ted.getDataStatus().then(
+      (loaded) => {
+        if (!changed) setStatus(loaded)
+      },
+      () => undefined,
+    )
     return unsubscribe
-  }, [])
+  }, [epoch])
 
   return status
 }
 
 export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
   const [entries, setEntries] = useState<StageEntry[]>([])
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
     let current = true
     if (stage === 'backlog') {
       setEntries([])
       return
     }
-    void ted.listStageEntries(taskId).then((loaded) => {
-      if (current) setEntries(loaded)
-    })
+    void ted.listStageEntries(taskId).then(
+      (loaded) => {
+        if (current) setEntries(loaded)
+      },
+      () => undefined,
+    )
     return () => {
       current = false
     }
-  }, [taskId, stage])
+  }, [taskId, stage, epoch])
 
   return entries
 }
@@ -140,26 +219,32 @@ export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
 export function useBanners(): Banner[] {
   const [banners, setBanners] = useState<Banner[]>([])
   const [now, setNow] = useState(() => Date.now())
+  const { epoch } = useConnection()
 
   useEffect(() => {
-    let loading = true
-    const clearedWhileLoading = new Set<string>()
+    void epoch
+    let whileLoading: Map<string, Banner | undefined> | undefined = new Map()
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'banner-raised' || event.type === 'banner-updated') {
-        clearedWhileLoading.delete(event.banner.id)
+        whileLoading?.set(event.banner.id, event.banner)
         setBanners((current) => mergeById(current, [event.banner]))
       } else if (event.type === 'banner-cleared') {
-        if (loading) clearedWhileLoading.add(event.id)
+        whileLoading?.set(event.id, undefined)
         setBanners((current) => current.filter((b) => b.id !== event.id))
       }
     })
-    void ted.listBanners().then((loaded) => {
-      loading = false
-      const kept = loaded.filter((b) => !clearedWhileLoading.has(b.id))
-      setBanners((current) => mergeById(kept, current))
-    })
+    void ted.listBanners().then(
+      (loaded) => {
+        const changes = whileLoading ?? new Map<string, Banner | undefined>()
+        whileLoading = undefined
+        const kept = loaded.filter((b) => !changes.has(b.id))
+        const raised = [...changes.values()].filter((b) => b !== undefined)
+        setBanners(mergeById(kept, raised))
+      },
+      () => undefined,
+    )
     return unsubscribe
-  }, [])
+  }, [epoch])
 
   useEffect(() => {
     const at = nextReturn(banners, new Date(now))

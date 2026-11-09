@@ -3,6 +3,15 @@ import '@fontsource-variable/geist-mono'
 import './styles/tokens.css'
 import './styles/base.css'
 import { createRoot } from 'react-dom/client'
+import { ConnectionContext, useConnectionState } from './data.ts'
 import { Root } from './Root.tsx'
 
-createRoot(document.getElementById('root') as HTMLElement).render(<Root />)
+function Connected() {
+  return (
+    <ConnectionContext value={useConnectionState()}>
+      <Root />
+    </ConnectionContext>
+  )
+}
+
+createRoot(document.getElementById('root') as HTMLElement).render(<Connected />)
