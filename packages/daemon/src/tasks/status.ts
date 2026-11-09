@@ -17,7 +17,7 @@ export interface TaskFacts {
   paused?: string
   tedWorking?: boolean
   settingUp?: boolean
-  stopped?: boolean
+  stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
   blockedBy?: readonly string[]
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
@@ -38,7 +38,7 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
     return { kind: 'working' }
   }
-  if (facts.stopped) return { kind: 'stopped' }
+  if (facts.stopped) return { kind: 'stopped', at: facts.stopped.at }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
   if (blocker !== undefined && facts.runs.length === 0) return { kind: 'blocked', by: blocker }
@@ -56,7 +56,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
     paused: facts.paused !== undefined,
     working:
       facts.tedWorking === true || facts.settingUp === true || facts.runs.includes('working'),
-    stopped: facts.stopped === true,
+    stopped: facts.stopped !== undefined,
     blocked: (facts.blockedBy?.length ?? 0) > 0,
     queued: facts.queue !== undefined,
     'waiting-for-github': facts.github !== undefined,
@@ -85,6 +85,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
+  if (facts.stopped) return stoppedActivity(facts.stopped)
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {
@@ -94,6 +95,12 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
+}
+
+function stoppedActivity({ runs, why }: NonNullable<TaskFacts['stopped']>): string {
+  if (why === 'blockers-removed') return 'Its blockers are gone. Resume to carry on.'
+  if (runs === 0) return 'Worktree and Apps kept.'
+  return `Worktree and Apps kept. ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped.`
 }
 
 function ordinal(n: number): string {

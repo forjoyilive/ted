@@ -1,0 +1,74 @@
+import type { Task } from '@ted/protocol'
+import { ted } from './ted.ts'
+
+export type StatusActionKind = 'start' | 'move-to-backlog' | 'resume' | 'retry' | 'stop'
+
+export interface StatusAction {
+  kind: StatusActionKind
+  label: string
+  help: string
+}
+
+export function statusAction(task: Task): StatusAction | undefined {
+  if (task.archived || task.stage === 'done') return undefined
+  if (task.statuses.includes('failed')) {
+    return {
+      kind: 'retry',
+      label: 'Retry',
+      help: 'Starts a fresh Task Lead Run from the brief plus the Comments since.',
+    }
+  }
+  if (task.statuses.includes('stopped')) {
+    return {
+      kind: 'resume',
+      label: 'Resume',
+      help: 'Starts a fresh Task Lead Run from the brief plus the Comments since, when a slot is free.',
+    }
+  }
+  if (task.stage === 'backlog') {
+    return { kind: 'start', label: 'Start', help: 'Joins the queue as Queued.' }
+  }
+  if (
+    task.statuses.includes('queued') &&
+    task.runs.length === 0 &&
+    task.repos.length === 0 &&
+    task.leadRunId === undefined
+  ) {
+    return {
+      kind: 'move-to-backlog',
+      label: 'Move to Backlog',
+      help: 'Takes the Task out of the queue. It hasn’t had a Run yet.',
+    }
+  }
+  return { kind: 'stop', label: 'Stop Task', help: stopHelp(task.runs.length) }
+}
+
+function stopHelp(runs: number): string {
+  if (runs === 0) return 'Worktree and Apps stay.'
+  if (runs === 1) return 'Stops its Run. Worktree and Apps stay.'
+  return `Stops all ${runs} Runs. Worktree and Apps stay.`
+}
+
+export function shortcutAction(task: Task): StatusAction | undefined {
+  const action = statusAction(task)
+  if (action?.kind === 'start' && task.markers.some((m) => m.kind === 'blocked-by')) {
+    return undefined
+  }
+  return action?.kind === 'start' || action?.kind === 'resume' || action?.kind === 'retry'
+    ? action
+    : undefined
+}
+
+export function runStatusAction(kind: StatusActionKind, task: Task): Promise<Task> {
+  switch (kind) {
+    case 'start':
+      return ted.startTask(task.id)
+    case 'move-to-backlog':
+      return ted.moveToBacklog(task.id)
+    case 'resume':
+    case 'retry':
+      return ted.resumeTask(task.id)
+    case 'stop':
+      return ted.stopTask(task.id)
+  }
+}

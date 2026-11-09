@@ -51,6 +51,9 @@ export const tasks = State.SQLite.table({
     rank: State.SQLite.real({ nullable: true }),
     changedAt: State.SQLite.text({ nullable: true }),
     archivedAt: State.SQLite.text({ nullable: true }),
+    stoppedAt: State.SQLite.text({ nullable: true }),
+    stoppedRuns: State.SQLite.integer({ nullable: true }),
+    stoppedWhy: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -418,6 +421,23 @@ export const events = {
   taskRequeuedAfterBlockers: Events.synced({
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskStopped: Events.synced({
+    name: 'v1.TaskStopped',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runs: Schema.Number,
+      why: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskResumed: Events.synced({
+    name: 'v1.TaskResumed',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskLeadNudged: Events.synced({
+    name: 'v1.TaskLeadNudged',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
@@ -796,6 +816,9 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
+  'v1.TaskResumed': (args) => task(args),
+  'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
@@ -911,6 +934,26 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],
+      'v1.TaskStopped': ({ taskId, runs, why, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks
+          .update({
+            stoppedAt: at,
+            stoppedRuns: runs,
+            stoppedWhy: why,
+            waitsForBlockers: false,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskResumed': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskLeadNudged': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })

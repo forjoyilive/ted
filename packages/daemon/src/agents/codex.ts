@@ -64,7 +64,7 @@ interface CodexLine {
     status?: { type?: unknown; activeFlags?: unknown }
     error?: { message?: unknown; codexErrorInfo?: unknown }
     turn?: { error?: unknown }
-    item?: { type?: unknown; content?: unknown }
+    item?: { type?: unknown; content?: unknown; text?: unknown }
     tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
 }
@@ -127,6 +127,12 @@ export function codexAgent(binary: string): Agent {
         part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
       )
       return texts.length > 0 ? texts.join('\n') : undefined
+    },
+    agentTextFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'item/completed') return undefined
+      const item = message.params?.item
+      return item?.type === 'agentMessage' && typeof item.text === 'string' ? item.text : undefined
     },
     sessionIdFrom(line) {
       const message = parse(line)

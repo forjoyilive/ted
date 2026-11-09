@@ -84,6 +84,10 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
+  resumeTask: (taskId: string, comment?: string) =>
+    window.ted.request('resumeTask', taskId, comment) as Promise<Task>,
+  openTaskSource: (taskId: string) => window.ted.request('openTaskSource', taskId) as Promise<void>,
   moveTask: (taskId: string, request: MoveTaskRequest) =>
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>

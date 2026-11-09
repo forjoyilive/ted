@@ -38,6 +38,7 @@ import {
   type ReportOutcomeRequest,
   type RepoSource,
   type RestoreBackupRequest,
+  type ResumeTaskRequest,
   type RunFixRequest,
   type SetActivityRequest,
   type SetLocalFolderRequest,
@@ -198,6 +199,23 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/stop$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.stop(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/resume$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<ResumeTaskRequest> | null
+      const comment = body?.comment
+      if (comment !== undefined && typeof comment !== 'string') {
+        throw new HttpError(400, 'comment must be text')
+      }
+      return [200, await tasks.resume(ref, { ...(comment !== undefined && { comment }) })]
+    },
   },
   {
     method: 'POST',

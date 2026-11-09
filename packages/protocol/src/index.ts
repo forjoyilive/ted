@@ -183,6 +183,7 @@ export {
   type Priority,
   priorities,
   type ReportOutcomeRequest,
+  type ResumeTaskRequest,
   type SetActivityRequest,
   type SetPriorityRequest,
   type SetTaskLeadRequest,

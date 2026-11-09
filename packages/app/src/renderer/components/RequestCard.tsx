@@ -35,6 +35,29 @@ function BriefSections({ text, title }: { text: string; title: string }) {
   )
 }
 
+function Summary({ text }: { text: string }) {
+  let at = 0
+  const paragraphs = text.split(/\n\s*\n/).map((paragraph) => {
+    at += paragraph.length + 1
+    return { paragraph, key: at }
+  })
+  return (
+    <div className={styles.summaryBlock}>
+      {paragraphs.map(({ paragraph, key }) =>
+        paragraph.startsWith('> ') ? (
+          <blockquote key={key} className={styles.quoted}>
+            “{paragraph.slice(2).trim()}”
+          </blockquote>
+        ) : (
+          <p key={key} className={styles.summary}>
+            {paragraph}
+          </p>
+        ),
+      )}
+    </div>
+  )
+}
+
 export function RequestCard({ request, task }: { request: Comment; task: Task }) {
   const now = useNow()
   const [text, setText] = useState('')
@@ -57,6 +80,8 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
   }
 
   const withText = typed ? { text } : {}
+  const actionChoice =
+    request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
 
   return (
     <section className={styles.card} aria-label={kindLabels[request.kind]}>
@@ -65,9 +90,9 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
       {request.gate ? (
         <BriefSections text={request.body} title={headline(request)} />
       ) : (
-        shown !== undefined && <p className={styles.summary}>{shown}</p>
+        shown !== undefined && <Summary text={shown} />
       )}
-      {request.choices && request.choices.length > 0 && (
+      {actionChoice === undefined && request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
           {request.choices.map((choice) => (
             <button
@@ -86,9 +111,11 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
         className={styles.box}
         aria-label="Your answer"
         placeholder={
-          request.kind === 'question' && request.choices
-            ? 'Or write your own answer…'
-            : 'Comment to the Task Lead…'
+          actionChoice !== undefined
+            ? 'Comment, or tell the Task Lead what to do next…'
+            : request.kind === 'question' && request.choices
+              ? 'Or write your own answer…'
+              : 'Comment to the Task Lead…'
         }
         value={text}
         onChange={(event) => setText(event.target.value)}
@@ -121,6 +148,22 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
               onClick={() => void send({ action: 'approve', ...withText })}
             >
               {request.gate.approveLabel}
+            </Button>
+          </>
+        ) : actionChoice !== undefined ? (
+          <>
+            <Button
+              disabled={sending || !typed}
+              onClick={() => void send({ action: 'answer', text })}
+            >
+              Send
+            </Button>
+            <Button
+              variant="primary"
+              disabled={sending}
+              onClick={() => void send({ action: 'answer', choice: actionChoice })}
+            >
+              {actionChoice}
             </Button>
           </>
         ) : (
