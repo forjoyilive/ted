@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
+import { checkAndRecord, hasPassed } from './check.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const manifests = ['package.json', 'packages/app/package.json']
@@ -122,10 +123,12 @@ function main(): void {
   if (!(isNewer(version, current) || (firstRelease && version === current)))
     fail(`${version} isn’t newer than ${current}`)
 
-  step('Install', 'pnpm', ['install', '--frozen-lockfile'])
-  step('Typecheck', 'pnpm', ['typecheck'])
-  step('Lint', 'pnpm', ['lint'])
-  step('Test', 'pnpm', ['test'])
+  if (hasPassed(git('rev-parse', 'HEAD'))) {
+    console.log('\n== Checks already passed on this commit; skipping them')
+    step('Install', 'pnpm', ['install', '--frozen-lockfile'])
+  } else if (!checkAndRecord()) {
+    fail('checks failed')
+  }
   if (linux) linuxCi()
 
   if (version !== current) {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { checkedCommits } from './check.ts'
 import { isNewer, parseVersion } from './release.ts'
 
 describe('release versions', () => {
@@ -16,5 +17,12 @@ describe('release versions', () => {
     expect(isNewer('0.1.0', '0.1.0')).toBe(false)
     expect(isNewer('0.0.9', '0.1.0')).toBe(false)
     expect(isNewer('junk', '0.1.0')).toBe(false)
+  })
+})
+
+describe('checked commits', () => {
+  test('reads full commit hashes, one per line, and ignores anything else', () => {
+    const sha = 'e3e1150'.padEnd(40, '0')
+    expect(checkedCommits(`${sha}\nnot-a-sha\n\n${sha}\n`)).toEqual(new Set([sha]))
   })
 })
