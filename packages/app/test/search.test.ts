@@ -140,6 +140,9 @@ describe('Search and commands (⌘K)', () => {
     await ted.createTask({ factory: 'NB', title: 'Sync notes', description: 'y', start: false })
 
     await openPalette(window)
+    await palette(window).getByRole('combobox').fill('open widgets')
+    const openFactory = results(window).getByRole('option', { name: 'Open widgets' })
+    expect(await openFactory.textContent()).toContain('⌘1')
     await palette(window).getByRole('combobox').fill('go to all')
     await results(window)
       .getByRole('option', { name: /Go to All Tasks/ })

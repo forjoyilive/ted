@@ -24,6 +24,7 @@ export interface CommandChoice {
   id: string
   label: string
   checked?: boolean
+  shortcut?: string
   run: () => unknown
 }
 
@@ -70,9 +71,10 @@ export const globalCommands: readonly Command[] = [
     shortcuts: ['⌘1–⌘9'],
     keywords: 'switch',
     choices: ({ factories, dispatch }) =>
-      factories.map((factory) => ({
+      factories.map((factory, index) => ({
         id: factory.id,
         label: factory.name,
+        ...(index < 9 && { shortcut: factoryShortcut(index) }),
         run: () => dispatch({ type: 'open-factory', factoryId: factory.id }),
       })),
   },
@@ -184,6 +186,25 @@ export function taskCommands(task: Task): Command[] {
   return list
 }
 
+export function factoryShortcut(index: number): string {
+  return `⌘${index + 1}`
+}
+
+export function factoryCommands(factories: readonly Factory[]): Command[] {
+  return factories.map((factory, index) => ({
+    id: `open-factory:${factory.id}`,
+    label: `Open ${factory.name}`,
+    scope: 'global',
+    keywords: 'factory',
+    ...(index < 9 && { shortcuts: [factoryShortcut(index)] }),
+    run: ({ dispatch }) => dispatch({ type: 'open-factory', factoryId: factory.id }),
+  }))
+}
+
 export function availableCommands(context: CommandContext): Command[] {
-  return [...(context.task ? taskCommands(context.task) : []), ...globalCommands]
+  return [
+    ...(context.task ? taskCommands(context.task) : []),
+    ...globalCommands,
+    ...factoryCommands(context.factories),
+  ]
 }

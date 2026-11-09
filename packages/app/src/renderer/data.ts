@@ -141,12 +141,18 @@ export function useTasks(): Task[] {
   return useLive(ted.listTasks, taskFrom, byCreatedAt, deletedTask)
 }
 
+const byPosition = (a: Factory, b: Factory) =>
+  a.position - b.position || a.createdAt.localeCompare(b.createdAt)
+
+const removedFactory = (event: TedEvent) =>
+  event.type === 'factory-removed' ? event.factoryId : undefined
+
 export function useFactories(): Factory[] {
-  return useLive(ted.listFactories, factoryFrom, byCreatedAt)
+  return useLive(ted.listFactories, factoryFrom, byPosition, removedFactory)
 }
 
 export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
-  const { items, loaded } = useLiveList(ted.listFactories, factoryFrom, byCreatedAt)
+  const { items, loaded } = useLiveList(ted.listFactories, factoryFrom, byPosition, removedFactory)
   return { factories: items, loaded }
 }
 

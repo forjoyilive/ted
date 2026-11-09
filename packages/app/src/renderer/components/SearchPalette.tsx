@@ -183,6 +183,9 @@ export function SearchPalette({
             <span className={styles.main}>
               <span className={styles.title}>{choice.label}</span>
             </span>
+            <span className={styles.meta}>
+              <Shortcut keys={choice.shortcut === undefined ? undefined : [choice.shortcut]} />
+            </span>
           </>
         ),
         run: choice.run,

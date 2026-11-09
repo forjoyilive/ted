@@ -204,6 +204,7 @@ export interface Tasks {
   followUp(ref: string, request: FollowUpRequest): Promise<Task>
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
+  removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -309,6 +310,7 @@ export function createTasks(options: {
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
+  const removingFactories = new Set<string>()
   const merging = new Set<string>()
   const mergeInFlight = new Map<string, Promise<unknown>>()
   const rebaseAsked = new Map<string, { from: string; to: string }>()
@@ -3490,6 +3492,39 @@ export function createTasks(options: {
     wake()
   }
 
+  async function removeFactoryTasks(
+    factoryId: string,
+    { closePullRequests }: { closePullRequests: boolean },
+  ): Promise<void> {
+    removingFactories.add(factoryId)
+    try {
+      for (;;) {
+        const inFactory = store.listTasks().filter((t) => t.factoryId === factoryId)
+        if (inFactory.length === 0) return
+        const left = inFactory.filter((t) => !deleting.has(t.id))
+        if (left.length === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          continue
+        }
+        for (const { id } of left) {
+          if (deleting.has(id) || !store.getTask(id)) continue
+          if (closePullRequests) {
+            const task = find(id)
+            if (task.archived) pullRequestWork(id, 'close')
+            else {
+              settleDependents(id, 'unblock')
+              archiveNow(find(id), true)
+            }
+          }
+          await remove(id, { blocked: 'unblock' })
+        }
+      }
+    } catch (error) {
+      removingFactories.delete(factoryId)
+      throw error
+    }
+  }
+
   async function removeFiles(task: StoredTask, runIds: readonly string[]): Promise<void> {
     const gone = (root: string, name: string) =>
       removeInside(root, name).catch((error: unknown) =>
@@ -4309,6 +4344,9 @@ export function createTasks(options: {
             return undefined
           })
         : undefined
+      if (factory && removingFactories.has(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -4422,6 +4460,7 @@ export function createTasks(options: {
 
     unarchive,
     delete: remove,
+    removeFactoryTasks,
 
     archiveDone(key) {
       const factory = store.listFactories().find((f) => f.key === key || f.id === key)

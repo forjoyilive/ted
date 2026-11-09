@@ -13,6 +13,7 @@ import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
+import type { FactoryRemovals } from './factory-removal.ts'
 import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
@@ -39,6 +40,7 @@ export interface Services {
   storage: Storage
   factories: Factories
   factorySettings: FactorySettings
+  factoryRemovals: FactoryRemovals
   checkTries: CheckTries
   library: LibrarySettings
   conversations: Conversations

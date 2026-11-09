@@ -137,6 +137,7 @@ describe('machine settings in the store', () => {
             repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
             showTutorial: false,
             cloned: true,
+            position: 0,
             createdAt: factory.createdAt,
           },
         },
