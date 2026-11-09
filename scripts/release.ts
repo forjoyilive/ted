@@ -92,7 +92,6 @@ function main(): void {
   const current = currentVersion()
   if (version === undefined) fail(`usage: pnpm release <version> [--skip-linux] (now ${current})`)
   if (parseVersion(version) === undefined) fail(`“${version}” isn’t a version like 1.2.3`)
-  if (!isNewer(version, current)) fail(`${version} isn’t newer than ${current}`)
 
   if (git('branch', '--show-current') !== 'main') fail('switch to main first')
   if (git('status', '--porcelain') !== '') fail('commit or stash your changes first')
@@ -100,6 +99,9 @@ function main(): void {
   if (git('rev-parse', 'HEAD') !== git('rev-parse', 'origin/main'))
     fail('main isn’t the same as origin/main')
   if (git('tag', '--list', `v${version}`) !== '') fail(`tag v${version} already exists`)
+  const firstRelease = git('tag', '--list', 'v*') === ''
+  if (!(isNewer(version, current) || (firstRelease && version === current)))
+    fail(`${version} isn’t newer than ${current}`)
 
   step('Install', 'pnpm', ['install', '--frozen-lockfile'])
   step('Typecheck', 'pnpm', ['typecheck'])
@@ -107,8 +109,10 @@ function main(): void {
   step('Test', 'pnpm', ['test'])
   if (!skipLinux) linuxCi()
 
-  setVersion(version)
-  step('Commit', 'git', ['commit', '-am', `Release ${version}`])
+  if (version !== current) {
+    setVersion(version)
+    step('Commit', 'git', ['commit', '-am', `Release ${version}`])
+  }
   step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `TED ${version}`])
   step('Push', 'git', ['push', '--atomic', 'origin', 'main', `v${version}`])
   console.log(`\nPushed v${version}. GitHub is building the installers into a draft release:`)
