@@ -48,6 +48,8 @@ const usage = `Usage:
                                              Pick the Clarify depth and say why
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
+                [--changes "<one line>"]       On a re-sign-off, say what changed since the human
+                                             approved
   ted outcome back --to <Stage> --findings <file>
                                              Send the Task back to an earlier Stage
                 At Validate, both take [--review pass|fail] [--review-notes <n>]
@@ -119,6 +121,7 @@ function parse() {
         start: { type: 'boolean' },
         supersedes: { type: 'string' },
         skip: { type: 'boolean' },
+        changes: { type: 'string' },
         task: { type: 'string' },
         to: { type: 'string' },
         yes: { type: 'boolean' },
@@ -216,11 +219,13 @@ try {
     const ref = taskRef()
     const skip = options.skip === true
     const judged = judgments()
+    const changes = options.changes
     const result = await withDaemon(home, (client) =>
       client.reportOutcome(ref, {
         outcome: 'advance',
         ...(skip && { skip }),
         ...(judged && { judged }),
+        ...(changes !== undefined && { changes }),
       }),
     )
     console.log(result.message)

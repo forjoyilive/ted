@@ -1,6 +1,13 @@
-import type { AnswerRequest, Comment, CommentAnswer, Task } from '@ted/protocol'
+import type {
+  AnswerRequest,
+  Comment,
+  CommentAnswer,
+  MergeRow,
+  SignOffChanges,
+  Task,
+} from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
-import { useCheckRuns, useThreadEvents } from '../data.ts'
+import { useCheckRuns, useComments, useThreadEvents } from '../data.ts'
 import {
   age,
   ago,
@@ -22,16 +29,116 @@ import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 
 function CardHead({ request, task, now }: { request: Comment; task: Task; now: number }) {
+  const again = request.gate?.changes !== undefined && request.stage !== 'merge'
   return (
     <div className={styles.head}>
       <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
         {requestLabel(request)}
       </span>
       <span>
-        {`${request.round ? ` · Round ${request.round.number}` : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
+        {`${request.round ? ` · Round ${request.round.number}` : ''}${again ? ' · again' : ''}${request.gate?.pullRequests ? ' · Merge' : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
       </span>
     </div>
   )
+}
+
+const methodNames = { squash: 'Squash', merge: 'Merge commit', rebase: 'Rebase' } as const
+
+function checksSummary({ passed, failed, pending }: MergeRow['checks']): string {
+  const total = passed + failed + pending
+  if (total === 0) return 'No checks'
+  if (failed > 0) return `${failed} of ${total} checks failed`
+  if (pending > 0) return `${passed} of ${total} checks done`
+  return `${total} ${total === 1 ? 'check' : 'checks'} passed`
+}
+
+function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string }) {
+  const several = rows.length > 1
+  return (
+    <>
+      <p className={styles.summary}>
+        {several
+          ? `CI passed and ${rows.length === 2 ? 'both' : 'all'} are mergeable. They merge in this order.`
+          : 'CI passed and it’s mergeable.'}
+      </p>
+      <ol className={styles.mergeRows} aria-label="Pull requests">
+        {rows.map((row, i) => (
+          <li key={row.name} className={styles.mergeRow}>
+            <span className={styles.mergeIndex}>{i + 1}</span>
+            <div className={styles.mergeBody}>
+              <div className={styles.mergeLine}>
+                <span className={styles.mergeRepo}>{row.name}</span>
+                <button
+                  type="button"
+                  className={styles.mergeLink}
+                  onClick={() => void ted.openPullRequest(taskId, row.name)}
+                >
+                  {`PR #${row.number} · ${row.title}`}
+                </button>
+              </div>
+              <div className={styles.mergeDetail}>
+                {[
+                  `${row.checks.failed === 0 && row.checks.pending === 0 ? '✓ ' : ''}${checksSummary(row.checks)}`,
+                  row.mergeable ? 'Mergeable' : 'Not mergeable yet',
+                  methodNames[row.method],
+                  ...(row.reviewMissing ? ['1 GitHub review still required'] : []),
+                ].join(' · ')}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </>
+  )
+}
+
+function changedRepos(changes: SignOffChanges) {
+  return changes.repos.filter((r) => r.files.length > 0)
+}
+
+function MergeChangesLine({ changes }: { changes: SignOffChanges }) {
+  const changed = changedRepos(changes)
+  if (changed.length === 0)
+    return <p className={styles.summary}>Changes since you approved: none.</p>
+  return <ChangesBlock changes={changes} />
+}
+
+function ChangesBlock({ changes }: { changes: SignOffChanges }) {
+  return (
+    <section className={styles.changes} aria-label="Changes since you approved">
+      <h3 className={styles.sectionHeading}>Changes since you approved</h3>
+      {changes.summary !== undefined && <p className={styles.sectionBody}>{changes.summary}</p>}
+      <ul className={styles.changedFiles}>
+        {changes.repos.flatMap((repo) =>
+          repo.files.length === 0
+            ? [
+                <li key={repo.name} className={styles.changedFile}>
+                  <span className={styles.changedRepo}>{repo.name}</span>
+                  <span className={styles.noChanges}>no changes</span>
+                </li>,
+              ]
+            : repo.files.map((file) => (
+                <li key={`${repo.name}:${file.path}`} className={styles.changedFile}>
+                  <span className={styles.changedRepo}>{repo.name}</span>
+                  <span className={styles.changedPath} title={file.path}>
+                    {file.path}
+                  </span>
+                  <span className={styles.counts}>
+                    <span className={styles.added}>{`+${file.added}`}</span>{' '}
+                    <span className={styles.removed}>{`−${file.removed}`}</span>
+                  </span>
+                </li>
+              )),
+        )}
+      </ul>
+    </section>
+  )
+}
+
+function FirstSignOff({ id, task }: { id: string; task: Task }) {
+  const first = useComments(task.id).find((c) => c.id === id)
+  if (!first) return null
+  return <RequestCard request={first} task={task} readOnly />
 }
 
 function BriefSections({ text, title }: { text: string; title: string }) {
@@ -169,6 +276,10 @@ export function RequestCard({
   const [error, setError] = useState<string>()
   const shown = summary(request)
   const typed = text.trim() !== ''
+  const [showingFirst, setShowingFirst] = useState(false)
+  const changes = request.gate?.changes
+  const rows = request.gate?.pullRequests
+  const short = changes !== undefined && rows === undefined
 
   async function send(answer: AnswerRequest) {
     setSending(true)
@@ -196,15 +307,34 @@ export function RequestCard({
       ].join(' ')}
       aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
     >
-      <CardHead request={request} task={task} now={now} />
+      <div className={styles.headRow}>
+        <CardHead request={request} task={task} now={now} />
+        {short && !readOnly && (
+          <button
+            type="button"
+            className={styles.showRequest}
+            aria-expanded={showingFirst}
+            onClick={() => setShowingFirst(!showingFirst)}
+          >
+            {showingFirst ? 'Hide first sign-off' : 'Show first sign-off'}
+          </button>
+        )}
+      </div>
+      {showingFirst && short && <FirstSignOff id={changes.since} task={task} />}
       <h2 className={styles.title}>{headline(request)}</h2>
+      {rows && <MergeRows rows={rows} taskId={task.id} />}
+      {rows && changes && <MergeChangesLine changes={changes} />}
+      {short && <ChangesBlock changes={changes} />}
       {request.kind === 'signoff' && request.stage === 'review' && (
         <ConfirmationRow request={request} task={task} />
       )}
       {request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (
-        <BriefSections text={request.body} title={headline(request)} />
+        !short &&
+        request.body.trim() !== '' && (
+          <BriefSections text={request.body} title={headline(request)} />
+        )
       ) : (
         shown !== undefined && shown !== '' && <Summary text={shown} />
       )}
@@ -279,9 +409,12 @@ export function RequestCard({
                 Open last Run
               </button>
             )}
-            {request.gate?.caption !== undefined && (
-              <span className={styles.caption}>{request.gate.caption}</span>
-            )}
+            {request.gate?.caption !== undefined &&
+              (request.stage === 'clarify' ? (
+                <span className={styles.caption}>{request.gate.caption}</span>
+              ) : (
+                <Help>{request.gate.caption}</Help>
+              ))}
             {request.permission ? (
               <>
                 <Help>Applies to this request only.</Help>
@@ -394,6 +527,9 @@ function answerLine(
       }
       if ('cancelled' in answer) {
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · the agent no longer needs it' }
+      }
+      if ('ciReported' in answer) {
+        return { mark: '–', tone: 'neutral', text: 'Withdrawn · CI reported before you answered' }
       }
       if ('archived' in answer) {
         return {

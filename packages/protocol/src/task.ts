@@ -107,7 +107,14 @@ export interface TrackStage {
   state: TrackState
 }
 
-export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done'
+export type CommentBox =
+  | 'live'
+  | 'paused'
+  | 'no-run'
+  | 'stopped'
+  | 'failed'
+  | 'done'
+  | 'merge-pending'
 
 export interface TaskRun {
   id: string
@@ -300,6 +307,7 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
+  | { kind: 'withdrawn'; at: string; ciReported: true }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
@@ -314,12 +322,47 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
-  gate?: { approveLabel: string; caption?: string }
+  gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
   failed?: { runId: string }
+}
+
+export interface CommentGate {
+  approveLabel: string
+  caption?: string
+  pullRequests?: MergeRow[]
+  changes?: SignOffChanges
+}
+
+export interface MergeRow {
+  name: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  checks: { passed: number; failed: number; pending: number }
+  mergeable: boolean
+  method: MergeMethod
+  reviewMissing: boolean
+}
+
+export interface SignOffChanges {
+  since: string
+  summary?: string
+  repos: { name: string; files: ChangedFile[] }[]
+}
+
+export interface ChangedFile {
+  path: string
+  added: number
+  removed: number
+}
+
+export interface CancelMergeRequest {
+  comment: string
 }
 
 export interface PermissionAsk {
@@ -379,7 +422,7 @@ export interface SetActivityRequest {
 }
 
 export type ReportOutcomeRequest =
-  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments }
+  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments; changes?: string }
   | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
   | { outcome: 'ask'; question: string; choices?: string[] }
 

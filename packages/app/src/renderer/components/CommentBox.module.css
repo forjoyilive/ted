@@ -38,3 +38,12 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+.mergeNote {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-13);
+}

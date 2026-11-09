@@ -395,6 +395,9 @@ export interface TedStore {
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  mergeStarted(taskId: string): void
+  mergeCanceled(taskId: string, commentId: string): void
+  mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
@@ -798,6 +801,24 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
+  const mergePendingFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+    repos: readonly TaskRepo[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    const open = repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged')
+    if (!open) return false
+    const last = store
+      .query(queryDb(taskLog.where({ taskId })))
+      .filter(
+        (e) => (e.name === 'v1.MergeStarted' || e.name === 'v1.MergeCanceled') && e.at >= since,
+      )
+      .sort((a, b) => sequence(a.id) - sequence(b.id))
+      .at(-1)
+    return last?.name === 'v1.MergeStarted'
+  }
+
   const isMerged = (taskId: string): boolean =>
     taskRow(taskId)?.stage === 'done' &&
     store
@@ -886,6 +907,7 @@ export async function openStore({
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
             ?.waiting
         : undefined
+    const mergeWaits = stage === 'merge' && mergePendingFor(row.id, entries, repos)
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -917,6 +939,7 @@ export async function openStore({
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(github !== undefined && { github }),
+      ...(mergeWaits && { mergePending: true }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1778,6 +1801,18 @@ export async function openStore({
       updatedTask(taskId)
     },
     isMerged: (taskId) => isMerged(taskId),
+    mergeStarted(taskId) {
+      commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergeCanceled(taskId, commentId) {
+      commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergePending(taskId) {
+      const task = taskRow(taskId)
+      return task?.stage === 'merge' && mergePendingFor(taskId, entryRows(taskId), reposOf(taskId))
+    },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
         events.pullRequestSignedOff({

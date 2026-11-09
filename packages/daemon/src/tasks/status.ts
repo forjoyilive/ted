@@ -22,6 +22,7 @@ export interface TaskFacts {
   blockedBy?: readonly string[]
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
+  mergePending?: boolean
   needsPlanning?: boolean
   agentActivity?: string
   archived?: boolean
@@ -72,6 +73,7 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   if (status?.kind === 'failed') return 'failed'
   if (status?.kind === 'stopped') return 'stopped'
   if (status?.kind === 'paused') return 'paused'
+  if (facts.mergePending) return 'merge-pending'
   return facts.leadLive ? 'live' : 'no-run'
 }
 

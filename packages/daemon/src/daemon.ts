@@ -48,6 +48,7 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
   online?: DaemonOnlineOptions
   limitProbeMs?: number
@@ -236,6 +237,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
       wake = () => tasks.wake()

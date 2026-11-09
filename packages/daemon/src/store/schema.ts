@@ -854,6 +854,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  mergeStarted: Events.synced({
+    name: 'v1.MergeStarted',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  mergeCanceled: Events.synced({
+    name: 'v1.MergeCanceled',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
+  }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
     schema: Schema.Struct({
@@ -1438,6 +1446,9 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
+  'v1.MergeStarted': (args) => task(args),
+  'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1581,6 +1592,8 @@ const materializers = counted(
       ],
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })

@@ -24,6 +24,7 @@ interface StubCheck {
 
 interface StubMerge {
   origin?: string
+  title?: string
   mergeState?: string
   mergeable?: string
   reviewDecision?: string | null
@@ -123,6 +124,7 @@ function pullRequests(variables: Record<string, unknown>) {
       deleteBranchOnMerge: merge.deleteBranchOnMerge ?? false,
       pullRequest: {
         id: `PR_${number}`,
+        title: merge.title ?? 'Stub pull request',
         state: merge.merged ? 'MERGED' : 'OPEN',
         isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),
@@ -182,6 +184,12 @@ function rebaseBranch(): string {
 
 function mergePullRequest(): void {
   const merge = state.merge ?? {}
+  if (args.includes('--disable-auto')) {
+    delete merge.autoMerge
+    state.merge = merge
+    save()
+    return
+  }
   const method = ['squash', 'merge', 'rebase'].find((m) => args.includes(`--${m}`)) ?? ''
   const expected = args[args.indexOf('--match-head-commit') + 1]
   if (expected !== headOf(args[2] ?? '')) {
