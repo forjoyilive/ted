@@ -107,7 +107,12 @@ import type {
 } from '../store/index.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
-import { type CheckSettings, checkLayer, type WorkflowSettings } from '../workflow/check.ts'
+import {
+  type CheckSettings,
+  checkLayer,
+  githubRepoOf,
+  type WorkflowSettings,
+} from '../workflow/check.ts'
 import { readGitLayer } from '../workflow/layers.ts'
 import {
   boardStages,
@@ -952,15 +957,26 @@ export function createTasks(options: {
     const approved = await approvedSetup(task)
     if (!approved) return new Map()
     const { primary, settings, proposal } = approved
-    const passed = (repo: string, name: string) =>
-      proposal.apps.some((a) => a.passed && a.name === name && (a.repo ?? primary.name) === repo)
+    const passed = (names: readonly string[], name: string) =>
+      proposal.apps.some(
+        (a) => a.passed && a.name === name && names.includes(a.repo ?? primary.name),
+      )
+    const remoteRepo = (remote: string | undefined) =>
+      remote === undefined ? undefined : githubRepoOf(remote)
     const repos = settings.repos ?? []
     return new Map(
       task.repos
         .filter((r) => !r.removed)
         .map((r) => {
-          const listed = r === primary ? repos[0] : repos.slice(1).find((s) => s.name === r.name)
-          const apps = appDeclarations(listed?.apps).filter((a) => passed(r.name, a.name))
+          const listed =
+            r === primary
+              ? repos[0]
+              : repos.slice(1).find((s) => {
+                  const repo = remoteRepo(s.remote)
+                  return repo !== undefined && sameRepo(repo, r.repo)
+                })
+          const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
+          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a.name))
           return [r.name, apps] as const
         }),
     )
