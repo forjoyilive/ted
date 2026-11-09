@@ -9,6 +9,7 @@ export interface Activity {
   runs: RunCounts
   automationsOn: number
   factoriesSettingUp: number
+  checksRunning: number
 }
 
 export const noActivity: Activity = {
@@ -16,10 +17,22 @@ export const noActivity: Activity = {
   runs: { working: 0, active: 0, queued: 0 },
   automationsOn: 0,
   factoriesSettingUp: 0,
+  checksRunning: 0,
 }
 
-export function workRunning({ runs, automationsOn, factoriesSettingUp }: Activity): boolean {
-  return runs.active > 0 || runs.queued > 0 || automationsOn > 0 || factoriesSettingUp > 0
+export function workRunning({
+  runs,
+  automationsOn,
+  factoriesSettingUp,
+  checksRunning,
+}: Activity): boolean {
+  return (
+    runs.active > 0 ||
+    runs.queued > 0 ||
+    automationsOn > 0 ||
+    factoriesSettingUp > 0 ||
+    checksRunning > 0
+  )
 }
 
 export interface OpenAppResult {

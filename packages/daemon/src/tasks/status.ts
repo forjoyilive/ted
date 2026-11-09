@@ -17,6 +17,7 @@ export interface TaskFacts {
   paused?: string
   tedWorking?: boolean
   settingUp?: boolean
+  checking?: { name: string; index: number; total: number }
   stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
   blockedBy?: readonly string[]
   queue?: { place: number } | { hold: string }
@@ -86,6 +87,10 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
   if (facts.stopped) return stoppedActivity(facts.stopped)
+  if (facts.checking) {
+    const { name, index, total } = facts.checking
+    return `Running Checks · ${name} (${index} of ${total})`
+  }
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {

@@ -204,7 +204,7 @@
 
 .openLine {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   padding: 0;
   border: none;
@@ -227,9 +227,89 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--status-waiting-fg);
+  font-size: var(--text-12-5);
 }
 
-.openHint {
-  color: var(--status-waiting-fg);
+.openDot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-waiting-fg);
+}
+
+.openAge {
+  color: var(--text-caption);
   font-size: var(--text-12);
+}
+.readOnly {
+  border-color: var(--border-default);
+}
+
+.answeredHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.showRequest {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-default);
+  font: inherit;
+  font-size: var(--text-12-5);
+  cursor: pointer;
+}
+
+.showRequest:hover {
+  text-decoration: underline;
+}
+
+.showRequest:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.waitingRow {
+  display: flex;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.waitingCount {
+  color: var(--status-waiting-fg);
+  font-size: var(--text-12-5);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.chip {
+  padding: 3px 10px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12-5);
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--status-waiting-fg);
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
 }

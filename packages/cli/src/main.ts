@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
@@ -34,12 +35,16 @@ const usage = `Usage:
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
+  ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
+                                             Replace your own unanswered request with a new one
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
                                              Send the Task back to an earlier Stage
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
+  ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
+                                             stopping at the first failure
   ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
                                              without --file)
   ted brief show                             Show the latest Task brief
@@ -82,6 +87,7 @@ function parse() {
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
+        name: { type: 'string' },
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
@@ -90,6 +96,7 @@ function parse() {
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
+        supersedes: { type: 'string' },
         skip: { type: 'boolean' },
         task: { type: 'string' },
         to: { type: 'string' },
@@ -141,7 +148,21 @@ try {
       client.postComment(ref, { body, ...(choices.length > 0 && { choices }) }),
     )
     console.log(
-      comment.kind === 'question' ? 'Asked the human. TED sends you their answer.' : 'Posted',
+      comment.kind === 'question'
+        ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+        : 'Posted',
+    )
+  } else if (group === 'ask' && options.supersedes !== undefined) {
+    const ref = taskRef()
+    const supersedes = options.supersedes
+    const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
+    if (body.trim() === '') throw new UsageError('give the new request as text or on stdin')
+    const choices = options.choice ?? []
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, { body, supersedes, ...(choices.length > 0 && { choices }) }),
+    )
+    console.log(
+      `Replaced request ${supersedes} with request ${request.id}. TED sends you their answer.`,
     )
   } else if (group === 'status' && command !== undefined) {
     const ref = taskRef()
@@ -181,6 +202,19 @@ try {
       }),
     )
     console.log(result.message)
+  } else if (group === 'checks' && command === undefined) {
+    const ref = taskRef()
+    const name = options.name
+    const { checkRun, report } = await withDaemon(home, async (client) => {
+      const started = await client.runChecks(ref, name === undefined ? {} : { name })
+      for (;;) {
+        const current = await client.getCheckRun(started.id)
+        if (current.checkRun.finishedAt !== undefined) return current
+        await sleep(500)
+      }
+    })
+    console.log(printable(report ?? ''))
+    if (checkRun.outcome !== 'passed') process.exitCode = 1
   } else if (group === 'brief' && command === 'write' && rest.length === 0) {
     const ref = taskRef()
     const text =

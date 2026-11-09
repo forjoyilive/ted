@@ -1,9 +1,12 @@
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentStageId,
   AnswerRequest,
   Attachment,
+  CheckRun,
+  CheckRunReport,
+  CheckRunTrigger,
   Comment,
   CommentAnswer,
   DaemonEvent,
@@ -28,6 +31,7 @@ import type {
 import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
+import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
@@ -54,6 +58,16 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import {
+  type CheckRunnerResult,
+  failureFindings,
+  lastLines,
+  planChecks,
+  readOutput,
+  runChecks,
+  summary,
+  tedSettingsCheck,
+} from './checks.ts'
 import { placeBetween } from './order.ts'
 import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
@@ -94,7 +108,7 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[] },
+    input: { body: string; choices?: string[]; supersedes?: string },
   ): Promise<Comment>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
@@ -107,6 +121,9 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
+  checkRun(id: string, caller: Caller): Promise<CheckRunReport>
+  checkOutput(id: string, position: number): Promise<{ text: string; log: string }>
   wake(factoryId?: string): void
   close(): Promise<void>
 }
@@ -121,6 +138,7 @@ export function createTasks(options: {
   reposDir: string
   worktreesDir: string
   logsDir: string
+  libraryDir?: string
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
@@ -159,6 +177,7 @@ export function createTasks(options: {
   const settingUp = new Map<string, AbortController>()
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
+  const checking = new Set<string>()
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -366,11 +385,153 @@ export function createTasks(options: {
   const commandLog = (task: Task, kind: 'setup' | 'teardown', name: string) =>
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
-  const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv => ({
-    ...process.env,
-    ...env,
-    TED_TASK: task.displayId,
-  })
+  const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv =>
+    worktreeCommandEnv(env, { TED_TASK: task.displayId })
+
+  const checkDir = (task: Task, checkRunId: string) =>
+    path.join(logsDir, 'checks', task.displayId, checkRunId)
+
+  const checkLog = (task: Task, checkRunId: string, position: number) =>
+    path.join(checkDir(task, checkRunId), `${position + 1}.log`)
+
+  async function beginChecks(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    trigger: CheckRunTrigger,
+    only?: string,
+  ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
+    const factory = factoryOf(task)
+    const settings = primaryRepoWorktree(resolution.workflow, factory)
+    const plan = await planChecks({
+      checks: resolution.workflow.settings.stages.validate?.checks ?? [],
+      repos: task.repos
+        .filter((r) => !r.removed)
+        .map((r) => ({
+          name: r.name,
+          worktree: r.worktree,
+          baseBranch: settings.baseBranch,
+          env: r.name === settings.name ? settings.env : {},
+        })),
+      primary: settings.name,
+      ...(only !== undefined && { only }),
+    })
+    if (plan.length === 0) return undefined
+    const checkRun = store.startChecks({
+      taskId: task.id,
+      trigger,
+      stage: task.stage,
+      checks: plan.map((p) => p.check),
+    })
+    const done = (async () => {
+      const result = await runChecks({
+        checks: plan,
+        taskDisplayId: task.displayId,
+        libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
+        logFor: (position) => checkLog(task, checkRun.id, position),
+        signal: stopping.signal,
+        onStart: (position) => store.checkStarted(checkRun.id, position),
+        onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
+      }).catch((error: unknown) => {
+        console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
+        return { outcome: 'interrupted' as const, notFound: [] }
+      })
+      if (result.outcome === 'interrupted' && stopping.signal.aborted) return result
+      store.finishChecks(checkRun.id, result.outcome)
+      reportNotFound(factory.id, result)
+      return result
+    })()
+    return { checkRun, done }
+  }
+
+  function reportNotFound(factoryId: string, result: CheckRunnerResult): void {
+    const ref = { problem: 'setup-suggested', factoryId, subject: 'check-not-found' }
+    const [command] = result.notFound
+    if (command !== undefined) {
+      banners.raise({
+        ...ref,
+        severity: 'warning',
+        text: `A Check’s command wasn’t found: \`${command}\``,
+        action: { label: 'Open Factory settings', opens: { kind: 'factory-settings', factoryId } },
+      })
+    } else if (result.outcome !== 'interrupted') {
+      banners.clear(ref)
+    }
+  }
+
+  async function failedFindings(task: Task, checkRun: CheckRun): Promise<string | undefined> {
+    const position = checkRun.checks.findIndex(
+      (c) => c.state === 'failed' || c.state === 'timed-out',
+    )
+    const check = checkRun.checks[position]
+    if (!check) return undefined
+    const log = checkLog(task, checkRun.id, position)
+    return failureFindings({ check, output: await lastLines(log), log, checks: checkRun.checks })
+  }
+
+  async function report(checkRun: CheckRun): Promise<string> {
+    const task = find(checkRun.taskId)
+    if (checkRun.outcome === 'interrupted') {
+      return `TED stopped before the Checks finished.\n\n${summary(checkRun.checks)}`
+    }
+    return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
+  }
+
+  async function validateChecks(taskId: string, message?: string): Promise<void> {
+    checking.add(taskId)
+    try {
+      const task = find(taskId)
+      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      const { workflow } = resolution
+      const instructions = message ?? nextStageMessage(workflow, 'validate')
+      const started = await beginChecks(task, resolution, 'validate')
+      if (!started) {
+        await deliver(task, instructions)
+        return
+      }
+      const result = await started.done
+      const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
+      const current = find(taskId)
+      if (result.outcome === 'interrupted' || current.stage !== 'validate') return
+      if (result.outcome === 'passed') {
+        await deliver(
+          current,
+          `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
+        )
+        return
+      }
+      const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
+      await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
+        mode: 0o600,
+      })
+      const canSendBack =
+        workflow.stages.includes('work') &&
+        workflow.order.indexOf('work') < workflow.order.indexOf('validate')
+      if (!canSendBack) {
+        await deliver(
+          current,
+          `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. Work isn’t before Validate in this Workflow, so TED couldn’t send the Task back.\n\n${findings}`,
+        )
+        return
+      }
+      const outcome = await holding(current, () =>
+        sendBack(
+          current,
+          resolution,
+          'validate',
+          { outcome: 'back', to: 'work', findings },
+          checkRun.id,
+        ),
+      )
+      if (outcome.request) {
+        await deliver(
+          current,
+          `${instructions}\n\n# A Check failed\n\nTED ran the Factory’s Checks and one failed. ${outcome.message}\n\n${findings}`,
+        )
+      }
+    } finally {
+      checking.delete(taskId)
+    }
+  }
 
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(settings, {
@@ -887,10 +1048,20 @@ export function createTasks(options: {
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+    } else if (next === 'validate' && message !== undefined) {
+      checking.add(task.id)
+      inBackground(`run ${task.displayId}’s Checks`, () => validateChecks(task.id, message))
     } else if (message !== undefined) {
       await deliver(task, message)
     }
     return moved
+  }
+
+  function postedBy(request: Comment, task: StoredTask, runId: string): boolean {
+    const { author } = request
+    if (author.kind !== 'run') return false
+    if (author.runId === runId) return true
+    return task.leadRunId === runId && store.getRun(author.runId)?.taskId === task.id
   }
 
   function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
@@ -927,6 +1098,7 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     from: AgentStageId,
     request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
+    checkRunId?: string,
   ): Promise<OutcomeResult> {
     const { workflow } = resolution
     const to = request.to
@@ -959,7 +1131,16 @@ export function createTasks(options: {
         request,
       }
     }
-    store.recordSendBack({ taskId: task.id, from, to, findings, counted })
+    store.recordSendBack({
+      taskId: task.id,
+      from,
+      to,
+      findings,
+      counted,
+      ...(counted && { round: count + 1 }),
+      ...(counted && limit !== undefined && { limit }),
+      ...(checkRunId !== undefined && { checkRunId }),
+    })
     if (from === 'review') store.resetSendBacks(task.id, 'validate')
     const moved = await move(task, resolution, to, backStageMessage(workflow, to, from, findings))
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
@@ -1417,6 +1598,15 @@ export function createTasks(options: {
     if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
 
+  for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
+    store.finishChecks(checkRun.id, 'interrupted')
+    const task = store.getTask(checkRun.taskId)
+    if (checkRun.trigger === 'validate' && task?.stage === 'validate') {
+      checking.add(task.id)
+      inBackground(`run ${task.displayId}’s Checks again`, () => validateChecks(task.id))
+    }
+  }
+
   const stopPumping = store.subscribe((event) => {
     if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
       const taskId = event.run.taskId
@@ -1618,17 +1808,43 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [] }) {
+    async comment(ref, caller, { body, choices = [], supersedes }) {
       if (caller.kind === 'daemon') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        if (supersedes !== undefined) {
+          throw new RequestError(403, 'only a Run can supersede a request')
+        }
         return humanComment(find(ref), body)
       }
       const { task, runId } = ownTask(ref, caller)
-      return store.postComment({
-        taskId: task.id,
-        body,
-        author: { kind: 'run', runId },
-        ...(choices.length > 0 && { kind: 'question', choices }),
+      if (supersedes === undefined) {
+        return store.postComment({
+          taskId: task.id,
+          body,
+          author: { kind: 'run', runId },
+          ...(choices.length > 0 && { kind: 'question', choices }),
+        })
+      }
+      const old = store.getComment(supersedes)
+      if (!old || old.taskId !== task.id) {
+        throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+      }
+      if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
+      if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
+      if (!postedBy(old, task, runId)) {
+        throw new RequestError(403, 'a Run can supersede only its own requests')
+      }
+      return holding(task, async () => {
+        if (store.getComment(old.id)?.answer) {
+          throw new RequestError(409, 'that request has already been answered')
+        }
+        return store.supersedeComment(old.id, {
+          taskId: task.id,
+          kind: old.kind,
+          body,
+          author: { kind: 'run', runId },
+          ...(choices.length > 0 && { choices }),
+        })
       })
     },
 
@@ -1712,6 +1928,9 @@ export function createTasks(options: {
         if (current?.answer?.kind === 'withdrawn') {
           throw new RequestError(409, 'this request was withdrawn')
         }
+        if (current?.answer?.kind === 'superseded') {
+          throw new RequestError(409, 'this request was replaced by a newer one')
+        }
         if (current?.answer) throw new RequestError(409, 'this request has already been answered')
         const at = new Date().toISOString()
         if (request.action === 'request-changes') {
@@ -1793,6 +2012,12 @@ export function createTasks(options: {
       if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }
+      if (checking.has(task.id)) {
+        throw new RequestError(
+          409,
+          `TED is running ${task.displayId}’s Checks; wait for their results before reporting an outcome`,
+        )
+      }
       return holding(task, async () => {
         const current = find(task.id)
         const stage = current.stage as AgentStageId
@@ -1806,7 +2031,7 @@ export function createTasks(options: {
           })
           return {
             task: publicTask(task.id),
-            message: 'Asked the human. TED sends you their answer.',
+            message: `Asked the human (request ${request.id}). TED sends you their answer.`,
             request,
           }
         }
@@ -1890,6 +2115,71 @@ export function createTasks(options: {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
+    },
+
+    async runChecks(ref, caller, only) {
+      const { task } = ownTask(ref, caller)
+      if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
+        throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
+      }
+      if (checking.has(task.id)) {
+        throw new RequestError(409, `TED is already running ${task.displayId}’s Checks`)
+      }
+      checking.add(task.id)
+      try {
+        const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+        const listed = resolution.workflow.settings.stages.validate?.checks ?? []
+        if (
+          only !== undefined &&
+          only !== tedSettingsCheck &&
+          !listed.some((c) => c.name === only)
+        ) {
+          const names = listed.map((c) => c.name).join(', ')
+          throw new RequestError(
+            404,
+            listed.length === 0
+              ? 'this Factory has no Checks'
+              : `no Check named “${only}”; this Factory’s Checks are ${names}`,
+          )
+        }
+        const started = await beginChecks(find(task.id), resolution, 'agent', only)
+        if (!started) {
+          throw new RequestError(
+            409,
+            only === undefined ? 'this Factory has no Checks' : `no Check named “${only}” applies`,
+          )
+        }
+        inBackground(`run ${task.displayId}’s Checks`, () =>
+          started.done
+            .then(
+              () => undefined,
+              () => undefined,
+            )
+            .finally(() => checking.delete(task.id)),
+        )
+        return started.checkRun
+      } catch (error) {
+        checking.delete(task.id)
+        throw error
+      }
+    },
+
+    async checkRun(id, caller) {
+      const checkRun = store.getCheckRun(id)
+      if (!checkRun) throw new RequestError(404, `no Check run ${id}`)
+      if (caller.kind === 'run') ownTask(checkRun.taskId, caller)
+      return {
+        checkRun,
+        ...(checkRun.finishedAt !== undefined && { report: await report(checkRun) }),
+      }
+    },
+
+    async checkOutput(id, position) {
+      const checkRun = store.getCheckRun(id)
+      const check = checkRun?.checks[position]
+      if (!checkRun || !check) throw new RequestError(404, `no Check ${position} in run ${id}`)
+      const log = checkLog(find(checkRun.taskId), id, position)
+      return { text: await readOutput(log), log }
     },
 
     wake(factoryId) {

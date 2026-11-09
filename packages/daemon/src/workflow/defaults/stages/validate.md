@@ -2,19 +2,28 @@
 
 ## Goal
 
-Check that the work does what the Task asks and doesn’t break anything else.
+Find out whether the work does what the Task asks, without breaking anything else, with as much automated checking as possible. Pass means no blocking Findings.
+
+## Before you start
+
+If the Factory has Checks, TED has already run them, one after another, and their results are at the end of these instructions. If one had failed, TED would have sent the Task back to Work instead of handing you this Stage.
 
 ## Steps
 
-1. Run the repo’s tests, type checks and linters, the ones its `AGENTS.md`, `CLAUDE.md` or Factory notes name.
-2. Read the whole change against the Task and the approach from Design. Look for missing cases, broken behaviour and leftover debugging code.
-3. Fix what you find, commit the fixes, and run the checks again.
-4. Post a short note listing what you ran and what you found.
+1. Run the project’s tests, and its end-to-end tests where they exist, beyond what the Checks cover.
+2. Have the reviewer review the diff with no Work context: start a sub-agent with `ted run start`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings.
+3. Check the change against the Task’s description and the Design brief. Look for missing cases, broken behaviour and leftover debugging code.
+4. For UI changes, take screenshots of each changed screen, judge them against what was wanted, and list their paths in your note as evidence.
+5. Sort every Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
 
 ## Done when
 
-Every check passes, the change matches the Task, and the note is posted. Then report the outcome.
+There are no blocking Findings and the note is posted. Then report the outcome; the notes go into the Review brief.
+
+## Send back when
+
+There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`.
 
 ## Ask the human when
 
-A check fails for a reason outside this Task, or fixing a finding would change what the Task delivers.
+A check fails for a reason outside this Task, or fixing a Finding would change what the Task delivers.

@@ -43,7 +43,7 @@ import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { Stub } from './views/OtherViews.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
-import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
+import { TaskPanes } from './views/TaskThread.tsx'
 import { Board, factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
@@ -240,16 +240,15 @@ export function App() {
 
   function main() {
     const opened = task && (
-      <>
-        <TaskThread
-          task={task}
-          backLink={backLink(navigation)}
-          requestId={navigation.requestId}
-          onBack={() => dispatch({ type: 'close-task' })}
-          onOpenTask={openTaskByRef}
-        />
-        <TaskDetails task={task} tasks={tasks} factories={factories} />
-      </>
+      <TaskPanes
+        task={task}
+        tasks={tasks}
+        factories={factories}
+        backLink={backLink(navigation)}
+        requestId={navigation.requestId}
+        onBack={() => dispatch({ type: 'close-task' })}
+        onOpenTask={openTaskByRef}
+      />
     )
     const { screen } = navigation
     if (screen.kind === 'inbox') {

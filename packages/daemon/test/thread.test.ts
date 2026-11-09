@@ -328,7 +328,7 @@ describe('event lines', () => {
     }, 'the worktree to be removed')
     const back = lines.find((l) => l.tone === 'failure')
     expect(back).toMatchObject({
-      text: 'Work sent this back to Intake',
+      text: 'Work sent this back to Intake (round 1 of 3)',
       findings: '1. The empty query hangs.',
     })
     expect(lines.filter((l) => l.text === 'Task moved to Intake')).toHaveLength(1)

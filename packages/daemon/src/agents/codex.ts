@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { type RunState, tedVersion } from '@ted/protocol'
 import type { Agent, AuthCheck } from './agent.ts'
+import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
@@ -104,6 +105,7 @@ export function codexAgent(binary: string): Agent {
       }
     },
     message: (text) => JSON.stringify({ text }),
+    chat: codexChat,
     stateFrom(line) {
       const message = parse(line)
       if (typeof message?.method !== 'string') return undefined

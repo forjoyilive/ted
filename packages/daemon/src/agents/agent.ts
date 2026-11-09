@@ -1,4 +1,12 @@
-import type { AgentKind, Effort, RunProblem, RunState } from '@ted/protocol'
+import type {
+  AgentKind,
+  ChatDiff,
+  ChatToolStatus,
+  ConversationEntry,
+  Effort,
+  RunProblem,
+  RunState,
+} from '@ted/protocol'
 
 export interface AgentLaunch {
   command: string
@@ -31,6 +39,22 @@ export interface AgentHealthSpec {
   install: string
 }
 
+export type AgentChatEntry =
+  | { kind: 'user'; key: string; text: string; at?: string }
+  | { kind: 'agent'; key: string; text: string; done: boolean; at?: string }
+  | {
+      kind: 'tool'
+      key: string
+      tool: string
+      title: string
+      status: ChatToolStatus
+      detail?: string
+      output?: string
+      diffs?: ChatDiff[]
+      at?: string
+      endedAt?: string
+    }
+
 export interface Agent {
   kind: AgentKind
   binary: string
@@ -44,6 +68,7 @@ export interface Agent {
   }): AgentLaunch
   message(text: string): string
   stateFrom(line: string): RunState | undefined
+  chat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[]
   acceptedTextFrom(line: string): string | undefined
   agentTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined

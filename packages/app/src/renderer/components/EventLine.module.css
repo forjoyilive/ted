@@ -83,7 +83,9 @@
 }
 
 .findingsText {
+  max-height: 180px;
   margin: 0;
+  overflow-y: auto;
   color: var(--text-primary);
   font-size: var(--text-12-5);
   line-height: var(--leading-body);

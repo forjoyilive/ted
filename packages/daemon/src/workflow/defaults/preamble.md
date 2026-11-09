@@ -11,9 +11,11 @@ The Stage instructions use plain words. Do them with these `ted` commands, which
 - To report the outcome, finish the Stage or hand the Task on: `ted outcome advance`. Run it only when the Stage’s work is done. TED then moves the Task to its next Stage. When Clarify or Design has nothing to do, its Stage file tells you to run `ted outcome advance --skip`; a skipped Stage skips its Gate. No other Stage can skip itself.
 - To send the Task back to an earlier Stage: `ted outcome back --to <Stage> --findings <file>`, where the file lists what has to change. Each Stage may send back only a few times on its own; past that, TED asks the human instead.
 - To stop and ask the human instead of moving on: `ted outcome ask "<question>"`, with `--choice` buttons if they help.
+- If a question you asked is out of date before the human answers it: `ted ask --supersedes <request-id> "<new question>"`, with `--choice` buttons if they help. The ID is in what `ted comment --choice` or `ted outcome ask` printed. The old question leaves the human’s Inbox.
 - To write the Task brief: `ted brief write --file <file>`, or pipe it in. Write it at every Gate, and whenever where the Task stands changes a lot. It has these headings, in this order: `## Goal`, `## Decisions so far`, `## Current state` (branch, what’s done, Checks status), `## Open questions`, `## Next step`. `ted brief show` prints the latest one.
 - If another Task must merge before this one can go on: `ted task block --by <id>`, write the Task brief, and end your turn. TED stops your Run and starts a fresh one from the brief when that Task merges. `ted task unblock --by <id>` removes a blocker.
 - To check a change to TED’s settings in `.ted/` before you commit it: `ted workflow check`.
+- To run the Factory’s Checks (its tests, type checks and linters) before you hand off Work: `ted checks`, or `ted checks --name <Check>` for one. They run one after another and stop at the first failure; the results come back to you. When the Task enters Validate, TED runs them itself first and sends the Task back to Work if one fails.
 - To see every command: `ted help`.
 
 `ted` is already on your `PATH`. Work only inside the current folder, which is this Task’s own worktree on its own branch. Commit your work there, but don’t push; TED handles branches and pull requests.

@@ -1,6 +1,15 @@
-import type { AnswerRequest, Comment, Task } from '@ted/protocol'
+import type { AnswerRequest, Comment, CommentAnswer, Task } from '@ted/protocol'
 import { useState } from 'react'
-import { ago, briefSections, headline, kindLabels, poster, summary, useNow } from '../requests.ts'
+import {
+  age,
+  ago,
+  briefSections,
+  headline,
+  kindLabels,
+  poster,
+  summary,
+  useNow,
+} from '../requests.ts'
 import { ted } from '../ted.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
@@ -58,7 +67,15 @@ function Summary({ text }: { text: string }) {
   )
 }
 
-export function RequestCard({ request, task }: { request: Comment; task: Task }) {
+export function RequestCard({
+  request,
+  task,
+  readOnly = false,
+}: {
+  request: Comment
+  task: Task
+  readOnly?: boolean
+}) {
   const now = useNow()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -84,7 +101,10 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
     request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
 
   return (
-    <section className={styles.card} aria-label={kindLabels[request.kind]}>
+    <section
+      className={readOnly ? `${styles.card} ${styles.readOnly}` : styles.card}
+      aria-label={readOnly ? `${kindLabels[request.kind]}, read-only` : kindLabels[request.kind]}
+    >
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
       {request.gate ? (
@@ -99,7 +119,7 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
               key={choice}
               type="button"
               className={styles.choice}
-              disabled={sending}
+              disabled={sending || readOnly}
               onClick={() => void send({ action: 'answer', choice, ...withText })}
             >
               {choice}
@@ -107,80 +127,90 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
           ))}
         </div>
       )}
-      <textarea
-        className={styles.box}
-        aria-label="Your answer"
-        placeholder={
-          actionChoice !== undefined
-            ? 'Comment, or tell the Task Lead what to do next…'
-            : request.kind === 'question' && request.choices
-              ? 'Or write your own answer…'
-              : 'Comment to the Task Lead…'
-        }
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !typed) return
-          event.preventDefault()
-          void send(request.gate ? { action: 'request-changes', text } : { action: 'answer', text })
-        }}
-      />
-      {error !== undefined && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
+      {!readOnly && (
+        <>
+          <textarea
+            className={styles.box}
+            aria-label="Your answer"
+            placeholder={
+              actionChoice !== undefined
+                ? 'Comment, or tell the Task Lead what to do next…'
+                : request.kind === 'question' && request.choices
+                  ? 'Or write your own answer…'
+                  : 'Comment to the Task Lead…'
+            }
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !typed) return
+              event.preventDefault()
+              void send(
+                request.gate ? { action: 'request-changes', text } : { action: 'answer', text },
+              )
+            }}
+          />
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            {request.gate?.caption !== undefined && (
+              <span className={styles.caption}>{request.gate.caption}</span>
+            )}
+            {request.gate ? (
+              <>
+                <Button
+                  disabled={sending || !typed}
+                  onClick={() => void send({ action: 'request-changes', text })}
+                >
+                  Request changes
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={sending}
+                  onClick={() => void send({ action: 'approve', ...withText })}
+                >
+                  {request.gate.approveLabel}
+                </Button>
+              </>
+            ) : actionChoice !== undefined ? (
+              <>
+                <Button
+                  disabled={sending || !typed}
+                  onClick={() => void send({ action: 'answer', text })}
+                >
+                  Send
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={sending}
+                  onClick={() => void send({ action: 'answer', choice: actionChoice })}
+                >
+                  {actionChoice}
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant="primary"
+                disabled={sending || !typed}
+                onClick={() => void send({ action: 'answer', text })}
+              >
+                Send
+              </Button>
+            )}
+          </div>
+        </>
       )}
-      <div className={styles.buttons}>
-        {request.gate?.caption !== undefined && (
-          <span className={styles.caption}>{request.gate.caption}</span>
-        )}
-        {request.gate ? (
-          <>
-            <Button
-              disabled={sending || !typed}
-              onClick={() => void send({ action: 'request-changes', text })}
-            >
-              Request changes
-            </Button>
-            <Button
-              variant="primary"
-              disabled={sending}
-              onClick={() => void send({ action: 'approve', ...withText })}
-            >
-              {request.gate.approveLabel}
-            </Button>
-          </>
-        ) : actionChoice !== undefined ? (
-          <>
-            <Button
-              disabled={sending || !typed}
-              onClick={() => void send({ action: 'answer', text })}
-            >
-              Send
-            </Button>
-            <Button
-              variant="primary"
-              disabled={sending}
-              onClick={() => void send({ action: 'answer', choice: actionChoice })}
-            >
-              {actionChoice}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="primary"
-            disabled={sending || !typed}
-            onClick={() => void send({ action: 'answer', text })}
-          >
-            Send
-          </Button>
-        )}
-      </div>
     </section>
   )
 }
 
-function answerLine(request: Comment): { mark: string; tone: string; text: string } | undefined {
+function answerLine(
+  request: Comment,
+  newer: Comment | undefined,
+  task: Task,
+): { mark: string; tone: string; text: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
   switch (answer.kind) {
@@ -207,6 +237,14 @@ function answerLine(request: Comment): { mark: string; tone: string; text: strin
           request.stage !== undefined && isBefore(answer.movedTo, request.stage) ? 'back' : 'on'
         } to ${stageName(answer.movedTo)} before you answered`,
       }
+    case 'superseded': {
+      const by = newer ?? request
+      return {
+        mark: '↻',
+        tone: 'neutral',
+        text: `Superseded by a newer ${kindLabels[by.kind].toLowerCase()} from ${poster(by, task)}`,
+      }
+    }
   }
 }
 
@@ -226,13 +264,38 @@ function isBefore(a: string, b: string): boolean {
   return stageOrder.indexOf(a) < stageOrder.indexOf(b)
 }
 
-export function AnsweredCard({ request, task }: { request: Comment; task: Task }) {
+const outcomes: Partial<Record<CommentAnswer['kind'], string>> = {
+  withdrawn: 'withdrawn',
+  superseded: 'superseded',
+}
+
+export function AnsweredCard({
+  request,
+  task,
+  newer,
+}: {
+  request: Comment
+  task: Task
+  newer?: Comment | undefined
+}) {
   const now = useNow()
-  const line = answerLine(request)
+  const [showing, setShowing] = useState(false)
+  const line = answerLine(request, newer, task)
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
+  const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
   return (
-    <section className={styles.answered} aria-label={`${kindLabels[request.kind]}, answered`}>
-      <CardHead request={request} task={task} now={now} />
+    <section className={styles.answered} aria-label={`${kindLabels[request.kind]}, ${outcome}`}>
+      <div className={styles.answeredHead}>
+        <CardHead request={request} task={task} now={now} />
+        <button
+          type="button"
+          className={styles.showRequest}
+          aria-expanded={showing}
+          onClick={() => setShowing(!showing)}
+        >
+          {showing ? 'Hide request' : 'Show request'}
+        </button>
+      </div>
       <p className={styles.answeredTitle}>{headline(request)}</p>
       {line && request.answer && (
         <div className={styles.answerLine}>
@@ -244,16 +307,66 @@ export function AnsweredCard({ request, task }: { request: Comment; task: Task }
         </div>
       )}
       {quoted !== undefined && quoted !== '' && <p className={styles.quote}>“{quoted}”</p>}
+      {showing && <RequestCard request={request} task={task} readOnly />}
     </section>
   )
 }
 
-export function OpenRequestLine({ request, onPin }: { request: Comment; onPin: () => void }) {
+export function OpenRequestLine({
+  request,
+  task,
+  pinned,
+  others,
+  onPin,
+}: {
+  request: Comment
+  task: Task
+  pinned: boolean
+  others: number
+  onPin: () => void
+}) {
+  const now = useNow()
   return (
     <button type="button" className={styles.openLine} onClick={onPin}>
-      <span className={styles.kind}>{kindLabels[request.kind]}</span>
-      <span className={styles.openTitle}>{headline(request)}</span>
-      <span className={styles.openHint}>Waiting on you</span>
+      <span className={styles.openDot} aria-hidden />
+      <span className={styles.openTitle}>
+        {`${kindLabels[request.kind]} from ${poster(request, task)} · waiting · ${
+          pinned ? 'shown below' : `${others} more below`
+        }`}
+      </span>
+      <span className={styles.openAge}>{ago(request.createdAt, now)}</span>
     </button>
+  )
+}
+
+export function WaitingRow({
+  requests,
+  pinnedId,
+  onPin,
+}: {
+  requests: readonly Comment[]
+  pinnedId: string | undefined
+  onPin: (id: string) => void
+}) {
+  const now = useNow()
+  const label = `${requests.length} waiting on you`
+  return (
+    <fieldset className={styles.waitingRow} aria-label={label}>
+      <span className={styles.waitingCount}>{label}</span>
+      <div className={styles.chips}>
+        {requests.map((request) => (
+          <button
+            key={request.id}
+            type="button"
+            className={styles.chip}
+            aria-pressed={request.id === pinnedId}
+            title={headline(request)}
+            onClick={() => onPin(request.id)}
+          >
+            {`${kindLabels[request.kind]} · ${age(request.createdAt, now)}`}
+          </button>
+        ))}
+      </div>
+    </fieldset>
   )
 }

@@ -169,3 +169,29 @@ export async function deleteBranch(repo: string, branch: string): Promise<void> 
 export async function removeWorktree(repo: string, worktree: string): Promise<void> {
   await git(repo, 'worktree', 'remove', '--force', worktree)
 }
+
+const noHooks = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=']
+
+export async function changedFiles(worktree: string, base: string): Promise<string[]> {
+  const mergeBase = await git(worktree, ...noHooks, 'merge-base', 'HEAD', base)
+  const changed = await git(
+    worktree,
+    ...noHooks,
+    'diff',
+    '--no-ext-diff',
+    '--no-textconv',
+    '--name-only',
+    '-z',
+    mergeBase,
+    '--',
+  )
+  const untracked = await git(
+    worktree,
+    ...noHooks,
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+    '-z',
+  )
+  return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
+}
