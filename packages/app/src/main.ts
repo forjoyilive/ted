@@ -99,6 +99,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
+  listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
+  checkOutput: (client, checkRunId, position) =>
+    client.checkOutput(String(checkRunId), Number(position)),
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),

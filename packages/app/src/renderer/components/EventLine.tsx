@@ -38,8 +38,8 @@ export function EventLine({
 
 export function Findings({ text }: { text: string }) {
   return (
-    <section className={styles.findings} aria-label="Findings">
-      <h3 className={styles.findingsHeading}>Findings</h3>
+    <section className={styles.findings} aria-label="Blocking findings">
+      <h3 className={styles.findingsHeading}>Blocking findings</h3>
       <p className={styles.findingsText}>{text}</p>
     </section>
   )

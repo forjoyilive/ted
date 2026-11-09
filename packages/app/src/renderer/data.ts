@@ -2,6 +2,7 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   Banner,
+  CheckRun,
   Comment,
   DataStatus,
   Factory,
@@ -127,6 +128,20 @@ export function useComments(taskId: string): Comment[] {
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
+
+export function useCheckRuns(taskId: string): CheckRun[] {
+  const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
+  const pick = useCallback(
+    (event: TedEvent) =>
+      event.type === 'check-run-updated' && event.checkRun.taskId === taskId
+        ? event.checkRun
+        : undefined,
+    [taskId],
+  )
+  return useLive(load, pick, byStartedAt)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {

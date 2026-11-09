@@ -206,7 +206,40 @@ export const sendBacks = State.SQLite.table({
     toStage: State.SQLite.text(),
     findings: State.SQLite.text(),
     counted: State.SQLite.boolean(),
+    round: State.SQLite.integer({ nullable: true }),
+    limit: State.SQLite.integer({ nullable: true }),
+    checkRunId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
+  },
+})
+
+export const checkRuns = State.SQLite.table({
+  name: 'checkRuns',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    trigger: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    startedAt: State.SQLite.text(),
+    finishedAt: State.SQLite.text({ nullable: true }),
+    outcome: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const checkResults = State.SQLite.table({
+  name: 'checkResults',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    checkRunId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    name: State.SQLite.text(),
+    repo: State.SQLite.text({ nullable: true }),
+    command: State.SQLite.text(),
+    timeout: State.SQLite.text(),
+    builtIn: State.SQLite.text({ nullable: true }),
+    state: State.SQLite.text(),
+    exitCode: State.SQLite.integer({ nullable: true }),
+    durationMs: State.SQLite.integer({ nullable: true }),
   },
 })
 
@@ -561,6 +594,64 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskSentBackV2: Events.synced({
+    name: 'v2.TaskSentBack',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      counted: Schema.Boolean,
+      round: Schema.NullOr(Schema.Number),
+      limit: Schema.NullOr(Schema.Number),
+      checkRunId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  checksStarted: Events.synced({
+    name: 'v1.ChecksStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.String,
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  checkStarted: Events.synced({
+    name: 'v1.CheckStarted',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  checkFinished: Events.synced({
+    name: 'v1.CheckFinished',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      state: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      durationMs: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  checksFinished: Events.synced({
+    name: 'v1.ChecksFinished',
+    schema: Schema.Struct({ checkRunId: Schema.String, outcome: Schema.String, at: Schema.String }),
+  }),
   sendBackCountReset: Events.synced({
     name: 'v1.SendBackCountReset',
     schema: Schema.Struct({
@@ -853,6 +944,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
+  'v2.TaskSentBack': (args) =>
+    task(args, {
+      from: args.from,
+      to: args.to,
+      findings: args.findings,
+      round: args.round,
+      limit: args.limit,
+      checkRunId: args.checkRunId,
+    }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v1.TaskLeadSet': (args) =>
@@ -1000,6 +1100,30 @@ const materializers = counted(
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
         sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+      'v2.TaskSentBack': ({ from, to, ...row }) =>
+        sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+      'v1.ChecksStarted': ({ checks, at, ...run }) => [
+        checkRuns.insert({ ...run, startedAt: at }),
+        ...checks.map((check, position) =>
+          checkResults.insert({
+            ...check,
+            id: `${run.id}:${position}`,
+            checkRunId: run.id,
+            position,
+          }),
+        ),
+      ],
+      'v1.CheckStarted': ({ checkRunId, position }) =>
+        checkResults.update({ state: 'running' }).where({ id: `${checkRunId}:${position}` }),
+      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs }) =>
+        checkResults
+          .update({ state, exitCode, durationMs })
+          .where({ id: `${checkRunId}:${position}` }),
+      'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
+        checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),
+        checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'waiting' }),
+        checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
+      ],
       'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
       'v1.RunStarted': (run) =>
         runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
@@ -1134,6 +1258,8 @@ const state = State.SQLite.makeState({
     taskBriefs,
     sendBacks,
     sendBackResets,
+    checkRuns,
+    checkResults,
     stageEntries,
     workflowLayers,
     taskRepos,

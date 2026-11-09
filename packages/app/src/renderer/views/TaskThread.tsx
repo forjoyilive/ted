@@ -1,5 +1,6 @@
 import type {
   AgentStageId,
+  CheckRun,
   Comment,
   ConversationTab,
   Factory,
@@ -12,6 +13,8 @@ import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
+import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import {
@@ -23,10 +26,17 @@ import {
 import { RunChat, runMeta } from '../components/RunChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
-import { useComments, useStageEntries, useTaskRuns, useThreadEvents } from '../data.ts'
+import {
+  useCheckRuns,
+  useComments,
+  useStageEntries,
+  useTaskRuns,
+  useThreadEvents,
+} from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { CheckRunLine } from './CheckEvents.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -68,12 +78,19 @@ function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
 type ThreadItem =
   | { kind: 'comment'; comment: Comment; createdAt: string }
   | { kind: 'event'; event: ThreadEvent; createdAt: string }
+  | { kind: 'check-run'; checkRun: CheckRun; createdAt: string }
+
+type OpenOutput = (checkRun: CheckRun, position: number) => void
 
 function EventRow({
   event,
+  checkRun,
+  onOpenOutput,
   onOpenRun,
 }: {
   event: ThreadEvent
+  checkRun: CheckRun | undefined
+  onOpenOutput: OpenOutput
   onOpenRun: (runId: string) => void
 }) {
   const { runId } = event
@@ -90,6 +107,12 @@ function EventRow({
         )
       }
     >
+      {checkRun && (
+        <ChecksRow
+          checks={checkRun.checks}
+          onOpen={(position) => onOpenOutput(checkRun, position)}
+        />
+      )}
       {event.findings !== undefined && <Findings text={event.findings} />}
     </EventLine>
   )
@@ -226,6 +249,10 @@ export function TaskThread({
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
+  const checkRuns = useCheckRuns(task.id)
+  const [output, setOutput] = useState<{ checkRun: CheckRun; position: number }>()
+  const openOutput: OpenOutput = (checkRun, position) => setOutput({ checkRun, position })
+  const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
   const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
@@ -237,6 +264,9 @@ export function TaskThread({
       createdAt: comment.createdAt,
     })),
     ...events.map((event) => ({ kind: 'event' as const, event, createdAt: event.at })),
+    ...checkRuns
+      .filter((checkRun) => !sentBackRuns.has(checkRun.id))
+      .map((checkRun) => ({ kind: 'check-run' as const, checkRun, createdAt: checkRun.startedAt })),
   ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const shown = inStage(items, entries, stage)
   const unread = comments.some((c) => c.author.kind !== 'human' && c.readAt === undefined)
@@ -310,7 +340,25 @@ export function TaskThread({
           <ol className={styles.thread}>
             {shown.map((item) => {
               if (item.kind === 'event') {
-                return <EventRow key={item.event.id} event={item.event} onOpenRun={onOpenRun} />
+                const { event } = item
+                return (
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
+                    onOpenOutput={openOutput}
+                    onOpenRun={onOpenRun}
+                  />
+                )
+              }
+              if (item.kind === 'check-run') {
+                return (
+                  <CheckRunLine
+                    key={item.checkRun.id}
+                    checkRun={item.checkRun}
+                    onOpenOutput={openOutput}
+                  />
+                )
               }
               const { comment } = item
               if (comment.kind === 'note' && comment.author.kind === 'ted') {
@@ -362,6 +410,13 @@ export function TaskThread({
             </div>
           )}
         </>
+      )}
+      {output && (
+        <CheckOutputDialog
+          checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
+          position={output.position}
+          onClose={() => setOutput(undefined)}
+        />
       )}
     </section>
   )

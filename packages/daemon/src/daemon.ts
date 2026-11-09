@@ -197,6 +197,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
         logsDir: paths.logs,
+        libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })

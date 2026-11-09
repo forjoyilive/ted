@@ -246,6 +246,7 @@ export interface ThreadEvent {
   text: string
   findings?: string
   runId?: string
+  checkRunId?: string
 }
 
 export interface InboxItem {

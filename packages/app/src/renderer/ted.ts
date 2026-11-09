@@ -7,7 +7,9 @@ import type {
   BackupsSummary,
   Banner,
   BannerActionInput,
+  CheckOutput,
   CheckRepoRequest,
+  CheckRun,
   CommandLineStatus,
   Comment,
   CreateFactoryRequest,
@@ -93,6 +95,10 @@ export const ted = {
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
+  listCheckRuns: (taskId: string) =>
+    window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
+  checkOutput: (checkRunId: string, position: number) =>
+    window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
