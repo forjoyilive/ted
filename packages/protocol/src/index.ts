@@ -92,6 +92,18 @@ export {
 } from './settings.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
+  diskFullHold,
+  diskLimits,
+  formatBytes,
+  type RemoveClonesResult,
+  type StorageCategory,
+  type StorageCategoryId,
+  type StorageSummary,
+  type StoredBackup,
+  storageCategories,
+  type WorktreeUse,
+} from './storage.ts'
+export {
   type AgentStageId,
   type AnswerRequest,
   type Attachment,

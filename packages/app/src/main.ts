@@ -25,6 +25,7 @@ import {
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
+  tedPaths,
   tedVersion,
 } from '@ted/protocol'
 import {
@@ -59,6 +60,8 @@ import {
 } from './background.ts'
 import { nextReturn } from './renderer/banners.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
+
+const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
@@ -118,6 +121,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     const home = homedir()
     const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
     return { path: `${shown}${path.sep}`, platform: process.platform }
+  },
+  getStorage: (client) => client.getStorage(),
+  removeUnusedClones: (client) => client.removeUnusedClones(),
+  showBackupInFolder: async (_, name) => {
+    const backup = String(name)
+    if (!backupName.test(backup)) throw new Error('no such backup')
+    shell.showItemInFolder(path.join(tedPaths(tedHome()).backups, backup))
   },
   showTedFolder: async () => {
     const error = await shell.openPath(tedHome())

@@ -15,6 +15,7 @@ import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrat
 import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
+import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
   Attachment,
@@ -241,6 +242,14 @@ export class DaemonClient {
 
   getDataStatus(): Promise<DataStatus> {
     return this.#request('GET', '/data-status')
+  }
+
+  getStorage(): Promise<StorageSummary> {
+    return this.#request('GET', '/storage')
+  }
+
+  removeUnusedClones(): Promise<RemoveClonesResult> {
+    return this.#request('POST', '/storage/remove-clones')
   }
 
   listBackups(): Promise<BackupsSummary> {

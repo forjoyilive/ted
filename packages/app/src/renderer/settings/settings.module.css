@@ -126,6 +126,13 @@
   line-height: 1.45;
 }
 
+.pageSubtitle {
+  margin: 4px 0 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-13-5);
+  line-height: 1.45;
+}
+
 .notBuilt {
   margin: 0;
   color: var(--text-tertiary);

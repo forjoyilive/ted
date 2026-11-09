@@ -42,6 +42,7 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
+import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
@@ -244,6 +245,9 @@ export interface TedStore {
   heldRuns(): HeldRun[]
   pausedRunCount(agent: AgentKind): number
   exportEventlog(): { fileName: string; data: Uint8Array }
+  holdNewWork(reason: string | undefined): void
+  newWorkHold(): string | undefined
+  onWriteResult(listener: (error?: unknown) => void): () => void
   close(): Promise<void>
 }
 
@@ -279,6 +283,29 @@ export async function openStore({
     })
     .finally(() => countMaterialized(undefined))
   const eventlogName = path.basename((await eventlogFile(directory)) ?? 'eventlog.db')
+
+  const writeListeners = new Set<(error?: unknown) => void>()
+  let writeFailing = false
+  let newWorkHeld: string | undefined
+  const tellWriters = (error?: unknown) => {
+    for (const listener of writeListeners) listener(error)
+  }
+  const commit = ((...args: unknown[]) => {
+    try {
+      const result = (store.commit as (...a: unknown[]) => unknown)(...args)
+      if (writeFailing) {
+        writeFailing = false
+        tellWriters()
+      }
+      return result
+    } catch (error) {
+      if (isDiskFullError(error)) {
+        writeFailing = true
+        tellWriters(error)
+      }
+      throw error
+    }
+  }) as typeof store.commit
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
@@ -395,7 +422,7 @@ export async function openStore({
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const facts: TaskFacts = {
       stage,
-      ...(place > 0 && { queue: { place } }),
+      ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).length,
       ...(pausedReason !== undefined && { paused: pausedReason }),
@@ -627,7 +654,7 @@ export async function openStore({
   return {
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
-      store.commit(events.factoryAdded(row))
+      commit(events.factoryAdded(row))
       const { cloneUrl: _, ...factory } = row
       emit({ type: 'factory-added', factory })
       return row
@@ -649,7 +676,7 @@ export async function openStore({
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
-      store.commit(
+      commit(
         events.taskCreatedV2({
           id,
           factoryId,
@@ -683,7 +710,7 @@ export async function openStore({
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
       const queued = queue().some((q) => q.id === taskId)
-      store.commit(
+      commit(
         ...(queued ? [events.taskDequeued({ taskId, at })] : []),
         events.taskStarted({ taskId, stage, branch, worktree, at }),
         events.taskWorktreeCreated({ taskId, ...repo, branch, worktree, at }),
@@ -695,20 +722,20 @@ export async function openStore({
     },
     queueTask(taskId, stage) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
-      store.commit(events.taskQueued({ taskId, stage, rank, at: new Date().toISOString() }))
+      commit(events.taskQueued({ taskId, stage, rank, at: new Date().toISOString() }))
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
     moveToBacklog(taskId) {
-      store.commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
+      commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
     queue,
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
-      store.commit(
+      commit(
         events.taskWorktreeSetupStarted({
           taskId,
           name,
@@ -731,7 +758,7 @@ export async function openStore({
       }
     },
     worktreeSetupFinished(taskId, name, { outcome, exitCode }) {
-      store.commit(
+      commit(
         events.taskWorktreeSetupFinished({
           taskId,
           name,
@@ -743,7 +770,7 @@ export async function openStore({
       updatedTask(taskId)
     },
     worktreeRemoved(taskId, name, teardown) {
-      store.commit(
+      commit(
         events.taskWorktreeRemoved({
           taskId,
           name,
@@ -755,7 +782,7 @@ export async function openStore({
       updatedTask(taskId)
     },
     setLocalFolder(repo, path) {
-      store.commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+      commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
@@ -764,7 +791,7 @@ export async function openStore({
         (row) => row.gate !== null && row.stage !== stage,
       )
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
-      store.commit(
+      commit(
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
         ...withdrawn.map(({ id }) =>
@@ -785,7 +812,7 @@ export async function openStore({
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
     acceptWorkflowLayer(layer, { files, version }) {
-      store.commit(
+      commit(
         events.workflowLayerAccepted({
           layer,
           files: JSON.stringify(files),
@@ -805,7 +832,7 @@ export async function openStore({
       )
     },
     setTaskLead(taskId, { agent, model, effort }) {
-      store.commit(
+      commit(
         events.taskLeadSet({
           taskId,
           agent,
@@ -817,7 +844,7 @@ export async function openStore({
       return updatedTask(taskId)
     },
     setActivity(taskId, text, runId) {
-      store.commit(
+      commit(
         events.taskActivitySet({
           taskId,
           text,
@@ -830,7 +857,7 @@ export async function openStore({
     },
     postComment({ taskId, body, author, kind = 'note', title, choices, gate }) {
       const id = randomUUID()
-      store.commit(
+      commit(
         events.commentPostedV2({
           id,
           taskId,
@@ -854,7 +881,7 @@ export async function openStore({
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
     getComment,
     answerComment(id, answer) {
-      store.commit(events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
+      commit(events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
       const comment = emitComment(id)
       updatedTask(comment.taskId)
       return comment
@@ -865,7 +892,7 @@ export async function openStore({
       if (!row) throw new Error(`no Task ${taskId}`)
       const version = (briefRows(taskId).at(-1)?.version ?? 0) + 1
       const id = randomUUID()
-      store.commit(
+      commit(
         events.taskBriefWritten({
           id,
           taskId,
@@ -885,7 +912,7 @@ export async function openStore({
       return row && toBrief(row)
     },
     recordSendBack({ taskId, from, to, findings, counted }) {
-      store.commit(
+      commit(
         events.taskSentBack({
           id: randomUUID(),
           taskId,
@@ -898,7 +925,7 @@ export async function openStore({
       )
     },
     resetSendBacks(taskId, stage) {
-      store.commit(
+      commit(
         events.sendBackCountReset({
           id: randomUUID(),
           taskId,
@@ -928,7 +955,7 @@ export async function openStore({
         effort: effort ?? null,
         startedAt: new Date().toISOString(),
       }
-      store.commit(events.runStartedV3(row))
+      commit(events.runStartedV3(row))
       const run = toRun({
         ...row,
         usesDefaultModel: false,
@@ -949,7 +976,7 @@ export async function openStore({
       const holding = (current.problem !== null || newProblem) && state === 'idle'
       const target = holding ? 'waiting' : state
       const stateChanged = target !== undefined && target !== current.state
-      store.commit(
+      commit(
         events.runOutputRead({ runId, toOffset, entries }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
@@ -968,7 +995,7 @@ export async function openStore({
       if (stateChanged) noteActivity()
     },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
-      store.commit(
+      commit(
         events.runRestarted({
           runId,
           model: model ?? null,
@@ -1007,7 +1034,7 @@ export async function openStore({
         ),
       )
       if (Object.keys(changed).length > 0) {
-        store.commit(
+        commit(
           events.machineSettingsChanged({
             changes: JSON.stringify(changed),
             at: new Date().toISOString(),
@@ -1028,7 +1055,7 @@ export async function openStore({
       ) {
         return toBanner(current)
       }
-      store.commit(
+      commit(
         events.bannerRaised({
           id,
           problem,
@@ -1045,14 +1072,14 @@ export async function openStore({
     },
     dismissBanner(id, until) {
       if (!bannerRow(id)) return undefined
-      store.commit(events.bannerDismissed({ id, until, at: new Date().toISOString() }))
+      commit(events.bannerDismissed({ id, until, at: new Date().toISOString() }))
       const banner = requireBanner(id)
       emit({ type: 'banner-updated', banner })
       return banner
     },
     clearBanner(id) {
       if (!bannerRow(id)) return
-      store.commit(events.bannerCleared({ id, at: new Date().toISOString() }))
+      commit(events.bannerCleared({ id, at: new Date().toISOString() }))
       emit({ type: 'banner-cleared', id })
     },
     getBanner,
@@ -1061,7 +1088,7 @@ export async function openStore({
       const current = pauses()[agent]
       if (current === reason) return
       const at = new Date().toISOString()
-      store.commit(
+      commit(
         reason === undefined
           ? events.agentResumed({ agent, at })
           : events.agentPaused({ agent, reason, at }),
@@ -1084,7 +1111,7 @@ export async function openStore({
       if (current && current.agent === agent && (current.sessionId ?? undefined) === sessionId) {
         return
       }
-      store.commit(
+      commit(
         events.taskRunHeld({
           taskId,
           agent,
@@ -1097,7 +1124,7 @@ export async function openStore({
     },
     releaseTaskRun(taskId) {
       if (!heldRow(taskId)) return
-      store.commit(events.taskRunReleased({ taskId, at: new Date().toISOString() }))
+      commit(events.taskRunReleased({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
       noteActivity()
     },
@@ -1114,6 +1141,16 @@ export async function openStore({
       fileName: eventlogName,
       data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),
     }),
+    holdNewWork(reason) {
+      if (reason === newWorkHeld) return
+      newWorkHeld = reason
+      updatedQueue()
+    },
+    newWorkHold: () => newWorkHeld,
+    onWriteResult(listener) {
+      writeListeners.add(listener)
+      return () => writeListeners.delete(listener)
+    },
     close: () => store.shutdownPromise(),
   }
 }

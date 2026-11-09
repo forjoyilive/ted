@@ -10,6 +10,9 @@ export default defineConfig({
         new URL('./packages/daemon/test/fixtures/stub-gh.ts', import.meta.url),
       ),
       TED_LOGIN_SHELL: 'off',
+      TED_FREE_BYTES_FILE: fileURLToPath(
+        new URL('./packages/daemon/test/fixtures/free-bytes.txt', import.meta.url),
+      ),
     },
   },
 })

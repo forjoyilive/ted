@@ -3,6 +3,8 @@ import {
   type BannerRef,
   bannerDismissMs,
   bannerId,
+  bannerOrder,
+  type DaemonEvent,
   type RaiseBanner,
 } from '@ted/protocol'
 import { RequestError } from './errors.ts'
@@ -12,6 +14,7 @@ export type BannerHandler = (banner: Banner) => Promise<void>
 
 export interface Banners {
   raise(problem: RaiseBanner): Banner
+  raiseUnsaved(problem: RaiseBanner): Banner
   clear(ref: BannerRef): void
   list(): Banner[]
   dismiss(id: string): Banner
@@ -19,11 +22,18 @@ export interface Banners {
   onAction(problem: string, handler: BannerHandler): void
 }
 
-export function createBanners({ store }: { store: TedStore }): Banners {
+export function createBanners({
+  store,
+  emit = () => undefined,
+}: {
+  store: TedStore
+  emit?: (event: DaemonEvent) => void
+}): Banners {
   const handlers = new Map<string, BannerHandler>()
+  const unsaved = new Map<string, Banner>()
 
   function find(id: string): Banner {
-    const banner = store.getBanner(id)
+    const banner = unsaved.get(id) ?? store.getBanner(id)
     if (!banner) throw new RequestError(404, 'no such banner')
     return banner
   }
@@ -33,10 +43,27 @@ export function createBanners({ store }: { store: TedStore }): Banners {
       const { subject: _, ...banner } = input
       return store.raiseBanner({ ...banner, id: bannerId(input) })
     },
-    clear(ref) {
-      store.clearBanner(bannerId(ref))
+    raiseUnsaved(input) {
+      const { subject: _, factoryId, action, ...rest } = input
+      const id = bannerId(input)
+      const current = unsaved.get(id)
+      const banner: Banner = {
+        ...rest,
+        id,
+        ...(factoryId !== undefined && { factoryId }),
+        ...(action !== undefined && { action }),
+        raisedAt: current?.raisedAt ?? new Date().toISOString(),
+      }
+      unsaved.set(id, banner)
+      emit({ type: current ? 'banner-updated' : 'banner-raised', banner })
+      return banner
     },
-    list: () => store.listBanners(),
+    clear(ref) {
+      const id = bannerId(ref)
+      if (unsaved.delete(id)) emit({ type: 'banner-cleared', id })
+      else store.clearBanner(id)
+    },
+    list: () => [...store.listBanners(), ...unsaved.values()].sort(bannerOrder),
     dismiss(id) {
       if (find(id).severity === 'stops-work') {
         throw new RequestError(409, 'a problem that stops work can’t be dismissed')

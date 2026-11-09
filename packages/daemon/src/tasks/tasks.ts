@@ -74,6 +74,7 @@ export interface Tasks {
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
   slots(): Promise<RunSlots>
+  wake(): void
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(ref: string, caller: Caller, input: { body: string; choices?: string[] }): Comment
   setActivity(ref: string, caller: Caller, text: string): Task
@@ -201,6 +202,7 @@ export function createTasks(options: {
   }
 
   async function fill(): Promise<void> {
+    if (store.newWorkHold() !== undefined) return
     const held = heldReady()
     const queued = runnable(store.queue())
     if (queued.length === 0 && held.length === 0) return
@@ -1008,6 +1010,7 @@ export function createTasks(options: {
     },
 
     slots,
+    wake: () => void pump(),
 
     subscribe(listener) {
       listeners.add(listener)

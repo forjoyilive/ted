@@ -1,19 +1,22 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
+import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { ensureClone } from './factories.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { acquireLock } from './lock.ts'
+import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
+import { createStorage } from './storage.ts'
 import { createTasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
@@ -31,6 +34,14 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   onShutdown?: () => void
+  disk?: DaemonDiskOptions
+}
+
+export interface DaemonDiskOptions {
+  freeBytes?: () => Promise<number>
+  checkEveryMs?: number
+  volumeName?: () => Promise<string>
+  excludeFromBackups?: (dirs: string[]) => Promise<void>
 }
 
 export interface DaemonIntegrationsOptions {
@@ -46,6 +57,12 @@ export interface DaemonIntegrationsOptions {
 export interface RunningDaemon {
   port: number
   stop(): Promise<void>
+}
+
+const pruneEveryMs = 6 * 60 * 60 * 1000
+
+async function readFakeFree(file: string): Promise<number> {
+  return Number(await readFile(file, 'utf8'))
 }
 
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
@@ -81,7 +98,26 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         env: environment.current,
         ...(idle && { idle }),
       })
-      const banners = createBanners({ store })
+      const banners = createBanners({ store, emit })
+      const diskOptions = options.disk ?? {}
+      const fakeFree = process.env.TED_FREE_BYTES_FILE
+      let wake: () => void = () => undefined
+      const disk = createDiskWatch({
+        storeDir: paths.store,
+        banners,
+        hold(reason) {
+          store.holdNewWork(reason)
+          if (reason === undefined) wake()
+        },
+        freeBytes:
+          diskOptions.freeBytes ??
+          (fakeFree ? () => readFakeFree(fakeFree) : () => freeBytesAt(paths.home)),
+        checkEveryMs: diskOptions.checkEveryMs ?? (fakeFree ? 1000 : 60_000),
+      })
+      const stopWatchingWrites = store.onWriteResult((error) =>
+        error === undefined ? disk.writeSucceeded() : disk.writeFailed(),
+      )
+      await disk.check()
       const health = createAgentHealth({
         agents,
         environment,
@@ -132,6 +168,32 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         logsDir: paths.logs,
         ...(idle && { idle }),
       })
+      wake = () => tasks.wake()
+      disk.start()
+      const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
+      Promise.all(backupless.map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })))
+        .then(() => (diskOptions.excludeFromBackups ?? excludeFromTimeMachine)(backupless))
+        .catch((error: unknown) =>
+          console.error('couldn’t exclude folders from Time Machine:', error),
+        )
+      const prune = () =>
+        pruneRunOutput({
+          runsDir: paths.runs,
+          isLive: (runId) => {
+            const run = store.getRun(runId)
+            return run !== undefined && run.state !== 'finished'
+          },
+        }).catch((error: unknown) => console.error('pruning Run output failed:', error))
+      void prune()
+      const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
+      pruneTimer.unref()
+      const storage = createStorage({
+        home: paths.home,
+        store,
+        disk,
+        data,
+        volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
+      })
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
@@ -142,7 +204,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         workflows,
         health,
         integrations,
+        disk,
+        storage,
         async close() {
+          disk.close()
+          clearInterval(pruneTimer)
+          stopWatchingWrites()
           health.close()
           integrations.close()
           await tasks.close()
