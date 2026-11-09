@@ -13,13 +13,19 @@ import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { TedStore } from '../store/index.ts'
+import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import type { RunManager } from './run-manager.ts'
+import { createSteering } from './steering.ts'
 
 export interface Conversations {
   chat(runId: string): Promise<RunChat>
   taskRuns(ref: string): RunSummary[]
-  send(runId: string, text: string): Promise<RunMessage>
+  send(runId: string, text: string, options?: { interrupt?: boolean }): Promise<RunMessage>
+  stopTurn(runId: string): Promise<RunSummary>
+  sendNow(runId: string, messageId: string): Promise<RunMessage>
+  deleteMessage(runId: string, messageId: string): RunMessage
+  boundary(runId: string, caller: Caller): Promise<{ delivered: number }>
   restart(runId: string): Promise<RunSummary>
   stop(runId: string): Promise<RunSummary>
   openTab(ref: string, runId: string): Task
@@ -49,31 +55,40 @@ function titleOf(text: string): string {
   return first.replace(/^#+\s*/, '').slice(0, 120)
 }
 
-export function withPermissions(items: ChatItem[], requests: readonly Comment[]): ChatItem[] {
+function mergeByTime(items: ChatItem[], extra: readonly (ChatItem & { at: string })[]): ChatItem[] {
   const merged = [...items]
-  for (const request of requests) {
-    const at = Date.parse(request.createdAt)
-    const after = merged.findLastIndex((item) => {
-      const when = 'at' in item && item.at !== undefined ? Date.parse(item.at) : undefined
+  for (const item of extra) {
+    const at = Date.parse(item.at)
+    const after = merged.findLastIndex((other) => {
+      if (other.kind === 'human' && other.queued === true) return false
+      const when = 'at' in other && other.at !== undefined ? Date.parse(other.at) : undefined
       return when === undefined || when <= at
     })
-    merged.splice(after + 1, 0, {
+    merged.splice(after + 1, 0, item)
+  }
+  return merged
+}
+
+export function withPermissions(items: ChatItem[], requests: readonly Comment[]): ChatItem[] {
+  return mergeByTime(
+    items,
+    requests.map((request) => ({
       kind: 'permission',
       id: request.id,
       request,
       at: request.createdAt,
-    })
-  }
-  return merged
+    })),
+  )
 }
 
 export function chatItems(input: {
   run: Run
   entries: AgentChatEntry[]
   messages: readonly RunMessage[]
+  interrupts?: readonly { id: string; at: string }[]
   preamble: string
 }): ChatItem[] {
-  const { run, entries, messages, preamble } = input
+  const { run, entries, messages, interrupts = [], preamble } = input
   const items: ChatItem[] = []
   const { instructions, rest } = splitPrompt(run.prompt, preamble)
   if (instructions !== undefined) {
@@ -94,7 +109,8 @@ export function chatItems(input: {
       at: run.startedAt,
     })
   }
-  const unmatched = [...messages]
+  const unmatched = messages.filter((m) => m.queued !== true)
+  const waiting = messages.filter((m) => m.queued === true)
   let promptSeen = run.prompt === ''
   for (const entry of entries) {
     if (entry.kind === 'user') {
@@ -131,20 +147,44 @@ export function chatItems(input: {
       })
     } else {
       const { key, kind: _, ...tool } = entry
+      const stopped =
+        tool.status !== 'done' &&
+        tool.at !== undefined &&
+        interrupts.some(
+          (i) => i.at >= (tool.at ?? '') && (tool.endedAt === undefined || tool.endedAt >= i.at),
+        )
       items.push({
         kind: 'tool',
         id: key,
         ...tool,
-        status: tool.status === 'running' && run.state !== 'working' ? 'done' : tool.status,
+        status: stopped
+          ? 'stopped'
+          : tool.status === 'running' && run.state !== 'working'
+            ? 'done'
+            : tool.status,
       })
     }
   }
   for (const message of unmatched) {
     items.push({ kind: 'human', id: message.id, text: message.text, at: message.at, sent: false })
   }
-  const last = items.at(-1)
-  if (run.state === 'working' && last?.kind === 'agent') last.writing = true
-  return items
+  const lastAgent = items.at(-1)
+  if (run.state === 'working' && lastAgent?.kind === 'agent') lastAgent.writing = true
+  const merged = mergeByTime(
+    items,
+    interrupts.map((i) => ({ kind: 'interrupted', id: i.id, at: i.at })),
+  )
+  for (const message of waiting) {
+    merged.push({
+      kind: 'human',
+      id: message.id,
+      text: message.text,
+      at: message.at,
+      sent: false,
+      queued: true,
+    })
+  }
+  return merged
 }
 
 function tokensOf(agents: Agents, run: Run, entries: readonly ConversationEntry[]) {
@@ -162,13 +202,14 @@ function tokensOf(agents: Agents, run: Run, entries: readonly ConversationEntry[
 }
 
 export function createConversations(options: {
+  home: string
   store: TedStore
   runs: RunManager
   agents: Agents
   health: AgentHealthMonitor
   disk: DiskWatch
 }): Conversations {
-  const { store, runs, agents, health, disk } = options
+  const { home, store, runs, agents, health, disk } = options
   let preamble: Promise<string> | undefined
   let subPreamble: Promise<string> | undefined
   const restarting = new Set<string>()
@@ -187,6 +228,8 @@ export function createConversations(options: {
 
   const isCurrentLead = (run: Run) =>
     run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id
+
+  const steering = createSteering({ home, store, runs, isCurrentLead })
 
   const summary = (run: Run, entries?: readonly ConversationEntry[]): RunSummary => {
     const tokens = tokensOf(agents, run, entries ?? store.conversation(run.id))
@@ -227,6 +270,7 @@ export function createConversations(options: {
             run,
             entries: agents.get(run.agent).chat(entries, run.cwd),
             messages: store.runMessages(runId),
+            interrupts: store.runInterrupts(runId),
             preamble: run.parentRunId !== undefined ? await subPreamble : await preamble,
           }),
           run.taskId === undefined
@@ -244,7 +288,7 @@ export function createConversations(options: {
       const task = requireTask(ref)
       return store.taskRunList(task.id).map((run) => summary(run))
     },
-    async send(runId, text) {
+    async send(runId, text, { interrupt = false } = {}) {
       const run = requireRun(runId)
       if (run.state === 'finished') {
         throw new RequestError(409, 'This Run has finished, so it can’t take messages')
@@ -252,8 +296,23 @@ export function createConversations(options: {
       if (restarting.has(runId)) {
         throw new RequestError(409, 'The Run is restarting. Send your message once it’s back.')
       }
-      await runs.send(runId, text)
-      return store.recordRunMessage({ runId, text, lead: isCurrentLead(run) })
+      return steering.send(runId, text, { interrupt })
+    },
+    async stopTurn(runId) {
+      requireRun(runId)
+      await steering.stopTurn(runId)
+      return summary(requireRun(runId))
+    },
+    sendNow: (runId, messageId) => {
+      requireRun(runId)
+      return steering.sendNow(runId, messageId)
+    },
+    deleteMessage: (runId, messageId) => steering.remove(runId, messageId),
+    boundary(runId, caller) {
+      if (caller.kind !== 'run' || caller.runId !== runId) {
+        throw new RequestError(403, 'A Run can only report its own tool calls')
+      }
+      return steering.boundary(runId)
     },
     async restart(runId) {
       const run = requireRun(runId)

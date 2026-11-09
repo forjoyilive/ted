@@ -254,6 +254,10 @@ try {
     console.log(
       `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
     )
+  } else if (group === 'run' && command === 'boundary' && rest.length === 0) {
+    const runId = process.env.TED_RUN
+    if (!runId) throw new UsageError('ted run boundary only works inside a Run')
+    await withDaemon(home, (client) => client.reachedBoundary(runId))
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
     const sub = await withDaemon(home, (client) => client.stopSubAgent(rest[0] ?? ''))
     console.log(`Stopped sub-agent “${printable(sub.name)}”`)

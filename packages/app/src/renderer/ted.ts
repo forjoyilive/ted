@@ -81,8 +81,13 @@ export const ted = {
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
-  sendRunMessage: (runId: string, text: string) =>
-    window.ted.request('sendRunMessage', runId, text) as Promise<RunMessage>,
+  sendRunMessage: (runId: string, text: string, interrupt = false) =>
+    window.ted.request('sendRunMessage', runId, text, interrupt) as Promise<RunMessage>,
+  interruptRun: (runId: string) => window.ted.request('interruptRun', runId) as Promise<RunSummary>,
+  sendQueuedMessageNow: (runId: string, messageId: string) =>
+    window.ted.request('sendQueuedMessageNow', runId, messageId) as Promise<RunMessage>,
+  deleteQueuedMessage: (runId: string, messageId: string) =>
+    window.ted.request('deleteQueuedMessage', runId, messageId) as Promise<RunMessage>,
   restartRun: (runId: string) => window.ted.request('restartRun', runId) as Promise<RunSummary>,
   stopRun: (runId: string) => window.ted.request('stopRun', runId) as Promise<RunSummary>,
   listTaskRuns: (taskId: string) =>

@@ -50,6 +50,8 @@ function describe(name: string, input: Record<string, unknown>, cwd: string): To
   }
 }
 
+const interruptNote = '[Request interrupted by user'
+
 function resultText(content: unknown): string {
   if (typeof content === 'string') return content
   return list(content)
@@ -98,7 +100,9 @@ export function claudeChat(entries: readonly ConversationEntry[], cwd: string): 
       const texts: string[] = []
       for (const block of list(content)) {
         const part = record(block)
-        if (part.type === 'text') texts.push(str(part.text))
+        if (part.type === 'text' && !str(part.text).startsWith(interruptNote)) {
+          texts.push(str(part.text))
+        }
         if (part.type !== 'tool_result') continue
         const tool = chat.get(str(part.tool_use_id))
         if (tool?.kind !== 'tool') continue

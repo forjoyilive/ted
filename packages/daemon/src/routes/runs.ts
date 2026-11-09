@@ -107,8 +107,44 @@ export const runRoutes: Route[] = [
       const body = (await readJson(req)) as Partial<SendRunMessageRequest> | null
       const text = typeof body?.text === 'string' ? body.text.trim() : ''
       if (text === '') throw new HttpError(400, 'text is required')
-      return [201, await conversations.send(id, text)]
+      if (body?.interrupt !== undefined && typeof body.interrupt !== 'boolean') {
+        throw new HttpError(400, 'interrupt must be true or false')
+      }
+      return [201, await conversations.send(id, text, { interrupt: body?.interrupt === true })]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/messages\/([^/]+)\/send-now$/,
+    handle: async ({ params: [id = '', messageId = ''] }, { conversations }) => [
+      200,
+      await conversations.sendNow(id, messageId),
+    ],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/runs\/([^/]+)\/messages\/([^/]+)$/,
+    handle: async ({ params: [id = '', messageId = ''] }, { conversations }) => [
+      200,
+      conversations.deleteMessage(id, messageId),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/interrupt$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [
+      200,
+      await conversations.stopTurn(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/boundary$/,
+    runToken: true,
+    handle: async ({ params: [id = ''], caller }, { conversations }) => [
+      200,
+      await conversations.boundary(id, caller),
+    ],
   },
   {
     method: 'POST',
