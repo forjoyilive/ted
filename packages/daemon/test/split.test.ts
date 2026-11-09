@@ -174,7 +174,7 @@ const propose = (file: string) => ({ run: ['ted', 'task', 'propose', '--file', f
 const advance = { run: ['ted', 'outcome', 'advance'] }
 
 describe('Size check', () => {
-  test('a too-big Task asks with four choices; Plan in chat waits for planning chats', async () => {
+  test('a too-big Task asks with four choices', async () => {
     const client = await start()
     const task = await startTask(client, advance, tooBig, { endTurn: true })
 
@@ -190,12 +190,6 @@ describe('Size check', () => {
       },
       author: { kind: 'run' },
     })
-    const chat = await client.call('POST', `/comments/${item.request.id}/answer`, {
-      action: 'answer',
-      choice: 'Plan in chat',
-    })
-    expect(chat.status).toBe(409)
-    expect(JSON.stringify(chat.body)).toContain('Planning chats')
     expect((await getTask(client, task.id)).status).toEqual({ kind: 'waiting-on-you' })
   })
 

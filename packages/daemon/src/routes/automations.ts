@@ -48,9 +48,9 @@ export const automationRoutes: Route[] = [
     method: 'GET',
     path: path(`/automations${factoryQuery}`),
     runToken: true,
-    handle: async ({ params: [factory = ''] }, { automations }) => [
+    handle: async ({ caller, params: [factory = ''] }, { automations }) => [
       200,
-      await automations.list(factory === '' ? undefined : factory),
+      await automations.list(caller, factory === '' ? undefined : factory),
     ],
   },
   {
@@ -66,9 +66,9 @@ export const automationRoutes: Route[] = [
     method: 'GET',
     path: path(`/automations/${ref}${factoryQuery}`),
     runToken: true,
-    handle: async ({ params: [id = '', factory = ''] }, { automations }) => [
+    handle: async ({ caller, params: [id = '', factory = ''] }, { automations }) => [
       200,
-      await automations.detail(id, factory === '' ? undefined : factory),
+      await automations.detail(id, caller, factory === '' ? undefined : factory),
     ],
   },
   {

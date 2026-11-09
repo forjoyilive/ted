@@ -2,9 +2,13 @@ import { describe, expect, test } from 'vitest'
 import {
   backLink,
   currentFactoryId,
+  type History,
+  type HistoryAction,
   initialNavigation,
   type Navigation,
   navigate,
+  startHistory,
+  withHistory,
 } from '../src/renderer/navigation.ts'
 
 const tasks = [
@@ -121,5 +125,56 @@ describe('navigation', () => {
     expect(state.settings).toBeUndefined()
     expect(state.screen).toEqual({ kind: 'factory', factoryId: 'ms', view: 'settings' })
     expect(currentFactoryId(state, tasks)).toBe('ms')
+  })
+})
+
+describe('back and forward (⌘[ and ⌘])', () => {
+  function walk(...actions: HistoryAction[]): History {
+    return actions.reduce(withHistory, startHistory(initialNavigation))
+  }
+
+  test('back returns to each earlier place in turn, and forward retraces them', () => {
+    const state = walk(
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'open-task', taskId: 't1', factoryId: 'nb' },
+      { type: 'open-settings' },
+      { type: 'back' },
+    )
+    expect(state.now.settings).toBeUndefined()
+    expect(state.now.taskId).toBe('t1')
+
+    const twice = walk(
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'open-task', taskId: 't1', factoryId: 'nb' },
+      { type: 'back' },
+      { type: 'back' },
+    )
+    expect(twice.now.screen).toEqual({ kind: 'inbox' })
+    expect(twice.now.taskId).toBeUndefined()
+
+    const again = withHistory(withHistory(twice, { type: 'forward' }), { type: 'forward' })
+    expect(again.now.screen).toEqual({ kind: 'all-tasks' })
+    expect(again.now.taskId).toBe('t1')
+  })
+
+  test('going somewhere new after going back drops the forward places', () => {
+    const state = walk(
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'back' },
+      { type: 'open-factory', factoryId: 'nb' },
+      { type: 'forward' },
+    )
+    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
+  })
+
+  test('back with nowhere to go, and actions that stay in place, change nothing', () => {
+    const start = startHistory(initialNavigation)
+    expect(withHistory(start, { type: 'back' })).toBe(start)
+    const state = walk(
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'back' },
+    )
+    expect(state.now.screen).toEqual({ kind: 'inbox' })
   })
 })

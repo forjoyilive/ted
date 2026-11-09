@@ -1,5 +1,12 @@
 import type { BoardStage, Factory, ListFilters, QueuedForSlot, StageId, Task } from '@ted/protocol'
-import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
+import {
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import {
   type BoardColumn,
   type BoardDrop,
@@ -17,7 +24,7 @@ import {
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
-import { CloseIcon, PlusIcon } from '../components/icons.tsx'
+import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
@@ -178,7 +185,8 @@ export function Board({
   const inUse = [...new Set(tasks.filter((t) => !t.archived).map((t) => t.stage))].sort().join()
   const stages = useBoardStages(factoryId, inUse)
   const start = startStage(stages)
-  const columns = boardColumns(stages, filterTasks(tasks, filters), now)
+  const [text, setText] = useState('')
+  const columns = boardColumns(stages, filterTasks(tasks, filters, text), now)
   const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
   const [archivingDone, setArchivingDone] = useState(false)
   const [dragging, setDragging] = useState<Dragging>()
@@ -265,6 +273,12 @@ export function Board({
     return boardDrop(dragging.task, dragging.from, column.stage, start) ? 'target' : 'no'
   }
 
+  function openOnEnter(event: KeyboardEvent<HTMLElement>, task: Task) {
+    if (event.key !== 'Enter' || event.target !== event.currentTarget) return
+    event.preventDefault()
+    onOpen(task)
+  }
+
   function card(task: Task, column: BoardColumn) {
     const activity = cardActivity(task, now)
     const startable = canStart(task) && start !== undefined
@@ -273,6 +287,9 @@ export function Board({
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
         data-task={task.displayId}
+        data-nav-item
+        tabIndex={-1}
+        onKeyDown={(event) => openOnEnter(event, task)}
         className={`${styles.card} ${dragging?.task.id === task.id ? styles.dragged : ''}`}
         draggable={!task.archived}
         onDragStart={(event) => {
@@ -318,6 +335,9 @@ export function Board({
         key={task.id}
         aria-label={`${task.displayId} ${task.title}`}
         data-task={task.displayId}
+        data-nav-item
+        tabIndex={-1}
+        onKeyDown={(event) => openOnEnter(event, task)}
         className={`${styles.card} ${styles.doneCard}`}
       >
         <button
@@ -397,31 +417,48 @@ export function Board({
       </header>
       {banners}
       {factory?.setup && <SetupPanel factory={factory} setup={factory.setup} />}
-      {chips.length > 0 && (
-        <div className={listStyles.toolbar}>
-          {chips.map((chip) => (
-            <span key={chip.key} className={listStyles.chip}>
-              {chip.label}
-              <button
-                type="button"
-                className={listStyles.chipClear}
-                aria-label={`Clear ${chip.label}`}
-                onClick={() => onFilters(chip.clear(filters))}
-              >
-                <CloseIcon size={10} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
+      <div className={listStyles.toolbar}>
+        <label className={listStyles.search}>
+          <SearchIcon />
+          <input
+            type="search"
+            data-filter-box
+            value={text}
+            placeholder="Filter by ID or title"
+            aria-label="Filter by ID or title"
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                setText('')
+                event.currentTarget.blur()
+              }
+            }}
+          />
+          <kbd className={listStyles.slash}>/</kbd>
+        </label>
+        {chips.map((chip) => (
+          <span key={chip.key} className={listStyles.chip}>
+            {chip.label}
+            <button
+              type="button"
+              className={listStyles.chipClear}
+              aria-label={`Clear ${chip.label}`}
+              onClick={() => onFilters(chip.clear(filters))}
+            >
+              <CloseIcon size={10} />
+            </button>
+          </span>
+        ))}
+      </div>
       <div className={styles.boardArea}>
-        <div className={styles.board}>
+        <div className={styles.board} data-rank-order>
           {columns.map((column) => {
             const state = columnState(column)
             return (
               <section
                 key={column.stage}
                 data-stage={column.stage}
+                data-nav-column
                 data-drop={state}
                 className={[
                   styles.column,

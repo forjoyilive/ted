@@ -19,6 +19,17 @@ export interface ThreadContext {
   displayIdOf(taskId: string): string
   waitingFor: readonly string[]
   descriptions?: readonly DescriptionVersion[]
+  planTitleOf?: (planId: string) => string | undefined
+}
+
+const planEndLines: Record<string, string> = {
+  approved: 'TED told the Task Lead; it carries on with Clarify.',
+  stopped:
+    'Planning chat stopped without approval. TED told the Task Lead to ask its size question again.',
+  failed:
+    'Planning chat failed without approval. TED told the Task Lead to ask its size question again.',
+  deleted:
+    'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
 }
 
 export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
@@ -150,7 +161,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes' | 'planId'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -164,6 +175,7 @@ export function threadEvents(
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
       ...(extra?.changes !== undefined && { changes: extra.changes }),
+      ...(extra?.planId !== undefined && { planId: extra.planId }),
     })
 
   for (const entry of log) {
@@ -195,6 +207,24 @@ export function threadEvents(
           undefined,
           descriptionChanges(edits.get(entry.at)),
         )
+        break
+      }
+      case 'v1.PlanStartedFromTask': {
+        const planId = text(data.planId)
+        const title = context.planTitleOf?.(planId)
+        add(
+          entry,
+          'edit',
+          `Planning in chat: ${title ?? 'a deleted planning chat'}`,
+          undefined,
+          undefined,
+          title === undefined ? {} : { planId },
+        )
+        break
+      }
+      case 'v1.TaskPlanEnded': {
+        const line = planEndLines[text(data.outcome)]
+        if (line !== undefined) add(entry, 'edit', line)
         break
       }
       case 'v1.TaskNeedsPlanning':

@@ -27,6 +27,7 @@ export interface TaskFacts {
   mergePending?: boolean
   autoMergeLeft?: boolean
   needsPlanning?: boolean
+  planningInChat?: boolean
   agentActivity?: string
   archived?: boolean
   leadLive?: boolean
@@ -118,6 +119,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `Running Checks · ${name} (${index} of ${total})`
   }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
+  if (facts.planningInChat) return 'Planning in chat'
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.partlyMerged) {
     const { merged, open } = facts.partlyMerged

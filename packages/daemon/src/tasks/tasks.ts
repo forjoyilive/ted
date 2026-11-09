@@ -29,6 +29,7 @@ import type {
   MoveTaskRequest,
   OutcomeResult,
   Priority,
+  ProposalCreated,
   ProposalInput,
   ReportOutcomeRequest,
   RepoSetupReport,
@@ -180,7 +181,9 @@ import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
   afterPlanningWhy,
   grillAnywayMessage,
-  planInChatLater,
+  planApprovedLeadMessage,
+  planEndedLeadMessage,
+  planInChatMessage,
   planOutsideNote,
   proposalChangesMessage,
   sizeCheckTitle,
@@ -193,6 +196,28 @@ import { nudgeMessage, threadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
+
+export interface TaskPlanning {
+  fromTask(input: { taskId: string; sizeCheckId: string; text: string }): Promise<{
+    id: string
+    title: string
+  }>
+  taskGone(taskId: string, reason: 'archived' | 'deleted'): void
+}
+
+export interface PlanApproval {
+  planId: string
+  planTitle: string
+  narrowed: { title: string; description: string; priority: Priority }
+  created: ProposalCreated
+  text: string
+}
+
+export interface PlanEnd {
+  planId: string
+  planTitle: string
+  outcome: 'stopped' | 'failed' | 'deleted'
+}
 
 export interface CreateTaskInput
   extends Omit<
@@ -276,6 +301,8 @@ export interface Tasks {
   sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   addQueueSource(source: QueueSource): () => void
+  planApproved(taskId: string, input: PlanApproval): Promise<void>
+  planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
 
@@ -305,6 +332,7 @@ export function createTasks(options: {
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
+  planning?: () => TaskPlanning | undefined
 }): Tasks {
   const {
     store,
@@ -3014,7 +3042,7 @@ export function createTasks(options: {
     choice: string,
     text: string,
   ): Promise<Comment> {
-    if (choice === sizeChoices.chat) planInChat(task, comment)
+    if (choice === sizeChoices.chat) return planInChat(task, comment, text)
     return holding(task, async () => {
       unanswered(comment)
       const at = new Date().toISOString()
@@ -3036,8 +3064,68 @@ export function createTasks(options: {
     })
   }
 
-  function planInChat(_task: StoredTask, _comment: Comment): never {
-    throw new RequestError(409, planInChatLater)
+  function planningInChat(taskId: string): boolean {
+    return store.plans
+      .list()
+      .some((p) => p.fromTask?.taskId === taskId && !p.fromTask.gone && p.state !== 'ended')
+  }
+
+  async function planInChat(task: StoredTask, comment: Comment, text: string): Promise<Comment> {
+    const planning = options.planning?.()
+    if (!planning) throw new RequestError(503, 'Planning chats aren’t ready yet. Try again.')
+    return holding(task, async () => {
+      unanswered(comment)
+      if (find(task.id).stage !== 'clarify') {
+        throw new RequestError(409, `${task.displayId} has left Clarify`)
+      }
+      const plan = await planning.fromTask({ taskId: task.id, sizeCheckId: comment.id, text })
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        choice: sizeChoices.chat,
+        ...(text !== '' && { text }),
+        planId: plan.id,
+      })
+      await deliverAnswer(task, comment, planInChatMessage(plan.title))
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
+  async function tellLeadAboutPlan(taskId: string, text: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!run) return
+    await runs.send(run.id, text).catch((error: unknown) => {
+      console.error(
+        `couldn’t tell the Task Lead of ${task.displayId} about its planning chat:`,
+        error,
+      )
+    })
+  }
+
+  async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || task.archived) return
+    store.taskSplit(task.id, {
+      pieceIds: input.created.tasks.map((c) => c.id),
+      narrowedTo: input.narrowed.title,
+      description: input.narrowed.description,
+    })
+    if (input.narrowed.priority !== task.priority) {
+      store.setPriority(task.id, input.narrowed.priority)
+    }
+    store.taskPlanEnded(task.id, input.planId, 'approved')
+    await tellLeadAboutPlan(
+      task.id,
+      planApprovedLeadMessage({ displayId: task.displayId, ...input }),
+    )
+  }
+
+  async function planEnded(taskId: string, input: PlanEnd): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || task.archived) return
+    store.taskPlanEnded(task.id, input.planId, input.outcome)
+    await tellLeadAboutPlan(task.id, planEndedLeadMessage(input))
   }
 
   function planOutside(task: StoredTask, comment: Comment): void {
@@ -3828,6 +3916,7 @@ export function createTasks(options: {
         )
       : []
     const archived = store.archiveTask(task.id, { closing, branches: task.repos.length })
+    options.planning?.()?.taskGone(task.id, 'archived')
     if (closing.length > 0) pullRequestWork(task.id, 'close')
     inBackground(`archive ${task.displayId}`, () => clearing(task.id))
     return archived
@@ -3863,6 +3952,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} is already being deleted`)
     deleting.add(task.id)
     try {
+      options.planning?.()?.taskGone(task.id, 'deleted')
       settleDependents(task.id, blocked)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
@@ -4165,9 +4255,23 @@ export function createTasks(options: {
     }
     if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
     return {
+      name: automation.name,
       factoryKey: factory.key,
       link: { automationId: automation.id, firingId: firing.id },
     }
+  }
+
+  const runsInBypass = (resolution: WorkflowResolution | undefined) =>
+    resolution?.workflow.settings.permissions === 'bypass'
+
+  function holdInBacklog(taskId: string, automationName: string): Task {
+    store.postComment({
+      taskId,
+      kind: 'note',
+      author: { kind: 'ted' },
+      body: `Created by ${automationName} · left in Backlog because this Factory runs in Bypass`,
+    })
+    return publicTask(taskId)
   }
 
   async function createFollowUp(
@@ -4177,7 +4281,7 @@ export function createTasks(options: {
       description?: string
       sourceUrl?: string
       factoryId?: string
-      automation?: { automationId: string; firingId: string }
+      automation?: { name: string; link: { automationId: string; firingId: string } }
     },
   ): Promise<Task> {
     const original = find(ref)
@@ -4210,9 +4314,13 @@ export function createTasks(options: {
       if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
     }
     refuseOpen()
-    const lead =
-      original.lead ??
-      leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+    const resolution =
+      original.lead && !input.automation
+        ? undefined
+        : await resolveWorkflow(factoryOf(original), {
+            fetch: input.automation !== undefined && cloned(original.factoryId),
+          })
+    const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
     const text = input.description?.trim() ?? ''
     refuseOpen()
     const task = await store.createTask({
@@ -4225,8 +4333,11 @@ export function createTasks(options: {
         ? { source: original.source }
         : url !== undefined && { source: taskSource(url, undefined) }),
       followUpOf: original.id,
-      ...(input.automation && { automation: input.automation }),
+      ...(input.automation && { automation: input.automation.link }),
     })
+    if (input.automation && runsInBypass(resolution)) {
+      return holdInBacklog(task.id, input.automation.name)
+    }
     return start(task.id)
   }
 
@@ -4568,6 +4679,7 @@ export function createTasks(options: {
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).length > 0) return
+    if (planningInChat(task.id)) return
     const nudged = store
       .taskLog(task.id)
       .findLast((e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === run.id)?.at
@@ -4845,7 +4957,7 @@ export function createTasks(options: {
           ...(fields.description !== undefined && { description: fields.description }),
           ...(sourceUrl !== undefined && { sourceUrl }),
           ...(factory && { factoryId: factory.id }),
-          ...(automation && { automation: automation.link }),
+          ...(automation && { automation: { name: automation.name, link: automation.link } }),
         })
       }
       const refuseTracked = () => {
@@ -4870,6 +4982,7 @@ export function createTasks(options: {
       if (factory && removingFactories.has(factory.id)) {
         throw new RequestError(409, `${factory.name} is being removed`)
       }
+      const held = automation !== undefined && (!resolution || runsInBypass(resolution))
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -4878,11 +4991,12 @@ export function createTasks(options: {
         ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
-        startRequested: startNow === true,
+        startRequested: startNow === true && !held,
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: automation.link }),
       })
       if (!factory) return task
+      if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
       if (!resolution) {
         console.error(
           `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
@@ -5253,6 +5367,7 @@ export function createTasks(options: {
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
         descriptions: store.descriptionVersions(task.id),
+        planTitleOf: (planId) => store.plans.get(planId)?.title,
       })
     },
 
@@ -5708,6 +5823,8 @@ export function createTasks(options: {
       void pump()
       return () => void pump()
     },
+    planApproved,
+    planEnded,
 
     async close() {
       closed = true

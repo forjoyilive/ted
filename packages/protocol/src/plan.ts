@@ -1,5 +1,5 @@
 import type { AgentKind } from './run.ts'
-import type { CommentAnswer, Effort, Proposal, Round, StageId } from './task.ts'
+import type { CommentAnswer, Effort, Proposal, Round, StageId, TaskStatus } from './task.ts'
 
 export const planTitleLength = 60
 
@@ -38,6 +38,18 @@ export interface PlanTask {
   blockedBy: string[]
 }
 
+export type PlanTaskGone = 'archived' | 'deleted'
+
+export interface PlanFromTask {
+  id: string
+  displayId: string
+  title: string
+  stage?: StageId
+  status?: TaskStatus
+  activity?: string
+  gone?: PlanTaskGone
+}
+
 export interface Plan {
   id: string
   factoryId: string
@@ -59,6 +71,7 @@ export interface Plan {
   createdTasks: number
   waitingOn?: string
   fromPlan?: { id: string; title: string; deleted?: boolean }
+  fromTask?: PlanFromTask
 }
 
 export interface PlanDetail {

@@ -13,13 +13,45 @@ const roundFormat =
 const proposalFormat =
   'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first.'
 
+export interface PlanTaskContext {
+  displayId: string
+  title: string
+  description: string
+  why?: string
+  settle: readonly string[]
+}
+
+function fromTaskSection(task: PlanTaskContext): string {
+  return [
+    `## The Task this chat started from: ${task.displayId}`,
+    `The human started this chat from ${task.displayId}, “${task.title}”, which its Task Lead judged too big for one pull request per repo. ${task.displayId} waits in Clarify until this chat ends.`,
+    `Its description:\n\n${task.description.trim() === '' ? '(none)' : task.description.trim()}`,
+    ...(task.why !== undefined && task.why.trim() !== ''
+      ? [`Why the Task Lead judged it too big:\n\n${task.why.trim()}`]
+      : []),
+    ...(task.settle.length > 0
+      ? [`A plan needs to settle:\n${task.settle.map((point) => `- ${point}`).join('\n')}`]
+      : []),
+    `Row 1 of your proposal is ${task.displayId} itself. On approval it narrows to row 1’s title and its \`description\` (or its \`scope\`) and carries on with Clarify, and the other rows become new Tasks. So make row 1 the piece to build first; it can’t be blocked, and a proposal needs at least one more row.`,
+  ].join('\n\n')
+}
+
+export function taskDetachedMessage(displayId: string, reason: string): string {
+  return `${displayId} was ${reason}, so this chat no longer narrows it. Row 1 of your proposal is now an ordinary row that becomes a new Task like the others, and it may be blocked.`
+}
+
+export function taskDetachedNote(displayId: string, reason: string): string {
+  return `Unlinked this chat from ${displayId} because it was ${reason}. The chat carries on as a standalone plan, and row 1 of the proposal is now an ordinary row.`
+}
+
 export function plannerInstructions(input: {
   factory: StoredFactory
   entries: readonly FactoryRepoEntry[]
   folder: string
+  task?: PlanTaskContext
   earlier?: string
 }): string {
-  const { factory, entries, folder, earlier } = input
+  const { factory, entries, folder, task, earlier } = input
   const where =
     entries.length === 1
       ? `Your working folder is a fresh checkout of ${entries[0]?.repo ?? factory.repo} at the latest base branch.`
@@ -35,6 +67,7 @@ export function plannerInstructions(input: {
       '- If the human asks for changes, post a revised proposal the same way; it replaces the old one.',
       '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
     ].join('\n'),
+    ...(task ? [fromTaskSection(task)] : []),
     ...(earlier !== undefined && earlier !== ''
       ? [
           '## The earlier planning chat this one builds on',
@@ -143,6 +176,14 @@ export function planApprovedMessage(
   return `The human approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} in Backlog and is ending this chat. Thank you.`
 }
 
-export function planCreatedNote(ids: readonly string[]): string {
-  return `Created ${ids.length} ${ids.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${ids.join(', ')}`
+export function planCreatedNote(
+  ids: readonly string[],
+  narrowed?: { displayId: string; title: string },
+): string {
+  const created = `Created ${ids.length} ${ids.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${ids.join(', ')}`
+  return narrowed ? `${created}. ${narrowed.displayId} narrowed to ${narrowed.title}.` : created
+}
+
+export function planToldLeadNote(displayId: string): string {
+  return `Told ${displayId}’s Task Lead; it carries on with Clarify.`
 }
