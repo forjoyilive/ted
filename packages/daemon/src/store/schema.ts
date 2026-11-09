@@ -1015,6 +1015,55 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskArchivedV3: Events.synced({
+    name: 'v3.TaskArchived',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      closing: Schema.Array(Schema.String),
+      branches: Schema.Number,
+      why: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  linearIssueSeen: Events.synced({
+    name: 'v1.LinearIssueSeen',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      stateType: Schema.String,
+      state: Schema.String,
+      team: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  linearIssueMoved: Events.synced({
+    name: 'v1.LinearIssueMoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      step: Schema.String,
+      state: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  linearSyncAllowed: Events.synced({
+    name: 'v1.LinearSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      by: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  linearPullRequestsLinked: Events.synced({
+    name: 'v1.LinearPullRequestsLinked',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      urls: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskUnarchived: Events.synced({
     name: 'v1.TaskUnarchived',
     schema: Schema.Struct({
@@ -2218,6 +2267,20 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
   'v2.TaskArchived': (args) => task(args, { closing: args.closing, branches: args.branches }),
+  'v3.TaskArchived': (args) =>
+    task(args, { closing: args.closing, branches: args.branches, why: args.why }),
+  'v1.LinearIssueSeen': (args) =>
+    task(args, {
+      identifier: args.identifier,
+      stateType: args.stateType,
+      state: args.state,
+      team: args.team,
+    }),
+  'v1.LinearSyncAllowed': (args) => task(args, { identifier: args.identifier, by: args.by }),
+  'v1.LinearIssueMoved': (args) =>
+    task(args, { identifier: args.identifier, step: args.step, state: args.state }),
+  'v1.LinearPullRequestsLinked': (args) =>
+    task(args, { identifier: args.identifier, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
@@ -2412,6 +2475,10 @@ const materializers = counted(
         tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
       ],
       'v1.GitHubActivitySent': () => [],
+      'v1.LinearIssueSeen': () => [],
+      'v1.LinearSyncAllowed': () => [],
+      'v1.LinearIssueMoved': () => [],
+      'v1.LinearPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],
       'v1.AppStarted': () => [],
       'v1.AppStopped': () => [],
@@ -2545,6 +2612,10 @@ const materializers = counted(
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v2.TaskArchived': ({ taskId, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
+      ],
+      'v3.TaskArchived': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],

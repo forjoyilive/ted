@@ -77,5 +77,14 @@ describe('the shortcut sheet', () => {
     expect(press('g')).toBe('pending')
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
     expect(press('[', { metaKey: true })).toMatchObject({ id: 'back' })
+    expect(press('Enter')).toMatchObject({ id: 'open' })
+  })
+
+  test('the sheet says ↵ sends from a comment box or chat and ⇧↵ adds a line', () => {
+    const answering = shortcutSheet().find((s) => s.title === 'Answering')
+    const row = answering?.rows.find((r) => r.id === 'send-message')
+    expect(row?.keys).toEqual(['↵'])
+    expect(row?.label).toContain('⇧↵ adds a new line')
+    expect(keyBindings.some((b) => b.id === 'send-message')).toBe(false)
   })
 })

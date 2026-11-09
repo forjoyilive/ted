@@ -56,6 +56,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   linear?: { apiUrl?: string; keyring?: Keyring }
+  linearSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
@@ -331,6 +332,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
+        ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
         libraryDir: paths.library,

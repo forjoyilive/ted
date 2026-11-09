@@ -33,6 +33,7 @@ import { DotIcon } from '../components/icons.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
+import { sendOnEnter } from '../composer-keys.ts'
 import { useAutomation, useAutomations, useAutomationTemplates, useRunChat } from '../data.ts'
 import { useNow } from '../requests.ts'
 import { agentLabels } from '../task-fields.ts'
@@ -753,6 +754,9 @@ export function QuestionCard({
         placeholder={request.choices ? 'Or write your own answer…' : 'Write your answer…'}
         value={text}
         onChange={(event) => setText(event.target.value)}
+        onKeyDown={sendOnEnter(() => {
+          if (!busy) answer({ text })
+        })}
       />
       {error !== undefined && (
         <p className={styles.error} role="alert">
@@ -763,6 +767,7 @@ export function QuestionCard({
         <Button
           variant="primary"
           size="small"
+          shortcut="↵"
           disabled={busy || text.trim() === ''}
           onClick={() => answer({ text })}
         >

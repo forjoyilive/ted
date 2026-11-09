@@ -2,7 +2,8 @@
 // ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
 // grouping of calls, and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
+import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChat } from '../data.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -12,6 +13,7 @@ import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
+import { ScrollMemory } from './ScrollMemory.tsx'
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -541,11 +543,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
           disabled={!live}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-            event.preventDefault()
-            void send(event.metaKey || event.ctrlKey)
-          }}
+          onKeyDown={sendOnEnter((command) => void send(command))}
         />
         <span className={styles.boxHelp}>
           <Help>
@@ -610,30 +608,18 @@ export function ChatBody({
   const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const now = useTicking(running)
-  const list = useRef<HTMLDivElement>(null)
-  const pinned = useRef(true)
-  const count = rows.length
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
-
-  useEffect(() => {
-    void count
-    void lastText
-    const element = list.current
-    if (element && pinned.current) element.scrollTop = element.scrollHeight
-  }, [count, lastText])
 
   return (
     <>
       {options.header
         ? options.header(run)
         : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
-      <div
-        ref={list}
+      <ScrollMemory
+        spot={`run:${run.id}`}
+        count={rows.length}
+        grows={lastText}
         className={styles.items}
-        onScroll={(event) => {
-          const element = event.currentTarget
-          pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
-        }}
       >
         {rows.map((row) =>
           'item' in row ? (
@@ -642,7 +628,7 @@ export function ChatBody({
             <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
           ),
         )}
-      </div>
+      </ScrollMemory>
       {options.pinned}
       {options.readOnly ?? <Composer run={run} options={options} />}
     </>

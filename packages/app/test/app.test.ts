@@ -190,7 +190,7 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
-  test('the thread shows event lines, and ⌘↵ sends a Comment into the Task Lead’s Run', async () => {
+  test('the thread shows event lines; ↵ sends a Comment, ⇧↵ adds a line and ⌘↵ sends too', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
@@ -204,9 +204,20 @@ describe('TED app', () => {
     await thread.getByText('You created this Task').waitFor()
     const box = thread.getByRole('textbox', { name: 'Comment' })
     expect(await box.getAttribute('placeholder')).toBe('Comment…')
+    await box.press('Enter')
+    await box.fill('   ')
+    await box.press('Enter')
+    expect(await box.inputValue()).toBe('   ')
     await box.fill('Keep the old export format.')
-    await box.press('ControlOrMeta+Enter')
+    await box.press('Shift+Enter')
+    await box.pressSequentially('Same for CSV.')
+    expect(await box.inputValue()).toBe('Keep the old export format.\nSame for CSV.')
+    await box.press('Enter')
     await thread.getByText('Goes to the next Task Lead Run').waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    expect((await (await daemonClient()).listComments('NB-1')).map((c) => c.body)).toEqual([
+      'Keep the old export format.\nSame for CSV.',
+    ])
 
     await ted('task', 'start', 'NB-1')
 
@@ -521,6 +532,62 @@ describe('TED app', () => {
     await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
   }, 90_000)
 
+  test('the thread opens at its newest messages, keeps its place across tabs, and never yanks a scrolled-up reader', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await addFactory(origin, 'NB')
+    const steps = [{ say: 'Started.' }, { waitFor: path.join(home, 'never') }]
+    await ted('task', 'create', '--factory', 'NB', '--start', JSON.stringify({ steps }))
+    const client = await daemonClient()
+    for (let n = 1; n <= 12; n++) {
+      const lines = Array.from({ length: 6 }, (_, i) => `Detail ${n}.${i} of the sync work.`)
+      await client.postComment('NB-1', [`Note ${n}`, ...lines].join('\n\n'))
+    }
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('working')
+
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const scroller = thread.locator('[data-scroller]')
+    await scroller.getByText(/Detail 12\.5 of/).waitFor()
+    const gap = () =>
+      scroller.evaluate((e) => Math.round(e.scrollHeight - e.scrollTop - e.clientHeight))
+    const top = () => scroller.evaluate((e) => Math.round(e.scrollTop))
+    await expect.poll(gap).toBeLessThan(2)
+    expect(await top()).toBeGreaterThan(200)
+
+    await scroller.evaluate((e) => {
+      e.scrollTop = 150
+    })
+    await expect.poll(top).toBe(150)
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('button', { name: /Task Lead/ })
+      .click()
+    await window.getByRole('region', { name: 'Run chat' }).waitFor()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await scroller.getByText(/Detail 12\.5 of/).waitFor()
+    await expect.poll(top).toBe(150)
+
+    await client.postComment('NB-1', 'The newest note')
+    await scroller.getByText('The newest note').waitFor()
+    expect(await top()).toBe(150)
+    const jump = thread.getByRole('button', { name: 'New messages ↓' })
+    await jump.click()
+    await expect.poll(gap).toBeLessThan(2)
+    await jump.waitFor({ state: 'detached' })
+
+    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await scroller.getByText('The newest note').waitFor()
+    await expect.poll(gap).toBeLessThan(2)
+  }, 90_000)
+
   test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
     await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
     const steps = [
@@ -683,6 +750,12 @@ describe('TED app', () => {
     await ted('task', 'start', 'NB-1')
 
     await header.getByText('Working', { exact: true }).waitFor()
+    const ring = header.getByText('Working', { exact: true }).locator('svg')
+    const spin = () => ring.evaluate((svg) => getComputedStyle(svg).animationName)
+    expect(await spin()).not.toBe('none')
+    await window.emulateMedia({ reducedMotion: 'reduce' })
+    expect(await spin()).toBe('none')
+    await window.emulateMedia({ reducedMotion: null })
     await header.getByText('· Running Checks · Tests (2 of 3)').waitFor()
     await header.getByRole('img', { name: 'Claude Code, working' }).waitFor()
     await writeFile(go(1), '')
@@ -933,12 +1006,15 @@ describe('TED app frame', () => {
     const window = await launchApp()
     const nav = sidebar(window)
     const factory = nav.getByRole('button', { name: 'widgets' })
+    const caret = nav
+      .getByRole('article', { name: 'widgets' })
+      .getByRole('button', { name: 'Views' })
     await factory.waitFor()
-    expect(await factory.getAttribute('aria-expanded')).toBe('false')
+    expect(await caret.getAttribute('aria-expanded')).toBe('false')
 
     await factory.click()
 
-    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+    expect(await caret.getAttribute('aria-expanded')).toBe('true')
     const board = nav.getByRole('button', { name: 'Board', exact: true })
     expect(await board.getAttribute('aria-current')).toBe('page')
     await window.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
@@ -947,7 +1023,39 @@ describe('TED app frame', () => {
     }
 
     await nav.getByRole('button', { name: 'All Tasks' }).click()
-    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+    expect(await caret.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  test('the caret collapses and expands any Factory’s Views, and the app remembers it', async () => {
+    await twoFactories()
+    let window = await launchApp()
+    const views = (w: Page, name: string) =>
+      sidebar(w).getByRole('article', { name, exact: true }).getByRole('button', { name: 'Views' })
+    const board = (w: Page) => sidebar(w).getByRole('button', { name: 'Board', exact: true })
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await board(window).waitFor()
+
+    await views(window, 'notebook').click()
+
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('false')
+    await board(window).waitFor({ state: 'detached' })
+
+    await views(window, 'site').focus()
+    await window.keyboard.press('Enter')
+    expect(await views(window, 'site').getAttribute('aria-expanded')).toBe('true')
+    await board(window).waitFor()
+
+    await closeApp(app)
+    window = await launchApp()
+    await views(window, 'site').waitFor()
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('false')
+    expect(await views(window, 'site').getAttribute('aria-expanded')).toBe('true')
+
+    await views(window, 'site').press('Space')
+    await board(window).waitFor({ state: 'detached' })
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    expect(await views(window, 'notebook').getAttribute('aria-expanded')).toBe('true')
+    await board(window).waitFor()
   })
 
   test('a Factory added while the app is open appears in the sidebar', async () => {
@@ -3587,6 +3695,27 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
 }
 
 describe('Factory settings sections', () => {
+  test('jumping to a section scrolls only the settings, never the app frame', async () => {
+    await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
+    const window = await launchApp()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await window.getByText('Always last').waitFor()
+    const jump = window.getByRole('navigation', { name: 'Jump to a section' })
+
+    for (const section of ['Workflow', 'Factory notes']) {
+      await jump.getByRole('button', { name: section }).click()
+      await sleep(300)
+      const main = await window.getByRole('main').boundingBox()
+      const inbox = await nav.getByRole('button', { name: 'Inbox' }).boundingBox()
+      expect(main && Math.round(main.y + main.height)).toBe(800)
+      expect(main?.y).toBe(0)
+      expect(inbox?.y).toBeGreaterThan(0)
+    }
+  })
+
   test('Workflow, Permissions and notes edits collect into one Save, and Bypass needs confirming', async () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
@@ -3835,10 +3964,10 @@ describe('Factory row menu', () => {
     await waitFor(async () => (await rowNames(window)).join() === 'site,notebook')
 
     await window.keyboard.press('ControlOrMeta+1')
-    const site = row(window, 'site').getByRole('button', { name: 'site', exact: true })
+    const site = row(window, 'site').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await site.getAttribute('aria-expanded')) === 'true')
     await window.keyboard.press('ControlOrMeta+2')
-    const notebook = row(window, 'notebook').getByRole('button', { name: 'notebook', exact: true })
+    const notebook = row(window, 'notebook').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await notebook.getAttribute('aria-expanded')) === 'true')
   })
 

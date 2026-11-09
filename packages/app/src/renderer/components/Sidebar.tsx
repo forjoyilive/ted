@@ -122,6 +122,32 @@ const factoryViews: { view: FactoryView; label: string }[] = [
   { view: 'settings', label: 'Settings' },
 ]
 
+const openFactoriesKey = 'ted.sidebar.factoriesOpen'
+
+function readOpenFactories(): Record<string, boolean> {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(openFactoriesKey) ?? '{}')
+    if (typeof stored !== 'object' || stored === null || Array.isArray(stored)) return {}
+    return Object.fromEntries(
+      Object.entries(stored).filter(([, open]) => typeof open === 'boolean'),
+    ) as Record<string, boolean>
+  } catch {
+    return {}
+  }
+}
+
+function useOpenFactories(): [Record<string, boolean>, (factoryId: string, open: boolean) => void] {
+  const [openFactories, setOpenFactories] = useState(readOpenFactories)
+  const setOpen = (factoryId: string, open: boolean) => {
+    const next = { ...readOpenFactories(), [factoryId]: open }
+    setOpenFactories(next)
+    try {
+      localStorage.setItem(openFactoriesKey, JSON.stringify(next))
+    } catch {}
+  }
+  return [openFactories, setOpen]
+}
+
 function sameScreen(a: Screen, b: Screen): boolean {
   if (a.kind === 'factory' && b.kind === 'factory') {
     return a.factoryId === b.factoryId && a.view === b.view
@@ -153,6 +179,7 @@ export function Sidebar({
   const [dragging, setDragging] = useState<number>()
   const [dropAt, setDropAt] = useState<number>()
   const [orderError, setOrderError] = useState<string>()
+  const [openFactories, setFactoryOpen] = useOpenFactories()
   const reorder = (ids: string[] | undefined) => {
     if (!ids) return
     setOrderError(undefined)
@@ -205,7 +232,8 @@ export function Sidebar({
 
       <h2 className={styles.section}>Factories</h2>
       {factories.map((factory, index) => {
-        const expanded = factory.id === currentFactoryId
+        const isCurrent = factory.id === currentFactoryId
+        const expanded = openFactories[factory.id] ?? isCurrent
         const badge = badges[factory.id] ?? {}
         const waiting = badge.waiting ?? 0
         const openMenu = (x: number, y: number) => setMenu({ factoryId: factory.id, x, y })
@@ -255,11 +283,24 @@ export function Sidebar({
               >
                 <button
                   type="button"
-                  className={`${styles.row} ${expanded ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
+                  className={styles.caret}
+                  aria-label="Views"
                   aria-expanded={expanded}
-                  onClick={() => dispatch({ type: 'open-factory', factoryId: factory.id })}
+                  onClick={() => setFactoryOpen(factory.id, !expanded)}
                 >
-                  <ChevronIcon open={expanded} className={styles.chevron} />
+                  <ChevronIcon
+                    open
+                    className={`${styles.chevron} ${expanded ? '' : styles.chevronClosed}`}
+                  />
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.row} ${styles.factoryName} ${isCurrent ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
+                  onClick={() => {
+                    if (!expanded) setFactoryOpen(factory.id, true)
+                    dispatch({ type: 'open-factory', factoryId: factory.id })
+                  }}
+                >
                   <span className={styles.label}>{factory.name}</span>
                   {badge.failed && <DotIcon className={styles.failedDot} />}
                   {badge.stopsWork && (

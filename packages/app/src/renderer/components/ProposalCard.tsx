@@ -1,6 +1,7 @@
 import type { AnswerRequest, Proposal, ProposalCreated } from '@ted/protocol'
 import { planProposal } from '@ted/protocol/proposal'
 import { useState } from 'react'
+import { sendOnEnter } from '../composer-keys.ts'
 import { blockedByText, createLabel, droppedWarning, wouldStart } from '../proposal.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { Button } from './Button.tsx'
@@ -167,6 +168,9 @@ export function ProposalAnswer({
             placeholder="Comment, or say what to change…"
             value={text}
             onChange={(event) => setText(event.target.value)}
+            onKeyDown={sendOnEnter(() => {
+              if (!sending) onSend({ action: 'request-changes', text })
+            })}
           />
           <div className={styles.buttons}>
             <Button

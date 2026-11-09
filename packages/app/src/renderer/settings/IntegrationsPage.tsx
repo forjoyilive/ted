@@ -13,6 +13,7 @@ import { ted } from '../ted.ts'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
 import styles from './integrations.module.css'
 import { LinearGroup } from './LinearGroup.tsx'
+import type { SettingsPageProps } from './sections.tsx'
 import settingsStyles from './settings.module.css'
 
 const inTerminal = /Mac/.test(navigator.platform) ? 'in Terminal' : 'in your terminal'
@@ -59,7 +60,7 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function IntegrationsPage() {
+export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings'>) {
   const { health, checking, problem, checkAgain } = useIntegrations()
   const [opened, setOpened] = useState<{ key: string; text: string }>()
 
@@ -129,7 +130,7 @@ export function IntegrationsPage() {
           />
         )}
       </SettingsGroup>
-      <LinearGroup />
+      <LinearGroup sync={settings.linearSync} teams={settings.linearSyncTeams} />
     </SettingsPage>
   )
 }
