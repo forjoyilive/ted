@@ -134,6 +134,10 @@ export interface CreateTaskRequest {
   start?: boolean
 }
 
+export interface BlockTaskRequest {
+  by: string
+}
+
 export type Outcome = 'advance'
 
 export interface Comment {

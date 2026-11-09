@@ -105,4 +105,11 @@ describe('taskActivity', () => {
     )
     expect(taskActivity(at({ runs: ['working'] }))).toBeUndefined()
   })
+
+  test('a blocked Task whose Task Lead carries on is not Blocked; the blocker is a marker', () => {
+    const facts = at({ runs: ['idle'], blockedBy: ['NB-41'] })
+    expect(taskStatus(facts)).toBeUndefined()
+    expect(taskMarkers(facts, taskStatus(facts))).toEqual([{ kind: 'blocked-by', by: 'NB-41' }])
+    expect(taskActivity(facts)).toBeUndefined()
+  })
 })

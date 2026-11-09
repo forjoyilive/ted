@@ -53,6 +53,10 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  blockTask: (taskId: string, by: string) =>
+    window.ted.request('blockTask', taskId, by) as Promise<Task>,
+  unblockTask: (taskId: string, by: string) =>
+    window.ted.request('unblockTask', taskId, by) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
@@ -89,4 +93,9 @@ export const ted = {
   runFix: (request: RunFixRequest) =>
     window.ted.request('runFix', request) as Promise<RunFixResult>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
+}
+
+export function readableError(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message : String(failure)
+  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
 }

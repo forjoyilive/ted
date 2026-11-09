@@ -2,13 +2,14 @@ import type { AgentStageId, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
+import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useComments, useStageEntries } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -47,7 +48,7 @@ export function TaskThread({
         <div className={styles.headerRow}>
           <h1 className={styles.taskTitle}>{task.title}</h1>
           <TaskStatusChips task={task} onOpenTask={onOpenTask} />
-          {task.status?.kind === 'queued' && task.runs.length === 0 && (
+          {task.status?.kind === 'queued' && task.runs.length === 0 && task.repos.length === 0 && (
             <Button
               size="small"
               variant="quiet"
@@ -113,7 +114,6 @@ export function TaskDetails({
   tasks: readonly Task[]
   factories: readonly Factory[]
 }) {
-  const blockers = task.blockedBy.map((id) => tasks.find((t) => t.id === id)?.displayId ?? id)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
@@ -129,10 +129,12 @@ export function TaskDetails({
         </dd>
         <dt>Clarify depth</dt>
         <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
-        {blockers.length > 0 && (
+        {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>
-            <dd>{blockers.join(', ')}</dd>
+            <dd>
+              <BlockedByField key={task.id} task={task} tasks={tasks} />
+            </dd>
           </>
         )}
         {task.attachments.length > 0 && (
@@ -159,5 +161,30 @@ export function TaskDetails({
       </dl>
       <CodeSection task={task} />
     </aside>
+  )
+}
+
+function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
+  const [error, setError] = useState<string>()
+  const blockers = task.blockedBy.flatMap((id) => tasks.filter((t) => t.id === id))
+  const change = (request: Promise<Task>) => {
+    setError(undefined)
+    request.catch((failure: unknown) => setError(readableError(failure)))
+  }
+  return (
+    <>
+      <BlockerPicker
+        tasks={tasks.filter((t) => t.id !== task.id)}
+        blockers={blockers}
+        menuAlign="end"
+        onAdd={(id) => change(ted.blockTask(task.id, id))}
+        onRemove={(id) => change(ted.unblockTask(task.id, id))}
+      />
+      {error !== undefined && (
+        <p className={styles.fieldError} role="alert">
+          {error}
+        </p>
+      )}
+    </>
   )
 }

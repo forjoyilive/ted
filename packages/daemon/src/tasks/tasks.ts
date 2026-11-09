@@ -60,6 +60,8 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  block(ref: string, caller: Caller, by: string): Promise<Task>
+  unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(ref: string, caller: Caller, body: string): Comment
@@ -100,6 +102,7 @@ export function createTasks(options: {
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Set<string>()
+  const stoppingForBlockers = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -253,7 +256,8 @@ export function createTasks(options: {
     const work = launchQueued(taskId)
       .catch((error: unknown) => {
         if (store.queue().some((q) => q.id === taskId)) {
-          store.moveToBacklog(taskId)
+          if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.dequeue(taskId)
+          else store.moveToBacklog(taskId)
           const message = error instanceof Error ? error.message : String(error)
           store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
         }
@@ -461,14 +465,18 @@ export function createTasks(options: {
     repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
+    pickUp?: string,
   ): Promise<void> {
-    const prompt = await taskLeadPrompt(
-      task,
-      resolution.workflow,
-      task.stage as AgentStageId,
-      attachmentFile,
-      setupReport,
-    )
+    const prompt = [
+      await taskLeadPrompt(
+        task,
+        resolution.workflow,
+        task.stage as AgentStageId,
+        attachmentFile,
+        setupReport,
+      ),
+      ...(pickUp !== undefined ? [pickUp] : []),
+    ].join('\n\n')
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     await runs.start({
       agent: lead.agent,
@@ -572,6 +580,7 @@ export function createTasks(options: {
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
+    if (unmergedBlockers(task.id).length > 0) return store.setStartRequested(task.id, true)
     starting.add(task.id)
     try {
       await ensureClone({ banners, reposDir }, factory)
@@ -582,13 +591,22 @@ export function createTasks(options: {
     }
     await pump()
     await beginning.get(task.id)
-    const { worktree: _, startRequested: __, ...current } = find(task.id)
-    return current
+    return publicTask(task.id)
   }
 
   async function launchQueued(taskId: string): Promise<void> {
     const task = find(taskId)
     const factory = factoryOf(task)
+    const repo = task.repos.find((r) => !r.removed)
+    if (repo) {
+      store.dequeue(task.id)
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      const env =
+        store.recordedSetup(task.id, repo.name)?.env ??
+        primaryRepoWorktree(resolution.workflow, factory).env
+      await launch(find(task.id), resolution, repo, env, undefined, pickUpNote(task))
+      return
+    }
     {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
@@ -643,6 +661,94 @@ export function createTasks(options: {
     }
   }
 
+  function publicTask(id: string): Task {
+    const { worktree: _, startRequested: __, waitsForBlockers: ___, ...task } = find(id)
+    return task
+  }
+
+  function pickUpNote(task: StoredTask): string {
+    const merged = store
+      .blockers(task.id)
+      .filter((b) => b.merged)
+      .map((b) => b.displayId)
+    const notes = store.listComments(task.id).map((c) => {
+      const author = c.author.kind === 'ted' ? 'TED' : 'Task Lead'
+      return `- ${author}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`
+    })
+    return [
+      '# Picking up after a blocker',
+      `This Task waited for ${joinIds(merged)}, which ${merged.length === 1 ? 'has' : 'have'} merged. An earlier Run worked on it in this worktree and stopped to wait. Read the branch’s commits and the notes below to see where it stopped, then carry on with this Stage.`,
+      ...(notes.length > 0 ? [`Notes on this Task:\n${notes.join('\n')}`] : []),
+    ].join('\n\n')
+  }
+
+  function cycleFrom(blockerId: string, taskId: string): string[] | undefined {
+    const seen = new Set<string>()
+    const walk = (id: string): string[] | undefined => {
+      if (id === taskId) return [id]
+      if (seen.has(id)) return undefined
+      seen.add(id)
+      for (const link of store.blockers(id)) {
+        const rest = walk(link.blockerId)
+        if (rest) return [id, ...rest]
+      }
+      return undefined
+    }
+    return walk(blockerId)
+  }
+
+  function unmergedBlockers(taskId: string) {
+    return store.blockers(taskId).filter((b) => !b.merged)
+  }
+
+  function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
+    return (
+      run.state === 'idle' &&
+      task.stage !== 'backlog' &&
+      task.stage !== 'done' &&
+      unmergedBlockers(task.id).some((b) => b.setByRunId === run.id)
+    )
+  }
+
+  async function stopForBlockers(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!task || !run || stoppingForBlockers.has(taskId) || !shouldStopForBlockers(task, run)) {
+      return
+    }
+    stoppingForBlockers.add(taskId)
+    try {
+      await runs.stop(run.id)
+      store.waitForBlockers(taskId)
+    } finally {
+      stoppingForBlockers.delete(taskId)
+    }
+  }
+
+  function wake(): void {
+    const queued = new Set(store.queue().map((q) => q.id))
+    for (const { id } of store.listTasks()) {
+      const task = store.getTask(id)
+      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
+      if (unmergedBlockers(id).length > 0) continue
+      if (task.stage === 'backlog' && task.startRequested) {
+        inBackground(`start ${task.displayId}`, async () => {
+          await start(id)
+        })
+      } else if (task.waitsForBlockers && !liveLead(task)) {
+        store.requeueAfterBlockers(id)
+      }
+    }
+  }
+
+  function tellLead(blocker: StoredTask, run: Run): Promise<void> {
+    const id = blocker.displayId
+    return runs.send(
+      run.id,
+      `The human made this Task wait for ${id} (“${blocker.title}”). If this Task can’t go on until ${id} merges, run \`ted task block --by ${id}\`, post a note on where you stopped with \`ted comment\`, and end your turn: TED stops this Run and starts a fresh one when ${id} merges. If you can carry on, say why with \`ted comment\` and keep working.`,
+    )
+  }
+
   for (const task of store.listTasks()) {
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
@@ -650,6 +756,17 @@ export function createTasks(options: {
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
+      const taskId = event.run.taskId
+      setImmediate(() => {
+        if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
+      })
+    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') {
+      setImmediate(() => {
+        if (!closed) wake()
+      })
+    }
     if (
       event.type === 'run-updated' ||
       event.type === 'task-created' ||
@@ -660,6 +777,10 @@ export function createTasks(options: {
     }
   })
   void pump()
+  wake()
+  for (const task of store.listTasks()) {
+    inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
+  }
 
   return {
     async create({ title, factory: key, blockedBy = [], start: startNow, lead, ...fields }) {
@@ -692,7 +813,7 @@ export function createTasks(options: {
           failure,
         )
       }
-      if (!resolution || blockers.length > 0) return task
+      if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
     },
@@ -722,6 +843,66 @@ export function createTasks(options: {
         throw new RequestError(409, `${task.displayId} isn’t queued`)
       }
       return store.moveToBacklog(task.id)
+    },
+
+    async block(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const blocker = find(by)
+      if (blocker.id === task.id) {
+        throw new RequestError(409, `${task.displayId} can’t block itself`)
+      }
+      if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+      const cycle = cycleFrom(blocker.id, task.id)
+      if (cycle) {
+        const ids = [task.id, ...cycle].map((id) => store.getTask(id)?.displayId ?? id)
+        throw new RequestError(
+          409,
+          `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
+        )
+      }
+      await beginning.get(task.id)?.catch(() => undefined)
+      const current = find(task.id)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
+      if (existing && (runId === undefined || existing.setByRunId === runId)) {
+        return publicTask(task.id)
+      }
+      const unmerged = blocker.stage !== 'done'
+      const queued = store.queue().some((q) => q.id === task.id)
+      const midFlow = current.repos.some((r) => !r.removed)
+      const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
+      const updated = store.addBlocker(task.id, blocker.id, {
+        ...(runId !== undefined && { runId }),
+        ...(then !== undefined && { then }),
+      })
+      const run = liveLead(current)
+      if (unmerged && run && caller.kind === 'daemon' && !existing) await tellLead(blocker, run)
+      return updated
+    },
+
+    unblock(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const links = store.blockers(task.id)
+      const blocker = by === undefined ? undefined : find(by)
+      if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
+        throw new RequestError(404, `${task.displayId} isn’t blocked by ${blocker.displayId}`)
+      }
+      const wasBlocked = links.some((l) => !l.merged)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      for (const link of links) {
+        if (!blocker || link.blockerId === blocker.id) {
+          store.removeBlocker(task.id, link.blockerId, runId)
+        }
+      }
+      const current = find(task.id)
+      if (caller.kind === 'daemon' && wasBlocked && unmergedBlockers(task.id).length === 0) {
+        if (current.stage === 'backlog' && current.startRequested) {
+          store.setStartRequested(task.id, false)
+        } else if (current.waitsForBlockers && !liveLead(current)) {
+          store.requeueAfterBlockers(task.id)
+        }
+      }
+      return publicTask(task.id)
     },
 
     slots,
@@ -787,8 +968,7 @@ export function createTasks(options: {
       } finally {
         applying.delete(task.id)
       }
-      const { worktree: _, ...current } = find(task.id)
-      return current
+      return publicTask(task.id)
     },
 
     async setupLog(ref, name) {
@@ -817,6 +997,11 @@ function firstLine(text: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function joinIds(ids: readonly string[]): string {
+  if (ids.length <= 1) return ids[0] ?? ''
+  return `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
 }
 
 function oneLine(text: string): string {

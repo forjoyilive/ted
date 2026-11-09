@@ -86,6 +86,7 @@ export {
   type AgentStageId,
   type Attachment,
   agentStageIds,
+  type BlockTaskRequest,
   type ClarifyDepth,
   type Comment,
   type CopySkip,

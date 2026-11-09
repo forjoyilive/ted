@@ -409,6 +409,45 @@ describe('TED app frame', () => {
     }
   })
 
+  test('Blocked by in Task details adds and removes blockers, and refuses a cycle', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Crash when search is empty')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
+    await window.getByRole('main').getByText('Offline editing').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+
+    await details.getByRole('button', { name: 'Add blocker' }).click()
+    await details.getByLabel('Find a Task').fill('crash')
+    await details.getByRole('option', { name: /NB-1/ }).click()
+
+    await details.getByText('Crash when search is empty').waitFor()
+    await window.getByRole('main').getByText('Blocked by').first().waitFor()
+    await window.getByText('Starts when NB-1 merges').first().waitFor()
+
+    await window.getByRole('button', { name: '← List' }).click()
+    await window.getByRole('main').getByText('Crash when search is empty').click()
+    await details.getByRole('button', { name: 'Add blocker' }).click()
+    await details.getByLabel('Find a Task').fill('offline')
+    await details.getByRole('option', { name: /NB-2/ }).click()
+    await details
+      .getByText('NB-2 can’t block NB-1: that makes a cycle, NB-1 → NB-2 → NB-1')
+      .waitFor()
+
+    await window.getByRole('button', { name: '← List' }).click()
+    await window.getByRole('main').getByText('Offline editing').click()
+    await details.getByRole('button', { name: 'Remove NB-1' }).click()
+    await expect
+      .poll(
+        async () =>
+          (await (await daemonClient()).listTasks()).find((t) => t.displayId === 'NB-2')?.blockedBy,
+      )
+      .toEqual([])
+  })
+
   test('the theme follows the system appearance', async () => {
     const window = await launchApp()
 

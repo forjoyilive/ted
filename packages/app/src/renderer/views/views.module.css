@@ -440,3 +440,9 @@
   margin-left: 6px;
   color: var(--text-caption);
 }
+
+.fieldError {
+  margin: 6px 0 0;
+  color: var(--status-failed-fg);
+  font-size: var(--text-12);
+}
