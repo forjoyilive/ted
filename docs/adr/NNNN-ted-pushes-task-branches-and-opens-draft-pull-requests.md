@@ -12,9 +12,10 @@ The work runs in the background in a queue per Task, in the order it was asked f
 
 An agent can write to its worktree and to the clone’s git config, and TED pushes outside the agent’s sandbox, so `git push`:
 
-- pushes the commit TED checked to `refs/heads/<branch>` at the Factory’s stored clone URL, not `origin`, so `remote.origin.*` settings never apply;
-- refuses to push, recording why, when the clone’s local or worktree config sets a key that can run a command or reroute the push (`core.sshCommand`, `core.askPass`, `core.gitProxy`, `core.alternateRefsCommand`, `credential.*`, `url.*`, `protocol.*`, `gpg.*`, `push.gpgSign`, `include.*`, `includeIf.*`); the user’s global and system config still apply;
-- turns off hooks (`core.hooksPath=/dev/null`, `--no-verify`), `core.fsmonitor` and the `ext::` transport;
+- reads only the commit and the location of the clone’s objects from the worktree, with hooks and `core.fsmonitor` off;
+- pushes from a new bare repo in a temporary folder that borrows the clone’s objects through `objects/info/alternates`, so git reads the user’s system and global config and TED’s own empty repo config, and never the clone’s or worktree’s config (remotes, `pushurl`, `url.*`, `http.*`, `credential.*`, `core.sshCommand`, hooks, includes);
+- pushes the commit to `refs/heads/<branch>` at the Factory’s stored clone URL, never `origin`;
+- turns off hooks (`core.hooksPath=/dev/null`, `--no-verify`) and the `ext::` transport;
 - runs with the user’s own credentials, `GIT_TERMINAL_PROMPT=0` and the Check environment from `worktreeCommandEnv` (no `TED_` names or agent API keys);
 - uses `--force-with-lease` against the commit it pushed last.
 

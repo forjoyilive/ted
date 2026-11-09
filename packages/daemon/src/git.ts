@@ -1,4 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { worktreeCommandEnv } from './command-env.ts'
@@ -202,42 +204,21 @@ export async function commitsAhead(worktree: string, base: string): Promise<numb
   return Number.parseInt(out, 10) || 0
 }
 
-const commandKeys = [
-  /^core\.(sshcommand|askpass|gitproxy|alternaterefscommand)$/,
-  /^credential\./,
-  /^url\./,
-  /^protocol\./,
-  /^gpg\./,
-  /^push\.gpgsign$/,
-  /^include\./,
-  /^includeif\./,
-]
-
-export async function unsafePushConfig(worktree: string): Promise<string[]> {
-  const out = await git(worktree, 'config', '--list', '--show-scope')
-  return out.split('\n').flatMap((line) => {
-    const key = /^(local|worktree)\t([^=]+)=/.exec(line)?.[2]?.toLowerCase()
-    return key !== undefined && commandKeys.some((k) => k.test(key)) ? [key] : []
-  })
-}
-
 export async function pushBranch(
   worktree: string,
   branch: string,
   options: { url: string; expected?: string; timeoutMs?: number },
 ): Promise<string> {
-  const unsafe = await unsafePushConfig(worktree)
-  if (unsafe.length > 0) {
-    throw new GitError(
-      `TED didn’t push: the Task’s repo sets ${[...new Set(unsafe)].join(', ')} in its own git config`,
-    )
-  }
-  const commit = await revParse(worktree, 'HEAD')
+  const commit = await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
   const ref = `refs/heads/${branch}`
   const lease =
     options.expected === undefined ? [] : [`--force-with-lease=${ref}:${options.expected}`]
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-push-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const pushEnv = worktreeCommandEnv({}, { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir })
   const args = [
-    ...noHooks,
     '-c',
     'core.hooksPath=/dev/null',
     '-c',
@@ -251,9 +232,14 @@ export async function pushBranch(
     `${commit}:${ref}`,
   ]
   try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
+      cwd: scratch,
+      env: pushEnv,
+    })
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
     await execFileAsync('git', args, {
-      cwd: worktree,
-      env: worktreeCommandEnv({}, { GIT_TERMINAL_PROMPT: '0' }),
+      cwd: scratch,
+      env: pushEnv,
       timeout: options.timeoutMs ?? 5 * 60_000,
       maxBuffer: 16 * 1024 * 1024,
     })
@@ -266,6 +252,8 @@ export async function pushBranch(
       .slice(-3)
       .join('\n')
     throw new GitError(redactSecrets(`git push failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
   return commit
 }

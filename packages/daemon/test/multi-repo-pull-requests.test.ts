@@ -174,28 +174,42 @@ test('a draft whose latest commits can’t be pushed stays a draft at sign-off',
   expect(repos.get('web')?.pullRequest?.state).toBe('ready')
 })
 
-test('TED won’t push when the repo’s own git config names a command, and pushes to the Factory’s URL', async () => {
-  const [api] = [await repoWith('api', 1)]
-  if (!api) throw new Error('no repo')
+test('TED pushes to the Factory’s URL and ignores the repo’s own git config', async () => {
+  const api = await repoWith('api', 1)
   const marker = path.join(dir, 'ran')
-  await run('git', ['config', 'core.sshCommand', `touch ${marker}`], { cwd: api.worktree })
-  await run('git', ['config', 'remote.origin.url', path.join(dir, 'elsewhere.git')], {
-    cwd: api.worktree,
-  })
+  const elsewhere = path.join(dir, 'elsewhere.git')
+  const hooks = path.join(dir, 'agent-hooks')
+  const touch = `#!/bin/sh\ntouch '${marker}'\n`
+  await mkdir(hooks)
+  await writeFile(path.join(hooks, 'pre-push'), touch, { mode: 0o755 })
+  await writeFile(path.join(api.worktree, '.git', 'hooks', 'pre-push'), touch, { mode: 0o755 })
+  const fsmonitor = path.join(dir, 'fsmonitor.sh')
+  await writeFile(fsmonitor, touch, { mode: 0o755 })
+  const config = (key: string, value: string) =>
+    run('git', ['config', key, value], { cwd: api.worktree })
+  await config('remote.origin.url', elsewhere)
+  await config('remote.origin.pushurl', elsewhere)
+  await config('remote.origin.receivepack', `touch '${marker}'; git-receive-pack`)
+  await config(`url.${elsewhere}.pushInsteadOf`, path.join(dir, 'api.git'))
+  await config('core.hooksPath', hooks)
+  await config('core.fsmonitor', fsmonitor)
+  await config('core.sshCommand', `touch '${marker}'`)
+  await config('credential.helper', `!touch '${marker}'`)
+  await config('http.proxy', 'http://127.0.0.1:9')
+  await config('http.extraHeader', 'Authorization: Bearer leaked')
+  await config('protocol.ext.allow', 'always')
   const { store, repos } = fakeStore(['api'])
-  const { gh, calls } = fakeGh()
+  const { gh } = fakeGh()
   const prs = createPullRequests({ store, gh })
-  const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
 
-  await prs.push(task, [api], 'first')
-  expect(repos.get('api')?.pushFailed?.message).toContain('core.sshcommand')
-  expect(calls).toEqual([])
+  await prs.push({ id: 't', displayId: 'NB-1', title: 'Offline notes' }, [api], 'first')
 
-  await run('git', ['config', '--unset', 'core.sshCommand'], { cwd: api.worktree })
-  await prs.push(task, [api], 'again')
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
   expect(repos.get('api')?.pullRequest?.state).toBe('draft')
   const pushed = await run('git', ['rev-parse', 'refs/heads/ted/nb-1-notes'], {
     cwd: path.join(dir, 'api.git'),
   })
   expect(pushed.stdout.trim()).toBe(repos.get('api')?.pushed?.commit)
+  await expect(run('git', ['--git-dir', elsewhere, 'rev-parse', 'HEAD'])).rejects.toThrow()
+  await expect(run('test', ['-e', marker])).rejects.toThrow()
 })
