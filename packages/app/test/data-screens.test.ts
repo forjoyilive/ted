@@ -14,7 +14,6 @@ import {
   pretendStateSchemaChanged,
   removeHome,
   stopDaemonIn,
-  tokenFor,
 } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
@@ -56,7 +55,7 @@ async function withDaemon(
 ): Promise<void> {
   const daemon = await startDaemon({ home, version })
   try {
-    await work(api(daemon.port, await tokenFor(home)))
+    await work(api(daemon.port, { appKey: daemon.appToken }))
   } finally {
     await daemon.stop()
   }

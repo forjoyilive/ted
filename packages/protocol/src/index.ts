@@ -6,6 +6,20 @@ export {
   workRunning,
 } from './activity.ts'
 export {
+  type AppAuth,
+  appAuthScheme,
+  bodyHash,
+  bodyHashHeader,
+  daemonProof,
+  equalHex,
+  newNonce,
+  parseAppAuth,
+  requestMac,
+  responseMac,
+  responseMacHeader,
+  signRequest,
+} from './app-auth.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerActionInput,
@@ -51,7 +65,7 @@ export {
   type Subscription,
 } from './client.ts'
 export type { CommandLineStatus } from './command-line.ts'
-export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,
   type BackupKind,
@@ -60,6 +74,7 @@ export {
   type DataStatus,
   type RestoreBackupRequest,
   type RestoreBackupResult,
+  type ShutdownRequest,
 } from './data.ts'
 export type {
   Diagnostics,

@@ -1,4 +1,7 @@
+import { execFile } from 'node:child_process'
+import { readdir, readlink, realpath } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
+import { promisify } from 'node:util'
 
 export class DaemonAlreadyRunningError extends Error {
   constructor() {
@@ -41,4 +44,32 @@ export function isLockHeld(lockPath: string): boolean {
   const lock = tryLock(lockPath)
   lock?.release()
   return lock === undefined
+}
+
+export async function lockHolders(lockPath: string): Promise<number[]> {
+  const file = await realpath(lockPath).catch(() => undefined)
+  if (file === undefined) return []
+  if (process.platform === 'linux') return openedByOnLinux(file)
+  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', file]).catch(() => ({
+    stdout: '',
+  }))
+  return stdout
+    .split('\n')
+    .filter((line) => /^\d+$/.test(line))
+    .map(Number)
+}
+
+async function openedByOnLinux(file: string): Promise<number[]> {
+  const pids = (await readdir('/proc').catch(() => [])).filter((name) => /^\d+$/.test(name))
+  const holders: number[] = []
+  for (const pid of pids) {
+    const fds = await readdir(`/proc/${pid}/fd`).catch(() => [])
+    for (const fd of fds) {
+      if ((await readlink(`/proc/${pid}/fd/${fd}`).catch(() => '')) === file) {
+        holders.push(Number(pid))
+        break
+      }
+    }
+  }
+  return holders
 }

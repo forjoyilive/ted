@@ -13,7 +13,6 @@ import {
   killRunHosts,
   makeTempHome,
   stubClaudePath,
-  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -78,7 +77,7 @@ test('a daemon exits once the process named by TED_EXIT_WITH_PID dies', async ()
 test('a Run host stops its agent and exits once that process dies', async () => {
   process.env.TED_EXIT_WITH_PID = String(parent?.pid)
   inProcess = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  const client = api(inProcess.port, await tokenFor(home))
+  const client = api(inProcess.port, { appKey: inProcess.appToken })
   const cwd = await mkdtemp(path.join(tmpdir(), 'ted-run-cwd-'))
   try {
     const run = await client.startRun([{ waitFor: path.join(cwd, 'never') }], cwd)

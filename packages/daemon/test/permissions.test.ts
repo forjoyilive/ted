@@ -48,14 +48,15 @@ async function start(workflow = 'version: 1\n') {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
   })
-  const client = api(daemon.port, await tokenFor(home))
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const fileToken = api(daemon.port, await tokenFor(home))
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
   await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  return { ...client, ok }
+  return { ...client, ok, fileToken }
 }
 
 type Client = Awaited<ReturnType<typeof start>>
@@ -154,6 +155,29 @@ describe('permission requests from Claude Code', () => {
     expect((await client.ok<InboxItem[]>('GET', '/inbox')).map((i) => i.request.id)).not.toContain(
       request.id,
     )
+  })
+})
+
+describe('who may answer', () => {
+  test('the token in daemon.json can’t answer a permission request; the app’s token can', async () => {
+    const client = await start()
+    const task = await startTask(client, [
+      bash('rm -rf ~/.ssh', 'Clean up keys'),
+      { endTurn: true },
+    ])
+    const request = await permissionOf(client, task)
+
+    for (const action of ['approve', 'deny']) {
+      const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, { action })
+      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+    }
+    const open = (await comments(client, task)).find((c) => c.id === request.id)
+    expect(open?.answer).toBeUndefined()
+
+    const answered = await client.ok<Comment>('POST', `/comments/${request.id}/answer`, {
+      action: 'deny',
+    })
+    expect(answered.answer).toMatchObject({ kind: 'denied' })
   })
 })
 

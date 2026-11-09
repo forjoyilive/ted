@@ -32,6 +32,7 @@ export const integrationRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/integrations\/check$/,
+    fileToken: true,
     handle: async (_, { integrations }) => [200, await integrations.check({ fresh: true })],
   },
   {
@@ -78,6 +79,7 @@ export const integrationRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/integrations\/linear\/lookup$/,
+    fileToken: true,
     async handle({ req }, { linear }) {
       const body = (await readJson(req)) as Partial<Record<'url', unknown>> | null
       if (typeof body?.url !== 'string') throw new HttpError(400, 'url must be text')

@@ -15,18 +15,22 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
+  appClient,
   commitToOrigin,
+  daemonAsApp,
   hostRecords,
   isAlive,
   makeOriginRepo,
   removeHome,
+  spawnDaemonProcess,
   stopDaemonIn,
   waitForExit,
+  waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
@@ -101,10 +105,21 @@ async function openAllTasks(window: Page): Promise<void> {
 
 const taskRow = (window: Page, text: string) => window.getByRole('row').filter({ hasText: text })
 
+async function startDaemonAsApp(): Promise<void> {
+  await rm(path.join(home, 'daemon.json'), { force: true })
+  spawnDaemonProcess(['--exit-when-idle'], env())
+  await waitUntil(() => readDaemonInfo(home), 'daemon.json')
+}
+
+async function addFactory(repo: string, key: string, localFolder?: string): Promise<void> {
+  const app = await daemonAsApp(home, env())
+  await app.addFactory({ repo, key, ...(localFolder !== undefined && { localFolder }) })
+}
+
 async function daemonClient(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return appClient(info, process.env.TED_APP_TOKEN)
 }
 
 const background = (window: Page) =>
@@ -158,7 +173,7 @@ describe('TED app', () => {
         { run: ['ted', 'outcome', 'advance'] },
       ],
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp()
     await openAllTasks(window)
@@ -179,7 +194,7 @@ describe('TED app', () => {
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
     const window = await launchApp()
     await openAllTasks(window)
@@ -220,7 +235,8 @@ describe('TED app', () => {
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await startDaemonAsApp()
+    await addFactory(origin, 'NB')
     const edit = {
       emit: {
         type: 'assistant',
@@ -354,7 +370,7 @@ describe('TED app', () => {
 
   test('Runs lists a sub-agent under its Task Lead, opens its chat and stops it from its row', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const promptFile = path.join(home, 'explore.md')
     await writeFile(
       promptFile,
@@ -426,7 +442,7 @@ describe('TED app', () => {
 
   test('a model the plan doesn’t include shows Model unavailable until the human picks the default', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
     await ted('task', 'lead', 'NB-1', 'claude', '--model', 'unavailable-9')
     const window = await launchApp()
@@ -461,7 +477,7 @@ describe('TED app', () => {
         { endTurn: true },
       ],
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp()
     await openAllTasks(window)
@@ -520,7 +536,7 @@ describe('TED app', () => {
     const steps = JSON.stringify({
       steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp()
     await openAllTasks(window)
@@ -554,7 +570,7 @@ describe('TED app', () => {
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
     const window = await launchApp()
     await openAllTasks(window)
@@ -575,7 +591,7 @@ describe('TED app', () => {
     const folder = path.join(home, 'local')
     const moved = path.join(home, 'moved')
     await mkdir(folder)
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
+    await addFactory(origin, 'NB', folder)
     await rm(folder, { recursive: true })
     await mkdir(moved)
 
@@ -604,7 +620,7 @@ describe('TED app', () => {
     expect(isAlive(electronPid)).toBe(false)
   })
 
-  test('the app connects to a daemon that ted started instead of starting another', async () => {
+  test('the app takes over a daemon that ted started, which never learned the app’s token', async () => {
     await ted('task', 'create', 'Fix login')
     const pid = await daemonPid()
 
@@ -612,7 +628,8 @@ describe('TED app', () => {
 
     await openAllTasks(window)
     await taskRow(window, 'DEV-1').waitFor()
-    expect(await daemonPid()).toBe(pid)
+    expect(await daemonPid()).not.toBe(pid)
+    expect(await (await daemonClient()).caller()).toMatchObject({ kind: 'app' })
   })
 
   test('the renderer has no Node, filesystem or store access, only the bridge', async () => {
@@ -649,7 +666,7 @@ describe('TED app', () => {
 describe('TED app frame', () => {
   test('the sidebar lists Factories; the current one opens its Board, List and other Views', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', 'Offline editing')
     const window = await launchApp()
     const nav = sidebar(window)
@@ -675,14 +692,14 @@ describe('TED app frame', () => {
     const window = await launchApp()
     const origin = await makeOriginRepo(path.join(home, 'origin'))
 
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
 
     await sidebar(window).getByRole('button', { name: 'widgets' }).waitFor()
   })
 
   test('opening a Task shows a back link to where it came from', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', 'Offline editing')
     const window = await launchApp()
     const nav = sidebar(window)
@@ -705,7 +722,7 @@ describe('TED app frame', () => {
 
   test('Blocked by in Task details adds and removes blockers, and refuses a cycle', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', 'Crash when search is empty')
     await ted('task', 'create', '--factory', 'NB', 'Offline editing')
     const window = await launchApp()
@@ -768,7 +785,7 @@ describe('TED app frame', () => {
   })
 
   test('the Appearance setting applies when the app starts', async () => {
-    await ted('task', 'list')
+    await startDaemonAsApp()
     await (await daemonClient()).updateSettings({ appearance: 'dark' })
 
     const window = await launchApp()
@@ -811,7 +828,7 @@ describe('TED app frame', () => {
 describe('New Task dialog', () => {
   async function withFactory(): Promise<Page> {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'widgets' }).click()
     return window
@@ -1010,7 +1027,7 @@ describe('App Settings', () => {
 
   test('Settings lists the eight sections, then each Factory, which leaves for its settings page', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const window = await launchApp()
     await openSettings(window)
     const nav = settingsNav(window)
@@ -1204,7 +1221,7 @@ describe('Add Factory', () => {
   test('access problems and a taken key show their messages and keep Add Factory disabled', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await githubReady(['acme/widgets'])
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const window = await launchApp()
     await openForm(window)
     const form = dialog(window)
@@ -1280,7 +1297,7 @@ describe('banners', () => {
 
   test('a Factory banner shows on that Factory’s pages only, and × hides a warning', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const window = await launchApp()
     const nav = sidebar(window)
     const factoryBanners = window.getByRole('region', { name: 'widgets problems' })
@@ -1304,7 +1321,7 @@ describe('banners', () => {
 
   test('a stops-work Factory banner marks the sidebar row, and Retry clears it', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', 'Offline editing')
     const window = await launchApp()
     const nav = sidebar(window)
@@ -1337,7 +1354,7 @@ describe('agent health', () => {
   test('a signed-out agent pauses its Task, shows a Fix banner and a red Agents card', async () => {
     await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', 'Offline editing')
     await ted('task', 'start', 'NB-1')
     const window = await launchApp()
@@ -1369,7 +1386,7 @@ describe('Working Runs', () => {
 
   async function twoTasksOneSlot(): Promise<Page> {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', forever())
     await ted('task', 'create', '--factory', 'NB', 'Second Task')
     const window = await launchApp()
@@ -1435,7 +1452,7 @@ describe('Working Runs', () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
     await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', forever())
     const window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'widgets' }).click()
@@ -1487,7 +1504,7 @@ describe('Stop and Resume', () => {
   async function workingTask(steps: unknown[], daemonEnv: Record<string, string> = {}) {
     extraEnv = daemonEnv
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', '--start', JSON.stringify({ steps }))
     const window = await launchApp()
     await openAllTasks(window)
@@ -1554,7 +1571,7 @@ describe('Failed', () => {
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -1628,7 +1645,7 @@ describe('daemon crashes', () => {
         { run: ['ted', 'outcome', 'advance'] },
       ],
     })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '1500,0,0' })
     await openAllTasks(window)
@@ -1659,7 +1676,7 @@ describe('daemon crashes', () => {
 
   test('after reconnecting, the sidebar shows slots that changed while the app was away', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -1674,7 +1691,7 @@ describe('daemon crashes', () => {
 
     await killDaemon()
     await reconnecting(window).waitFor()
-    await ted('task', 'list')
+    await startDaemonAsApp()
     await (await daemonClient()).updateSettings({ maxWorkingRuns: 7 })
 
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
@@ -1699,7 +1716,7 @@ describe('daemon crashes', () => {
       { run: ['ted', 'outcome', 'advance'] },
       { endTurn: true },
     ]
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -2016,7 +2033,7 @@ describe('Inbox and Gates', () => {
       { run: ['ted', 'outcome', 'advance'] },
       { endTurn: true },
     ]
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -2082,7 +2099,7 @@ describe('Inbox and Gates', () => {
         ],
       }),
     )
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -2146,7 +2163,7 @@ describe('Inbox and Gates', () => {
         '## Next step\n\nDesign the merge view.\n',
       ].join('\n\n'),
     )
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -2194,7 +2211,7 @@ describe('Inbox and Gates', () => {
 
   test('two open requests show “2 waiting on you”; chips and the Inbox pick the pinned card', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted(
       'task',
       'create',
@@ -2248,7 +2265,7 @@ describe('Inbox and Gates', () => {
 
   test('answered and superseded requests collapse to grey cards; Show request opens the card read-only', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const supersede =
       'id=$(ted outcome ask "Should an empty search show recent notes or nothing?" | sed -n "s/.*(request \\([^)]*\\)).*/\\1/p"); ted ask --supersedes "$id" --choice "The 5 most recent notes" --choice "A hint" "Empty search: show the 5 most recent notes, or a hint?"'
     await ted(
@@ -2294,7 +2311,7 @@ describe('Inbox and Gates', () => {
 describe('Permission requests', () => {
   test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     const ask = (command: string, description: string) => ({
       permission: { tool: 'Bash', input: { command, description }, description },
     })
@@ -2361,7 +2378,7 @@ describe('List and All Tasks', () => {
       const made = await makeOriginRepo(parent)
       const origin = path.join(path.dirname(made), `${name}.git`)
       await rename(made, origin)
-      await ted('dev', 'factory', 'add', origin, '--key', key)
+      await addFactory(origin, key)
     }
   }
 
@@ -2514,7 +2531,7 @@ describe('Board', () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
     if (workflow !== undefined) await commitToOrigin(parent, { '.ted/workflow.yaml': workflow })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     return launchApp()
   }
 

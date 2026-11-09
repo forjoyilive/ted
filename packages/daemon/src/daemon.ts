@@ -45,6 +45,7 @@ export interface DaemonOptions {
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
   nudgeAfterMs?: number
+  appToken?: string
   stallAfterMs?: number
 }
 
@@ -67,6 +68,7 @@ export interface DaemonIntegrationsOptions {
 
 export interface RunningDaemon {
   port: number
+  appToken: string
   stop(): Promise<void>
 }
 
@@ -277,9 +279,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     .refresh()
     .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
+  const appToken = options.appToken ?? randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
     token,
+    appToken,
+    appNonces: new Map(),
     data,
     keepaliveMs: options.keepaliveMs ?? 30_000,
     agents,
@@ -301,6 +306,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
 
   return {
     port,
+    appToken,
     async stop() {
       idle?.cancel()
       await rm(paths.daemonInfo, { force: true })

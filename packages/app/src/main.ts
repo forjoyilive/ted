@@ -288,6 +288,9 @@ process.on('uncaughtException', (error) => {
   })
 })
 
+const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
+delete process.env.TED_APP_TOKEN
+
 const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
 ]
@@ -545,6 +548,7 @@ async function start(): Promise<void> {
   if (background) app.dock?.hide()
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
+    ...(testAppToken && { appToken: testAppToken }),
     restartDelaysMs,
     onEvent: forward,
     onConnection,

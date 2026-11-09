@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import { tmpdir } from 'node:os'
@@ -9,9 +9,12 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import {
   type ConversationEntry,
+  DaemonClient,
+  type DaemonInfo,
   type Run,
   type RunWithConversation,
   readDaemonInfo,
+  signRequest,
 } from '@ted/protocol'
 import { killMarked } from './support/processes.ts'
 
@@ -58,6 +61,28 @@ export async function tokenFor(home: string): Promise<string> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error(`no daemon.json in ${home}`)
   return info.token
+}
+
+export const testAppToken = 'test-app-token'
+
+export function spawnDaemonProcess(args: string[], env: NodeJS.ProcessEnv): ChildProcess {
+  const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
+  const child = spawn(process.execPath, [mainPath, '--app-token-stdin', ...args], {
+    env,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  })
+  child.stdin?.end(`${testAppToken}\n`)
+  return child
+}
+
+export async function daemonAsApp(home: string, env: NodeJS.ProcessEnv): Promise<DaemonClient> {
+  const info = await readDaemonInfo(home)
+  const known = info && appClient(info, testAppToken)
+  if (known && (await known.provesAppKey().catch(() => false))) return known
+  await stopDaemonIn(home)
+  await rm(path.join(home, 'daemon.json'), { force: true })
+  spawnDaemonProcess(['--exit-when-idle'], { ...env, TED_HOME: home })
+  return appClient(await waitUntil(() => readDaemonInfo(home), 'daemon.json'), testAppToken)
 }
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))
@@ -130,13 +155,30 @@ export async function stopDaemonIn(home: string): Promise<void> {
   await killRunHosts(home)
 }
 
-export function api(port: number, token: string) {
+export function appHeaders(
+  appKey: string,
+  method: string,
+  route: string,
+  body?: string,
+): Record<string, string> {
+  return signRequest(appKey, method, route, body)
+}
+
+export function appClient(info: DaemonInfo, appKey: string | undefined): DaemonClient {
+  return appKey === undefined ? new DaemonClient(info) : new DaemonClient(info, '', { appKey })
+}
+
+export function api(port: number, auth: string | { appKey: string }) {
   const call = async (method: string, route: string, body?: unknown) => {
+    const text = body === undefined ? undefined : JSON.stringify(body)
     const res = await rawRequest(port, {
       method,
       path: route,
-      headers: { authorization: `Bearer ${token}` },
-      ...(body !== undefined && { body: JSON.stringify(body) }),
+      headers:
+        typeof auth === 'string'
+          ? { authorization: `Bearer ${auth}` }
+          : appHeaders(auth.appKey, method, route, text),
+      ...(text !== undefined && { body: text }),
     })
     return { status: res.status, body: JSON.parse(res.body) }
   }

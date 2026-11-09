@@ -39,6 +39,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks$/,
+    fileToken: true,
     async handle({ req }, { tasks, attachments }) {
       return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
     },
@@ -51,6 +52,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
+    fileToken: true,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
   },
   {
@@ -122,6 +124,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/blockers$/,
+    fileToken: true,
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<BlockTaskRequest> | null
@@ -133,6 +136,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'DELETE',
     path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
+    fileToken: true,
     runToken: true,
     async handle({ params: [ref = '', by], caller }, { tasks }) {
       return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
@@ -146,6 +150,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/lead$/,
+    fileToken: true,
     async handle({ req, params: [ref = ''] }, { tasks }) {
       return [200, tasks.setLead(ref, agentChoice(await readJson(req)))]
     },
@@ -174,6 +179,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/lead\/use-default-model$/,
+    fileToken: true,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.useDefaultModel(ref)],
   },
   {

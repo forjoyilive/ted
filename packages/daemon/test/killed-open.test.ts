@@ -10,7 +10,6 @@ import {
   pretendStateSchemaChanged,
   storeDbFiles,
   stubClaudePath,
-  tokenFor,
 } from './helpers.ts'
 
 let home: string
@@ -54,7 +53,7 @@ async function start(version: string, statuses: DataStatus[] = []) {
     claudeBin: stubClaudePath,
     onDataStatus: (status) => statuses.push(status),
   })
-  return api(daemon.port, await tokenFor(home))
+  return api(daemon.port, { appKey: daemon.appToken })
 }
 
 async function storeWithTasks(): Promise<Task[]> {

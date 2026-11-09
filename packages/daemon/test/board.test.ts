@@ -1,11 +1,12 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DaemonClient, DaemonRequestError, readDaemonInfo, tedPaths } from '@ted/protocol'
+import { type DaemonClient, DaemonRequestError, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
+  appClient,
   commitToOrigin,
   killRunHosts,
   makeOriginRepo,
@@ -44,7 +45,7 @@ async function start(): Promise<DaemonClient> {
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return appClient(info, daemon?.appToken)
 }
 
 describe('a Factory’s Board stages', () => {

@@ -2,8 +2,24 @@ import { timingSafeEqual } from 'node:crypto'
 import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { DaemonEvent, RestoreBackupRequest } from '@ted/protocol'
+import {
+  type AppAuth,
+  bodyHash,
+  bodyHashHeader,
+  type CallerInfo,
+  type DaemonEvent,
+  daemonProof,
+  equalHex,
+  parseAppAuth,
+  type RestoreBackupRequest,
+  requestMac,
+  responseMac,
+  responseMacHeader,
+  type ShutdownRequest,
+} from '@ted/protocol'
+import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
@@ -11,7 +27,14 @@ import { redactSecrets } from './redact.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { machineRoutes } from './routes/machine.ts'
-import { type BaseOptions, type RequestContext, type Route, readJson } from './routes/route.ts'
+import {
+  type BaseOptions,
+  maxBodyBytes,
+  type RequestContext,
+  type Route,
+  readJson,
+  readOptionalJson,
+} from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import type { Caller } from './tasks/tasks.ts'
@@ -29,6 +52,21 @@ const dataRoutes: Route<BaseOptions>[] = [
   },
   {
     method: 'GET',
+    path: /^\/caller$/,
+    async handle({ req, caller }, { appToken }) {
+      const nonce = parseAppAuth(req.headers.authorization)?.nonce
+      const info: CallerInfo = {
+        kind: caller.kind,
+        ...(caller.kind === 'app' &&
+          nonce !== undefined && {
+            proof: daemonProof(appToken, nonce, req.socket.localPort ?? 0),
+          }),
+      }
+      return [200, info]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/data-status$/,
     handle: async (_, { data }) => [200, data.status()],
   },
@@ -40,6 +78,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/backups\/restore$/,
+    fileToken: true,
     async handle({ req }, { data }) {
       const body = (await readJson(req)) as Partial<RestoreBackupRequest> | null
       const name = typeof body?.name === 'string' ? body.name : ''
@@ -50,9 +89,17 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/shutdown$/,
-    async handle({ res }, { data, onShutdown }) {
+    fileToken: true,
+    async handle({ req, res, caller }, { data, onShutdown }) {
+      const body = (await readOptionalJson(req)) as Partial<ShutdownRequest> | null
+      const keepRuns = body?.keepRuns === true
+      if (caller.kind === 'file' && !keepRuns) {
+        throw new HttpError(403, 'only the TED app can do this')
+      }
       await settled(data)
-      if (data.status().state === 'ready') await (await data.services()).runs.stopAll()
+      if (!keepRuns && data.status().state === 'ready') {
+        await (await data.services()).runs.stopAll()
+      }
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
@@ -70,6 +117,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'POST',
     path: /^\/app\/open$/,
+    fileToken: true,
     async handle(_, { appStreams }) {
       for (const stream of appStreams) send(stream, { type: 'open-requested' })
       return [200, { opened: appStreams.size > 0 }]
@@ -131,8 +179,13 @@ async function handle(
     return sendJson(res, 200, { status: 'ok', version: options.version })
   }
 
-  const caller = identify(req.headers.authorization, options)
+  const signed = parseAppAuth(req.headers.authorization)
+  const caller = signed
+    ? signedByApp(signed, req, url, options)
+    : identify(req.headers.authorization, options)
   if (!caller) throw new HttpError(401, 'missing or wrong token')
+  if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
+  const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
@@ -151,7 +204,7 @@ async function handle(
   if (reply) sendJson(res, ...reply)
 
   function context(params: string[]): RequestContext {
-    return { req, res, params, caller: caller as Caller }
+    return { req: request, res, params, caller: caller as Caller }
   }
 }
 
@@ -167,6 +220,9 @@ function find<O>(
     if (caller.kind === 'run' && !route.runToken) {
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
+    if (caller.kind === 'file' && route.method !== 'GET' && !route.fileToken) {
+      throw new HttpError(403, 'only the TED app can do this')
+    }
     return {
       route,
       params: found.slice(1).map((param) => (param === undefined ? '' : decodeParam(param))),
@@ -180,7 +236,7 @@ function send(res: http.ServerResponse, event: DaemonEvent): void {
 }
 
 function streamEvents(
-  req: http.IncomingMessage,
+  _req: http.IncomingMessage,
   res: http.ServerResponse,
   { data, idle, keepaliveMs, appStreams }: BaseOptions,
   app: boolean,
@@ -192,7 +248,7 @@ function streamEvents(
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
   const release = idle?.hold()
-  req.on('close', () => {
+  res.on('close', () => {
     clearInterval(keepalive)
     unsubscribe()
     appStreams.delete(res)
@@ -200,9 +256,58 @@ function streamEvents(
   })
 }
 
+const appAuthWindowMs = 60_000
+
+const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: string }>()
+
+async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
+  const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length
+    if (req.method === 'GET') throw new HttpError(400, 'a GET request has no body')
+    if (size > limit) throw new HttpError(413, 'body too large')
+    chunks.push(chunk as Buffer)
+  }
+  const body = Buffer.concat(chunks)
+  if (!equalHex(bodyHash(body), String(req.headers[bodyHashHeader]))) {
+    throw new HttpError(400, 'the body doesn’t match its signature')
+  }
+  return body
+}
+
+function signedByApp(
+  auth: AppAuth,
+  req: http.IncomingMessage,
+  url: string,
+  { appToken, appNonces }: BaseOptions,
+): Caller | undefined {
+  const now = Date.now()
+  if (Math.abs(now - auth.at) > appAuthWindowMs) return undefined
+  const hash = req.headers[bodyHashHeader]
+  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) return undefined
+  if (!equalHex(auth.mac, requestMac(appToken, auth, req.method ?? '', url, hash))) return undefined
+  for (const [nonce, at] of appNonces) {
+    if (now - at > 2 * appAuthWindowMs) appNonces.delete(nonce)
+  }
+  if (appNonces.has(auth.nonce)) return undefined
+  appNonces.set(auth.nonce, now)
+  return { kind: 'app' }
+}
+
+function replay(req: http.IncomingMessage, body: Buffer): http.IncomingMessage {
+  return Object.assign(Readable.from(body.length === 0 ? [] : [body]), {
+    headers: req.headers,
+    method: req.method,
+    url: req.url,
+    socket: req.socket,
+  }) as unknown as http.IncomingMessage
+}
+
 function identify(authorization: string | undefined, options: BaseOptions): Caller | undefined {
   const given = authorization?.replace(/^Bearer /, '') ?? ''
-  if (equalSecrets(given, options.token)) return { kind: 'daemon' }
+  if (equalSecrets(given, options.token)) return { kind: 'file' }
   const runId = options.runTokens.verify(given)
   return runId === undefined ? undefined : { kind: 'run', runId }
 }
@@ -238,6 +343,13 @@ async function drain(req: http.IncomingMessage): Promise<void> {
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json' })
-  res.end(JSON.stringify(body))
+  const text = JSON.stringify(body)
+  const signed = signedResponses.get(res)
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    ...(signed && {
+      [responseMacHeader]: responseMac(signed.key, signed.nonce, status, bodyHash(text)),
+    }),
+  })
+  res.end(text)
 }
