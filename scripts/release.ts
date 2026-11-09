@@ -105,6 +105,9 @@ function main(): void {
   step('Smoke test the build', 'pnpm', ['--filter', '@ted/app', 'smoke'])
   install()
   console.log(`\nTED ${version} is tagged, pushed and installed in ${installed}.`)
+  console.log(
+    'GitHub is running the full test suite on Linux for this tag: gh run list --workflow CI --limit 1',
+  )
 }
 
 if (import.meta.main) main()
