@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   defaultView,
   dropAction,
+  dropTargets,
   filterChips,
   filterTasks,
   groupTasks,
@@ -230,6 +231,21 @@ describe('dragging', () => {
     expect(neighbours(list, 'NB-4', 1)).toEqual({ after: 'NB-1', before: 'NB-2' })
     expect(neighbours(list, 'NB-1', 0)).toEqual({ before: 'NB-2' })
     expect(neighbours(list, 'NB-1', 3)).toEqual({ after: 'NB-4' })
+  })
+
+  test('while dragging, empty groups that accept a drop still show', () => {
+    const backlog = task({ displayId: 'NB-50' })
+    const view = defaultView('nb')
+    expect(groupTasks([backlog], view, factories).map((g) => g.key)).toEqual(['backlog'])
+    expect(
+      groupTasks([backlog], view, factories, dropTargets('stage')).map((g) => [
+        g.key,
+        g.tasks.length,
+      ]),
+    ).toEqual([
+      ['backlog', 1],
+      ['intake', 0],
+    ])
   })
 
   test('only Backlog → Intake starts and Queued → Backlog un-starts between Stage groups', () => {

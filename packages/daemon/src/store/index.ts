@@ -742,7 +742,16 @@ export async function openStore({
       return task
     },
     archiveTask(taskId) {
-      store.commit(events.taskArchived({ taskId, at: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      const withdrawn = openRequestRows(taskId)
+      const answer: CommentAnswer = { kind: 'withdrawn', at, archived: true }
+      store.commit(
+        events.taskArchived({ taskId, at }),
+        ...withdrawn.map(({ id }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
+      )
+      for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task

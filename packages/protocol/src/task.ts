@@ -195,6 +195,7 @@ export type CommentAnswer =
   | { kind: 'changes-requested'; at: string; text: string }
   | { kind: 'answered'; at: string; choice?: string; text?: string }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
+  | { kind: 'withdrawn'; at: string; archived: true }
 
 export interface Comment {
   id: string

@@ -126,6 +126,7 @@ export function createTasks(options: {
   const stopping = new AbortController()
   const holds = new Map<string, number>()
   const beginning = new Map<string, Promise<void>>()
+  const settingUp = new Map<string, AbortController>()
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   let pumping: Promise<void> | undefined
@@ -518,6 +519,7 @@ export function createTasks(options: {
     env: Record<string, string>,
     setupReport?: string,
   ): Promise<void> {
+    if (find(task.id).archived) return
     const prompt = await taskLeadPrompt(
       task,
       resolution.workflow,
@@ -559,14 +561,16 @@ export function createTasks(options: {
   ): Promise<void> {
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
+    const cancel = new AbortController()
+    settingUp.set(task.id, cancel)
     const result = await runWorktreeCommand({
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),
       log,
-      signal: stopping.signal,
-    })
-    if (result.outcome === 'interrupted') return
+      signal: AbortSignal.any([stopping.signal, cancel.signal]),
+    }).finally(() => settingUp.delete(task.id))
+    if (result.outcome === 'interrupted' || find(task.id).archived) return
     store.worktreeSetupFinished(task.id, repo.name, {
       outcome: result.outcome,
       ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
@@ -742,7 +746,9 @@ export function createTasks(options: {
   }
 
   async function clearAway(taskId: string): Promise<void> {
+    settingUp.get(taskId)?.abort()
     await beginning.get(taskId)?.catch(() => undefined)
+    settingUp.get(taskId)?.abort()
     const task = find(taskId)
     await Promise.all(task.runs.map((run) => runs.stop(run.id)))
     if (!task.repos.some((r) => !r.removed) && !task.worktree) return

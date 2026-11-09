@@ -1,7 +1,7 @@
 import { mkdtemp, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Factory, RunSlots, Task } from '@ted/protocol'
+import type { Comment, Factory, RunSlots, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -221,6 +221,32 @@ describe('archive', () => {
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots.queue.map((q) => q.displayId)).toEqual(['NB-3'])
     expect((await byId(client, next.id)).status).toEqual({ kind: 'queued', place: 1 })
+  })
+
+  test('archiving withdraws the Task’s open requests, so they leave the Inbox', async () => {
+    const client = await startWithStub()
+    const asking = await create(client, 'Asking', {
+      description: JSON.stringify({
+        steps: [
+          { run: ['ted', 'outcome', 'ask', 'Which way?'] },
+          { waitFor: path.join(scratch, 'never') },
+        ],
+      }),
+      start: true,
+    })
+    await waitUntil(
+      async () => (await client.ok<unknown[]>('GET', '/inbox')).length === 1,
+      'the question to reach the Inbox',
+    )
+
+    await client.ok('POST', `/tasks/${asking.id}/archive`)
+
+    expect(await client.ok<unknown[]>('GET', '/inbox')).toEqual([])
+    const comments = await client.ok<Comment[]>('GET', `/tasks/${asking.id}/comments`)
+    expect(comments.find((c) => c.kind === 'question')?.answer).toMatchObject({
+      kind: 'withdrawn',
+      archived: true,
+    })
   })
 
   test('archiving a working Task stops its Runs and removes its worktree', async () => {

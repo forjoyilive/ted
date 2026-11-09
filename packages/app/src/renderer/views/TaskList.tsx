@@ -36,6 +36,7 @@ import {
   columnLabels,
   createdByLabels,
   dropAction,
+  dropTargets,
   filterChips,
   filterTasks,
   groupLabels,
@@ -512,7 +513,7 @@ export function TaskList({
 
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text)
-  const groups = groupTasks(shown, view, factories)
+  const groups = groupTasks(shown, view, factories, dragging ? dropTargets(view.group) : [])
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'

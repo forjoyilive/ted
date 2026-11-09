@@ -234,6 +234,7 @@ export function groupTasks(
   tasks: readonly Task[],
   view: ListView,
   factories: readonly Factory[],
+  keep: readonly string[] = [],
 ): TaskGroup[] {
   const sorted = sortTasks(tasks, view.sort)
   const make = <K extends string>(
@@ -245,7 +246,7 @@ export function groupTasks(
     const extra = [...new Set(sorted.map(keyOf))].filter((k) => !keys.includes(k))
     return [...keys, ...extra].flatMap((key) => {
       const inGroup = sorted.filter((t) => keyOf(t) === key)
-      return inGroup.length === 0
+      return inGroup.length === 0 && !keep.includes(key)
         ? []
         : [{ key, label: labelOf(key), tasks: inGroup, collapsed: collapsed(key) }]
     })
@@ -295,6 +296,13 @@ export function neighbours(
     ...(after && { after: after.id }),
     ...(before && { before: before.id }),
   }
+}
+
+export function dropTargets(group: ListGroup): readonly string[] {
+  if (group === 'stage') return ['backlog', 'intake']
+  if (group === 'status') return ['none', 'queued']
+  if (group === 'priority') return priorities
+  return []
 }
 
 export type DropAction = 'reorder' | 'start' | 'unstart'
