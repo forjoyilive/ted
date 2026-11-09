@@ -50,6 +50,7 @@ import {
 } from '../components/RequestCard.tsx'
 import { Diff, RunChat } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
+import { ScrollMemory } from '../components/ScrollMemory.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
@@ -671,7 +672,13 @@ export function TaskThread({
               </button>
             </p>
           )}
-          <ol className={styles.thread}>
+          <ScrollMemory
+            list
+            spot={`thread:${task.id}`}
+            count={shown.length}
+            active={!hidden}
+            className={styles.thread}
+          >
             {shown.map((item) => {
               if (item.kind === 'event') {
                 const { event } = item
@@ -748,7 +755,7 @@ export function TaskThread({
                 </li>
               )
             })}
-          </ol>
+          </ScrollMemory>
           {pinned ? (
             <div className={styles.pinned}>
               <UnsentChip
