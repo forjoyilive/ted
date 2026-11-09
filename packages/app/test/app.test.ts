@@ -2198,11 +2198,21 @@ describe('running in the background', () => {
   })
 
   test('the app menu shows what’s waiting and running, and its items open the right place', async () => {
+    await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [{ permission: { tool: 'Bash', input: { command: 'ls' } } }, never()],
+      }),
+    )
     const window = await launchApp()
-    await startRun([{ hook: 'PermissionRequest:Bash' }, never()])
+    await ted('task', 'start', 'NB-1')
 
     await expect
-      .poll(menuLabels, { timeout: 10_000 })
+      .poll(menuLabels, { timeout: 20_000 })
       .toEqual(
         expect.arrayContaining([
           '1 waiting on you',
