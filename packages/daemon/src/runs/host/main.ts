@@ -1,6 +1,6 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { closeSync, openSync, readFileSync, readSync, writeSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, readSync, writeFileSync, writeSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
@@ -22,6 +22,16 @@ const files = runFiles(runDir)
 const lock = tryLock(files.lock)
 if (!lock) throw new Error(`another host already runs ${runDir}`)
 
+const earlierStarts = (() => {
+  try {
+    return readFileSync(files.log, 'utf8')
+      .split('\n')
+      .filter((line) => line.startsWith('{"t":"start"')).length
+  } catch {
+    return 0
+  }
+})()
+writeFileSync(files.pid, String(process.pid), { mode: 0o600 })
 const log = openSync(files.log, 'a')
 const write = (record: HostRecord) => writeSync(log, `${JSON.stringify(record)}\n`)
 
@@ -34,9 +44,10 @@ interface Started {
 }
 
 let current: Started | undefined
-let generation = 0
+let generation = earlierStarts
 let restarting = false
 let restartWanted = false
+const asked = { stop: false }
 
 async function startAgent(): Promise<Started> {
   const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
@@ -78,7 +89,10 @@ async function startAgent(): Promise<Started> {
   return { agent, driver, send, closed, spawnError: () => spawnError }
 }
 
-let inputOffset = 0
+let inputOffset = (() => {
+  const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  return launch.inputFrom ?? 0
+})()
 const forwardInput = () => {
   if (restarting || !current) return
   const { driver, send } = current
@@ -116,6 +130,7 @@ const forwardInput = () => {
 const inputTimer = setInterval(forwardInput, 150)
 
 const stop = () => {
+  asked.stop = true
   restartWanted = false
   current?.agent.kill('SIGTERM')
 }
@@ -140,6 +155,12 @@ for (;;) {
 }
 
 clearInterval(inputTimer)
-write({ t: 'exit', code, signal, ...(spawnError !== undefined && { error: spawnError }) })
+write({
+  t: 'exit',
+  code,
+  signal,
+  ...(spawnError !== undefined && { error: spawnError }),
+  ...(asked.stop && { stopped: true }),
+})
 lock.release()
 process.exit(0)

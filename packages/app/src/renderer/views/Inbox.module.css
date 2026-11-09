@@ -71,3 +71,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.failedKind {
+  color: var(--status-failed-fg);
+}

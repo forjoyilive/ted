@@ -25,7 +25,7 @@ import {
   useSlots,
   useTasks,
 } from './data.ts'
-import { queueView } from './list-view.ts'
+import { failedView, queueView } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
@@ -105,9 +105,16 @@ export function App() {
   const openNewTask = () => setNewTaskOpen(true)
   const inbox = useInbox()
   const inboxCount = inbox.length
-  const waiting: Record<string, { waiting: number }> = {}
+  const waiting: Record<string, { waiting?: number; failed?: boolean }> = {}
   for (const { task } of inbox) {
-    waiting[task.factoryId] = { waiting: (waiting[task.factoryId]?.waiting ?? 0) + 1 }
+    waiting[task.factoryId] = {
+      ...waiting[task.factoryId],
+      waiting: (waiting[task.factoryId]?.waiting ?? 0) + 1,
+    }
+  }
+  const failedTasks = tasks.filter((task) => task.status?.kind === 'failed' && !task.archived)
+  for (const task of failedTasks) {
+    waiting[task.factoryId] = { ...waiting[task.factoryId], failed: true }
   }
 
   useEffect(() => {
@@ -394,7 +401,16 @@ export function App() {
           settingsProblem={settingsStopsWork(banners)}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
+            ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
+          }}
+          onOpenFailed={() => {
+            saveListView(
+              settings,
+              allTasksScope,
+              failedView(allTasksScope, settings?.listViews),
+            ).catch((error: unknown) => console.error(error))
+            dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
           }}
           runsOpen={runsOpen}
           onOpenRuns={() => setRunsOpen((open) => !open)}

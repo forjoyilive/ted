@@ -12,6 +12,16 @@ export const permissionModes = ['auto', 'bypass'] as const
 
 export type PermissionMode = (typeof permissionModes)[number]
 
+export interface RunEnding {
+  how: 'stopped' | 'exited' | 'lost'
+  code?: number
+  signal?: string
+  error?: string
+  errorLines: string[]
+  resumeFailed?: boolean
+  at: string
+}
+
 export interface Run {
   id: string
   agent: AgentKind
@@ -30,6 +40,8 @@ export interface Run {
   failure?: string
   state: RunState
   startedAt: string
+  revivedAt?: string
+  ended?: RunEnding
 }
 
 export interface ConversationEntry {

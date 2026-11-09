@@ -18,6 +18,7 @@ import {
   type Banner,
   type BannerActionInput,
   type CheckRepoRequest,
+  type ClarifyDepth,
   type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
@@ -99,6 +100,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
+  setClarifyDepth: (client, taskId, depth) =>
+    client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
   checkOutput: (client, checkRunId, position) =>
