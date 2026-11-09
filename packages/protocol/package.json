@@ -9,6 +9,7 @@
     "./run": "./src/run.ts",
     "./banner": "./src/banner.ts",
     "./integrations": "./src/integrations.ts",
+    "./linear": "./src/linear.ts",
     "./settings": "./src/settings.ts"
   }
 }

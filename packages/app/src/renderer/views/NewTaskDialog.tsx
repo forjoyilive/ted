@@ -4,10 +4,12 @@ import type {
   ClarifyDepth,
   Effort,
   Factory,
+  LinearLookup,
   Priority,
   Task,
   TaskLead,
 } from '@ted/protocol'
+import { findLinearUrl } from '@ted/protocol/linear'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 import { type DragEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
@@ -58,6 +60,10 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
   const [defaultLead, setDefaultLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [source, setSource] = useState<Source>()
+  const [dismissed, setDismissed] = useState<readonly string[]>([])
+  const filled = useRef<{ title?: string; priority?: Priority }>({})
+  const lookups = useRef(0)
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -87,9 +93,65 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
   const canCreate =
     chosenFactory !== undefined && description.trim() !== '' && uploading === 0 && !busy
 
+  function lookUp(url: string, identifier: string) {
+    const ticket = ++lookups.current
+    setSource({ url, identifier, lookup: undefined })
+    ted.lookupLinear(url).then(
+      (lookup) => {
+        if (ticket !== lookups.current) return
+        setSource({ url, identifier, lookup })
+        if (lookup.state !== 'found') return
+        const { issue } = lookup
+        setTitle((current) =>
+          current.trim() === '' || current === filled.current.title ? issue.title : current,
+        )
+        setPriority((current) =>
+          current === 'none' || current === filled.current.priority ? issue.priority : current,
+        )
+        filled.current = { title: issue.title, priority: issue.priority }
+      },
+      (failure: unknown) => {
+        if (ticket !== lookups.current) return
+        setSource({
+          url,
+          identifier,
+          lookup: {
+            state: 'failed',
+            error: `Couldn’t fetch from Linear: ${readableError(failure)}. The Task will be created with the link only.`,
+          },
+        })
+      },
+    )
+  }
+
+  function changeDescription(text: string) {
+    setDescription(text)
+    const link = findLinearUrl(text)
+    if (!link) {
+      if (source) {
+        lookups.current++
+        setSource(undefined)
+      }
+      return
+    }
+    if (link.url === source?.url || dismissed.includes(link.url)) return
+    lookUp(link.url, link.identifier)
+  }
+
+  function removeSource() {
+    if (!source) return
+    lookups.current++
+    setDismissed((current) => [...current, source.url])
+    setSource(undefined)
+  }
+
   function clear() {
     setTitle('')
     setDescription('')
+    lookups.current++
+    setSource(undefined)
+    setDismissed([])
+    filled.current = {}
     setPriority('none')
     setBlockedBy([])
     setAttachments([])
@@ -113,6 +175,7 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
         ...(lead && { lead }),
         blockedBy,
         attachments: attachments.map(({ hash, name, mediaType }) => ({ hash, name, mediaType })),
+        ...(source && { source: source.url }),
         start,
       })
       if (more) clear()
@@ -212,15 +275,24 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
         value={title}
         onChange={(event) => setTitle(event.target.value)}
       />
-      <textarea
-        ref={descriptionField}
-        className={styles.description}
-        aria-label="Description"
-        placeholder="Describe what you want done."
-        rows={3}
-        value={description}
-        onChange={(event) => setDescription(event.target.value)}
-      />
+      <div className={styles.descriptionBox}>
+        <textarea
+          ref={descriptionField}
+          className={styles.description}
+          aria-label="Description"
+          placeholder="Describe what you want done, or paste a Linear issue URL."
+          rows={3}
+          value={description}
+          onChange={(event) => changeDescription(event.target.value)}
+        />
+        {source && (
+          <SourceCard
+            source={source}
+            onRemove={removeSource}
+            onKeySaved={() => lookUp(source.url, source.identifier)}
+          />
+        )}
+      </div>
 
       <fieldset
         className={styles.attachments}
@@ -376,6 +448,136 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
         </p>
       )}
     </dialog>
+  )
+}
+
+interface Source {
+  url: string
+  identifier: string
+  lookup: LinearLookup | undefined
+}
+
+function SourceCard({
+  source,
+  onRemove,
+  onKeySaved,
+}: {
+  source: Source
+  onRemove: () => void
+  onKeySaved: () => void
+}) {
+  const { lookup } = source
+  const heading =
+    lookup?.state === 'found'
+      ? `${lookup.issue.identifier} · ${lookup.issue.title}`
+      : source.identifier
+  return (
+    <>
+      <fieldset className={styles.source} aria-label="Source">
+        <span className={styles.sourceKind}>Linear</span>
+        <span className={styles.sourceText}>
+          <span className={styles.sourceTitle}>{heading}</span>
+          <span className={styles.sourceNote}>
+            {lookup === undefined ? (
+              'Fetching from Linear…'
+            ) : lookup.state === 'found' ? (
+              <>
+                Source set.
+                <Help>
+                  TED copied the title, Priority and branch name from Linear. The issue’s
+                  description goes to the Task Lead as context.
+                </Help>
+              </>
+            ) : (
+              'Source set. The Task links to this issue.'
+            )}
+          </span>
+        </span>
+        <button
+          type="button"
+          className={styles.chipRemove}
+          aria-label="Remove source"
+          onClick={onRemove}
+        >
+          <CloseIcon size={11} />
+        </button>
+      </fieldset>
+      {lookup?.state === 'failed' && (
+        <p className={styles.sourceProblem} role="status">
+          {lookup.error}
+        </p>
+      )}
+      {lookup?.state === 'no-key' && <AddLinearKey onSaved={onKeySaved} />}
+    </>
+  )
+}
+
+function AddLinearKey({ onSaved }: { onSaved: () => void }) {
+  const [key, setKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [problem, setProblem] = useState<string>()
+
+  async function save() {
+    if (key.trim() === '' || saving) return
+    setSaving(true)
+    setProblem(undefined)
+    try {
+      const status = await ted.saveLinearKey(key)
+      if (status.storedIn !== undefined) {
+        onSaved()
+        return
+      }
+      setProblem(
+        status.state === 'locked'
+          ? 'Keyring is locked. Unlock it and save again.'
+          : 'No keyring found on this computer. Save the key in Settings → Integrations.',
+      )
+    } catch (failure) {
+      setProblem(readableError(failure))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className={styles.keyNote}>
+      <p className={styles.keyText}>
+        Add a Linear API key to fill in the title, Priority and branch from Linear.
+      </p>
+      <div className={styles.keyRow}>
+        <input
+          className={styles.keyField}
+          aria-label="Linear API key"
+          type="password"
+          spellCheck={false}
+          autoComplete="off"
+          placeholder="lin_api_…"
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+              event.preventDefault()
+              void save()
+            }
+          }}
+        />
+        <Button size="small" disabled={key.trim() === '' || saving} onClick={() => void save()}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+        <button
+          type="button"
+          className={styles.keyLink}
+          onClick={() => void ted.openLinearKeyPage()}
+        >
+          Create a key ↗
+        </button>
+      </div>
+      {problem !== undefined && (
+        <p className={styles.sourceProblem} role="status">
+          {problem}
+        </p>
+      )}
+    </div>
   )
 }
 

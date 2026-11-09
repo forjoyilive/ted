@@ -59,6 +59,19 @@ export {
   type RunFixRequest,
   type RunFixResult,
 } from './integrations.ts'
+export {
+  findLinearUrl,
+  type LinearIssue,
+  type LinearKeyPlace,
+  type LinearKeyState,
+  type LinearLookup,
+  type LinearLookupRequest,
+  type LinearStatus,
+  type LinearUrl,
+  linearKeyPage,
+  parseLinearUrl,
+  type SaveLinearKeyRequest,
+} from './linear.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,
@@ -108,6 +121,7 @@ export {
   type TaskMarker,
   type TaskRepo,
   type TaskRun,
+  type TaskSource,
   type TaskStatus,
   type TrackStage,
   type TrackState,

@@ -34,6 +34,7 @@ import {
   type Task,
   type TaskLead,
   type TaskRepo,
+  type TaskSource,
   type TrackStage,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -58,6 +59,7 @@ import {
   taskBlockers,
   taskQueue,
   taskRepos,
+  taskSources,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -97,6 +99,7 @@ export interface NewTask {
   startRequested?: boolean
   blockedBy?: string[]
   attachments?: Attachment[]
+  source?: TaskSource
 }
 
 export interface PlannedStage {
@@ -311,6 +314,23 @@ export async function openStore({
       .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
       .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
 
+  const sourceOf = (taskId: string): TaskSource | undefined => {
+    const [row] = store.query(queryDb(taskSources.where({ taskId })))
+    if (!row) return undefined
+    return {
+      url: row.url,
+      ...(row.linearIdentifier !== null &&
+        row.linearTitle !== null && {
+          linear: {
+            identifier: row.linearIdentifier,
+            title: row.linearTitle,
+            ...(row.linearBranchName !== null && { branchName: row.linearBranchName }),
+            ...(row.linearDescription !== null && { description: row.linearDescription }),
+          },
+        }),
+    }
+  }
+
   const entryRows = (taskId: string) =>
     store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
 
@@ -348,6 +368,7 @@ export async function openStore({
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
+    const source = sourceOf(row.id)
     return {
       ...row,
       priority: row.priority as Priority,
@@ -362,6 +383,7 @@ export async function openStore({
       blockedBy,
       repos,
       attachments: attachmentsOf(row.id),
+      ...(source && { source }),
       stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
@@ -526,6 +548,7 @@ export async function openStore({
       startRequested = false,
       blockedBy = [],
       attachments = [],
+      source,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
@@ -550,6 +573,19 @@ export async function openStore({
         ...attachments.map((attachment) =>
           events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
         ),
+        ...(source
+          ? [
+              events.taskSourceSet({
+                taskId: id,
+                url: source.url,
+                linearIdentifier: source.linear?.identifier ?? null,
+                linearTitle: source.linear?.title ?? null,
+                linearBranchName: source.linear?.branchName ?? null,
+                linearDescription: source.linear?.description ?? null,
+                at,
+              }),
+            ]
+          : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)

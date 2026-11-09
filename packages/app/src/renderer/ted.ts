@@ -10,6 +10,8 @@ import type {
   Diagnostics,
   Factory,
   IntegrationsHealth,
+  LinearLookup,
+  LinearStatus,
   LogText,
   MachineSettings,
   Profile,
@@ -95,5 +97,12 @@ export const ted = {
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>
     window.ted.request('runFix', request) as Promise<RunFixResult>,
+  getLinear: () => window.ted.request('getLinear') as Promise<LinearStatus>,
+  saveLinearKey: (key: string, inFile = false) =>
+    window.ted.request('saveLinearKey', key, inFile) as Promise<LinearStatus>,
+  testLinear: () => window.ted.request('testLinear') as Promise<LinearStatus>,
+  removeLinearKey: () => window.ted.request('removeLinearKey') as Promise<LinearStatus>,
+  lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
+  openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }

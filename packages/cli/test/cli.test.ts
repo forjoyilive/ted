@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
+import { stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
+import { startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
 import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
@@ -34,10 +36,11 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-function ted(args: string[], idleExitMs = 30_000) {
+function ted(args: string[], idleExitMs = 30_000, extraEnv: Record<string, string> = {}) {
   return run(process.execPath, [cliPath, ...args], {
     env: {
       ...process.env,
+      ...extraEnv,
       TED_HOME: home,
       TED_IDLE_EXIT_MS: String(idleExitMs),
       TED_CLAUDE_BIN: stubClaudePath,
@@ -64,6 +67,12 @@ async function waitForExit(pid: number, timeoutMs = 10_000): Promise<void> {
   }
 }
 
+async function client(): Promise<DaemonClient> {
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('no daemon.json')
+  return new DaemonClient(info)
+}
+
 async function daemonPid(): Promise<number> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
@@ -71,6 +80,56 @@ async function daemonPid(): Promise<number> {
 }
 
 describe('ted task', () => {
+  describe('create --source with a Linear URL', () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const url = 'https://linear.app/kriyadesign/issue/NOTE-212/search-ignores-accents'
+
+    test('with a key, the title and Priority come from Linear', async () => {
+      const linear = await startStubLinear({
+        [key]: {
+          name: 'Nabha',
+          workspace: { name: 'Kriya Design', urlKey: 'kriyadesign' },
+          issues: [{ identifier: 'NOTE-212', title: 'Search ignores accents', priority: 1 }],
+        },
+      })
+      try {
+        await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+
+        const created = await ted(['task', 'create', '--source', url], 30_000, {
+          TED_LINEAR_API: linear.url,
+        })
+
+        expect(created.stdout.trim()).toBe('Created DEV-1  Search ignores accents')
+        const [task] = await (await client()).listTasks()
+        expect(task).toMatchObject({ priority: 'urgent', source: { url } })
+      } finally {
+        await linear.close()
+      }
+    })
+
+    test('without a key, it says so and creates the Task with the link only', async () => {
+      const created = await ted(['task', 'create', '--source', url])
+
+      expect(created.stdout.trim()).toBe(`Created DEV-1  ${url}`)
+      expect(created.stderr.trim()).toBe(
+        'No Linear API key, so the Task was created with the link only. Add one in Settings → Integrations.',
+      )
+      const [task] = await (await client()).listTasks()
+      expect(task?.source).toEqual({ url })
+    })
+
+    test('a fetch that fails says why and still creates the Task', async () => {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+
+      const created = await ted(['task', 'create', '--source', url, 'Accents'])
+
+      expect(created.stdout.trim()).toBe('Created DEV-1  Accents')
+      expect(created.stderr.trim()).toMatch(
+        /^Couldn’t fetch from Linear: couldn’t reach Linear .*The Task will be created with the link only\.$/,
+      )
+    })
+  })
+
   test('create starts the daemon when it is not running, and list shows the Task', async () => {
     expect(await readDaemonInfo(home)).toBeUndefined()
 

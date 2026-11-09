@@ -36,6 +36,7 @@ export async function taskLeadPrompt(
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
     ...(task.description !== '' ? [task.description] : []),
+    ...(task.source ? [sourceContext(task.source)] : []),
     ...(task.clarifyDepth !== 'auto'
       ? [
           `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
@@ -55,5 +56,14 @@ export function nextStageMessage(workflow: ResolvedWorkflow, stage: AgentStageId
   return [
     `TED moved this Task to ${stageTitle(stage)}. These are your instructions for this Stage.`,
     stageFileText(workflow, stage),
+  ].join('\n\n')
+}
+
+function sourceContext(source: NonNullable<Task['source']>): string {
+  const { linear } = source
+  if (!linear) return `Source: ${source.url}`
+  return [
+    `From Linear ${linear.identifier}: ${linear.title} (${source.url}). The issue’s description, as context:`,
+    linear.description?.trim() || '(no description)',
   ].join('\n\n')
 }
