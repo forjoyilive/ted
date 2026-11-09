@@ -1,4 +1,4 @@
-import { type Appearance, terminalFontSizes } from '@ted/protocol'
+import { type Appearance, terminalFontSizes } from '@ted/protocol/settings'
 import { useEffect, useState } from 'react'
 import { PersonAvatar } from '../components/Avatar.tsx'
 import { ted } from '../ted.ts'
