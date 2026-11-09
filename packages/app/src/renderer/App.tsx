@@ -26,11 +26,12 @@ import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
-import { Sidebar } from './components/Sidebar.tsx'
+import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { pickBlockerEvent, TaskDialog, type TaskDialogKind } from './components/TaskActions.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
+  useAllPlans,
   useAnswered,
   useBanners,
   useConnection,
@@ -63,6 +64,7 @@ import {
   startHistory,
   withHistory,
 } from './navigation.ts'
+import { plansFailedByFactory } from './plans.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
@@ -73,8 +75,9 @@ import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
-import { PlansStub, Stub } from './views/OtherViews.tsx'
+import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
+import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
@@ -193,13 +196,17 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const inboxCount = inbox.length + planInbox.length
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
   const answered = useAnswered(inboxScreen?.answered === true)
-  const waiting: Record<string, { waiting?: number; failed?: boolean }> = {}
+  const allPlans = useAllPlans()
+  const waiting: Record<string, FactoryBadges> = {}
   for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, planInbox))) {
     waiting[factoryId] = { waiting: count }
   }
   const failedTasks = tasks.filter((task) => task.status?.kind === 'failed' && !task.archived)
   for (const task of failedTasks) {
     waiting[task.factoryId] = { ...waiting[task.factoryId], failed: true }
+  }
+  for (const factoryId of plansFailedByFactory(allPlans)) {
+    waiting[factoryId] = { ...waiting[factoryId], plansFailed: true }
   }
 
   useEffect(() => {
@@ -623,6 +630,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               type: 'open',
               screen: { kind: 'factory', factoryId: factory.id, view: 'plans' },
             })
+          const planMore = (from: string) =>
+            dispatch({ type: 'open-plan', factoryId: factory.id, from })
           if (navigation.planId !== undefined) {
             return (
               <PlanChatView
@@ -630,22 +639,26 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                 factory={factory}
                 planId={navigation.planId === newPlan ? undefined : navigation.planId}
                 onBack={backToPlans}
+                {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
                 onOpenPlan={(planId) =>
                   dispatch({ type: 'open-plan', factoryId: factory.id, planId })
                 }
+                onPlanMore={planMore}
                 onOpenTask={openTaskByRef}
                 onDeleted={backToPlans}
               />
             )
           }
           return (
-            <PlansStub
+            <PlansList
               factory={factory}
               banners={view.banners}
               onPlan={openPlans}
               onOpenPlan={(planId) =>
                 dispatch({ type: 'open-plan', factoryId: factory.id, planId })
               }
+              onPlanMore={planMore}
+              onOpenTask={openTaskByRef}
             />
           )
         }

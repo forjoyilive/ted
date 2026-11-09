@@ -383,6 +383,19 @@ export function TaskThread({
                   {task.splitFrom.displayId}
                 </button>
               </>
+            ) : task.fromPlan?.deleted ? (
+              'From a deleted planning chat'
+            ) : task.fromPlan ? (
+              <>
+                {'From planning chat '}
+                <button
+                  type="button"
+                  className={styles.metaLink}
+                  onClick={() => task.fromPlan && onOpenPlan(task.fromPlan.id)}
+                >
+                  {task.fromPlan.title}
+                </button>
+              </>
             ) : (
               'Created by you'
             )}

@@ -19,4 +19,7 @@ A planning chat (spec §13) is a Run in a Factory, outside any Task. `packages/d
 - Store events added: `v1.PlanStarted`, `v1.PlanRenamed`, `v1.PlanDeleted`, `v1.PlanRunBegan`, `v1.PlanRunResumeQueued`, `v1.PlanRunRevived`, `v1.PlanEnded`, `v1.PlanRequestPosted`, `v1.PlanRequestAnswered`, `v1.PlanTaskCreated`. Live updates are `plan-updated` and `plan-deleted`.
 - `TaskDefaults` gains `planner`, which the new chat’s selects start from.
 - Research sub-agents are the planner’s own; TED does not start sub-agent Runs for a plan yet, so the header and right pane show only the planner.
-- Plan in chat from a Task (KRI-153) and the Plans list, Retry and Plan more from here (KRI-152) build on this module.
+- Plan in chat from a Task (KRI-153) and the Plans list (KRI-152) build on this module.
+- **Retry** (KRI-152, app-only `POST /plans/:id/retry`) is for a Failed plan only. With a Run that has a session, TED checks the repos out again at once and records `v1.PlanRetried`, which queues a resume of the same Run; with no Run, the plan goes back to queued and starts fresh. A Run with no session can’t be retried.
+- **Plan more from here** (KRI-152) is `POST /plans` with `from`, allowed from a Finished or Stopped plan in the same Factory. TED writes the old chat’s first message, rounds and answers, latest proposal and created Tasks as text into `v1.PlanContinued`, next to `v1.PlanStarted`, and puts it in the planner’s instructions. Keeping the text in the event means deleting the old chat later doesn’t change the new one.
+- `TED_HOME/plans/` counts as Worktrees in Settings → Storage and is kept out of Time Machine.

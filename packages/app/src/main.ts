@@ -121,6 +121,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   startPlan: (client, input) => client.startPlan(input as StartPlanRequest),
   renamePlan: (client, id, title) => client.renamePlan(String(id), String(title)),
   stopPlan: (client, id) => client.stopPlan(String(id)),
+  retryPlan: (client, id) => client.retryPlan(String(id)),
   deletePlan: (client, id) => client.deletePlan(String(id)),
   planInbox: (client) => client.planInbox(),
   answerPlanRequest: (client, id, answer) =>

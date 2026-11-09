@@ -9,6 +9,7 @@ import styles from './Sidebar.module.css'
 export interface FactoryBadges {
   waiting?: number
   failed?: boolean
+  plansFailed?: boolean
   stopsWork?: boolean
 }
 
@@ -302,6 +303,15 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'plans' && badge.plansFailed && (
+                      <span
+                        role="img"
+                        aria-label="A planning chat failed"
+                        className={styles.failedDot}
+                      >
+                        <DotIcon />
+                      </span>
+                    )}
                   </button>
                 )
               })}

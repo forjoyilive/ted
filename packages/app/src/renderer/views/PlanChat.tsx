@@ -40,20 +40,32 @@ import views from './views.module.css'
 export function PlanChatView({
   factory,
   planId,
+  from,
   onBack,
   onOpenPlan,
+  onPlanMore,
   onOpenTask,
   onDeleted,
 }: {
   factory: Factory
   planId: string | undefined
+  from?: string
   onBack: () => void
   onOpenPlan: (planId: string) => void
+  onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
   onDeleted: () => void
 }) {
   if (planId === undefined) {
-    return <NewPlanChat factory={factory} onBack={onBack} onStarted={onOpenPlan} />
+    return (
+      <NewPlanChat
+        factory={factory}
+        {...(from !== undefined && { from })}
+        onBack={onBack}
+        onStarted={onOpenPlan}
+        onOpenPlan={onOpenPlan}
+      />
+    )
   }
   return (
     <PlanChat
@@ -61,8 +73,32 @@ export function PlanChatView({
       planId={planId}
       onBack={onBack}
       onOpenTask={onOpenTask}
+      onOpenPlan={onOpenPlan}
+      onPlanMore={onPlanMore}
       onDeleted={onDeleted}
     />
+  )
+}
+
+function FromPlan({
+  plan,
+  onOpenPlan,
+}: {
+  plan: Pick<Plan, 'fromPlan'>
+  onOpenPlan: (planId: string) => void
+}) {
+  const from = plan.fromPlan
+  if (!from) return null
+  if (from.deleted) {
+    return <p className={styles.paneText}>{`More from “${from.title}”, since deleted`}</p>
+  }
+  return (
+    <p className={styles.paneText}>
+      {'More from '}
+      <button type="button" className={styles.link} onClick={() => onOpenPlan(from.id)}>
+        {from.title}
+      </button>
+    </p>
   )
 }
 
@@ -126,13 +162,18 @@ function Back({ onBack }: { onBack: () => void }) {
 
 function NewPlanChat({
   factory,
+  from,
   onBack,
   onStarted,
+  onOpenPlan,
 }: {
   factory: Factory
+  from?: string
   onBack: () => void
   onStarted: (planId: string) => void
+  onOpenPlan: (planId: string) => void
 }) {
+  const earlier = usePlan(from)?.plan
   const [lead, setLead] = useState<TaskLead>()
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -167,6 +208,7 @@ function NewPlanChat({
       const plan = await ted.startPlan({
         factory: factory.id,
         message: text,
+        ...(from !== undefined && { from }),
         ...(lead && { agent: lead.agent }),
         ...(lead?.model !== undefined && { model: lead.model }),
         ...(lead?.effort !== undefined && { effort: lead.effort }),
@@ -195,6 +237,11 @@ function NewPlanChat({
             <br />
             and ends by proposing Tasks, with which block which, for you to approve.
           </p>
+          {earlier && (
+            <p className={styles.notice}>
+              {`Builds on “${earlier.title}”: the planner gets its rounds, answers, proposal and created Tasks.`}
+            </p>
+          )}
           {cloning && (
             <p className={styles.notice}>
               {`${factory.name} is still cloning. You can plan once it’s ready.`}
@@ -236,7 +283,14 @@ function NewPlanChat({
       </section>
       <aside className={views.detailsPane} aria-label="Planning chat details">
         <Section title="Started from">
-          <p className={styles.paneText}>Plan, by you</p>
+          {earlier ? (
+            <FromPlan
+              plan={{ fromPlan: { id: earlier.id, title: earlier.title } }}
+              onOpenPlan={onOpenPlan}
+            />
+          ) : (
+            <p className={styles.paneText}>Plan, by you</p>
+          )}
         </Section>
         <Section title="Proposed Tasks">
           <p className={styles.paneMuted}>None yet.</p>
@@ -681,15 +735,58 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
   return extra
 }
 
+function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: string) => void }) {
+  const [retrying, setRetrying] = useState(false)
+  const [error, setError] = useState<string>()
+  async function retry() {
+    setRetrying(true)
+    setError(undefined)
+    try {
+      await ted.retryPlan(plan.id)
+    } catch (failed) {
+      setError(readableError(failed))
+      setRetrying(false)
+    }
+  }
+  const failed = plan.status === 'failed'
+  return (
+    <div className={`${styles.endedBar} ${styles.endedRow}`}>
+      <span className={styles.spacer}>
+        {failed
+          ? 'This planning chat failed. Retry resumes the planner where it stopped.'
+          : 'This planning chat is finished. It stays as history.'}
+      </span>
+      {error !== undefined && (
+        <span className={styles.error} role="alert">
+          {error}
+        </span>
+      )}
+      {failed ? (
+        <Button size="small" variant="primary" disabled={retrying} onClick={() => void retry()}>
+          Retry
+        </Button>
+      ) : (
+        <Button size="small" variant="primary" onClick={() => onPlanMore(plan.id)}>
+          Plan more from here
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function PlanChat({
   planId,
   onBack,
   onOpenTask,
+  onOpenPlan,
+  onPlanMore,
   onDeleted,
 }: {
   planId: string
   onBack: () => void
   onOpenTask: (ref: string) => void
+  onOpenPlan: (planId: string) => void
+  onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
   const detail = usePlan(planId)
@@ -726,21 +823,18 @@ function PlanChat({
               placeholder: 'Message the planner…',
               help: 'Goes to the planner. While a round is open, this talks it through.',
               ...(ended && {
-                readOnly: (
-                  <div className={styles.endedBar}>
-                    {plan.status === 'failed'
-                      ? 'This planning chat failed. It stays as history.'
-                      : 'This planning chat is finished. It stays as history.'}
-                  </div>
-                ),
+                readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} />,
               }),
             }}
           />
         ) : (
-          <QueuedChat plan={plan} />
+          <>
+            <QueuedChat plan={plan} />
+            {ended && <EndedBar plan={plan} onPlanMore={onPlanMore} />}
+          </>
         )}
       </section>
-      <PlanPane detail={detail} onOpenTask={onOpenTask} />
+      <PlanPane detail={detail} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
     </>
   )
 }
@@ -768,16 +862,22 @@ function QueuedChat({ plan }: { plan: Plan }) {
 function PlanPane({
   detail,
   onOpenTask,
+  onOpenPlan,
 }: {
   detail: PlanDetail
   onOpenTask: (ref: string) => void
+  onOpenPlan: (planId: string) => void
 }) {
   const { plan, requests, tasks } = detail
   const proposal = requests.findLast((r) => r.kind === 'proposal')
   return (
     <aside className={views.detailsPane} aria-label="Planning chat details">
       <Section title="Started from">
-        <StartedFrom plan={plan} onOpenTask={onOpenTask} />
+        {plan.fromPlan ? (
+          <FromPlan plan={plan} onOpenPlan={onOpenPlan} />
+        ) : (
+          <StartedFrom plan={plan} onOpenTask={onOpenTask} />
+        )}
       </Section>
       {tasks.length > 0 ? (
         <Section title={`Created Tasks · ${tasks.length}`}>

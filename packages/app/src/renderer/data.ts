@@ -510,6 +510,16 @@ export function usePlans(factoryId: string): Plan[] {
   )
 }
 
+export function useAllPlans(): Plan[] {
+  return (
+    useReloading(
+      () => ted.listPlans(),
+      (event) => event.type === 'plan-updated' || event.type === 'plan-deleted',
+      'all-plans',
+    ) ?? []
+  )
+}
+
 export function usePlanInbox(): PlanInboxItem[] {
   return (
     useReloading(
