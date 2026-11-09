@@ -5,7 +5,19 @@ export interface LaunchFile {
   args: string[]
   cwd: string
   input: string
+  driver?: string
 }
+
+export interface HostDriver {
+  onLine(line: string): void
+  onInput?(line: string): void
+}
+
+export type DriveAgent = (io: {
+  input: string
+  send: (line: string) => void
+  stop: () => void
+}) => HostDriver
 
 export type HostRecord =
   | { t: 'start'; v: 1; hostPid: number; agentPid: number | null }

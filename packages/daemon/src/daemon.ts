@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, tedPaths } from '@ted/protocol'
-import { claudeAgent } from './agents/claude.ts'
+import { createAgents } from './agents/index.ts'
 import { startIdleTimer } from './idle.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
@@ -15,6 +15,7 @@ export interface DaemonOptions {
   home: string
   version: string
   claudeBin?: string
+  codexBin?: string
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
 }
@@ -34,10 +35,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   })
   const idle = options.idleExit && startIdleTimer(options.idleExit)
   const runTokens = await loadRunTokens(paths.runTokenKey)
+  const agents = createAgents({
+    ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
+    ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
+  })
   const runs = await startRunManager({
     home: paths.home,
     store,
-    agent: claudeAgent(options.claudeBin ?? 'claude'),
+    agents,
     tokens: runTokens,
     ...(idle && { idle }),
   })
@@ -47,6 +52,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     workflows: createWorkflows({ store, libraryDir: paths.library, reposDir: paths.repos }),
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
+    leadAgent: () => agents.defaultLead(),
   })
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
@@ -55,6 +61,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     store,
     keepaliveMs: options.keepaliveMs ?? 30_000,
     runs,
+    agents,
     runTokens,
     tasks,
     reposDir: paths.repos,
