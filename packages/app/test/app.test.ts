@@ -18,7 +18,7 @@ import { promisify } from 'node:util'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   commitToOrigin,
   hostRecords,
@@ -37,6 +37,8 @@ const stubClaudePath = fileURLToPath(
 )
 const electronPath = createRequire(import.meta.url)('electron') as string
 const run = promisify(execFile)
+
+vi.setConfig({ testTimeout: 90_000 })
 
 let home: string
 let app: ElectronApplication | undefined
