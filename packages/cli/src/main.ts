@@ -28,6 +28,7 @@ import {
   type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
+  runTokenFrom,
   type SetTaskReposRequest,
   type TaskLead,
   tedHome,
@@ -826,7 +827,7 @@ async function problems(): Promise<{ pid: number | undefined; banners: string[];
 
 async function openApp(): Promise<void> {
   const info = await readDaemonInfo(home)
-  const token = process.env.TED_RUN_TOKEN || info?.token
+  const token = runTokenFrom(process.env) ?? info?.token
   const result = await (info ? new DaemonClient(info, token).openApp() : undefined)?.catch(
     (error: unknown) => {
       if (error instanceof DaemonUnreachableError) return undefined

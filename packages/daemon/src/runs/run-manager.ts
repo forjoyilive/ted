@@ -15,7 +15,9 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
+import { runTokenEnv } from '@ted/protocol'
 import {
+  type AutoModeSignal,
   type CredentialReport,
   hidesText,
   type PermissionPrompt,
@@ -64,6 +66,7 @@ export interface RunObserver {
   credential?(run: Run, report: CredentialReport): void
   planUsage?(run: Run, windows: PlanWindow[]): void
   retrying?(run: Run): void
+  autoMode?(run: Run, signal: AutoModeSignal): void
 }
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
@@ -245,7 +248,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let sessionId: string | undefined
     let authFailed = false
     let problem: RunProblem | undefined
-    let autoModeUnavailable = false
+    let autoMode: AutoModeSignal | undefined
     let boundary = false
     let usage: UsageSignal | undefined
     let retrying: boolean | undefined
@@ -272,7 +275,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
-        autoModeUnavailable ||= agent.autoModeUnavailableFrom(record.line)
+        autoMode = agent.autoModeFrom(record.line) ?? autoMode
         boundary ||= agent.boundaryFrom(record.line)
         usage = mergeUsage(usage, agent.usageFrom(record.line))
         retrying = agent.retryingFrom(record.line) ?? retrying
@@ -332,7 +335,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(asked.length > 0 && { permissionPrompts: asked }),
       ...(closedPermissions.length > 0 && { closedPermissions }),
       ...(agentRestarted && { agentRestarted }),
-      ...(autoModeUnavailable && { autoModeUnavailable }),
+      ...(autoMode === 'unavailable' && { autoModeUnavailable: true }),
       toOffset: batch.toOffset,
       entries,
       ...(state && { state }),
@@ -354,6 +357,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       tellObservers(runId, (observer, run) => observer.usage?.(run, signal))
     }
     if (retrying === true) tellObservers(runId, (observer, run) => observer.retrying?.(run))
+    if (autoMode !== undefined) {
+      const signal = autoMode
+      tellObservers(runId, (observer, run) => observer.autoMode?.(run, signal))
+    }
     if (accepted.length > 0) tellAccepted(runId, accepted)
     if (boundary && state !== 'finished') {
       tellObservers(runId, (observer, run) => observer.boundary?.(run))
@@ -437,7 +444,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...env,
       TED_HOME: home,
       TED_RUN: id,
-      TED_RUN_TOKEN: tokens.issue(id),
+      [runTokenEnv]: tokens.issue(id),
       PATH: environment().PATH,
     }
   }

@@ -160,7 +160,8 @@ describe('Runs', () => {
       expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined()
       expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined()
       expect(env.TED_RUN).toBe(run.id)
-      expect(env.TED_RUN_TOKEN).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
+      expect(env.TED_RUN_CAPABILITY).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
+      expect(env.TED_RUN_TOKEN).toBeUndefined()
       expect(env.PATH?.split(':')[0]).toBe(path.join(home, 'bin'))
       await expect(stat(path.join(fakeHome, '.claude'))).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {
@@ -191,7 +192,7 @@ describe('Runs', () => {
     expect(start?.code).toBe(1)
     expect(start?.stderr).toContain('Not allowed from inside a Run')
 
-    const runToken = (await stubRecord()).env.TED_RUN_TOKEN ?? ''
+    const runToken = (await stubRecord()).env.TED_RUN_CAPABILITY ?? ''
     const asRun = api(daemon?.port ?? 0, runToken)
     expect((await asRun.call('GET', '/tasks')).status).toBe(200)
     const refused = await asRun.call('POST', '/dev/runs', { prompt: 'x', cwd })

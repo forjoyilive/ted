@@ -10,6 +10,7 @@ import {
   DaemonRequestError,
   DaemonUnreachableError,
   readDaemonInfo,
+  runTokenFrom,
   type Subscription,
   tedPaths,
   type UpdateWork,
@@ -40,7 +41,7 @@ export async function withDaemon<T>(
     if (info) {
       try {
         if (appToken === undefined) {
-          return await call(new DaemonClient(info, process.env.TED_RUN_TOKEN || info.token))
+          return await call(new DaemonClient(info, runTokenFrom(process.env) ?? info.token))
         }
         const client = new DaemonClient(info, '', { appKey: appToken })
         if (await provesApp(client)) return await call(client)

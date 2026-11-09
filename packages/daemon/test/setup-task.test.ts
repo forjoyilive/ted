@@ -416,6 +416,31 @@ describe('the proposal', () => {
     )
   }, 60_000)
 
+  test('the setup Task Lead posts a tutorial Comment with its Run token, even when Claude Code scrubs credentials', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
+    const client = await start()
+    await client.ok('PATCH', '/settings', { billing: { claude: 'api-key', codex: 'subscription' } })
+    await addWidgets(client, true)
+    const setup = await setupTask(client)
+    await client.ok('PUT', `/tasks/${setup.id}`, {
+      title: steps(
+        { run: ['ted', 'comment', '--tutorial', 'Intake, explained.'] },
+        { run: ['ted', 'comment', 'A plain note.'] },
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/tasks/${setup.id}/start`)
+
+    const comments = await waitUntil(async () => {
+      const list = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
+      return list.some((c) => c.body === 'A plain note.') ? list : undefined
+    }, 'both Comments')
+    expect(comments.find((c) => c.body === 'Intake, explained.')).toMatchObject({
+      tutorial: true,
+      author: { kind: 'run' },
+    })
+  }, 30_000)
+
   test('only a setup Task can post a setup proposal or a tutorial Comment', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work, merge]\n',
