@@ -397,6 +397,9 @@ export interface TedStore {
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
+  clearLocalFolder(repo: string): void
+  renameFactory(factoryId: string, name: string): StoredFactory
+  changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
@@ -1791,6 +1794,17 @@ export async function openStore({
     },
     setLocalFolder(repo, path) {
       commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    clearLocalFolder(repo) {
+      commit(events.localFolderCleared({ repo, at: new Date().toISOString() }))
+    },
+    renameFactory(factoryId, name) {
+      commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
+    },
+    changeFactoryRepos(factoryId, repos) {
+      commit(events.factoryReposChanged({ factoryId, repos, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {

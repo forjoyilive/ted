@@ -4,7 +4,7 @@ import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
-import { type CheckedLayer, checkLayer, type LayerFiles } from './check.ts'
+import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
 import { contentVersion, readDefaultLayer, readGitLayer, readLayerDirectory } from './layers.ts'
 import { type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
 
@@ -22,6 +22,7 @@ export function createWorkflows(options: {
   banners: Banners
   libraryDir: string
   reposDir: string
+  onFactorySettings?: (factory: StoredFactory, settings: WorkflowSettings | undefined) => void
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
 
@@ -93,6 +94,7 @@ export function createWorkflows(options: {
           : undefined,
         factory.repo,
       )
+      options.onFactorySettings?.(factory, factoryLayer.layer?.settings)
       const chosen = [library, factoryLayer]
       const workflow = resolveWorkflow([
         defaults,

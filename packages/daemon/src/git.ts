@@ -397,3 +397,95 @@ export async function moveBranchTo(worktree: string, commit: string): Promise<vo
     commit,
   )
 }
+
+export async function commitAndPush(
+  clone: string,
+  options: {
+    base: string
+    files: Record<string, string | null>
+    message: string
+    branch: string
+    url: string
+    timeoutMs?: number
+  },
+): Promise<string> {
+  const objects = path.join(clone, '.git', 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-commit-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv(
+    {},
+    { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(scratch, 'index') },
+  )
+  const run = async (
+    args: string[],
+    input?: string,
+    extra: NodeJS.ProcessEnv = {},
+    timeout?: number,
+  ): Promise<string> => {
+    const running = execFileAsync('git', args, {
+      cwd: scratch,
+      env: { ...env, ...extra },
+      maxBuffer: 16 * 1024 * 1024,
+      ...(timeout !== undefined && { timeout }),
+    })
+    running.child.stdin?.end(input ?? '')
+    return (await running).stdout.trim()
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await run(['read-tree', `${options.base}^{tree}`])
+    for (const [file, text] of Object.entries(options.files)) {
+      if (text === null) {
+        await run(['update-index', '--force-remove', '--', file])
+        continue
+      }
+      const blob = await run(['hash-object', '-w', '--no-filters', '--stdin'], text)
+      await run(['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`])
+    }
+    const tree = await run(['write-tree'])
+    const identity = await run(['var', 'GIT_COMMITTER_IDENT']).then(
+      () => ({}),
+      () => ({
+        GIT_AUTHOR_NAME: 'TED',
+        GIT_AUTHOR_EMAIL: 'ted@localhost',
+        GIT_COMMITTER_NAME: 'TED',
+        GIT_COMMITTER_EMAIL: 'ted@localhost',
+      }),
+    )
+    const commit = await run(
+      ['commit-tree', tree, '-p', options.base, '-F', '-'],
+      `${options.message}\n`,
+      identity,
+    )
+    await run(
+      [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'protocol.ext.allow=never',
+        'push',
+        '--no-verify',
+        '--porcelain',
+        '--',
+        options.url,
+        `${commit}:refs/heads/${options.branch}`,
+      ],
+      undefined,
+      {},
+      options.timeoutMs ?? 5 * 60_000,
+    )
+    return commit
+  } catch (error) {
+    const output = `${(error as { stdout?: string }).stdout ?? ''}\n${(error as { stderr?: string }).stderr ?? ''}`
+    const reason = output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:|!)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`saving TED settings failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}

@@ -36,6 +36,9 @@ export interface Factories {
   create(request: CreateFactoryRequest): Promise<Factory>
   retry(factoryId: string): Promise<Factory>
   setLocalFolder(key: string, folder: string): Promise<Factory>
+  rename(factoryId: string, name: string): Promise<Factory>
+  setRepoFolder(factoryId: string, repoName: string, folder: string | undefined): Promise<Factory>
+  syncRepos(factoryId: string, repos: StoredFactoryRepo[]): Promise<void>
   checkLocalFolders(): Promise<void>
   isCloned(factoryId: string): boolean
   start(): void
@@ -57,6 +60,8 @@ export interface FactoriesOptions {
 
 export const cloneFailedProblem = 'clone-failed'
 export const localFolderProblem = 'local-folder-missing'
+export const repoAddedProblem = 'repo-added'
+const maxNameLength = 60
 const maxRepos = 10
 const githubHost = 'github.com'
 const segment = /^[A-Za-z0-9_.-]+$/
@@ -447,6 +452,63 @@ export function createFactories(options: FactoriesOptions): Factories {
     return publish(factory)
   }
 
+  async function renameFactory(factoryId: string, given: string): Promise<Factory> {
+    const name = typeof given === 'string' ? given.trim() : ''
+    if (name === '') throw new RequestError(400, 'a Factory needs a name')
+    if (name.length > maxNameLength) {
+      throw new RequestError(400, `a Factory name is at most ${maxNameLength} characters`)
+    }
+    find(factoryId)
+    return publish(store.renameFactory(factoryId, name))
+  }
+
+  async function setRepoFolder(
+    factoryId: string,
+    repoName: string,
+    folder: string | undefined,
+  ): Promise<Factory> {
+    const factory = find(factoryId)
+    const repo = factory.repos.find((r) => r.name === repoName)?.repo
+    if (repo === undefined) throw new RequestError(404, `${factory.name} has no repo ${repoName}`)
+    if (folder === undefined) store.clearLocalFolder(repo)
+    else store.setLocalFolder(repo, await checkFolder(folder))
+    await checkLocalFolders()
+    return publish(factory)
+  }
+
+  async function syncRepos(factoryId: string, wanted: StoredFactoryRepo[]): Promise<void> {
+    const factory = store.getFactory(factoryId)
+    if (!factory || wanted.length === 0) return
+    const same =
+      wanted.length === factory.repos.length &&
+      wanted.every(
+        (r, i) =>
+          sameRepo(r.repo, factory.repos[i]?.repo ?? '') && r.name === factory.repos[i]?.name,
+      )
+    if (same) return
+    const added = wanted.filter((r) => !factory.repos.some((s) => sameRepo(s.repo, r.repo)))
+    const changed = store.changeFactoryRepos(factoryId, wanted)
+    await publish(changed)
+    for (const repo of added) {
+      banners.raise({
+        problem: repoAddedProblem,
+        factoryId,
+        subject: repo.repo,
+        severity: 'warning',
+        text: `${repo.repo} was added · a New setup Task can set up its Checks and Apps`,
+      })
+    }
+    if (added.length === 0 || factory.clonedAt === undefined) return
+    const release = options.idle?.hold()
+    void Promise.all(added.map((repo) => cloneOne(changed, repo)))
+      .catch((error: unknown) => console.error(`cloning ${factory.name}’s new repo failed:`, error))
+      .finally(() => {
+        progress.delete(factoryId)
+        release?.()
+        void publish(store.getFactory(factoryId) ?? changed).catch(() => undefined)
+      })
+  }
+
   banners.onAction(localFolderProblem, async (banner, { folder }) => {
     if (folder === undefined) throw new RequestError(400, 'choose a folder to locate it')
     const factory = banner.factoryId === undefined ? undefined : store.getFactory(banner.factoryId)
@@ -467,6 +529,9 @@ export function createFactories(options: FactoriesOptions): Factories {
     create,
     retry,
     setLocalFolder,
+    rename: renameFactory,
+    setRepoFolder,
+    syncRepos,
     checkLocalFolders,
     isCloned: (id) => store.getFactory(id)?.clonedAt !== undefined,
     start() {

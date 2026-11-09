@@ -1110,8 +1110,15 @@ describe('App Settings', () => {
 
     await nav.getByRole('button', { name: /widgets/ }).click()
 
-    await window.getByRole('heading', { name: 'widgets · Factory settings' }).waitFor()
+    await window.getByRole('heading', { name: /^widgets\s*\/\s*Settings$/, level: 1 }).waitFor()
     expect(await settingsNav(window).count()).toBe(0)
+    const card = window.getByRole('article', { name: 'acme/widgets' })
+    await card.getByText('Can’t be removed or moved').waitFor()
+    await card.getByRole('textbox', { name: /^Setup command/ }).fill('npm ci')
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+    await card.getByText('Edited').waitFor()
+    await window.getByRole('button', { name: 'Discard' }).click()
+    await window.getByText(/unsaved change/).waitFor({ state: 'detached' })
   })
 
   test('the terminal font size saves on this machine and applies at once', async () => {

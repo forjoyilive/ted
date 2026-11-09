@@ -8,6 +8,7 @@ import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { ensureClone } from './factories.ts'
+import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
@@ -24,8 +25,10 @@ import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage } from './storage.ts'
+import type { StoredFactory } from './store/index.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
+import type { WorkflowSettings } from './workflow/check.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
@@ -48,6 +51,7 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  settingsMergeWaitMs?: number
   stallAfterMs?: number
   online?: DaemonOnlineOptions
   limitProbeMs?: number
@@ -189,11 +193,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(given.watchAfterFix !== undefined && { watchAfterFix: given.watchAfterFix }),
       })
       if (given.checkOnStart) integrations.start()
+      let syncRepos: ((factory: StoredFactory, settings?: WorkflowSettings) => void) | undefined
       const workflows = createWorkflows({
         store,
         banners,
         libraryDir: paths.library,
         reposDir: paths.repos,
+        onFactorySettings: (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
       const factories = createFactories({
@@ -207,6 +213,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
         onCloned: (factory) => started?.wake(factory.id),
         ...(idle && { idle }),
+      })
+      syncRepos = (factory, settings) => {
+        const wanted = storedRepos(store, factory, settings)
+        if (!wanted) return
+        factories.syncRepos(factory.id, wanted).catch((error: unknown) => {
+          console.error(`couldn’t update ${factory.name}’s repos:`, error)
+        })
+      }
+      const factorySettings = createFactorySettings({
+        store,
+        gh: integrations.gh,
+        workflows,
+        reposDir: paths.repos,
+        health: async () => integrations.current() ?? (await integrations.check()),
+        ...(options.settingsMergeWaitMs !== undefined && {
+          mergeWaitMs: options.settingsMergeWaitMs,
+        }),
       })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
@@ -289,6 +312,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         disk,
         storage,
         factories,
+        factorySettings,
         async close() {
           stayAwake?.close()
           disk.close()
