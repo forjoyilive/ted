@@ -760,7 +760,10 @@ describe('TED app', () => {
     const dialog = window.getByRole('dialog', { name: 'Tests output' })
     await dialog.getByText('SearchPanel hangs', { exact: true }).waitFor()
     await dialog.getByRole('tab', { name: 'Typecheck' }).click()
-    await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
+    await window
+      .getByRole('dialog', { name: 'Typecheck output' })
+      .getByText('typed', { exact: true })
+      .waitFor()
     await window.getByRole('button', { name: 'Close' }).click()
     await dialog.waitFor({ state: 'detached' })
   }, 90_000)

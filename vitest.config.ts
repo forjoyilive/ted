@@ -8,6 +8,7 @@ export function tedTestConfig(include: string[]) {
     test: {
       include,
       testTimeout: 30_000,
+      maxWorkers: 6,
       globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
       setupFiles: [here('./packages/daemon/test/support/setup.ts')],
       env: {
