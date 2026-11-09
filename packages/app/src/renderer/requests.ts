@@ -11,6 +11,10 @@ export const kindLabels: Record<CommentKind, string> = {
   proposal: 'Proposal',
 }
 
+export function requestLabel(request: Comment): string {
+  return request.failed ? 'FAILED' : kindLabels[request.kind]
+}
+
 export function headline(request: Comment): string {
   return request.title ?? firstLine(request.body)
 }

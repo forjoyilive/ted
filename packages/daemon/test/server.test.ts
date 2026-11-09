@@ -1,8 +1,10 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { appHeaders, makeTempHome, rawRequest, tokenFor } from './helpers.ts'
+import { appClient, appHeaders, makeTempHome, rawRequest, tokenFor } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -181,16 +183,73 @@ describe('the token in daemon.json and the app’s token', () => {
 
   test('the app’s key signs each request and is never sent itself', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
+    const key = daemon.appToken
     const body = JSON.stringify({ maxWorkingRuns: 3 })
-    const signed = appHeaders(daemon.appToken, 'PATCH', '/settings', body)
     const patch = (headers: Record<string, string>, text = body) =>
       rawRequest(daemon?.port ?? 0, { method: 'PATCH', path: '/settings', headers, body: text })
 
-    expect((await patch({ authorization: `Bearer ${daemon.appToken}` })).status).toBe(401)
-    expect((await patch(signed, JSON.stringify({ maxWorkingRuns: 99 }))).status).toBe(401)
+    expect((await patch({ authorization: `Bearer ${key}` })).status).toBe(401)
+    const swapped = await patch(
+      appHeaders(key, 'PATCH', '/settings', body),
+      '{"developerMode":true}',
+    )
+    expect(swapped.status).toBe(400)
+    const signed = appHeaders(key, 'PATCH', '/settings', body)
     expect((await patch(signed)).status).toBe(200)
     expect((await patch(signed)).status).toBe(401)
-    const other = appHeaders(daemon.appToken, 'PATCH', '/tasks', body)
-    expect((await patch(other)).status).toBe(401)
+    expect((await patch(appHeaders(key, 'PATCH', '/tasks', body))).status).toBe(401)
+    const wrongHash = {
+      ...appHeaders(key, 'PATCH', '/settings', body),
+      'x-ted-body-sha256': '0'.repeat(64),
+    }
+    expect((await patch(wrongHash)).status).toBe(401)
+  })
+
+  test('a signed GET may not carry a body, and a bad signature is refused before the body is read', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const withBody = await rawRequest(daemon.port, {
+      method: 'GET',
+      path: '/settings',
+      headers: appHeaders(daemon.appToken, 'GET', '/settings', 'x'),
+      body: 'x',
+    })
+    expect(withBody.status).toBe(400)
+
+    const forged = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/attachments',
+      headers: {
+        ...appHeaders('0'.repeat(64), 'POST', '/attachments', 'x'.repeat(1024)),
+        'x-ted-name': 'a.txt',
+      },
+      body: 'x'.repeat(1024),
+    })
+    expect(forged.status).toBe(401)
+  })
+
+  test('the daemon’s proof names its own port, so a relay on another port can’t pass it on', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const real = daemon.port
+    const relay = http.createServer((req, res) => {
+      const out = http.request(
+        { host: '127.0.0.1', port: real, method: req.method, path: req.url, headers: req.headers },
+        (answer) => {
+          res.writeHead(answer.statusCode ?? 500, answer.headers)
+          answer.pipe(res)
+        },
+      )
+      req.pipe(out)
+    })
+    await new Promise<void>((resolve) => relay.listen(0, '127.0.0.1', resolve))
+    try {
+      const port = (relay.address() as AddressInfo).port
+      const direct = { port: real, token: '', pid: process.pid, version: '9.9.9' }
+
+      expect(await appClient(direct, daemon.appToken).provesAppKey()).toBe(true)
+      expect(await appClient({ ...direct, port }, daemon.appToken).provesAppKey()).toBe(false)
+    } finally {
+      relay.close()
+    }
   })
 })

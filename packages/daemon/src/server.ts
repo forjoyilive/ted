@@ -7,6 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import {
   type AppAuth,
   bodyHash,
+  bodyHashHeader,
   type CallerInfo,
   type DaemonEvent,
   daemonProof,
@@ -14,6 +15,8 @@ import {
   parseAppAuth,
   type RestoreBackupRequest,
   requestMac,
+  responseMac,
+  responseMacHeader,
   type ShutdownRequest,
 } from '@ted/protocol'
 import { maxAttachmentBytes } from './attachments.ts'
@@ -26,6 +29,7 @@ import { integrationRoutes } from './routes/integrations.ts'
 import { machineRoutes } from './routes/machine.ts'
 import {
   type BaseOptions,
+  maxBodyBytes,
   type RequestContext,
   type Route,
   readJson,
@@ -54,7 +58,9 @@ const dataRoutes: Route<BaseOptions>[] = [
       const info: CallerInfo = {
         kind: caller.kind,
         ...(caller.kind === 'app' &&
-          nonce !== undefined && { proof: daemonProof(appToken, nonce) }),
+          nonce !== undefined && {
+            proof: daemonProof(appToken, nonce, req.socket.localPort ?? 0),
+          }),
       }
       return [200, info]
     },
@@ -174,12 +180,12 @@ async function handle(
   }
 
   const signed = parseAppAuth(req.headers.authorization)
-  const body = signed && (await readSignedBody(req))
   const caller = signed
-    ? signedByApp(signed, req.method ?? '', url, body ?? Buffer.alloc(0), options)
+    ? signedByApp(signed, req, url, options)
     : identify(req.headers.authorization, options)
   if (!caller) throw new HttpError(401, 'missing or wrong token')
-  const request = body ? replay(req, body) : req
+  if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
+  const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
@@ -251,27 +257,36 @@ function streamEvents(
 
 const appAuthWindowMs = 60_000
 
-async function readSignedBody(req: http.IncomingMessage): Promise<Buffer> {
+const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: string }>()
+
+async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
+  const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
     size += (chunk as Buffer).length
-    if (size > maxAttachmentBytes + 1024 * 1024) throw new HttpError(413, 'body too large')
+    if (req.method === 'GET') throw new HttpError(400, 'a GET request has no body')
+    if (size > limit) throw new HttpError(413, 'body too large')
     chunks.push(chunk as Buffer)
   }
-  return Buffer.concat(chunks)
+  const body = Buffer.concat(chunks)
+  if (!equalHex(bodyHash(body), String(req.headers[bodyHashHeader]))) {
+    throw new HttpError(400, 'the body doesn’t match its signature')
+  }
+  return body
 }
 
 function signedByApp(
   auth: AppAuth,
-  method: string,
+  req: http.IncomingMessage,
   url: string,
-  body: Buffer,
   { appToken, appNonces }: BaseOptions,
 ): Caller | undefined {
   const now = Date.now()
   if (Math.abs(now - auth.at) > appAuthWindowMs) return undefined
-  if (!equalHex(auth.mac, requestMac(appToken, auth, method, url, bodyHash(body)))) return undefined
+  const hash = req.headers[bodyHashHeader]
+  if (typeof hash !== 'string' || !/^[0-9a-f]{64}$/.test(hash)) return undefined
+  if (!equalHex(auth.mac, requestMac(appToken, auth, req.method ?? '', url, hash))) return undefined
   for (const [nonce, at] of appNonces) {
     if (now - at > 2 * appAuthWindowMs) appNonces.delete(nonce)
   }
@@ -285,6 +300,7 @@ function replay(req: http.IncomingMessage, body: Buffer): http.IncomingMessage {
     headers: req.headers,
     method: req.method,
     url: req.url,
+    socket: req.socket,
   }) as unknown as http.IncomingMessage
 }
 
@@ -326,6 +342,13 @@ async function drain(req: http.IncomingMessage): Promise<void> {
 }
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json' })
-  res.end(JSON.stringify(body))
+  const text = JSON.stringify(body)
+  const signed = signedResponses.get(res)
+  res.writeHead(status, {
+    'content-type': 'application/json',
+    ...(signed && {
+      [responseMacHeader]: responseMac(signed.key, signed.nonce, status, bodyHash(text)),
+    }),
+  })
+  res.end(text)
 }

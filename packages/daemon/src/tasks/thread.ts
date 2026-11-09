@@ -1,6 +1,7 @@
-import type { Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
+import type { ClarifyDepth, Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
+import { depthNames } from './rounds.ts'
 
 export interface ThreadContext {
   comments: readonly Comment[]
@@ -45,6 +46,15 @@ function copyLine(data: Record<string, unknown>): string | undefined {
   return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
+function leadFailedLine(data: Record<string, unknown>): string {
+  if (data.resumeFailed === true)
+    return 'Resume failed · started a fresh Task Lead Run from the brief'
+  const what = `Task Lead Run ${text(data.reason)}`
+  if (data.recovery === 'resume') return `${what} · resuming the session`
+  if (data.recovery === 'failed') return `${what} · Task marked Failed`
+  return `${what} · starting a fresh Task Lead Run from the brief`
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -57,6 +67,7 @@ export function threadEvents(
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
+  let depthSet = false
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
@@ -138,6 +149,12 @@ export function threadEvents(
       case 'v1.TaskResumed':
         add(entry, 'run', 'You resumed the Task')
         break
+      case 'v1.TaskRetried':
+        add(entry, 'run', 'You retried the Task')
+        break
+      case 'v1.TaskLeadFailed':
+        add(entry, 'failure', leadFailedLine(data))
+        break
       case 'v1.TaskLeadNudged':
         add(entry, 'run', `TED nudged the Task Lead: “${nudgeMessage}”`)
         break
@@ -191,9 +208,27 @@ export function threadEvents(
       case 'v3.RunStarted':
         add(entry, 'run', `Task Lead started · ${agentLine(data)}`)
         break
+      case 'v4.RunStarted':
+        add(
+          entry,
+          'run',
+          data.parentRunId
+            ? `Sub-agent “${text(data.name)}” started · ${agentLine(data)}`
+            : `Task Lead started · ${agentLine(data)}`,
+        )
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break
+      case 'v1.ClarifyDepthSet': {
+        const name = depthNames[text(data.depth) as ClarifyDepth] ?? text(data.depth)
+        const why = text(data.why) === '' ? '' : ` · ${text(data.why)}`
+        if (data.by === 'human') add(entry, 'edit', `You set Clarify depth to ${name}`)
+        else if (depthSet) add(entry, 'run', `Task Lead switched Clarify depth to ${name}${why}`)
+        else add(entry, 'run', `Task Lead picked Clarify depth: ${name}${why}`)
+        depthSet = true
+        break
+      }
       case 'v1.TaskWorktreeCreated': {
         const line = copyLine(data)
         if (line) add(entry, 'quiet', line)

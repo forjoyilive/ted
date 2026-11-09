@@ -1,4 +1,4 @@
-import type { AgentKind, ClarifyDepth, Priority, TaskLead } from '@ted/protocol'
+import type { AgentKind, ClarifyDepth, Priority, Task, TaskLead } from '@ted/protocol'
 
 export const priorityLabels: Record<Priority, string> = {
   none: 'None',
@@ -13,6 +13,14 @@ export const clarifyDepthLabels: Record<ClarifyDepth, string> = {
   none: 'None',
   few: 'Few',
   grilling: 'Grill',
+}
+
+export function clarifyDepthText(task: Pick<Task, 'clarifyDepth' | 'clarifyDepthBy'>): string {
+  const label = clarifyDepthLabels[task.clarifyDepth]
+  if (task.clarifyDepth === 'auto') return label
+  if (task.clarifyDepthBy === 'task-lead') return `${label} · by the Task Lead`
+  if (task.clarifyDepthBy === 'human') return `${label} · set by you`
+  return label
 }
 
 export const agentLabels: Record<AgentKind, string> = {

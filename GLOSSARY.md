@@ -112,6 +112,10 @@ _Avoid_: Paused (which is for agents that can’t run), canceled, on hold
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
 _Avoid_: Orchestrator, manager agent
 
+**Sub-agent**:
+A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain Comments.
+_Avoid_: Worker, helper, child agent
+
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, or for planning, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job

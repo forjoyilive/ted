@@ -1,6 +1,14 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
-import { daemonProof, equalHex, newNonce, signRequest } from './app-auth.ts'
+import {
+  bodyHash,
+  daemonProof,
+  equalHex,
+  newNonce,
+  responseMac,
+  responseMacHeader,
+  signRequest,
+} from './app-auth.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
@@ -25,12 +33,21 @@ import type {
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
-import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
+import type {
+  AgentKind,
+  Run,
+  RunWithConversation,
+  StartDevRunRequest,
+  StartSubAgentRequest,
+  SubAgent,
+  SubAgentWait,
+} from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
@@ -41,6 +58,7 @@ import type {
   Priority,
   ReportOutcomeRequest,
   ResumeTaskRequest,
+  SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
@@ -93,7 +111,9 @@ export class DaemonClient {
     const res = await this.#send('GET', '/caller', undefined, undefined, undefined, nonce)
     const { kind, proof } = (await this.#json(res)) as CallerInfo
     return (
-      kind === 'app' && proof !== undefined && equalHex(proof, daemonProof(this.#appKey, nonce))
+      kind === 'app' &&
+      proof !== undefined &&
+      equalHex(proof, daemonProof(this.#appKey, nonce, this.#info.port))
     )
   }
 
@@ -122,6 +142,10 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
   }
 
+  setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/clarify-depth`, request)
+  }
+
   useDefaultModel(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
   }
@@ -148,8 +172,8 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
   }
 
-  archiveTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`)
+  archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
   }
 
   getSlots(): Promise<RunSlots> {
@@ -404,6 +428,23 @@ export class DaemonClient {
     return this.#request('POST', `/runs/${encodeURIComponent(id)}/stop`)
   }
 
+  startSubAgent(ref: string, input: StartSubAgentRequest): Promise<SubAgent> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/sub-agents`, input)
+  }
+
+  waitForSubAgent(id: string, timeoutMs?: number): Promise<SubAgentWait> {
+    const query = timeoutMs === undefined ? '' : `?timeoutMs=${Math.round(timeoutMs)}`
+    return this.#request('GET', `/sub-agents/${encodeURIComponent(id)}/wait${query}`)
+  }
+
+  sendSubAgent(id: string, text: string): Promise<SubAgent> {
+    return this.#request('POST', `/sub-agents/${encodeURIComponent(id)}/messages`, { text })
+  }
+
+  stopSubAgent(id: string): Promise<SubAgent> {
+    return this.#request('POST', `/sub-agents/${encodeURIComponent(id)}/stop`)
+  }
+
   listTaskRuns(ref: string): Promise<RunSummary[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/runs`)
   }
@@ -481,8 +522,20 @@ export class DaemonClient {
   }
 
   async #json(res: IncomingMessage): Promise<unknown> {
-    if (!isOk(res)) throw await requestError(res, this.#info.port)
-    return JSON.parse(await readText(res, this.#info.port))
+    const text = await readText(res, this.#info.port)
+    const nonce = sentNonces.get(res)
+    if (this.#appKey !== undefined) {
+      const given = res.headers[responseMacHeader]
+      const expected = responseMac(this.#appKey, nonce ?? '', res.statusCode ?? 0, bodyHash(text))
+      if (typeof given !== 'string' || !equalHex(given, expected)) {
+        throw new DaemonRequestError(
+          res.statusCode ?? 0,
+          `the server on port ${this.#info.port} didn't prove it is TED's daemon`,
+        )
+      }
+    }
+    if (!isOk(res)) throw errorFrom(res.statusCode ?? 0, text)
+    return JSON.parse(text)
   }
 
   #send(
@@ -494,6 +547,7 @@ export class DaemonClient {
     nonce?: string,
   ): Promise<IncomingMessage> {
     const port = this.#info.port
+    const sent = nonce ?? newNonce()
     const raw = body instanceof Uint8Array
     const payload =
       body === undefined ? undefined : raw ? (body as Uint8Array) : JSON.stringify(body)
@@ -506,17 +560,19 @@ export class DaemonClient {
         agent: agent(),
         timeout: this.#idleTimeoutMs,
         headers: {
-          authorization:
-            this.#appKey === undefined
-              ? `Bearer ${this.#token}`
-              : signRequest(this.#appKey, method, route, payload, nonce),
+          ...(this.#appKey === undefined
+            ? { authorization: `Bearer ${this.#token}` }
+            : signRequest(this.#appKey, method, route, payload, sent)),
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
           ...(payload !== undefined && { 'content-length': Buffer.byteLength(payload) }),
           ...rawHeaders,
         },
         ...(signal && { signal }),
       })
-      req.on('response', resolve)
+      req.on('response', (res) => {
+        sentNonces.set(res, sent)
+        resolve(res)
+      })
       req.on('timeout', () => {
         req.destroy(new Error(`TED's daemon sent nothing for ${this.#idleTimeoutMs} ms`))
       })
@@ -545,6 +601,16 @@ async function readText(res: IncomingMessage, port: number): Promise<string> {
   }
   return text
 }
+
+function errorFrom(status: number, text: string): DaemonRequestError {
+  let error: string | undefined
+  try {
+    error = (JSON.parse(text) as { error?: string }).error
+  } catch {}
+  return new DaemonRequestError(status, error ?? `HTTP ${status}`)
+}
+
+const sentNonces = new WeakMap<IncomingMessage, string>()
 
 async function requestError(res: IncomingMessage, port: number): Promise<DaemonRequestError> {
   const status = res.statusCode ?? 0

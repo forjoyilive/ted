@@ -87,6 +87,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
+  if (facts.failed) return 'Waiting on you to retry'
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)

@@ -1,6 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 
 export const appAuthScheme = 'TED-App'
+export const bodyHashHeader = 'x-ted-body-sha256'
+export const responseMacHeader = 'x-ted-mac'
 
 export interface AppAuth {
   at: number
@@ -18,6 +20,9 @@ export function bodyHash(body: Uint8Array | string | undefined): string {
     .digest('hex')
 }
 
+const mac = (key: string, ...parts: (string | number)[]) =>
+  createHmac('sha256', key).update(parts.join('\n')).digest('hex')
+
 export function requestMac(
   key: string,
   { at, nonce }: Pick<AppAuth, 'at' | 'nonce'>,
@@ -25,9 +30,7 @@ export function requestMac(
   path: string,
   hash: string,
 ): string {
-  return createHmac('sha256', key)
-    .update(['request', at, nonce, method, path, hash].join('\n'))
-    .digest('hex')
+  return mac(key, 'request', at, nonce, method, path, hash)
 }
 
 export function signRequest(
@@ -36,9 +39,13 @@ export function signRequest(
   path: string,
   body: Uint8Array | string | undefined,
   nonce: string = newNonce(),
-): string {
+): Record<string, string> {
   const at = Date.now()
-  return `${appAuthScheme} ${at}.${nonce}.${requestMac(key, { at, nonce }, method, path, bodyHash(body))}`
+  const hash = bodyHash(body)
+  return {
+    authorization: `${appAuthScheme} ${at}.${nonce}.${requestMac(key, { at, nonce }, method, path, hash)}`,
+    [bodyHashHeader]: hash,
+  }
 }
 
 export function parseAppAuth(header: string | undefined): AppAuth | undefined {
@@ -47,8 +54,12 @@ export function parseAppAuth(header: string | undefined): AppAuth | undefined {
   return { at: Number(match[1]), nonce: match[2] ?? '', mac: match[3] ?? '' }
 }
 
-export function daemonProof(key: string, nonce: string): string {
-  return createHmac('sha256', key).update(`daemon\n${nonce}`).digest('hex')
+export function daemonProof(key: string, nonce: string, port: number): string {
+  return mac(key, 'daemon', nonce, port)
+}
+
+export function responseMac(key: string, nonce: string, status: number, hash: string): string {
+  return mac(key, 'response', nonce, status, hash)
 }
 
 export function equalHex(a: string, b: string): boolean {

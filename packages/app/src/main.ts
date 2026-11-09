@@ -18,6 +18,7 @@ import {
   type Banner,
   type BannerActionInput,
   type CheckRepoRequest,
+  type ClarifyDepth,
   type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
@@ -99,6 +100,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
+  setClarifyDepth: (client, taskId, depth) =>
+    client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
   checkOutput: (client, checkRunId, position) =>
@@ -122,7 +125,19 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
     client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
+  archiveTask: (client, taskId, options) =>
+    client.archiveTask(String(taskId), {
+      closePullRequests:
+        (options as { closePullRequests?: unknown } | undefined)?.closePullRequests === true,
+    }),
+  openPullRequest: async (client, taskId, repoName) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.url
+    if (url === undefined || !/^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
+      throw new Error('That pull request has no GitHub link')
+    }
+    await shell.openExternal(url)
+  },
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
   unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),

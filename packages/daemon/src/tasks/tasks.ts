@@ -7,6 +7,7 @@ import type {
   CheckRun,
   CheckRunReport,
   CheckRunTrigger,
+  ClarifyDepth,
   Comment,
   CommentAnswer,
   DaemonEvent,
@@ -17,9 +18,14 @@ import type {
   OutcomeResult,
   Priority,
   ReportOutcomeRequest,
+  RoundInput,
   Run,
   RunSlots,
+  SetClarifyDepthRequest,
   StageId,
+  StartSubAgentRequest,
+  SubAgent,
+  SubAgentWait,
   Task,
   TaskBrief,
   TaskDefaults,
@@ -36,6 +42,7 @@ import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import type { Gh } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
@@ -69,8 +76,34 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import {
+  alreadyFailed,
+  asksForFreshRun,
+  endingReason,
+  failedAsk,
+  freshAfterFailure,
+  recentFailures,
+  retryChoice,
+  revivedMessage,
+  silentReason,
+} from './failures.ts'
 import { placeBetween } from './order.ts'
-import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
+import {
+  createPullRequests,
+  type PullRequestTarget,
+  type PullRequestTask,
+} from './pull-requests.ts'
+import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  clarifySignoffCaption,
+  depthNames,
+  depthOrder,
+  pickDepth,
+  roundAnswerMessage,
+  roundAnswerSummary,
+  roundAnswers,
+} from './rounds.ts'
+import { createSubAgents } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import {
   type CommandResult,
@@ -102,7 +135,7 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
-  archive(ref: string): Task
+  archive(ref: string, options?: { closePullRequests?: boolean }): Task
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -110,8 +143,9 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[]; supersedes?: string },
+    input: { body: string; choices?: string[]; round?: RoundInput; supersedes?: string },
   ): Promise<Comment>
+  setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
   setActivity(ref: string, caller: Caller, text: string): Task
@@ -127,6 +161,10 @@ export interface Tasks {
   checkRun(id: string, caller: Caller): Promise<CheckRunReport>
   checkOutput(id: string, position: number): Promise<{ text: string; log: string }>
   wake(factoryId?: string): void
+  startSubAgent(ref: string, caller: Caller, input: StartSubAgentRequest): Promise<SubAgent>
+  waitForSubAgent(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
+  sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
+  stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   close(): Promise<void>
 }
 
@@ -147,7 +185,9 @@ export function createTasks(options: {
   linear?: Pick<Linear, 'issueFor'>
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
+  gh?: Gh
   nudgeAfterMs?: number
+  stallAfterMs?: number
 }): Tasks {
   const {
     store,
@@ -172,6 +212,11 @@ export function createTasks(options: {
   const stoppingByHand = new Set<string>()
   const nudgeTimers = new Map<string, NodeJS.Timeout>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
+  const stallAfterMs = options.stallAfterMs ?? 30 * 60_000
+  const silent = new Map<string, string>()
+  const pausedAt = new Map<string, number>()
+  const recovering = new Set<string>()
+  const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -180,6 +225,8 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
+  const pullRequestQueue = new Map<string, Promise<void>>()
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -221,13 +268,18 @@ export function createTasks(options: {
   async function slotUse(factoryIds: readonly string[]) {
     const all = store.listTasks()
     const holders = all.flatMap((task) => {
-      const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
+      const working = task.runs.filter(
+        (r) => r.state === 'working' && r.paused === undefined && !r.onSubAgents,
+      )
+      const startingSubAgents = subAgents.starting(task.id)
+      const runs = working.length + startingSubAgents
+      const subAgentRuns = working.filter((r) => r.role === 'sub-agent').length + startingSubAgents
       const settingUp =
         task.status?.kind !== 'stopped' &&
         !task.statuses.includes('queued') &&
         task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
-      return slots > 0 ? [{ task, runs, settingUp, slots }] : []
+      return slots > 0 ? [{ task, runs, subAgentRuns, settingUp, slots }] : []
     })
     const byFactory: Record<string, number> = {}
     for (const { task, slots } of holders) {
@@ -247,8 +299,16 @@ export function createTasks(options: {
   }
 
   const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
-  const ready = () =>
-    runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId))
+  const ready = (): QueueEntry[] =>
+    queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+    ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
+
+  function subAgentRunnable(id: string): boolean {
+    const request = store.subAgentRequests().find((r) => r.id === id)
+    return request !== undefined && store.agentPauses()[request.agent] === undefined
+  }
 
   function heldReady(): QueueEntry[] {
     const paused = store.agentPauses()
@@ -261,15 +321,36 @@ export function createTasks(options: {
     })
   }
 
+  function revivesReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return [...awaitingRevive].flatMap((taskId) => {
+      const pending = pendingRevive(taskId)
+      if (!pending) {
+        awaitingRevive.delete(taskId)
+        return []
+      }
+      if (paused[pending.run.agent] !== undefined || holds.has(taskId)) return []
+      return [{ id: taskId, kind: 'task' as const, rank: -1, factoryId: pending.task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
     if (store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0) return
-    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    if (queued.length === 0 && held.length === 0 && revives.length === 0) return
+    const { use } = await slotUse(
+      [...revives, ...held, ...queued].flatMap((q) => q.factoryId ?? []),
+    )
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
-      if (heldIds.has(entry.id)) relaunch(entry.id)
+    const reviveIds = new Set(revives.map((r) => r.id))
+    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (reviveIds.has(entry.id)) {
+        awaitingRevive.delete(entry.id)
+        inBackground('resume a Task Lead session', () => reviveLead(entry.id))
+      } else if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
@@ -304,33 +385,50 @@ export function createTasks(options: {
     const factoryIds = store.listFactories().map((f) => f.id)
     const { use, holders, all } = await slotUse(factoryIds)
     const byId = new Map(all.map((t) => [t.id, t]))
-    const queue = store.queue().flatMap((entry, i) => {
-      const task = byId.get(entry.id)
-      return task
-        ? [
-            {
-              kind: 'task' as const,
-              place: i + 1,
-              taskId: task.id,
-              displayId: task.displayId,
-              title: task.title,
-              factoryId: task.factoryId,
-              priority: task.priority,
-            },
-          ]
-        : []
+    const requests = new Map(store.subAgentRequests().map((r) => [r.id, r]))
+    const ordered = queueOrder<QueueEntry>([...subAgents.queued(), ...store.queue()])
+    const queue = ordered.flatMap((entry): RunSlots['queue'] => {
+      const request = requests.get(entry.id)
+      const task = byId.get(request?.taskId ?? entry.id)
+      if (!task) return []
+      if (request) {
+        return [
+          {
+            kind: 'sub-agent',
+            place: 0,
+            runId: request.id,
+            name: request.name,
+            taskId: task.id,
+            displayId: task.displayId,
+            factoryId: task.factoryId,
+          },
+        ]
+      }
+      return [
+        {
+          kind: 'task',
+          place: 0,
+          taskId: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          factoryId: task.factoryId,
+          priority: task.priority,
+        },
+      ]
     })
+    for (const [i, entry] of queue.entries()) entry.place = i + 1
     return {
       limit: use.limit,
       working: use.working,
       queued: queue.length,
-      holders: holders.map(({ task, runs, settingUp }) => ({
+      holders: holders.map(({ task, runs, subAgentRuns, settingUp }) => ({
         kind: 'task' as const,
         taskId: task.id,
         displayId: task.displayId,
         title: task.title,
         factoryId: task.factoryId,
         runs,
+        subAgents: subAgentRuns,
         settingUp,
       })),
       queue,
@@ -535,11 +633,88 @@ export function createTasks(options: {
     }
   }
 
+  async function pullRequestTargets(task: StoredTask): Promise<PullRequestTarget[]> {
+    const factory = factoryOf(task)
+    const { workflow } = await resolveWorkflow(factory, { fetch: false })
+    const primary = primaryRepoWorktree(workflow, factory)
+    const live = task.repos.filter((r) => !r.removed)
+    return Promise.all(
+      live.map(async (r) => ({
+        name: r.name,
+        repo: r.repo,
+        branch: r.branch,
+        worktree: r.worktree,
+        url: factory.repos.find((f) => f.repo === r.repo)?.cloneUrl ?? factory.cloneUrl,
+        base:
+          workflow.settings.repos?.find((s) => s.name === r.name)?.base_branch ??
+          (r.name === primary.name ? primary.baseBranch : await git.defaultBranch(r.worktree)),
+      })),
+    )
+  }
+
+  function pullRequestTask(task: StoredTask): PullRequestTask {
+    const brief = store.latestBrief(task.id)
+    const goal = brief ? briefSection(brief.text, 'goal') : task.description
+    return {
+      id: task.id,
+      displayId: task.displayId,
+      title: task.title,
+      ...(goal !== undefined && goal !== '' && { goal }),
+      ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
+    }
+  }
+
+  function pullRequestWork(taskId: string, what: 'first' | 'again' | 'ready' | 'close'): void {
+    const prs = pullRequests
+    if (!prs) return
+    const task = find(taskId)
+    const work = async () => {
+      if (what === 'close') return prs.close(taskId)
+      const current = find(taskId)
+      const targets = await pullRequestTargets(current)
+      if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
+      else await prs.push(pullRequestTask(current), targets, what)
+    }
+    const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
+    const settled = next.catch(() => undefined)
+    pullRequestQueue.set(taskId, settled)
+    void settled.then(() => {
+      if (pullRequestQueue.get(taskId) === settled) pullRequestQueue.delete(taskId)
+    })
+    inBackground(`update ${task.displayId}’s pull requests`, () => next)
+  }
+
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(settings, {
       claude: agents.installed('claude'),
       codex: agents.installed('codex'),
     }).lead
+
+  const subAgents = createSubAgents({
+    store,
+    runs,
+    agents,
+    find: (ref) => find(ref),
+    async leadFor(task) {
+      if (task.lead) return task.lead
+      return leadFrom((await resolveWorkflow(factoryOf(task), { fetch: false })).workflow.settings)
+    },
+    async envFor(task, repo) {
+      const recorded = store.recordedSetup(task.id, repo.name)?.env
+      if (recorded) return recorded
+      const factory = factoryOf(task)
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      return primaryRepoWorktree(resolution.workflow, factory).env
+    },
+    async permissionsFor(task) {
+      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      return resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto'
+    },
+    clonePathFor: (task) => clonePath(reposDir, factoryOf(task)),
+    worktreesDir,
+    pump: () => void pump(),
+    inBackground: (what, work) => inBackground(what, work),
+  })
 
   const sameChoice = (lead: TaskLead, run: Run) =>
     lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
@@ -711,9 +886,21 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
-    if (task.leadRunId) await runs.stop(task.leadRunId)
+    await pullRequestQueue.get(task.id)
+    subAgents.dropFor(task.id)
+    await Promise.all(
+      store
+        .taskRunList(task.id)
+        .filter((r) => r.state !== 'finished')
+        .map((r) => runs.stop(r.id)),
+    )
     const factory = factoryOf(task)
     const clone = clonePath(reposDir, factory)
+    for (const worktree of subAgents.ownWorktrees(task)) {
+      await git.removeWorktree(clone, worktree).catch((error: unknown) => {
+        console.error(`couldn’t remove a sub-agent worktree of ${task.displayId}:`, error)
+      })
+    }
     const settings = primaryRepoWorktree(resolution.workflow, factory)
     const removed: {
       name: string
@@ -876,6 +1063,93 @@ export function createTasks(options: {
     } finally {
       sendingComments.delete(comment.id)
     }
+  }
+
+  function roundsThisVisit(task: Task): Comment[] {
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .filter((c) => c.kind === 'round' && c.stage === 'clarify' && c.createdAt >= since)
+  }
+
+  function openRound(task: Task): Comment | undefined {
+    return store.listComments(task.id).find((c) => c.kind === 'round' && c.answer === undefined)
+  }
+
+  function humanDepth(taskId: string): ClarifyDepth | undefined {
+    const set = store
+      .taskLog(taskId)
+      .findLast(
+        (e) =>
+          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
+      )
+    const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
+    return depth === 'auto' ? undefined : depth
+  }
+
+  async function postRound(
+    task: StoredTask,
+    runId: string,
+    input: RoundInput,
+    supersedes: string | undefined,
+  ): Promise<Comment> {
+    if (task.leadRunId !== runId) throw new RequestError(403, 'only the Task Lead posts a round')
+    if (task.stage !== 'clarify') {
+      throw new RequestError(
+        409,
+        `rounds are for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
+      )
+    }
+    if (task.clarifyDepth === 'auto') {
+      throw new RequestError(409, `pick a Clarify depth first with \`${pickDepth}\``)
+    }
+    if (task.clarifyDepth === 'none') {
+      throw new RequestError(
+        409,
+        `Clarify depth is None, which asks no questions; change it with \`${pickDepth}\` first`,
+      )
+    }
+    return holding(task, async () => {
+      const old = supersedes === undefined ? undefined : store.getComment(supersedes)
+      if (supersedes !== undefined) {
+        if (!old || old.taskId !== task.id) {
+          throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+        }
+        if (old.kind !== 'round') throw new RequestError(400, 'a round can replace only a round')
+        if (!postedBy(old, task, runId)) {
+          throw new RequestError(403, 'a Run can supersede only its own requests')
+        }
+        if (old.answer) throw new RequestError(409, 'that request has already been answered')
+      } else {
+        const open = openRound(task)
+        if (open) {
+          throw new RequestError(
+            409,
+            `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+          )
+        }
+        const answered = roundsThisVisit(task).some((c) => c.answer?.kind === 'answered')
+        if (task.clarifyDepth === 'few' && answered) {
+          throw new RequestError(
+            409,
+            'Clarify depth is Few, which asks one round; to ask more, switch to grilling with `ted clarify depth grilling "<why>"`',
+          )
+        }
+      }
+      const numbers = store.listComments(task.id).map((c) => c.round?.number ?? 0)
+      const comment = {
+        taskId: task.id,
+        kind: 'round' as const,
+        title: input.title,
+        body: input.summary ?? '',
+        author: { kind: 'run' as const, runId },
+        round: {
+          number: old?.round?.number ?? Math.max(0, ...numbers) + 1,
+          questions: input.questions,
+        },
+      }
+      return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
+    })
   }
 
   async function humanComment(task: StoredTask, body: string): Promise<Comment> {
@@ -1042,6 +1316,32 @@ export function createTasks(options: {
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
   }
 
+  async function answerRound(task: Task, comment: Comment, request: AnswerRequest) {
+    if (!comment.round) throw new RequestError(409, 'this round has no questions')
+    const answers = roundAnswers(comment.round, request)
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer?.kind === 'superseded') {
+        throw new RequestError(409, 'this request was replaced by a newer one')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        answers,
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        roundAnswerMessage(comment, answers, find(task.id).clarifyDepth),
+      )
+      return answered
+    })
+  }
+
   async function move(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -1049,6 +1349,8 @@ export function createTasks(options: {
     message: string | undefined,
   ): Promise<Task> {
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (next === 'validate') pullRequestWork(task.id, 'first')
+    if (next === 'merge') pullRequestWork(task.id, 'ready')
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
     } else if (next === 'validate' && message !== undefined) {
@@ -1064,7 +1366,12 @@ export function createTasks(options: {
     const { author } = request
     if (author.kind !== 'run') return false
     if (author.runId === runId) return true
-    return task.leadRunId === runId && store.getRun(author.runId)?.taskId === task.id
+    const authorRun = store.getRun(author.runId)
+    return (
+      task.leadRunId === runId &&
+      authorRun?.taskId === task.id &&
+      authorRun.parentRunId === undefined
+    )
   }
 
   function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
@@ -1198,6 +1505,7 @@ export function createTasks(options: {
     settingUp.get(taskId)?.abort()
     await beginning.get(taskId)?.catch(() => undefined)
     settingUp.get(taskId)?.abort()
+    subAgents.dropFor(taskId)
     const task = find(taskId)
     await Promise.all(task.runs.map((run) => runs.stop(run.id)))
     if (!task.repos.some((r) => !r.removed) && !task.worktree) return
@@ -1299,9 +1607,7 @@ export function createTasks(options: {
 
   function pendingPickUp(task: StoredTask): string | undefined {
     const log = store.taskLog(task.id)
-    const asked = log.findLastIndex(
-      (e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers',
-    )
+    const asked = log.findLastIndex(asksForFreshRun)
     const started = log.findLastIndex(
       (e) => e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted',
     )
@@ -1314,9 +1620,10 @@ export function createTasks(options: {
   }
 
   function freshRunNote(task: StoredTask): string {
-    const last = store
-      .taskLog(task.id)
-      .findLast((e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers')
+    const last = store.taskLog(task.id).findLast(asksForFreshRun)
+    if (last?.name === 'v1.TaskRetried' || last?.name === 'v1.TaskLeadFailed') {
+      return fromTheBrief(task, freshAfterFailure(last))
+    }
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
@@ -1436,12 +1743,21 @@ export function createTasks(options: {
 
   async function leadStopped(run: Run): Promise<void> {
     if (run.taskId === undefined) return
+    const silence = silent.get(run.id)
+    silent.delete(run.id)
+    pausedAt.delete(run.id)
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
       return
     }
     const [checked] = await health.check([run.agent])
-    if (checked?.state === 'ready') return
+    if (checked?.state === 'ready') {
+      const ended = store.getRun(run.id)?.ended
+      if (silence !== undefined || (ended !== undefined && ended.how !== 'stopped')) {
+        await leadFailed(run.id, silence)
+      }
+      return
+    }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
     if (now.waitsForBlockers || now.stopped) return
@@ -1450,6 +1766,125 @@ export function createTasks(options: {
       agent: run.agent,
       ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
     })
+  }
+
+  async function leadFailed(runId: string, silence?: string): Promise<void> {
+    if (recovering.has(runId)) return
+    recovering.add(runId)
+    try {
+      await recover(runId, silence)
+    } finally {
+      recovering.delete(runId)
+    }
+  }
+
+  async function recover(runId: string, silence?: string): Promise<void> {
+    const run = store.getRun(runId)
+    if (!run?.taskId || run.state !== 'finished') return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.waitsForBlockers) return
+    if (task.status?.kind === 'failed' || stoppingByHand.has(task.id)) return
+    if (stoppingForBlockers.has(task.id) || store.queue().some((q) => q.id === task.id)) return
+    if (store.heldRuns().some((h) => h.taskId === task.id)) return
+    const log = store.taskLog(task.id)
+    if (alreadyFailed(log, run.id, run.revivedAt ?? run.startedAt)) return
+    const ended = run.ended
+    const reason = silence ?? endingReason(ended)
+    const resumeFailed = silence === undefined && ended?.resumeFailed === true
+    const now = Date.now()
+    const earlier = recentFailures(log, now)
+    const canResume =
+      run.sessionId !== undefined &&
+      (task.lead?.agent ?? run.agent) === run.agent &&
+      store.newWorkHold() === undefined
+    const recovery = resumeFailed
+      ? 'fresh'
+      : earlier.length > 0
+        ? 'failed'
+        : canResume
+          ? 'resume'
+          : 'fresh'
+    const first = earlier[0]
+    store.leadFailed({
+      taskId: task.id,
+      runId: run.id,
+      reason,
+      recovery,
+      resumeFailed,
+      ...(recovery === 'failed' && {
+        ask: failedAsk(run.agent, first ? log.slice(log.indexOf(first)) : [], reason, ended, now),
+      }),
+    })
+    if (recovery === 'resume') awaitingRevive.add(task.id)
+    void pump()
+  }
+
+  function pendingRevive(
+    taskId: string,
+  ): { task: StoredTask; run: Run; reason: string } | undefined {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
+    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    const last = store.taskLog(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
+    if (last?.data.recovery !== 'resume') return undefined
+    const run = store.getRun(String(last.data.runId))
+    if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
+    if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
+    return { task, run, reason: String(last.data.reason) }
+  }
+
+  async function reviveLead(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    const pending = pendingRevive(taskId)
+    if (!pending) return release()
+    const { task, run, reason } = pending
+    try {
+      const repo = task.repos.find((r) => !r.removed)
+      const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
+      await runs.revive(run.id, {
+        prompt: revivedMessage(reason),
+        env: { ...env, TED_TASK: task.displayId },
+      })
+      await sendWaiting(task.id)
+    } catch (error) {
+      console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
+      const now = store.getTask(task.id)
+      if (now && !now.stopped && !now.archived && store.getRun(run.id)?.state === 'finished') {
+        store.leadFailed({
+          taskId: task.id,
+          runId: run.id,
+          reason,
+          recovery: 'fresh',
+          resumeFailed: true,
+        })
+      }
+    } finally {
+      release()
+    }
+  }
+
+  function checkSilence(): void {
+    if (closed) return
+    const paused = store.agentPauses()
+    const now = Date.now()
+    for (const run of store.listRuns()) {
+      if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
+        if (run.state !== 'working') pausedAt.delete(run.id)
+        continue
+      }
+      if (store.getTask(run.taskId)?.leadRunId !== run.id) continue
+      if (paused[run.agent] !== undefined) {
+        pausedAt.set(run.id, now)
+        continue
+      }
+      const heard = [store.lastOutputAt(run.id), run.revivedAt, run.startedAt]
+        .flatMap((at) => (at === undefined ? [] : [Date.parse(at)]))
+        .concat(pausedAt.get(run.id) ?? [], runs.lastHeard(run.id) ?? [])
+      if (now - Math.max(...heard) < stallAfterMs) continue
+      silent.set(run.id, silentReason(stallAfterMs))
+      inBackground('stop a silent Task Lead', () => runs.stop(run.id))
+    }
   }
 
   async function stopByHand(ref: string): Promise<Task> {
@@ -1468,6 +1903,7 @@ export function createTasks(options: {
     try {
       if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
+      subAgents.dropFor(task.id)
       settingUp.get(task.id)?.abort()
       await beginning.get(task.id)?.catch(() => undefined)
       settingUp.get(task.id)?.abort()
@@ -1490,7 +1926,16 @@ export function createTasks(options: {
     }
     const text = comment?.trim() ?? ''
     if (text !== '') store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
-    store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
+    const waitForBlockers = unmergedBlockers(task.id).length > 0
+    if (task.status?.kind === 'failed') {
+      const at = new Date().toISOString()
+      for (const ask of openRequests(task.id).filter((c) => c.failed !== undefined)) {
+        store.answerComment(ask.id, { kind: 'answered', at, choice: retryChoice })
+      }
+      store.retryTask(task.id, { waitForBlockers })
+    } else {
+      store.resumeTask(task.id, { waitForBlockers })
+    }
     await pump()
     return publicTask(task.id)
   }
@@ -1639,6 +2084,20 @@ export function createTasks(options: {
     if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
 
+  for (const task of store.listTasks()) {
+    if (pendingRevive(task.id)) {
+      awaitingRevive.add(task.id)
+      continue
+    }
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    }
+  }
+
+  const silenceTimer = setInterval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))
+  silenceTimer.unref()
+
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
     store.finishChecks(checkRun.id, 'interrupted')
     const task = store.getTask(checkRun.taskId)
@@ -1783,9 +2242,10 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
-    archive(ref) {
+    archive(ref, { closePullRequests = false } = {}) {
       const task = live(ref)
       const archived = store.archiveTask(task.id)
+      if (closePullRequests) pullRequestWork(task.id, 'close')
       inBackground(`archive ${task.displayId}`, () => clearAway(task.id))
       return archived
     },
@@ -1856,15 +2316,25 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [], supersedes }) {
+    async comment(ref, caller, { body, choices = [], round, supersedes }) {
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
         return humanComment(find(ref), body)
       }
       const { task, runId } = ownTask(ref, caller)
+      if (store.getRun(runId)?.parentRunId !== undefined) {
+        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
+          throw new RequestError(
+            403,
+            'a sub-agent can post only plain notes; tell the Task Lead what to ask in your final message',
+          )
+        }
+      }
+      if (round !== undefined) return postRound(task, runId, round, supersedes)
       if (supersedes === undefined) {
         return store.postComment({
           taskId: task.id,
@@ -1878,6 +2348,7 @@ export function createTasks(options: {
         throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
       }
       if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
+      if (old.kind === 'round') throw new RequestError(400, 'replace a round with another round')
       if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
@@ -1893,6 +2364,49 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           ...(choices.length > 0 && { choices }),
         })
+      })
+    },
+
+    async setClarifyDepth(ref, caller, { depth, why }) {
+      if (caller.kind !== 'run') {
+        const task = find(ref)
+        if (task.archived || task.stage === 'done') {
+          throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
+        }
+        const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
+        if (liveLead(find(task.id))) {
+          await deliver(
+            task,
+            depth === 'auto'
+              ? 'The human set Clarify depth back to Auto. Pick one yourself at Clarify.'
+              : `The human set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
+          )
+        }
+        return set
+      }
+      const { task, runId } = ownTask(ref, caller)
+      if (task.leadRunId !== runId) {
+        throw new RequestError(403, 'only the Task Lead picks the Clarify depth')
+      }
+      if (task.stage !== 'clarify') {
+        throw new RequestError(
+          409,
+          `pick the Clarify depth at Clarify; ${task.displayId} is in ${stageTitle(task.stage)}`,
+        )
+      }
+      if (depth === 'auto') throw new RequestError(400, 'pick none, few or grilling')
+      const floor = humanDepth(task.id)
+      if (floor !== undefined && depthOrder.indexOf(depth) < depthOrder.indexOf(floor)) {
+        throw new RequestError(
+          403,
+          `the human set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
+        )
+      }
+      return store.setClarifyDepth(task.id, {
+        depth,
+        by: 'task-lead',
+        runId,
+        ...(why !== undefined && { why }),
       })
     },
 
@@ -1955,6 +2469,10 @@ export function createTasks(options: {
       if (!comment) throw new RequestError(404, `no Comment ${id}`)
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
+      if (comment.kind === 'round') return answerRound(task, comment, request)
+      if (request.action === 'answer-round' || request.action === 'accept-recommended') {
+        throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
+      }
       const text = request.text?.trim() ?? ''
       if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
@@ -1971,6 +2489,14 @@ export function createTasks(options: {
         throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
+      }
+      if (comment.failed !== undefined && comment.answer === undefined) {
+        if (request.action === 'answer' && request.choice === retryChoice) {
+          await resumeByHand(task.id, { comment: text })
+        } else {
+          await humanComment(find(task.id), text)
+        }
+        return store.getComment(id) ?? comment
       }
       return holding(task, async () => {
         const current = store.getComment(id)
@@ -1990,7 +2516,9 @@ export function createTasks(options: {
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
-              `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+              comment.stage === 'clarify'
+                ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
+                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
             ].join('\n\n'),
           )
           return answered
@@ -2087,6 +2615,13 @@ export function createTasks(options: {
         const resolution = await resolveWorkflow(factoryOf(current))
         const { workflow } = resolution
         if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        const waiting = stage === 'clarify' ? openRound(current) : undefined
+        if (waiting) {
+          throw new RequestError(
+            409,
+            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+          )
+        }
         if (outcome.skip === true) {
           if (!skippableStages.includes(stage)) {
             throw new RequestError(
@@ -2109,9 +2644,13 @@ export function createTasks(options: {
             author: { kind: 'ted' },
           })
         }
-        const gate = workflow.settings.stages[stage]?.gate === true && outcome.skip !== true
+        const gate =
+          (workflow.settings.stages[stage]?.gate === true ||
+            (stage === 'clarify' && current.clarifyDepth === 'grilling')) &&
+          outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
+          if (stage === 'validate') pullRequestWork(task.id, 'again')
           const moved = await move(
             current,
             resolution,
@@ -2120,7 +2659,7 @@ export function createTasks(options: {
           )
           return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
         }
-        const name = `${stageTitle(stage)} Gate`
+        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} Gate`
         if (openGateRequest(current)) {
           throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
         }
@@ -2140,6 +2679,8 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           gate: gateButtons(workflow, stage),
         })
+        if (stage === 'validate') pullRequestWork(task.id, 'again')
+        if (stage === 'review') pullRequestWork(task.id, 'ready')
         return {
           task: publicTask(task.id),
           message: `Waiting for the human at the ${name}. TED sends you their answer.`,
@@ -2243,8 +2784,15 @@ export function createTasks(options: {
       }
     },
 
+    startSubAgent: (ref, caller, input) => subAgents.request(ref, caller, input),
+    waitForSubAgent: (runId, caller, timeoutMs) => subAgents.wait(runId, caller, timeoutMs),
+    sendSubAgent: (runId, caller, text) => subAgents.send(runId, caller, text),
+    stopSubAgent: (runId, caller) => subAgents.stop(runId, caller),
+
     async close() {
       closed = true
+      subAgents.close()
+      clearInterval(silenceTimer)
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
       nudgeTimers.clear()
       unsubscribe()
@@ -2272,11 +2820,13 @@ function latest(a: string, b: string): string {
 }
 
 function gateName(comment: Comment): string {
+  if (comment.stage === 'clarify') return 'Clarify sign-off'
   return `${stageTitle(comment.stage ?? '')} Gate`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
   if (stage === 'merge') return { approveLabel: 'Merge' }
+  if (stage === 'clarify') return { approveLabel: 'Approve', caption: clarifySignoffCaption }
   if (stage !== 'review') return { approveLabel: 'Approve' }
   if (!workflow.stages.includes('merge')) {
     return {
@@ -2294,6 +2844,20 @@ function headings(text: string): { title: string; line: number }[] {
     const match = headingLine.exec(line.trim())
     return match?.[1] ? [{ title: match[1].toLowerCase(), line: i }] : []
   })
+}
+
+function briefSection(text: string, title: string): string | undefined {
+  const lines = text.split('\n')
+  const found = headings(text)
+  const start = found.find((h) => h.title === title)
+  if (!start) return undefined
+  const end = found.find((h) => h.line > start.line)?.line ?? lines.length
+  return (
+    lines
+      .slice(start.line + 1, end)
+      .join('\n')
+      .trim() || undefined
+  )
 }
 
 function hasBriefHeadings(text: string): boolean {
@@ -2341,6 +2905,9 @@ function answerText(comment: Comment): string | undefined {
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
+  if (answer.kind === 'answered' && answer.answers) {
+    return roundAnswerSummary(comment, answer.answers)
+  }
   if (answer.kind === 'answered') {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
   }

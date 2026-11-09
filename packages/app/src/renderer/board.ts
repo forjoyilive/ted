@@ -101,8 +101,9 @@ export function placeCard(
 export function startPlace(
   placement: Placement,
   moving: Task,
-  queue: readonly QueuedForSlot[],
+  slotQueue: readonly QueuedForSlot[],
 ): number {
+  const queue = slotQueue.flatMap((q) => (q.kind === 'task' ? [q] : []))
   const placeOf = (id: string | undefined) => queue.find((q) => q.taskId === id)?.place
   const before = placeOf(placement.before)
   if (before !== undefined) return before

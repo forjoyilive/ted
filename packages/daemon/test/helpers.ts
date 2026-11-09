@@ -153,7 +153,7 @@ export function appHeaders(
   route: string,
   body?: string,
 ): Record<string, string> {
-  return { authorization: signRequest(appKey, method, route, body) }
+  return signRequest(appKey, method, route, body)
 }
 
 export function appClient(info: DaemonInfo, appKey: string | undefined): DaemonClient {

@@ -32,6 +32,17 @@ export async function preambleText(): Promise<string> {
   return (await readFile(new URL('preamble.md', defaults), 'utf8')).trim()
 }
 
+export async function subAgentPreamble(): Promise<string> {
+  return (await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim()
+}
+
+export async function subAgentPrompt(displayId: string, instructions: string): Promise<string> {
+  return [
+    await subAgentPreamble(),
+    `# Your instructions from the Task Lead of ${displayId}\n\n${instructions.trim()}`,
+  ].join('\n\n')
+}
+
 export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,
@@ -49,7 +60,9 @@ export async function taskLeadPrompt(
     ...(task.source ? [sourceContext(task.source)] : []),
     ...(task.clarifyDepth !== 'auto'
       ? [
-          `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
+          task.clarifyDepthBy === 'task-lead'
+            ? `Clarify depth: ${depthNames[task.clarifyDepth]}. You picked it at Clarify.`
+            : `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
         ]
       : []),
     ...(attachmentFile && task.attachments.length > 0

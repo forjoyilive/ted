@@ -10,6 +10,7 @@ import type {
   CheckOutput,
   CheckRepoRequest,
   CheckRun,
+  ClarifyDepth,
   CommandLineStatus,
   Comment,
   CreateFactoryRequest,
@@ -92,6 +93,8 @@ export const ted = {
     window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
+    window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
@@ -113,7 +116,10 @@ export const ted = {
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>
     window.ted.request('setPriority', taskId, priority) as Promise<Task>,
-  archiveTask: (taskId: string) => window.ted.request('archiveTask', taskId) as Promise<Task>,
+  archiveTask: (taskId: string, options: { closePullRequests?: boolean } = {}) =>
+    window.ted.request('archiveTask', taskId, options) as Promise<Task>,
+  openPullRequest: (taskId: string, repoName: string) =>
+    window.ted.request('openPullRequest', taskId, repoName) as Promise<void>,
   blockTask: (taskId: string, by: string) =>
     window.ted.request('blockTask', taskId, by) as Promise<Task>,
   unblockTask: (taskId: string, by: string) =>
