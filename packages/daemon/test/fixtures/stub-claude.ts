@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { once } from 'node:events'
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
@@ -21,6 +22,7 @@ type Step =
     }
   | { cancelPermission: true }
   | { emit: Record<string, unknown> }
+  | { tool: string; failed?: true }
 
 const argv = process.argv.slice(2)
 
@@ -89,6 +91,12 @@ const settings = settingsPath
   : {}
 const configuredHooks = new Set(Object.keys(settings.hooks ?? {}))
 
+type HookConfig = { hooks?: { command?: string }[] }[]
+const hookCommands = (event: string) =>
+  ((settings.hooks?.[event] ?? []) as HookConfig).flatMap((matcher) =>
+    (matcher.hooks ?? []).flatMap((hook) => (hook.command ? [hook.command] : [])),
+  )
+
 const emit = (message: Record<string, unknown>) =>
   process.stdout.write(`${JSON.stringify({ ...message, session_id: sessionId })}\n`)
 
@@ -102,6 +110,11 @@ const hook = (name: string) => {
 }
 
 let everyMessage: Step[] = []
+let interrupted = false
+let gating = false
+let gate: ReturnType<typeof spawn> | undefined
+const readDuringGate: string[] = []
+let nextTool = 0
 let nextRequest = 0
 let lastRequest: string | undefined
 const answers = new Map<string, (response: unknown) => void>()
@@ -113,7 +126,36 @@ const permissionMode = () => {
 async function runStep(step: Step): Promise<void> {
   if ('everyMessage' in step) everyMessage = step.everyMessage
   else if ('emit' in step) emit(step.emit)
-  else if ('authError' in step) {
+  else if ('tool' in step) {
+    const id = `tool-${++nextTool}`
+    hook('PreToolUse')
+    emit({
+      type: 'assistant',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'tool_use', id, name: step.tool, input: { command: `step ${nextTool}` } },
+        ],
+      },
+    })
+    emit({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
+    })
+    const after = step.failed ? 'PostToolUseFailure' : 'PostToolUse'
+    hook(after)
+    gating = true
+    for (const command of hookCommands(after)) {
+      if (interrupted) break
+      const child = spawn('sh', ['-c', command], { stdio: ['pipe', 'ignore', 'ignore'] })
+      gate = child
+      child.stdin.end(JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: step.tool }))
+      await once(child, 'exit')
+    }
+    gate = undefined
+    gating = false
+    for (const text of readDuringGate.splice(0)) say(`Read: ${text}`)
+  } else if ('authError' in step) {
     emit({
       type: 'assistant',
       error: 'authentication_failed',
@@ -159,7 +201,7 @@ async function runStep(step: Step): Promise<void> {
       await sleep(step.everyMs)
     }
   } else if ('waitFor' in step) {
-    while (!existsSync(step.waitFor)) await sleep(25)
+    while (!existsSync(step.waitFor) && !interrupted) await sleep(25)
   } else if ('run' in step) {
     const [command = '', ...args] = step.run
     const result = spawnSync(command, args, { encoding: 'utf8' })
@@ -184,6 +226,28 @@ createInterface({ input: process.stdin })
       type?: string
       message?: { content: string }
       response?: { request_id?: string; response?: unknown }
+    }
+    if (parsed.type === 'control_request') {
+      const request = parsed as { request_id?: string; request?: { subtype?: string } }
+      if (request.request?.subtype === 'interrupt') {
+        interrupted = true
+        gate?.kill('SIGTERM')
+        emit({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: request.request_id,
+            response: { still_queued: [] },
+          },
+        })
+        wake?.()
+      }
+      return
+    }
+    if (gating && parsed.type === 'user' && parsed.message) {
+      emit({ type: 'user', message: parsed.message })
+      readDuringGate.push(parsed.message.content)
+      return
     }
     if (parsed.type === 'control_response') {
       const id = parsed.response?.request_id ?? ''
@@ -224,7 +288,15 @@ for (;;) {
     continue
   }
   const own = stepsIn(message.message.content)
-  for (const step of own.length > 0 ? own : everyMessage) await runStep(step)
+  interrupted = false
+  for (const step of own.length > 0 ? own : everyMessage) {
+    if (interrupted) break
+    await runStep(step)
+  }
+  if (interrupted) {
+    interrupted = false
+    emit({ type: 'result', subtype: 'error_during_execution', is_error: false })
+  }
 }
 
 function stepsIn(content: string): Step[] {

@@ -308,12 +308,6 @@
   gap: 8px;
 }
 
-.hint {
-  margin-right: auto;
-  color: var(--text-caption);
-  font-size: var(--text-12);
-}
-
 .permission {
   display: flex;
   flex-direction: column;
@@ -381,4 +375,98 @@
 
 .quiet {
   color: var(--text-caption);
+}
+
+.stopped {
+  color: var(--text-muted);
+}
+
+.bubble[data-queued='true'] {
+  border: 1px solid var(--accent-border);
+}
+
+.queuedChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.queuedActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: var(--text-13);
+  opacity: 0;
+}
+
+.bubble:hover .queuedActions,
+.bubble:focus-within .queuedActions {
+  opacity: 1;
+}
+
+.link,
+.quietLink {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.link {
+  color: var(--accent-link);
+}
+
+.quietLink {
+  color: var(--text-secondary);
+}
+
+.link:disabled,
+.quietLink:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.interrupted {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-13);
+}
+
+.interruptedMark {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--text-muted);
+}
+
+.boxWrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.boxWrap .box {
+  padding-right: 36px;
+}
+
+.boxHelp {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.stopTurn {
+  padding-inline: 6px;
 }

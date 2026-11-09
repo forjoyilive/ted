@@ -241,7 +241,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
-      const conversations = createConversations({ store, runs, agents, health, disk })
+      const conversations = createConversations({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        disk,
+      })
       return {
         runs,
         conversations,

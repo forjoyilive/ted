@@ -89,6 +89,7 @@ import {
   machineSettings,
   machineSettingValues,
   pullRequests,
+  runInterrupts,
   runMessages,
   runs,
   schema,
@@ -283,6 +284,13 @@ export interface LoggedEvent {
   at: string
 }
 
+export interface RunInterrupt {
+  id: string
+  runId: string
+  hold: boolean
+  at: string
+}
+
 export interface HeldRun {
   taskId: string
   agent: AgentKind
@@ -455,7 +463,12 @@ export interface TedStore {
   conversation(runId: string): ConversationEntry[]
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
+  queueRunMessage(input: { runId: string; text: string }): RunMessage
+  deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
+  deleteRunMessage(runId: string, id: string): RunMessage | undefined
+  recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
   runMessages(runId: string): RunMessage[]
+  runInterrupts(runId: string): RunInterrupt[]
   openTab(taskId: string, runId: string): Task
   closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
@@ -2198,8 +2211,47 @@ export async function openStore({
       if (taskId !== null && lead) updatedTask(taskId)
       return message
     },
+    queueRunMessage({ runId, text }) {
+      const taskId = taskIdOfRun(runId) ?? null
+      const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
+      commit(events.runMessageQueued({ ...message, taskId }))
+      emit({ type: 'run-output', runId })
+      return { ...message, queued: true }
+    },
+    deliverRunMessages(runId, ids, lead) {
+      if (ids.length === 0) return
+      const taskId = taskIdOfRun(runId) ?? null
+      const at = new Date().toISOString()
+      commit(
+        ...ids.map((id) =>
+          events.runMessageDelivered({ id, runId, taskId, lead: lead && taskId !== null, at }),
+        ),
+      )
+      emit({ type: 'run-output', runId })
+      if (taskId !== null && lead) updatedTask(taskId)
+    },
+    deleteRunMessage(runId, id) {
+      const row = store.query(queryDb(runMessages.where({ id, runId }))).at(0)
+      if (!row?.queued) return undefined
+      commit(events.runMessageDeleted({ id, runId, at: new Date().toISOString() }))
+      emit({ type: 'run-output', runId })
+      return { id, runId, text: row.text, at: row.at }
+    },
+    recordTurnInterrupted(runId, hold) {
+      const taskId = taskIdOfRun(runId) ?? null
+      const interrupt = { id: randomUUID(), runId, hold, at: new Date().toISOString() }
+      commit(events.runTurnInterrupted({ ...interrupt, taskId }))
+      emit({ type: 'run-output', runId })
+      return interrupt
+    },
     runMessages: (runId) =>
-      store.query(queryDb(runMessages.where({ runId }).orderBy('at', 'asc'))).map((row) => row),
+      store
+        .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))
+        .map(({ id, text, at, queued }) => ({ id, runId, text, at, ...(queued && { queued }) })),
+    runInterrupts: (runId) =>
+      store
+        .query(queryDb(runInterrupts.where({ runId }).orderBy('at', 'asc')))
+        .map(({ id, hold, at }) => ({ id, runId, hold, at })),
     openTab(taskId, runId) {
       const at = new Date().toISOString()
       if (store.query(queryDb(conversationTabs.where({ id: `${taskId}:${runId}` }))).length === 0) {

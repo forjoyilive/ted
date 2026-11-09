@@ -157,3 +157,18 @@ export function StopIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function ClockIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <circle cx="6" cy="6" r="4.75" stroke="currentColor" strokeWidth="1.2" />
+      <path
+        d="M6 3.5V6l1.6 1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}

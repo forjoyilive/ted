@@ -44,6 +44,8 @@ export interface RunObserver {
   finished?(run: Run, ending: { stopped: boolean; lastLines: string[] }): void
   authFailed?(run: Run): void
   accepted?(run: Run, texts: string[]): void
+  boundary?(run: Run): void
+  settled?(run: Run): void
 }
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
@@ -69,6 +71,8 @@ export interface RunManager {
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
   send(runId: string, text: string): Promise<void>
+  steer(runId: string, texts: readonly string[]): Promise<void>
+  interrupt(runId: string): Promise<void>
   lastHeard(runId: string): number | undefined
   answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
   stop(runId: string): Promise<void>
@@ -122,17 +126,20 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
-  function tellAccepted(runId: string, texts: string[]): void {
+  function tellObservers(runId: string, tell: (observer: RunObserver, run: Run) => void): void {
     const run = store.getRun(runId)
     if (!run) return
     for (const observer of observers) {
       try {
-        observer.accepted?.(run, texts)
+        tell(observer, run)
       } catch (error) {
         console.error(`a Run observer failed:`, error)
       }
     }
   }
+
+  const tellAccepted = (runId: string, texts: string[]) =>
+    tellObservers(runId, (observer, run) => observer.accepted?.(run, texts))
 
   function follow(runId: string, { revived = false } = {}): void {
     const release = options.idle?.hold()
@@ -184,6 +191,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let authFailed = false
     let problem: RunProblem | undefined
     let autoModeUnavailable = false
+    let boundary = false
     const prompts: (PermissionPrompt & { generation: number })[] = []
     const closedPermissions: string[] = []
     const accepted: string[] = []
@@ -206,6 +214,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
         autoModeUnavailable ||= agent.autoModeUnavailableFrom(record.line)
+        boundary ||= agent.boundaryFrom(record.line)
         const prompt = agent.permissionPromptFrom(record.line, (matches) => {
           for (let i = entries.length - 2; i >= 0; i--) {
             const line = entries[i]?.line
@@ -268,6 +277,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(state === 'finished' && { ending: ending(runId, exit, generation) }),
     })
     if (accepted.length > 0) tellAccepted(runId, accepted)
+    if (boundary && state !== 'finished') {
+      tellObservers(runId, (observer, run) => observer.boundary?.(run))
+    }
+    if (state === 'idle') tellObservers(runId, (observer, run) => observer.settled?.(run))
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') {
       heard.delete(runId)
@@ -457,6 +470,29 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
       await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
+    },
+    async steer(runId, texts) {
+      const run = store.getRun(runId)
+      if (!run) throw new Error(`no Run ${runId}`)
+      const agent = agents.get(run.agent)
+      await appendFile(
+        runFiles(path.join(runsDir, runId)).input,
+        texts.map((text) => `${agent.steer(text)}\n`).join(''),
+        { mode: 0o600 },
+      )
+    },
+    async interrupt(runId) {
+      const run = store.getRun(runId)
+      if (!run) throw new Error(`no Run ${runId}`)
+      await appendFile(
+        runFiles(path.join(runsDir, runId)).input,
+        agents
+          .get(run.agent)
+          .interrupt()
+          .map((line) => `${line}\n`)
+          .join(''),
+        { mode: 0o600 },
+      )
     },
     async answerPermission(runId, generation, reply) {
       const run = store.getRun(runId)
