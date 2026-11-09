@@ -188,6 +188,14 @@ export function claudeAgent(binary: string): Agent {
       return textParts(message.message?.content)
     },
     sessionIdFrom: () => undefined,
+    sessionContinuedFrom(line) {
+      try {
+        const message: unknown = JSON.parse(line)
+        return typeof message === 'object' && message !== null
+      } catch {
+        return false
+      }
+    },
     authErrorFrom(line) {
       let message: { type?: unknown; error?: unknown; is_error?: unknown; result?: unknown }
       try {

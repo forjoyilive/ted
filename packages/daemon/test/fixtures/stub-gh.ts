@@ -33,6 +33,7 @@ interface StubMerge {
   deleteBranchOnMerge?: boolean
   rebaseConflict?: boolean
   rebaseAddsCommit?: boolean
+  rebaseChangesMode?: boolean
   isDraft?: boolean
   merged?: boolean
   autoMerge?: string
@@ -164,6 +165,10 @@ function rebaseBranch(): string {
       writeFileSync(path.join(repo, 'extra.txt'), 'not signed off\n')
       runGit(repo, 'add', 'extra.txt')
       runGit(repo, 'commit', '-qm', 'extra')
+    }
+    if (merge.rebaseChangesMode) {
+      runGit(repo, 'update-index', '--chmod=+x', 'work.txt')
+      runGit(repo, 'commit', '-q', '--amend', '--no-edit')
     }
     runGit(repo, 'push', '-q', '--force', 'origin', `HEAD:refs/heads/${branch}`)
   } finally {

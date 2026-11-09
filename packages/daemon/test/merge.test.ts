@@ -77,6 +77,7 @@ interface GhMerge {
   autoMergeAllowed?: boolean
   rebaseConflict?: boolean
   rebaseAddsCommit?: boolean
+  rebaseChangesMode?: boolean
   isDraft?: boolean
   merged?: boolean
   autoMerge?: string
@@ -453,16 +454,23 @@ describe('Merging only what the human signed off', () => {
     expect(await merges()).toEqual([])
   })
 
-  test('a rebase that adds anything beyond the signed-off work goes back to Validate', async () => {
-    const client = await start({ merge: { mergeState: 'BEHIND', rebaseAddsCommit: true } })
-    const { task, signoff } = await toSignoff(client)
-    await commitToOrigin(scratch, { 'other.txt': 'someone else’s change\n' })
-    await approve(client, signoff)
+  test.each([
+    ['adds a commit', { rebaseAddsCommit: true }],
+    ['changes only a file mode', { rebaseChangesMode: true }],
+  ])(
+    'a rebase that %s goes back to Validate, with the signed-off commit cleared',
+    async (_, extra) => {
+      const client = await start({ merge: { mergeState: 'BEHIND', ...extra } })
+      const { task, signoff } = await toSignoff(client)
+      await commitToOrigin(scratch, { 'other.txt': 'someone else’s change\n' })
+      await approve(client, signoff)
 
-    const back = await sentBack(client, task)
-    expect(back.findings).toContain('isn’t the signed-off work rebased onto main')
-    expect(await merges()).toEqual([])
-  })
+      const back = await sentBack(client, task)
+      expect(back.findings).toContain('isn’t the signed-off work rebased onto main')
+      expect(await merges()).toEqual([])
+      expect((await getTask(client, task.id)).repos[0]?.pullRequest?.signedOff).toBeUndefined()
+    },
+  )
 })
 
 describe('Request changes at Review', () => {

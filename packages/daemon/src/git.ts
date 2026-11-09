@@ -326,24 +326,38 @@ export async function mergeBase(repo: string, a: string, b: string): Promise<str
   return git(repo, ...noHooks, 'merge-base', a, b)
 }
 
-export async function changeId(repo: string, from: string, to: string): Promise<string> {
-  const { stdout: diff } = await execFileAsync(
-    'git',
-    [...noHooks, 'diff', '--no-ext-diff', '--no-textconv', '--binary', from, to, '--'],
-    { cwd: repo, env: env(), maxBuffer: 256 * 1024 * 1024 },
-  )
-  if (diff === '') return ''
-  const id = await new Promise<string>((resolve, reject) => {
-    const child = execFile(
+export async function treeOf(repo: string, commit: string): Promise<string> {
+  return git(repo, ...noHooks, 'rev-parse', '--verify', '--end-of-options', `${commit}^{tree}`)
+}
+
+export async function replayedTree(
+  worktree: string,
+  input: { from: string; to: string; onto: string },
+): Promise<string | undefined> {
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-replay-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
+      cwd: scratch,
+      env: worktreeCommandEnv({}, { GIT_DIR: gitDir }),
+    })
+    const { stdout } = await execFileAsync(
       'git',
-      [...noHooks, 'patch-id', '--stable'],
-      { cwd: repo, env: env(), maxBuffer: 1024 * 1024 },
-      (error, stdout) => (error ? reject(error) : resolve(stdout)),
+      ['merge-tree', '--write-tree', '--merge-base', input.from, input.onto, input.to],
+      {
+        cwd: scratch,
+        env: worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects }),
+        maxBuffer: 16 * 1024 * 1024,
+      },
     )
-    child.stdin?.on('error', () => {})
-    child.stdin?.end(diff)
-  })
-  return id.split(' ')[0] ?? ''
+    return stdout.split('\n')[0]?.trim() || undefined
+  } catch {
+    return undefined
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
 }
 
 export async function headCommit(worktree: string): Promise<string> {

@@ -23,7 +23,8 @@ import {
   RequestCard,
   WaitingRow,
 } from '../components/RequestCard.tsx'
-import { RunChat, runMeta } from '../components/RunChat.tsx'
+import { RunChat } from '../components/RunChat.tsx'
+import { RunsSection } from '../components/RunsSection.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
@@ -36,7 +37,7 @@ import {
 } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
-import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
+import { clarifyDepthText, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
@@ -414,7 +415,7 @@ export function TaskThread({
           {pinned ? (
             <div className={styles.pinned}>
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard key={pinned.id} request={pinned} task={task} />
+              <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
             </div>
           ) : (
             <div className={styles.pinned}>
@@ -459,7 +460,7 @@ export function TaskDetails({
           <TaskLeadField key={task.id} task={task} />
         </dd>
         <dt>Clarify depth</dt>
-        <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
+        <dd>{clarifyDepthText(task)}</dd>
         {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>
@@ -491,37 +492,13 @@ export function TaskDetails({
         )}
       </dl>
       <CodeSection task={task} />
-      <RunsSection task={task} onOpenRun={onOpenRun} />
+      <TaskRuns task={task} onOpenRun={onOpenRun} />
     </aside>
   )
 }
 
-function RunsSection({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
-  const runs = useTaskRuns(task.id)
-  if (runs.length === 0) return null
-  return (
-    <section className={styles.runsSection} aria-label="Runs">
-      <h2 className={styles.sectionHeading}>Runs</h2>
-      <ul className={styles.runList}>
-        {runs.map((run) => (
-          <li key={run.id}>
-            <button type="button" className={styles.runRow} onClick={() => onOpenRun(run.id)}>
-              <AgentAvatar agent={run.agent} />
-              <span className={styles.runText}>
-                <span className={styles.runName}>
-                  {run.current || run.state !== 'finished' ? run.name : `Earlier ${run.name}`}
-                </span>
-                <span className={styles.runMeta}>{runMeta(run)}</span>
-              </span>
-              <span className={styles.runState} data-state={run.state}>
-                {run.state}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
+function TaskRuns({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
+  return <RunsSection runs={useTaskRuns(task.id)} onOpenRun={onOpenRun} />
 }
 
 function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {

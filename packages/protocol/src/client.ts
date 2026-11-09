@@ -23,7 +23,15 @@ import type {
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
-import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
+import type {
+  AgentKind,
+  Run,
+  RunWithConversation,
+  StartDevRunRequest,
+  StartSubAgentRequest,
+  SubAgent,
+  SubAgentWait,
+} from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
@@ -40,6 +48,7 @@ import type {
   Priority,
   ReportOutcomeRequest,
   ResumeTaskRequest,
+  SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
@@ -107,6 +116,10 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/clarify-depth`, request)
   }
 
   useDefaultModel(ref: string): Promise<Task> {
@@ -385,6 +398,23 @@ export class DaemonClient {
 
   stopRun(id: string): Promise<RunSummary> {
     return this.#request('POST', `/runs/${encodeURIComponent(id)}/stop`)
+  }
+
+  startSubAgent(ref: string, input: StartSubAgentRequest): Promise<SubAgent> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/sub-agents`, input)
+  }
+
+  waitForSubAgent(id: string, timeoutMs?: number): Promise<SubAgentWait> {
+    const query = timeoutMs === undefined ? '' : `?timeoutMs=${Math.round(timeoutMs)}`
+    return this.#request('GET', `/sub-agents/${encodeURIComponent(id)}/wait${query}`)
+  }
+
+  sendSubAgent(id: string, text: string): Promise<SubAgent> {
+    return this.#request('POST', `/sub-agents/${encodeURIComponent(id)}/messages`, { text })
+  }
+
+  stopSubAgent(id: string): Promise<SubAgent> {
+    return this.#request('POST', `/sub-agents/${encodeURIComponent(id)}/stop`)
   }
 
   listTaskRuns(ref: string): Promise<RunSummary[]> {

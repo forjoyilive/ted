@@ -11,6 +11,7 @@ import {
   type AgentStageId,
   agentKinds,
   type Banner,
+  type ClarifyDepth,
   DaemonClient,
   DaemonUnreachableError,
   type Effort,
@@ -20,6 +21,7 @@ import {
   isShowing,
   minGhVersion,
   parseLinearUrl,
+  type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
   type TaskLead,
@@ -37,6 +39,12 @@ const usage = `Usage:
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
                                              Replace your own unanswered request with a new one
+  ted ask --round <file> [--supersedes <request-id>]
+                                             Post a Clarify round: a JSON file with a title, an
+                                             optional summary and questions, each with its
+                                             recommended answer and optional choices
+  ted clarify depth none|few|grilling "<why>"
+                                             Pick the Clarify depth and say why
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
@@ -49,6 +57,13 @@ const usage = `Usage:
                                              without --file)
   ted brief show                             Show the latest Task brief
   ted status [--task <id>] "<text>"          Set the Task's activity line
+  ted run start [--agent claude|codex] [--model <name>] [--effort <level>] --prompt-file <file>
+                [--name <name>] [--own-worktree]
+                                             Start a sub-agent on this Task (Task Lead only);
+                                             prints its Run ID
+  ted run wait <id>                          Wait for a sub-agent's final message and print it
+  ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
+  ted run stop <id>                          Stop a sub-agent
   ted task create [--factory <key>] [--start] [--source <url>] "<title>"
                                              Create a Task (--start starts it); a Linear URL
                                              as the source fills it in from Linear
@@ -93,6 +108,9 @@ function parse() {
         findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        'own-worktree': { type: 'boolean' },
+        'prompt-file': { type: 'string' },
+        round: { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
@@ -152,6 +170,28 @@ try {
         ? `Asked the human (request ${comment.id}). TED sends you their answer.`
         : 'Posted',
     )
+  } else if (group === 'ask' && options.round !== undefined && command === undefined) {
+    const ref = taskRef()
+    const round = await readRound(options.round)
+    const supersedes = options.supersedes
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, { round, ...(supersedes !== undefined && { supersedes }) }),
+    )
+    console.log(
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.`,
+    )
+  } else if (group === 'clarify' && command === 'depth' && rest.length >= 1) {
+    const ref = taskRef()
+    const [depth = '', ...why] = rest
+    if (!['none', 'few', 'grilling'].includes(depth)) {
+      throw new UsageError('the depth is none, few or grilling')
+    }
+    const reason = why.join(' ')
+    if (reason.trim() === '') throw new UsageError('say why you picked this depth')
+    const task = await withDaemon(home, (client) =>
+      client.setClarifyDepth(ref, { depth: depth as ClarifyDepth, why: reason }),
+    )
+    console.log(`${task.displayId}’s Clarify depth is ${depth}`)
   } else if (group === 'ask' && options.supersedes !== undefined) {
     const ref = taskRef()
     const supersedes = options.supersedes
@@ -202,6 +242,21 @@ try {
       }),
     )
     console.log(result.message)
+  } else if (group === 'run' && command === 'start' && rest.length === 0) {
+    await startSubAgent()
+  } else if (group === 'run' && command === 'wait' && rest.length === 1) {
+    await waitForSubAgent(rest[0] ?? '')
+  } else if (group === 'run' && command === 'send' && rest.length >= 1) {
+    const [id = '', ...words] = rest
+    const text = words.join(' ') || (await readStdin())
+    if (text.trim() === '') throw new UsageError('give the message as text or on stdin')
+    const sub = await withDaemon(home, (client) => client.sendSubAgent(id, text))
+    console.log(
+      `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
+    )
+  } else if (group === 'run' && command === 'stop' && rest.length === 1) {
+    const sub = await withDaemon(home, (client) => client.stopSubAgent(rest[0] ?? ''))
+    console.log(`Stopped sub-agent “${printable(sub.name)}”`)
   } else if (group === 'checks' && command === undefined) {
     const ref = taskRef()
     const name = options.name
@@ -369,6 +424,55 @@ try {
     process.exitCode = 2
   } else {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
+    process.exitCode = 1
+  }
+}
+
+async function startSubAgent(): Promise<void> {
+  const ref = taskRef()
+  const { agent, model, effort, name } = options
+  const file = options['prompt-file']
+  if (file === undefined)
+    throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
+  if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
+    throw new UsageError('--agent must be claude or codex')
+  }
+  if (effort !== undefined && !efforts.includes(effort as Effort)) {
+    throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
+  }
+  const prompt = await readFile(path.resolve(file), 'utf8')
+  if (prompt.trim() === '') throw new UsageError('the prompt file is empty')
+  const sub = await withDaemon(home, (client) =>
+    client.startSubAgent(ref, {
+      prompt,
+      ...(agent !== undefined && { agent: agent as AgentKind }),
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort: effort as Effort }),
+      ...(name !== undefined && { name }),
+      ...(options['own-worktree'] && { ownWorktree: true }),
+    }),
+  )
+  const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'
+  console.log(`Started sub-agent “${printable(sub.name)}” (Run ${sub.id}), ${when}.`)
+  console.log(`Run \`ted run wait ${sub.id}\` for its final message.`)
+}
+
+async function waitForSubAgent(id: string): Promise<void> {
+  const result = await withDaemon(home, async (client) => {
+    for (;;) {
+      const current = await client.waitForSubAgent(id)
+      if (current.done) return current
+    }
+  })
+  if (result.message !== undefined) process.stdout.write(`${printable(result.message).trimEnd()}\n`)
+  if (result.state === 'failed') {
+    console.error(`ted: sub-agent “${printable(result.name)}” failed`)
+    if (result.error !== undefined) console.error(printable(result.error))
+    process.exitCode = 1
+  } else if (result.state === 'stopped') {
+    console.error(
+      `ted: sub-agent “${printable(result.name)}” was stopped${result.error ? `: ${printable(result.error)}` : ''}`,
+    )
     process.exitCode = 1
   }
 }
@@ -592,6 +696,17 @@ function summarize(line: string): string {
   )
   const kind = [message.type, message.subtype, message.hook_name].filter(Boolean).join(' ')
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
+}
+
+async function readRound(file: string): Promise<RoundInput> {
+  const text = await readFile(path.resolve(file), 'utf8')
+  try {
+    return JSON.parse(text) as RoundInput
+  } catch (error) {
+    throw new UsageError(
+      `the round file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
+    )
+  }
 }
 
 function printable(text: string): string {

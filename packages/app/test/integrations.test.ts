@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { stopDaemonIn } from '../../daemon/test/helpers.ts'
+import { removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -41,8 +41,8 @@ afterEach(async () => {
   await closeApp(app)
   app = undefined
   await stopDaemonIn(home)
-  await rm(home, { recursive: true, force: true })
-})
+  await removeHome(home)
+}, 30_000)
 
 async function setGh(hosts: Record<string, unknown[]>): Promise<void> {
   await writeFile(ghState, JSON.stringify({ hosts }))

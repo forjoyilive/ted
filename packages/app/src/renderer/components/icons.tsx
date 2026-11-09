@@ -129,3 +129,31 @@ export function PaperclipIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function RestartIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M11.5 7A4.5 4.5 0 1 1 9.9 3.55"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        stroke="currentColor"
+      />
+      <path
+        d="M10.2 1.6V3.9H7.9"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        stroke="currentColor"
+      />
+    </svg>
+  )
+}
+
+export function StopIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1" fill="currentColor" />
+    </svg>
+  )
+}

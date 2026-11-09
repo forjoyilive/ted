@@ -13,7 +13,7 @@ import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { TedStore } from '../store/index.ts'
-import { preambleText } from '../workflow/workflow.ts'
+import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import type { RunManager } from './run-manager.ts'
 
 export interface Conversations {
@@ -170,6 +170,7 @@ export function createConversations(options: {
 }): Conversations {
   const { store, runs, agents, health, disk } = options
   let preamble: Promise<string> | undefined
+  let subPreamble: Promise<string> | undefined
   const restarting = new Set<string>()
 
   const requireRun = (runId: string): Run => {
@@ -190,19 +191,26 @@ export function createConversations(options: {
   const summary = (run: Run, entries?: readonly ConversationEntry[]): RunSummary => {
     const tokens = tokensOf(agents, run, entries ?? store.conversation(run.id))
     const credential = credentialFrom(health.list().find((h) => h.agent === run.agent)?.account)
+    const subAgent = run.parentRunId !== undefined
+    const paused = run.state === 'finished' ? undefined : store.agentPauses()[run.agent]
     return {
       id: run.id,
       ...(run.taskId !== undefined && { taskId: run.taskId }),
-      name: run.taskId !== undefined ? 'Task Lead' : 'Run',
-      role: run.taskId !== undefined ? 'lead' : 'run',
+      ...(subAgent && { parentRunId: run.parentRunId }),
+      name: run.name ?? (run.taskId !== undefined ? 'Task Lead' : 'Run'),
+      role: subAgent ? 'sub-agent' : run.taskId !== undefined ? 'lead' : 'run',
       agent: run.agent,
       ...(run.model !== undefined && { model: run.model }),
       ...(run.effort !== undefined && { effort: run.effort }),
       ...(credential !== undefined && { credential }),
       ...(tokens !== undefined && { tokens }),
       state: run.state,
+      ...(paused !== undefined && { paused }),
+      ...(store.onSubAgents(run.id) && { onSubAgents: true }),
+      ...(run.failure !== undefined && { failed: true }),
       startedAt: run.startedAt,
-      current: run.taskId === undefined || isCurrentLead(run),
+      current:
+        run.taskId === undefined || isCurrentLead(run) || (subAgent && run.state !== 'finished'),
     }
   }
 
@@ -211,6 +219,7 @@ export function createConversations(options: {
       const run = requireRun(runId)
       const entries = store.conversation(runId)
       preamble ??= preambleText().catch(() => '')
+      subPreamble ??= subAgentPreamble().catch(() => '')
       return {
         run: summary(run, entries),
         items: withPermissions(
@@ -218,7 +227,7 @@ export function createConversations(options: {
             run,
             entries: agents.get(run.agent).chat(entries, run.cwd),
             messages: store.runMessages(runId),
-            preamble: await preamble,
+            preamble: run.parentRunId !== undefined ? await subPreamble : await preamble,
           }),
           run.taskId === undefined
             ? []
