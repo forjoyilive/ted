@@ -2,6 +2,7 @@ import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { keysFor } from '../keymap.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -54,7 +55,9 @@ function FirstItem({ action, onChoose }: { action: StatusAction; onChoose: () =>
         </span>
         {action.kind !== 'stop' &&
           action.kind !== 'move-to-backlog' &&
-          action.kind !== 'follow-up' && <span className={styles.hint}>S</span>}
+          action.kind !== 'follow-up' && (
+            <span className={styles.hint}>{keysFor('status').join(' or ')}</span>
+          )}
       </button>
       {hover ? (
         <Tooltip id={id} className={styles.tooltip}>
@@ -109,6 +112,34 @@ function Choice({
   )
 }
 
+export type TaskDialogKind = 'archive' | 'delete' | 'edit' | 'follow-up'
+
+export function TaskDialog({
+  task,
+  kind,
+  onKind,
+  onFollowedUp,
+}: {
+  task: Task
+  kind: TaskDialogKind
+  onKind: (kind: TaskDialogKind | undefined) => void
+  onFollowedUp?: (followUp: Task) => void
+}) {
+  const close = () => onKind(undefined)
+  if (kind === 'archive') return <ArchiveDialog task={task} onClose={close} />
+  if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
+  if (kind === 'delete') {
+    return <DeleteDialog task={task} onClose={close} onArchiveInstead={() => onKind('archive')} />
+  }
+  return (
+    <FollowUpDialog
+      task={task}
+      onClose={close}
+      {...(onFollowedUp && { onCreated: onFollowedUp })}
+    />
+  )
+}
+
 export function TaskActionsMenu({
   task,
   onFollowedUp,
@@ -117,7 +148,7 @@ export function TaskActionsMenu({
   onFollowedUp?: (followUp: Task) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [dialog, setDialog] = useState<'archive' | 'delete' | 'edit' | 'follow-up'>()
+  const [dialog, setDialog] = useState<TaskDialogKind>()
   const [error, setError] = useState<string>()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -185,31 +216,19 @@ export function TaskActionsMenu({
     work().catch((failure: unknown) => setError(readableError(failure)))
   }
 
-  const choose = (which: 'archive' | 'delete' | 'edit' | 'follow-up') => {
+  const choose = (which: TaskDialogKind) => {
     setOpen(false)
     setError(undefined)
     setDialog(which)
   }
 
-  const dialogs = (
-    <>
-      {dialog === 'archive' && <ArchiveDialog task={task} onClose={() => setDialog(undefined)} />}
-      {dialog === 'follow-up' && (
-        <FollowUpDialog
-          task={task}
-          onClose={() => setDialog(undefined)}
-          {...(onFollowedUp && { onCreated: onFollowedUp })}
-        />
-      )}
-      {dialog === 'edit' && <EditTaskDialog task={task} onClose={() => setDialog(undefined)} />}
-      {dialog === 'delete' && (
-        <DeleteDialog
-          task={task}
-          onClose={() => setDialog(undefined)}
-          onArchiveInstead={() => setDialog('archive')}
-        />
-      )}
-    </>
+  const dialogs = dialog && (
+    <TaskDialog
+      task={task}
+      kind={dialog}
+      onKind={setDialog}
+      {...(onFollowedUp && { onFollowedUp })}
+    />
   )
 
   const deleteItem = (
@@ -350,6 +369,7 @@ export function TaskActionsMenu({
               }}
             >
               <span className={styles.label}>Blocked by…</span>
+              <span className={styles.hint}>{keysFor('blocked-by').join(' or ')}</span>
             </button>
           )}
           <button
@@ -359,7 +379,7 @@ export function TaskActionsMenu({
             onClick={() => choose('edit')}
           >
             <span className={styles.label}>Edit title and description…</span>
-            <span className={styles.hint}>E</span>
+            <span className={styles.hint}>{keysFor('edit').join(' or ')}</span>
           </button>
           {linear && (
             <>
@@ -383,7 +403,7 @@ export function TaskActionsMenu({
             onClick={() => choose('archive')}
           >
             <span className={styles.label}>Archive…</span>
-            <span className={styles.hint}>⌘⌫</span>
+            <span className={styles.hint}>{keysFor('archive').join(' or ')}</span>
           </button>
           {deleteItem}
         </div>

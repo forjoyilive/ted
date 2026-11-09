@@ -137,6 +137,7 @@ export function RoundQuestions({
           <Button disabled>Talk it through</Button>
           <span className={styles.spacer} />
           <Button
+            arm="accept-recommended"
             disabled={sending}
             onClick={() => {
               setDrafts(recommendedDrafts(round))

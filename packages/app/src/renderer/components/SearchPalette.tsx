@@ -8,7 +8,7 @@ import type {
 } from '@ted/protocol'
 import { matchesTerms, searchTerms } from '@ted/protocol/search'
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { availableCommands, type Command, type CommandContext } from '../commands.ts'
+import { type Command, type CommandContext, paletteCommands } from '../commands.ts'
 import { stageName } from '../list-view.ts'
 import { ago } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -30,6 +30,7 @@ interface SearchPaletteProps {
   onOpenTask: (taskId: string, factoryId: string) => void
   onOpenFactory: (factoryId: string) => void
   onClose: () => void
+  choose?: Command | undefined
 }
 
 const fieldNotes: Record<SearchField, string | undefined> = {
@@ -130,6 +131,7 @@ export function SearchPalette({
   onOpenTask,
   onOpenFactory,
   onClose,
+  choose: chosen,
 }: SearchPaletteProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -137,7 +139,7 @@ export function SearchPalette({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResults>()
   const [selected, setSelected] = useState(0)
-  const [choosing, setChoosing] = useState<Command>()
+  const [choosing, setChoosing] = useState<Command | undefined>(chosen)
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
   const now = Date.now()
@@ -192,7 +194,7 @@ export function SearchPalette({
       })
     }
   } else {
-    const commands = availableCommands(context).filter(
+    const commands = paletteCommands(context).filter(
       (command) => terms.length === 0 || commandMatches(command, terms),
     )
     for (const command of commands) {
@@ -295,7 +297,7 @@ export function SearchPalette({
     } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault()
       void choose(items[active])
-    } else if (event.key === 'Backspace' && query === '' && choosing) {
+    } else if (event.key === 'Backspace' && query === '' && choosing && !chosen) {
       event.preventDefault()
       setChoosing(undefined)
       setSelected(0)
@@ -316,7 +318,7 @@ export function SearchPalette({
       aria-label="Search and commands"
       onCancel={(event) => {
         event.preventDefault()
-        if (choosing) {
+        if (choosing && !chosen) {
           setChoosing(undefined)
           setQuery('')
           setSelected(0)

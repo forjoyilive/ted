@@ -11,6 +11,7 @@ import {
   isQueueMode,
   neighbours,
   queueView,
+  rankMove,
   selectionRange,
   shownColumns,
   sortTasks,
@@ -235,6 +236,17 @@ describe('dragging', () => {
     expect(neighbours(list, 'NB-4', 1)).toEqual({ after: 'NB-1', before: 'NB-2' })
     expect(neighbours(list, 'NB-1', 0)).toEqual({ before: 'NB-2' })
     expect(neighbours(list, 'NB-1', 3)).toEqual({ after: 'NB-4' })
+  })
+
+  test('⌥↑ and ⌥↓ move a Task past one neighbour of the same Priority', () => {
+    expect(rankMove(list, 'NB-3', 'up')).toEqual({ after: 'NB-1', before: 'NB-2' })
+    expect(rankMove(list, 'NB-2', 'up')).toEqual({ before: 'NB-1' })
+    expect(rankMove(list, 'NB-2', 'down')).toEqual({ after: 'NB-3', before: 'NB-4' })
+    expect(rankMove(list, 'NB-3', 'down')).toEqual({ after: 'NB-4' })
+    expect(rankMove(list, 'NB-1', 'up')).toBeUndefined()
+    expect(rankMove(list, 'NB-4', 'down')).toBeUndefined()
+    const urgent = task({ displayId: 'NB-9', priority: 'urgent' })
+    expect(rankMove([urgent, ...list], 'NB-1', 'up')).toBeUndefined()
   })
 
   test('while dragging, empty groups that accept a drop still show', () => {

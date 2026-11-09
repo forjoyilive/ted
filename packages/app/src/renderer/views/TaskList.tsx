@@ -88,13 +88,6 @@ function report(error: unknown) {
   console.error(error)
 }
 
-function isTyping(target: EventTarget | null): boolean {
-  return (
-    target instanceof HTMLElement &&
-    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
-  )
-}
-
 function shortDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
@@ -490,7 +483,6 @@ export function TaskList({
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [closePullRequests, setClosePullRequests] = useState(true)
   const [priorityOpen, setPriorityOpen] = useState(false)
-  const search = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
 
   useEffect(() => {
@@ -500,16 +492,6 @@ export function TaskList({
     setCollapsed({})
     setText('')
   }, [scope])
-
-  useEffect(() => {
-    const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== '/' || event.metaKey || event.ctrlKey || isTyping(event.target)) return
-      event.preventDefault()
-      search.current?.focus()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
 
   const change = (next: ListView) => {
     setDraft({ scope, view: next })
@@ -673,6 +655,7 @@ export function TaskList({
         tabIndex={0}
         aria-selected={isSelected}
         data-task={task.displayId}
+        data-nav-item
         className={[
           styles.row,
           isSelected ? styles.selected : '',
@@ -856,7 +839,7 @@ export function TaskList({
           <label className={styles.search}>
             <SearchIcon />
             <input
-              ref={search}
+              data-filter-box
               type="search"
               value={text}
               placeholder="Filter by ID or title"
@@ -873,7 +856,7 @@ export function TaskList({
           </label>
         ) : (
           <input
-            ref={search}
+            data-filter-box
             className={styles.hiddenSearch}
             type="search"
             value={text}
@@ -915,7 +898,11 @@ export function TaskList({
         empty()
       ) : (
         <div className={styles.body}>
-          <table className={styles.table} aria-label={`${title} Tasks`}>
+          <table
+            className={styles.table}
+            aria-label={`${title} Tasks`}
+            data-rank-order={canDrag ? '' : undefined}
+          >
             <thead>
               <tr className={`${styles.row} ${styles.heads}`} style={{ gridTemplateColumns: grid }}>
                 {queueMode && <th className={styles.cell}>Queue</th>}

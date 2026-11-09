@@ -4,6 +4,7 @@ import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
+import { type ArmAction, ArmedContext } from './armed.ts'
 import {
   appWideBanners,
   factoriesStoppingWork,
@@ -11,13 +12,22 @@ import {
   settingsStopsWork,
 } from './banners.ts'
 import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
-import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
+import {
+  type Command,
+  type CommandContext,
+  globalCommands,
+  type KeyActions,
+  keyCommands,
+  taskCommands,
+} from './commands.ts'
 import { BannerStack } from './components/BannerStack.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
+import { ShortcutSheet } from './components/ShortcutSheet.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
+import { pickBlockerEvent, TaskDialog, type TaskDialogKind } from './components/TaskActions.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
@@ -31,22 +41,32 @@ import {
   useTasks,
 } from './data.ts'
 import { waitingByFactory } from './inbox.ts'
-import { doneView, failedView, queueView } from './list-view.ts'
+import {
+  armable,
+  focusedTaskRef,
+  focusFirst,
+  moveFocus,
+  pressDialogPrimary,
+  rankNeighbours,
+  requestChangesBox,
+} from './key-targets.ts'
+import { keyBindings } from './keymap.ts'
+import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
   initialNavigation,
-  navigate,
   type SettingsSectionId,
   settingsSectionIds,
+  startHistory,
+  withHistory,
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
-import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { Board } from './views/Board.tsx'
-import { editTaskEvent } from './views/EditTaskDialog.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
@@ -93,6 +113,32 @@ function isTyping(target: EventTarget | null): boolean {
   )
 }
 
+const allowedInSettings = new Set([
+  'search',
+  'settings',
+  'close',
+  'back',
+  'forward',
+  'shortcuts',
+  'send',
+  'go-to-inbox',
+  'go-to-all-tasks',
+  'go-to-board',
+  'go-to-list',
+  'go-to-plans',
+])
+
+const cardDialogs: Partial<Record<string, TaskDialogKind>> = {
+  edit: 'edit',
+  archive: 'archive',
+  delete: 'delete',
+  'follow-up': 'follow-up',
+}
+
+function report(error: unknown) {
+  console.error(error)
+}
+
 function Offline({ when, children }: { when: boolean; children: ReactNode }) {
   return (
     <fieldset disabled={when} className={when ? styles.offline : styles.online}>
@@ -102,7 +148,8 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
 }
 
 export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
-  const [navigation, dispatch] = useReducer(navigate, initialNavigation)
+  const [history, dispatch] = useReducer(withHistory, initialNavigation, startHistory)
+  const navigation = history.now
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
   const settings = useSettings()
@@ -113,6 +160,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
   const [removing, setRemoving] = useState<Factory>()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [paletteChoose, setPaletteChoose] = useState<Command>()
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [armed, setArmed] = useState<HTMLButtonElement>()
+  const [cardDialog, setCardDialog] = useState<{ taskId: string; kind: TaskDialogKind }>()
+  const [pendingPick, setPendingPick] = useState<string>()
   const [findAt, setFindAt] = useState<string>()
   const panes = useRef<HTMLDivElement>(null)
   const place = JSON.stringify([navigation.screen, navigation.taskId, navigation.settings])
@@ -125,7 +177,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen =
-    newTaskOpen !== undefined || addFactoryOpen || paletteOpen || removing !== undefined
+    newTaskOpen !== undefined ||
+    addFactoryOpen ||
+    paletteOpen ||
+    sheetOpen ||
+    cardDialog !== undefined ||
+    removing !== undefined
   const openNewTask = (factoryId?: string) =>
     setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
   const inbox = useInbox()
@@ -149,19 +206,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     )
   }, [settings])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen) return
-      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
-        event.preventDefault()
-        dispatch({ type: 'open-settings' })
-      } else if (event.key === 'Escape' && settingsOpen && !event.defaultPrevented) {
-        dispatch({ type: 'close-settings' })
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [settingsOpen, dialogOpen])
   const banners = useBanners()
   const agentHealth = useAgentHealth()
   const { connection } = useConnection()
@@ -182,19 +226,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       dispatch({ type: 'open', screen: { kind: 'inbox' } })
     }
   }, [factories, factoriesLoaded, shownFactoryId])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen || settingsOpen || !(event.metaKey || event.ctrlKey)) return
-      if (event.altKey || event.shiftKey || !/^[1-9]$/.test(event.key)) return
-      const factory = factories[Number(event.key) - 1]
-      if (!factory) return
-      event.preventDefault()
-      dispatch({ type: 'open-factory', factoryId: factory.id })
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, settingsOpen, factories])
 
   useEffect(() => {
     if (!offline) return
@@ -222,74 +253,164 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   )
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
-      if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
-      const action = task && shortcutAction(task)
-      if (!task || !action) return
-      event.preventDefault()
-      runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, settingsOpen, runsOpen, task])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen || settingsOpen || runsOpen || !task || task.archived) return
-      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
-      if (event.key !== 'e' || isTyping(event.target) || event.defaultPrevented) return
-      if (document.querySelector('dialog[open]')) return
-      event.preventDefault()
-      window.dispatchEvent(new CustomEvent(editTaskEvent, { detail: task.id }))
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, settingsOpen, runsOpen, task])
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen || settingsOpen || runsOpen || !task || task.archived) return
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-      if (event.key !== 'Backspace' || isTyping(event.target)) return
+      if (event.key.toLowerCase() !== 'f') return
+      if (dialogOpen || document.querySelector('dialog[open]')) return
       event.preventDefault()
-      window.dispatchEvent(new CustomEvent(archiveTaskEvent, { detail: task.id }))
+      setFindAt(place)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, settingsOpen, runsOpen, task])
+  }, [dialogOpen, place])
+
+  const keys: KeyActions = {
+    togglePalette: () => {
+      if (newTaskOpen !== undefined || addFactoryOpen) return false
+      if (!paletteOpen && document.querySelector('dialog[open]')) return false
+      setPaletteChoose(undefined)
+      setPaletteOpen((open) => !open)
+      return true
+    },
+    openSheet: () => setSheetOpen(true),
+    back: () => dispatch({ type: 'back' }),
+    forward: () => dispatch({ type: 'forward' }),
+    close: () => {
+      if (settingsOpen) dispatch({ type: 'close-settings' })
+      else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
+      else return false
+      return true
+    },
+    move: (direction) => panes.current !== null && moveFocus(panes.current, direction),
+    arm: (action: ArmAction) => {
+      const button = panes.current ? armable(panes.current, action) : undefined
+      setArmed(button)
+      return button !== undefined
+    },
+    reply: () =>
+      panes.current !== null &&
+      (focusFirst(panes.current, 'textarea[data-answer-box]') ||
+        focusFirst(panes.current, 'textarea[data-comment-box]')),
+    requestChanges: () => {
+      const box = panes.current ? requestChangesBox(panes.current) : undefined
+      box?.focus()
+      return box !== undefined
+    },
+    pressDialogPrimary,
+    focusFilter: () => panes.current !== null && focusFirst(panes.current, '[data-filter-box]'),
+    moveInRank: (direction) => {
+      const around = rankNeighbours()
+      if (!around) return false
+      const ordered = around.order.flatMap((ref) => tasks.find((t) => t.displayId === ref) ?? [])
+      const moving = ordered.find((t) => t.displayId === around.ref)
+      const placed = moving && rankMove(ordered, moving.id, direction)
+      if (!moving || !placed) return false
+      ted.moveTask(moving.id, placed).catch(report)
+      return true
+    },
+  }
+
+  const commandContext: CommandContext = {
+    task: settingsOpen ? undefined : task,
+    factories,
+    factoryId: currentFactoryId(navigation, tasks),
+    dispatch,
+    newTask: (description) => setNewTaskOpen(description === undefined ? {} : { description }),
+    addFactory: () => setAddFactoryOpen(true),
+    keys,
+  }
+
+  const sequences = useRef(keySequences(keyBindings))
+  const onShortcut = useRef<(event: KeyboardEvent) => void>(() => undefined)
+  onShortcut.current = (event) => {
+    if (event.defaultPrevented || event.isComposing || offline) return
+    const commandKey = event.metaKey || event.ctrlKey
+    if (isTyping(event.target) && !commandKey) {
+      sequences.current.reset()
+      return
+    }
+    const found = sequences.current.feed(event, event.timeStamp)
+    if (found === 'pending') {
+      event.preventDefault()
+      return
+    }
+    if (!found || runsOpen) return
+    if (settingsOpen && !allowedInSettings.has(found.id)) return
+    if (!commandKey && document.querySelector('[role="menu"]')) return
+    const anyDialog = dialogOpen || document.querySelector('dialog[open]') !== null
+    const factoryNumber = /^factory:(\d)$/.exec(found.id)?.[1]
+    if (factoryNumber !== undefined) {
+      const factory = factories[Number(factoryNumber) - 1]
+      if (!factory || anyDialog) return
+      event.preventDefault()
+      dispatch({ type: 'open-factory', factoryId: factory.id })
+      return
+    }
+    const focused = focusedTaskRef()
+    const target = settingsOpen
+      ? undefined
+      : (task ?? tasks.find((t) => focused !== undefined && t.displayId === focused))
+    const command = [
+      ...(target ? taskCommands(target) : []),
+      ...globalCommands,
+      ...keyCommands,
+    ].find((c) => c.shortcuts === found.shortcuts)
+    if (!command || (anyDialog && !command.inDialogs)) return
+    if (command.choices) {
+      event.preventDefault()
+      setPaletteChoose(command)
+      setPaletteOpen(true)
+      return
+    }
+    const onCard = target !== undefined && target.id !== task?.id
+    const dialogKind = onCard ? cardDialogs[command.id] : undefined
+    if (target && dialogKind) {
+      event.preventDefault()
+      setCardDialog({ taskId: target.id, kind: dialogKind })
+      return
+    }
+    if (target && onCard && command.id === 'blocked-by') {
+      event.preventDefault()
+      setPendingPick(target.id)
+      openTask(target)
+      return
+    }
+    const outcome = command.run?.(commandContext)
+    if (outcome === false) return
+    event.preventDefault()
+    if (outcome instanceof Promise) outcome.catch(report)
+  }
 
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (dialogOpen || settingsOpen || event.altKey || event.shiftKey) return
-      const command = event.metaKey || event.ctrlKey
-      const newTask = command
-        ? event.key.toLowerCase() === 'n'
-        : event.key === 'c' && !isTyping(event.target)
-      if (!newTask) return
-      event.preventDefault()
-      setNewTaskOpen({})
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, settingsOpen])
+    const listener = (event: KeyboardEvent) => onShortcut.current(event)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
+
   useEffect(() => {
+    if (!armed) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
-      const key = event.key.toLowerCase()
-      if (key === 'k') {
-        if (newTaskOpen !== undefined || addFactoryOpen) return
-        if (!paletteOpen && document.querySelector('dialog[open]')) return
+      if (['Shift', 'Control', 'Alt', 'Meta'].includes(event.key)) return
+      if (event.key === 'Enter' || event.key === 'Escape') {
         event.preventDefault()
-        setPaletteOpen((open) => !open)
-      } else if (key === 'f') {
-        if (dialogOpen || document.querySelector('dialog[open]')) return
-        event.preventDefault()
-        setFindAt(place)
+        event.stopImmediatePropagation()
+        if (event.key === 'Enter' && armed.isConnected && !armed.disabled) armed.click()
       }
+      setArmed(undefined)
     }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [dialogOpen, paletteOpen, newTaskOpen, addFactoryOpen, place])
+    const disarm = () => setArmed(undefined)
+    window.addEventListener('keydown', onKeyDown, { capture: true })
+    window.addEventListener('pointerdown', disarm, { capture: true })
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, { capture: true })
+      window.removeEventListener('pointerdown', disarm, { capture: true })
+    }
+  }, [armed])
+
+  useEffect(() => {
+    if (pendingPick === undefined || pendingPick !== navigation.taskId) return
+    setPendingPick(undefined)
+    window.dispatchEvent(new CustomEvent(pickBlockerEvent, { detail: pendingPick }))
+  }, [pendingPick, navigation.taskId])
 
   const openTaskByRef = (ref: string) => {
     const found = tasks.find((t) => t.displayId === ref || t.id === ref)
@@ -501,21 +622,36 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const palette = paletteOpen && (
     <SearchPalette
-      context={{
-        task: settingsOpen ? undefined : task,
-        factories,
-        dispatch,
-        newTask: (description) => setNewTaskOpen(description === undefined ? {} : { description }),
-        addFactory: () => setAddFactoryOpen(true),
-      }}
+      context={commandContext}
       factoryId={currentFactoryId(navigation, tasks)}
+      choose={paletteChoose}
       onOpenTask={(taskId, factoryId) => {
         if (settingsOpen) dispatch({ type: 'close-settings' })
         dispatch({ type: 'open-task', taskId, factoryId })
       }}
       onOpenFactory={(factoryId) => dispatch({ type: 'open-factory', factoryId })}
-      onClose={() => setPaletteOpen(false)}
+      onClose={() => {
+        setPaletteOpen(false)
+        setPaletteChoose(undefined)
+      }}
     />
+  )
+
+  const cardDialogTask = cardDialog && tasks.find((t) => t.id === cardDialog.taskId)
+  const overlays = (
+    <>
+      {sheetOpen && <ShortcutSheet onClose={() => setSheetOpen(false)} />}
+      {cardDialog && cardDialogTask && (
+        <TaskDialog
+          task={cardDialogTask}
+          kind={cardDialog.kind}
+          onKind={(kind) =>
+            setCardDialog(kind === undefined ? undefined : { taskId: cardDialog.taskId, kind })
+          }
+          onFollowedUp={openTask}
+        />
+      )}
+    </>
   )
 
   const find = findAt === place && <FindBar scope={panes} onClose={() => setFindAt(undefined)} />
@@ -570,7 +706,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const frame = (content: ReactNode) => (
     <div className={styles.window}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
-      <div className={styles.app}>{content}</div>
+      <ArmedContext value={armed}>
+        <div className={styles.app}>{content}</div>
+      </ArmedContext>
     </div>
   )
 
@@ -593,6 +731,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         </Offline>
         {palette}
         {dialogs}
+        {overlays}
       </div>,
     )
   }
@@ -665,6 +804,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       </main>
       {palette}
       {dialogs}
+      {overlays}
     </>,
   )
 }

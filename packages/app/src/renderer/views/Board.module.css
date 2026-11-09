@@ -117,7 +117,8 @@
   border-color: var(--border-control);
 }
 
-.card:focus-within:has(.cardTitle:focus-visible) {
+.card:focus-within:has(.cardTitle:focus-visible),
+.card:focus-visible {
   outline: 2px solid var(--focus-ring);
 }
 
