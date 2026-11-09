@@ -73,6 +73,7 @@ import type {
   SubAgentWait,
 } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
+import type { SearchResults } from './search.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
@@ -288,6 +289,12 @@ export class DaemonClient {
 
   taskDescriptions(ref: string): Promise<DescriptionVersion[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
+  }
+
+  search(query: string, factoryId?: string): Promise<SearchResults> {
+    const params = new URLSearchParams({ q: query })
+    if (factoryId !== undefined) params.set('factory', factoryId)
+    return this.#request('GET', `/search?${params}`)
   }
 
   setPriority(ref: string, priority: Priority): Promise<Task> {

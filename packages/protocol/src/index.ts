@@ -272,6 +272,20 @@ export {
   weekdays,
 } from './schedule.ts'
 export {
+  type AutomationHit,
+  type CommentHit,
+  type FactoryHit,
+  foldText,
+  matchesTerms,
+  type SearchField,
+  type SearchResults,
+  type SearchTaskState,
+  searchLimits,
+  searchTerms,
+  snippetAround,
+  type TaskHit,
+} from './search.ts'
+export {
   type Appearance,
   appearances,
   defaultMachineSettings,
