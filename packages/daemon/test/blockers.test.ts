@@ -427,4 +427,40 @@ describe('blockers while the agent can’t run', () => {
     expect(prompt).toContain('# Picking up after a blocker')
     expect(prompt).toContain('Parser half done.')
   })
+
+  test('a Task Lead that carries on past a blocker resumes after signing in', async () => {
+    const client = await startTed()
+    const go = path.join(scratch, 'go')
+    const blocker = await create(client, 'Blocker')
+    const running = await create(
+      client,
+      steps(
+        { endTurn: true },
+        { run: ['ted', 'comment', 'This only touches docs, so I can carry on'] },
+        { waitFor: go },
+        { authError: true },
+        { exit: 1 },
+      ),
+      { start: true },
+    )
+    const first = await waitFor(client, running, (t) => t.runs[0]?.state === 'idle', 'to go idle')
+    await block(client, running, blocker)
+    await waitUntil(
+      async () => (await client.ok<unknown[]>('GET', `/tasks/${running.id}/comments`)).length === 1,
+      'the Task Lead to carry on',
+    )
+
+    await signedIn(false)
+    await writeFile(go, '')
+    await waitFor(client, running, (t) => t.status?.kind === 'paused', 'to be held as paused')
+    await signedIn(true)
+    await client.ok('POST', '/agents/health/check')
+
+    await waitFor(
+      client,
+      running,
+      (t) => t.leadRunId !== undefined && t.leadRunId !== first.leadRunId,
+      'to resume',
+    )
+  })
 })

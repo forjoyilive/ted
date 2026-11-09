@@ -206,7 +206,7 @@ export function createTasks(options: {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
-      if (unmergedBlockers(task.id).length > 0) return []
+      if (task.waitsForBlockers) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
