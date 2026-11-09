@@ -63,6 +63,7 @@ import type {
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
+import type { Plan, PlanDetail, PlanInboxItem, PlanRequest, StartPlanRequest } from './plan.ts'
 import type {
   AgentKind,
   Run,
@@ -96,9 +97,11 @@ import type {
   OutcomeResult,
   PostCommentRequest,
   Priority,
+  ProposalInput,
   ReportOutcomeRequest,
   RepoSetupReport,
   ResumeTaskRequest,
+  RoundInput,
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
@@ -229,6 +232,46 @@ export class DaemonClient {
 
   answerAutomationRequest(id: string, answer: AnswerAutomationRequest): Promise<AutomationRequest> {
     return this.#request('POST', `/automation-requests/${encodeURIComponent(id)}/answer`, answer)
+  }
+
+  listPlans(factory?: string): Promise<Plan[]> {
+    return this.#request('GET', `/plans${factoryQuery(factory)}`)
+  }
+
+  getPlan(id: string): Promise<PlanDetail> {
+    return this.#request('GET', `/plans/${encodeURIComponent(id)}`)
+  }
+
+  startPlan(input: StartPlanRequest): Promise<Plan> {
+    return this.#request('POST', '/plans', input)
+  }
+
+  renamePlan(id: string, title: string): Promise<Plan> {
+    return this.#request('PATCH', `/plans/${encodeURIComponent(id)}`, { title })
+  }
+
+  stopPlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/stop`, {})
+  }
+
+  deletePlan(id: string): Promise<{ deleted: true }> {
+    return this.#request('DELETE', `/plans/${encodeURIComponent(id)}`)
+  }
+
+  planInbox(): Promise<PlanInboxItem[]> {
+    return this.#request('GET', '/plan-requests')
+  }
+
+  postPlanRequest(input: {
+    round?: RoundInput
+    proposal?: ProposalInput
+    supersedes?: string
+  }): Promise<PlanRequest> {
+    return this.#request('POST', '/plan-runs/requests', input)
+  }
+
+  answerPlanRequest(id: string, answer: AnswerRequest): Promise<PlanRequest> {
+    return this.#request('POST', `/plan-requests/${encodeURIComponent(id)}/answer`, answer)
   }
 
   listTasks(): Promise<Task[]> {

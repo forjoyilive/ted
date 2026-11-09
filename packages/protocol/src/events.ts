@@ -37,4 +37,6 @@ export type DaemonEvent =
   | { type: 'check-try-updated'; checkTry: CheckTry }
   | { type: 'automation-updated'; automationId: string }
   | { type: 'automation-deleted'; automationId: string }
+  | { type: 'plan-updated'; planId: string }
+  | { type: 'plan-deleted'; planId: string }
   | { type: 'library-changed' }

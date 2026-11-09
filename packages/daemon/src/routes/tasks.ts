@@ -684,7 +684,7 @@ const maxQuestionLength = 1000
 
 const maxRecommendedLength = 2000
 
-function roundInput(value: unknown): RoundInput {
+export function roundInput(value: unknown): RoundInput {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new HttpError(400, 'a round must be an object')
   }
@@ -738,7 +738,7 @@ const maxScopeLength = 300
 
 const maxPieceDescriptionLength = 20_000
 
-function proposalInput(value: unknown): ProposalInput {
+export function proposalInput(value: unknown): ProposalInput {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new HttpError(400, 'a proposal must be an object')
   }
@@ -920,7 +920,7 @@ function judgments(value: unknown): ValidateJudgments | undefined {
   return { ...(review && { review }), ...(visual && { visual }) }
 }
 
-function answerRequest(body: unknown): AnswerRequest {
+export function answerRequest(body: unknown): AnswerRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const text = typeof request.text === 'string' ? request.text : undefined
   if (request.text !== undefined && text === undefined) {

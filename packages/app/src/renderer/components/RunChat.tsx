@@ -454,7 +454,55 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
   }
 }
 
-function Composer({ run }: { run: RunSummary }) {
+export interface ChatExtra {
+  key: string
+  at: string
+  node: ReactNode
+}
+
+export interface ChatOptions {
+  bar?: boolean
+  extra?: readonly ChatExtra[]
+  pinned?: ReactNode
+  placeholder?: string
+  help?: string
+  readOnly?: ReactNode
+}
+
+function withExtra(
+  items: readonly ChatItem[],
+  extra: readonly ChatExtra[],
+): ({ item: ChatItem } | { extra: ChatExtra })[] {
+  const merged: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
+  let lastAt = ''
+  const times = items.map((item) => {
+    if ('at' in item && item.at !== undefined) lastAt = item.at
+    return lastAt
+  })
+  for (const added of [...extra].sort((a, b) => a.at.localeCompare(b.at))) {
+    let at = merged.length
+    for (let i = merged.length - 1; i >= 0; i--) {
+      const entry = merged[i]
+      if (!entry) continue
+      const when = 'item' in entry ? (times[items.indexOf(entry.item)] ?? '') : entry.extra.at
+      const queued = 'item' in entry && entry.item.kind === 'human' && entry.item.queued === true
+      if (!queued && when <= added.at) break
+      at = i
+    }
+    merged.splice(at, 0, { extra: added })
+  }
+  return merged
+}
+
+function Composer({
+  run,
+  placeholder,
+  help,
+}: {
+  run: RunSummary
+  placeholder?: string | undefined
+  help?: string | undefined
+}) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -497,7 +545,7 @@ function Composer({ run }: { run: RunSummary }) {
           aria-label="Message to this Run"
           placeholder={
             live
-              ? `Message the ${run.name}’s Run…`
+              ? (placeholder ?? `Message the ${run.name}’s Run…`)
               : 'This Run has finished. Its chat is read-only.'
           }
           disabled={!live}
@@ -511,8 +559,8 @@ function Composer({ run }: { run: RunSummary }) {
         />
         <span className={styles.boxHelp}>
           <Help>
-            Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To
-            leave a Comment on the Task, use the Thread tab.
+            {help ??
+              'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'}
           </Help>
         </span>
       </div>
@@ -559,13 +607,22 @@ function Composer({ run }: { run: RunSummary }) {
   )
 }
 
-function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) | undefined }) {
+function ChatBody({
+  chat,
+  onStopTask,
+  options,
+}: {
+  chat: Chat
+  onStopTask: (() => void) | undefined
+  options: ChatOptions
+}) {
   const { run, items } = chat
+  const extra = options.extra ?? []
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const now = useTicking(running)
   const list = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
-  const count = items.length
+  const count = items.length + extra.length
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   useEffect(() => {
@@ -577,7 +634,7 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
 
   return (
     <>
-      <RunBar run={run} onStopTask={onStopTask} />
+      {options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
       <div
         ref={list}
         className={styles.items}
@@ -586,11 +643,23 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
         }}
       >
-        {items.map((item) => (
-          <ChatRow key={`${item.kind}:${item.id}`} item={item} run={run} now={now} />
-        ))}
+        {withExtra(items, extra).map((entry) =>
+          'item' in entry ? (
+            <ChatRow
+              key={`${entry.item.kind}:${entry.item.id}`}
+              item={entry.item}
+              run={run}
+              now={now}
+            />
+          ) : (
+            <div key={`extra:${entry.extra.key}`}>{entry.extra.node}</div>
+          ),
+        )}
       </div>
-      <Composer run={run} />
+      {options.pinned}
+      {options.readOnly ?? (
+        <Composer run={run} placeholder={options.placeholder} help={options.help} />
+      )}
     </>
   )
 }
@@ -598,15 +667,17 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
 export function RunChat({
   runId,
   onStopTask,
+  options = {},
 }: {
   runId: string
   onStopTask?: (() => void) | undefined
+  options?: ChatOptions
 }) {
   const chat = useRunChat(runId)
   return (
     <section className={styles.chat} aria-label="Run chat">
       {chat ? (
-        <ChatBody chat={chat} onStopTask={onStopTask} />
+        <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
       ) : (
         <p className={styles.loading}>Loading the Run…</p>
       )}

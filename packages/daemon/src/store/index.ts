@@ -78,6 +78,7 @@ import {
 } from '../tasks/status.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
+import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
 import {
   agentPauses,
@@ -101,6 +102,9 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  planRequests,
+  plans,
+  planTasks,
   pullRequests,
   reviewers,
   runInterrupts,
@@ -243,6 +247,7 @@ export interface NewTask {
   followUpOf?: string
   splitFrom?: string
   automation?: { automationId: string; firingId: string }
+  plan?: { planId: string; row: number }
 }
 
 export interface PlannedStage {
@@ -622,6 +627,7 @@ export interface TedStore {
   newWorkHold(): string | undefined
   onWriteResult(listener: (error?: unknown) => void): () => void
   automations: AutomationStore
+  plans: PlanStore
   close(): Promise<void>
 }
 
@@ -994,6 +1000,9 @@ export async function openStore({
 
   const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
 
+  const planTitleOf = (planId: string) =>
+    store.query(queryDb(plans.where({ id: planId }))).at(0)?.title
+
   const toTask = ({
     clarifyDepthBy,
     branch,
@@ -1143,6 +1152,7 @@ export async function openStore({
       followUpOf === null ? undefined : (taskRow(followUpOf) ?? deletedRow(followUpOf))
     const splitOriginal =
       splitFrom === null ? undefined : (taskRow(splitFrom) ?? deletedRow(splitFrom))
+    const planLink = store.query(queryDb(planTasks.where({ taskId: row.id }))).at(0)
     const merged =
       stage === 'done'
         ? {
@@ -1216,7 +1226,16 @@ export async function openStore({
             ? 'split'
             : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
               ? 'automation'
-              : 'human',
+              : planLink
+                ? 'planning'
+                : 'human',
+      ...(planLink && {
+        fromPlan: {
+          id: planLink.planId,
+          title: planTitleOf(planLink.planId) ?? '',
+          ...(planTitleOf(planLink.planId) === undefined && { deleted: true }),
+        },
+      }),
       ...(followUpOf !== null && {
         followUpOf: {
           id: followUpOf,
@@ -1655,7 +1674,9 @@ export async function openStore({
         active.filter((run) => run.state === 'waiting').length +
         store
           .query(queryDb(automationComments.where({ kind: 'question', answer: null })))
-          .filter((c) => liveIds.has(c.automationId)).length,
+          .filter((c) => liveIds.has(c.automationId)).length +
+        store.query(queryDb(planRequests.where({ answer: null }))).filter((r) => r.kind !== 'note')
+          .length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
@@ -1702,8 +1723,16 @@ export async function openStore({
     changed: () => noteActivity(),
   })
 
+  const planStore = createPlanStore({
+    store,
+    commit,
+    emit,
+    changed: () => noteActivity(),
+  })
+
   return {
     automations: automationStore,
+    plans: planStore,
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       commit(events.factoryAdded(row))
@@ -1740,6 +1769,7 @@ export async function openStore({
       followUpOf,
       splitFrom,
       automation,
+      plan,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1792,6 +1822,7 @@ export async function openStore({
           ? [events.taskSplitFrom({ taskId: id, originalId: splitFrom, at })]
           : []),
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
+        ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)

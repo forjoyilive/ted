@@ -108,11 +108,13 @@ export function RoundQuestions({
   readOnly,
   sending,
   onSend,
+  talk = true,
 }: {
   round: Round
   readOnly: boolean
   sending: boolean
   onSend: (answer: AnswerRequest) => void
+  talk?: boolean
 }) {
   const [drafts, setDrafts] = useState(() => recommendedDrafts(round))
   const update = (i: number, draft: Draft) =>
@@ -134,7 +136,7 @@ export function RoundQuestions({
       </div>
       {!readOnly && (
         <div className={styles.buttons}>
-          <Button disabled>Talk it through</Button>
+          {talk && <Button disabled>Talk it through</Button>}
           <span className={styles.spacer} />
           <Button
             disabled={sending}
@@ -179,7 +181,7 @@ export function RoundAnswers({
   request,
   answers,
 }: {
-  request: Comment
+  request: Pick<Comment, 'round'>
   answers: readonly RoundAnswer[]
 }) {
   const questions = request.round?.questions ?? []

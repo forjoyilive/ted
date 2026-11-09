@@ -143,7 +143,7 @@ describe('rank', () => {
     await client.ok('POST', `/tasks/${second.id}/move`, { before: first.id })
 
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots.queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId))).toEqual([
+    expect(slots.queue.map((q) => ('displayId' in q ? q.displayId : q.name))).toEqual([
       'MS-1',
       'NB-2',
     ])
@@ -221,9 +221,7 @@ describe('archive', () => {
     await client.ok('POST', `/tasks/${queued.id}/archive`)
 
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots.queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId))).toEqual([
-      'NB-3',
-    ])
+    expect(slots.queue.map((q) => ('displayId' in q ? q.displayId : q.name))).toEqual(['NB-3'])
     expect((await byId(client, next.id)).status).toEqual({ kind: 'queued', place: 1 })
   })
 

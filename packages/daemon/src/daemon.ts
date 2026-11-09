@@ -24,6 +24,7 @@ import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
+import { createPlans } from './plans/plans.ts'
 import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
@@ -323,6 +324,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...automationOptions,
       })
+      const plans = createPlans({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        banners,
+        workflows,
+        queue: tasks,
+        reposDir: paths.repos,
+        isCloned: (factoryId) => factories.isCloned(factoryId),
+        startTask: (taskId) => tasks.start(taskId),
+      })
       wake = () => {
         tasks.wake()
         automations.check()
@@ -361,6 +375,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         tasks,
         automations,
+        plans,
         factories,
         checkTries,
         storage: () => storage,
@@ -386,6 +401,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       return {
         automations,
+        plans,
         runs,
         conversations,
         tasks,
@@ -402,6 +418,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         library,
         async close() {
           automations.close()
+          plans.close()
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()

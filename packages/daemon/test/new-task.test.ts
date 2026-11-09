@@ -328,12 +328,13 @@ describe('Task defaults', () => {
   test('come from the Factory’s lead and Clarify depth', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml':
-        'version: 1\nlead: { agent: claude, model: opus, effort: high }\nstages:\n  clarify: { depth: few }\n',
+        'version: 1\nlead: { agent: claude, model: opus, effort: high }\nplanner: { agent: claude, model: sonnet, effort: max }\nstages:\n  clarify: { depth: few }\n',
     })
     const { client, factory } = await withFactory()
 
     expect(await client.taskDefaults(factory.id)).toEqual({
       lead: { agent: 'claude', model: 'opus', effort: 'high' },
+      planner: { agent: 'claude', model: 'sonnet', effort: 'max' },
       clarifyDepth: 'few',
     })
   })
@@ -343,6 +344,7 @@ describe('Task defaults', () => {
 
     expect(await client.taskDefaults(factory.id)).toEqual({
       lead: { agent: 'claude' },
+      planner: { agent: 'claude' },
       clarifyDepth: 'auto',
     })
   })

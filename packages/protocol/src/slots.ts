@@ -1,6 +1,15 @@
 import type { Priority } from './task.ts'
 
-export type SlotHolder = TaskSlotHolder | AutomationSlotHolder
+export type SlotHolder = TaskSlotHolder | AutomationSlotHolder | PlanSlotHolder
+
+export interface PlanSlotHolder {
+  kind: 'planning'
+  runId: string
+  planId: string
+  name: string
+  factoryId: string
+  runs: number
+}
 
 export interface AutomationSlotHolder {
   kind: 'automation'
@@ -39,6 +48,14 @@ export type QueuedForSlot =
       name: string
       taskId: string
       displayId: string
+      factoryId: string
+    }
+  | {
+      kind: 'planning'
+      place: number
+      runId: string
+      planId: string
+      name: string
       factoryId: string
     }
   | {

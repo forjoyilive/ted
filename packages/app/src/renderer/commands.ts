@@ -65,6 +65,20 @@ export const globalCommands: readonly Command[] = [
     run: ({ dispatch }) => dispatch({ type: 'open', screen: { kind: 'all-tasks' } }),
   },
   {
+    id: 'plan',
+    label: 'Plan…',
+    scope: 'global',
+    keywords: 'planning chat new plan',
+    choices: ({ factories, dispatch }) =>
+      factories
+        .filter((factory) => factory.cloned)
+        .map((factory) => ({
+          id: factory.id,
+          label: factory.name,
+          run: () => dispatch({ type: 'open-plan', factoryId: factory.id }),
+        })),
+  },
+  {
     id: 'go-to-automations',
     label: 'Go to Automations…',
     scope: 'global',

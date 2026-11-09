@@ -242,6 +242,20 @@ export {
 } from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
+  openPlanRequest,
+  type Plan,
+  type PlanDetail,
+  type PlanInboxItem,
+  type PlanRequest,
+  type PlanRequestKind,
+  type PlanStatus,
+  type PlanTask,
+  planRequestLabel,
+  planTitle,
+  planTitleLength,
+  type StartPlanRequest,
+} from './plan.ts'
+export {
   type ProposalPlan,
   type ProposalPlanRow,
   planProposal,

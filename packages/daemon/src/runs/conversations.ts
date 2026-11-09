@@ -14,6 +14,7 @@ import type { AgentChatEntry, Agents } from '../agents/index.ts'
 import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
+import { planOpening } from '../plans/prompts.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
@@ -102,8 +103,9 @@ export function chatItems(input: {
   messages: readonly RunMessage[]
   interrupts?: readonly { id: string; at: string }[]
   preamble: string
+  promptFromHuman?: boolean
 }): ChatItem[] {
-  const { run, entries, messages, interrupts = [], preamble } = input
+  const { run, entries, messages, interrupts = [], preamble, promptFromHuman = false } = input
   const items: ChatItem[] = []
   const { instructions, rest } = splitPrompt(run.prompt, preamble)
   if (instructions !== undefined) {
@@ -115,7 +117,9 @@ export function chatItems(input: {
       at: run.startedAt,
     })
   }
-  if (rest !== '') {
+  if (rest !== '' && promptFromHuman) {
+    items.push({ kind: 'human', id: 'prompt', text: rest, at: run.startedAt, sent: true })
+  } else if (rest !== '') {
     items.push({
       kind: 'prompt',
       id: 'prompt',
@@ -290,6 +294,10 @@ export function createConversations(options: {
       const entries = store.conversation(runId)
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
+      const planned = store.plans.get(runId) !== undefined
+      const opening = run.prompt.indexOf(planOpening)
+      const planPreamble =
+        planned && opening !== -1 ? run.prompt.slice(0, opening + planOpening.length) : undefined
       return {
         run: summary(run, entries),
         items: withPermissions(
@@ -298,7 +306,9 @@ export function createConversations(options: {
             entries: agents.get(run.agent).chat(entries, run.cwd),
             messages: store.runMessages(runId),
             interrupts: store.runInterrupts(runId),
-            preamble: run.parentRunId !== undefined ? await subPreamble : await preamble,
+            preamble:
+              planPreamble ?? (run.parentRunId !== undefined ? await subPreamble : await preamble),
+            promptFromHuman: planPreamble !== undefined,
           }),
           run.taskId === undefined
             ? []

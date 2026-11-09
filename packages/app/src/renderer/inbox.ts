@@ -1,4 +1,4 @@
-import type { Factory, InboxItem } from '@ted/protocol'
+import type { Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
 
 export interface InboxChip {
   factoryId?: string
@@ -6,19 +6,24 @@ export interface InboxChip {
   count: number
 }
 
-export function waitingByFactory(items: readonly InboxItem[]): Record<string, number> {
+export function waitingByFactory(
+  items: readonly InboxItem[],
+  plans: readonly PlanInboxItem[] = [],
+): Record<string, number> {
   const counts: Record<string, number> = {}
   for (const { task } of items) counts[task.factoryId] = (counts[task.factoryId] ?? 0) + 1
+  for (const { plan } of plans) counts[plan.factoryId] = (counts[plan.factoryId] ?? 0) + 1
   return counts
 }
 
 export function inboxChips(
   items: readonly InboxItem[],
   factories: readonly Factory[],
+  plans: readonly PlanInboxItem[] = [],
 ): InboxChip[] {
-  const counts = waitingByFactory(items)
+  const counts = waitingByFactory(items, plans)
   return [
-    { label: 'All', count: items.length },
+    { label: 'All', count: items.length + plans.length },
     ...factories.map((f) => ({ factoryId: f.id, label: f.name, count: counts[f.id] ?? 0 })),
   ]
 }

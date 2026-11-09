@@ -57,6 +57,7 @@ export interface Attachment {
 
 export interface TaskDefaults {
   lead: TaskLead
+  planner: TaskLead
   clarifyDepth: ClarifyDepth
 }
 
@@ -177,6 +178,7 @@ export interface Task {
   createdBy: CreatedBy
   followUpOf?: TaskLink
   splitFrom?: TaskLink
+  fromPlan?: { id: string; title: string; deleted?: boolean }
   merged?: TaskMerged
   createdAt: string
   updatedAt: string

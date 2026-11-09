@@ -587,6 +587,54 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const plans = State.SQLite.table({
+  name: 'plans',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    title: State.SQLite.text(),
+    message: State.SQLite.text(),
+    agent: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    state: State.SQLite.text(),
+    resume: State.SQLite.text({ nullable: true }),
+    outcome: State.SQLite.text({ nullable: true }),
+    error: State.SQLite.text({ nullable: true }),
+    checkout: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+    startedAt: State.SQLite.text({ nullable: true }),
+    finishedAt: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const planRequests = State.SQLite.table({
+  name: 'planRequests',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    planId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    kind: State.SQLite.text(),
+    author: State.SQLite.text(),
+    title: State.SQLite.text({ nullable: true }),
+    body: State.SQLite.text(),
+    round: State.SQLite.text({ nullable: true }),
+    proposal: State.SQLite.text({ nullable: true }),
+    answer: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
+export const planTasks = State.SQLite.table({
+  name: 'planTasks',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    planId: State.SQLite.text(),
+    row: State.SQLite.integer(),
+    at: State.SQLite.text(),
+  },
+})
+
 const stageEnteredFields = {
   id: Schema.String,
   taskId: Schema.String,
@@ -1800,6 +1848,76 @@ export const events = {
     name: 'v1.AutomationCommentAnswered',
     schema: Schema.Struct({ id: Schema.String, text: Schema.String, at: Schema.String }),
   }),
+  planStarted: Events.synced({
+    name: 'v1.PlanStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      title: Schema.String,
+      message: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  planRenamed: Events.synced({
+    name: 'v1.PlanRenamed',
+    schema: Schema.Struct({ id: Schema.String, title: Schema.String, at: Schema.String }),
+  }),
+  planDeleted: Events.synced({
+    name: 'v1.PlanDeleted',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  planRunBegan: Events.synced({
+    name: 'v1.PlanRunBegan',
+    schema: Schema.Struct({ id: Schema.String, checkout: Schema.String, at: Schema.String }),
+  }),
+  planRunResumeQueued: Events.synced({
+    name: 'v1.PlanRunResumeQueued',
+    schema: Schema.Struct({ id: Schema.String, error: Schema.String, at: Schema.String }),
+  }),
+  planRunRevived: Events.synced({
+    name: 'v1.PlanRunRevived',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  planEnded: Events.synced({
+    name: 'v1.PlanEnded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      outcome: Schema.String,
+      error: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  planRequestPosted: Events.synced({
+    name: 'v1.PlanRequestPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      planId: Schema.String,
+      runId: Schema.String,
+      kind: Schema.String,
+      author: Schema.String,
+      title: Schema.NullOr(Schema.String),
+      body: Schema.String,
+      round: Schema.NullOr(Schema.String),
+      proposal: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  planRequestAnswered: Events.synced({
+    name: 'v1.PlanRequestAnswered',
+    schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
+  }),
+  planTaskCreated: Events.synced({
+    name: 'v1.PlanTaskCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      planId: Schema.String,
+      row: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
 }
 
 type Logged = { taskId: string | null; at: string; data?: Record<string, unknown> }
@@ -2569,6 +2687,24 @@ const materializers = counted(
         }),
       'v1.AutomationCommentAnswered': ({ id, text, at }) =>
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
+      'v1.PlanStarted': ({ at, ...plan }) =>
+        plans.insert({ ...plan, state: 'queued', createdAt: at }),
+      'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
+      'v1.PlanDeleted': ({ id }) => [
+        plans.delete().where({ id }),
+        planRequests.delete().where({ planId: id }),
+      ],
+      'v1.PlanRunBegan': ({ id, checkout, at }) =>
+        plans.update({ state: 'started', checkout, startedAt: at }).where({ id }),
+      'v1.PlanRunResumeQueued': ({ id, error }) =>
+        plans.update({ resume: 'queued', error }).where({ id }),
+      'v1.PlanRunRevived': ({ id }) => plans.update({ resume: 'done' }).where({ id }),
+      'v1.PlanEnded': ({ id, outcome, error, at }) =>
+        plans.update({ state: 'ended', outcome, error, finishedAt: at }).where({ id }),
+      'v1.PlanRequestPosted': ({ at, ...request }) =>
+        planRequests.insert({ ...request, createdAt: at }),
+      'v1.PlanRequestAnswered': ({ id, answer }) => planRequests.update({ answer }).where({ id }),
+      'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
     }),
   ),
 )
@@ -2616,6 +2752,9 @@ const state = State.SQLite.makeState({
     automationFirings,
     automationTasks,
     automationComments,
+    plans,
+    planRequests,
+    planTasks,
   },
   materializers,
 })
