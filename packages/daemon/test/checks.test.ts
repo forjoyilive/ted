@@ -299,6 +299,9 @@ describe('Checks at Validate', () => {
     expect(running.status).toEqual({ kind: 'working' })
     const slots = await client.ok<{ holders: { taskId: string }[] }>('GET', '/slots')
     expect(slots.holders.some((h) => h.taskId === task.id)).toBe(false)
+    expect(await client.ok<{ checksRunning: number }>('GET', '/activity')).toMatchObject({
+      checksRunning: 1,
+    })
 
     await writeFile(go, '')
     await finishedRuns(client, task, 1)

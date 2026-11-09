@@ -128,6 +128,9 @@ export function useComments(taskId: string): Comment[] {
   return useLive(load, pick, byCreatedAt)
 }
 
+const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
+const byAt = (a: SendBack, b: SendBack) => a.at.localeCompare(b.at)
+
 export function useCheckRuns(taskId: string): CheckRun[] {
   const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
   const pick = useCallback(
@@ -137,7 +140,7 @@ export function useCheckRuns(taskId: string): CheckRun[] {
         : undefined,
     [taskId],
   )
-  return useLive(load, pick, (a, b) => a.startedAt.localeCompare(b.startedAt))
+  return useLive(load, pick, byStartedAt)
 }
 
 export function useSendBacks(taskId: string): SendBack[] {
@@ -147,7 +150,7 @@ export function useSendBacks(taskId: string): SendBack[] {
       event.type === 'sent-back' && event.sendBack.taskId === taskId ? event.sendBack : undefined,
     [taskId],
   )
-  return useLive(load, pick, (a, b) => a.at.localeCompare(b.at))
+  return useLive(load, pick, byAt)
 }
 
 const inboxEvents = new Set<TedEvent['type']>([

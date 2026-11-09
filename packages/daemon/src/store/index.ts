@@ -721,6 +721,7 @@ export async function openStore({
   const updatedCheckRun = (id: string): CheckRun => {
     const checkRun = requireCheckRun(id)
     emit({ type: 'check-run-updated', checkRun })
+    noteActivity()
     updatedTask(checkRun.taskId)
     return checkRun
   }
@@ -800,6 +801,7 @@ export async function openStore({
       },
       automationsOn: 0,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
+      checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
     }
   }
   let lastActivity = activity()
