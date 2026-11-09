@@ -1428,7 +1428,7 @@ export function createTasks(options: {
       if (caller.kind === 'daemon') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
         if (supersedes !== undefined) {
-          throw new RequestError(400, 'only a Run can supersede a request')
+          throw new RequestError(403, 'only a Run can supersede a request')
         }
         return humanComment(find(ref), body)
       }
