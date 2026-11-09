@@ -1,4 +1,6 @@
-import { mkdir, readFile, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -162,6 +164,42 @@ test('the app takes over a daemon it didn’t start, and the new daemon knows on
   expect(await supervised.client.caller()).toEqual({ kind: 'app' })
   expect(await (await fileTokenClient()).caller()).toEqual({ kind: 'file' })
   expect(states).toEqual([])
+})
+
+test('a daemon too old to keep Runs on /shutdown is stopped with SIGTERM instead', async () => {
+  const old = spawn(
+    process.execPath,
+    [
+      '-e',
+      `const http = require('node:http')
+      const requests = []
+      const server = http.createServer((req, res) => {
+        requests.push(req.method + ' ' + req.url)
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+      })
+      server.listen(0, '127.0.0.1', () => console.log(server.address().port))
+      process.on('SIGTERM', () => {
+        console.log(JSON.stringify(requests))
+        process.exit(0)
+      })`,
+    ],
+    { stdio: ['ignore', 'pipe', 'ignore'] },
+  )
+  const lines: string[] = []
+  old.stdout.setEncoding('utf8').on('data', (chunk: string) => lines.push(...chunk.split('\n')))
+  const port = Number(await waitUntil(() => lines.find((l) => /^\d+$/.test(l)), 'the old daemon'))
+  await writeFile(
+    tedPaths(home).daemonInfo,
+    JSON.stringify({ port, token: 'old', pid: old.pid, version: '0.0.1' }),
+  )
+  const exited = once(old, 'exit')
+
+  const supervised = await supervise({ app: true })
+
+  expect(await exited).toEqual([0, null])
+  expect(lines.some((l) => l.includes('POST /shutdown'))).toBe(false)
+  expect(await supervised.client.caller()).toEqual({ kind: 'app' })
 })
 
 test('the daemon writes its log to TED’s logs folder', async () => {

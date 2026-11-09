@@ -85,15 +85,36 @@ async function knowsApp(client: DaemonClient): Promise<boolean> {
   }
 }
 
+async function keepsRunsOnShutdown(info: DaemonInfo): Promise<boolean> {
+  try {
+    await new DaemonClient(info).caller()
+    return true
+  } catch (error) {
+    if (error instanceof DaemonRequestError && error.status === 404) return false
+    return true
+  }
+}
+
+function terminate(pid: number): boolean {
+  try {
+    process.kill(pid, 'SIGTERM')
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function handOver(home: string, info: DaemonInfo, deadline: number): Promise<void> {
-  const asked = await new DaemonClient(info).shutdown({ keepRuns: true }).then(
-    () => true,
-    (error: unknown) => {
-      if (error instanceof DaemonUnreachableError) return true
-      if (error instanceof DaemonRequestError) return false
-      throw error
-    },
-  )
+  const asked = (await keepsRunsOnShutdown(info))
+    ? await new DaemonClient(info).shutdown({ keepRuns: true }).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof DaemonUnreachableError) return true
+          if (error instanceof DaemonRequestError) return false
+          throw error
+        },
+      )
+    : terminate(info.pid)
   do {
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError('TED’s daemon didn’t stop to hand over to the app')
