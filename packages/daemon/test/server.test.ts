@@ -1,0 +1,126 @@
+import { readFile, stat } from 'node:fs/promises'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { makeTempHome, rawRequest, tokenFor } from './helpers.ts'
+
+let home: string
+let cleanup: () => Promise<void>
+let daemon: RunningDaemon | undefined
+
+beforeEach(async () => {
+  ;({ home, cleanup } = await makeTempHome())
+})
+
+afterEach(async () => {
+  await daemon?.stop()
+  daemon = undefined
+  await cleanup()
+})
+
+describe('daemon HTTP API', () => {
+  test('/healthz answers ok and the version without a token', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const res = await rawRequest(daemon.port, { path: '/healthz' })
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(res.body)).toEqual({ status: 'ok', version: '9.9.9' })
+  })
+
+  test('writes daemon.json with mode 0600 and a fresh token on each start', async () => {
+    const file = path.join(home, 'daemon.json')
+
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const first = JSON.parse(await readFile(file, 'utf8'))
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    expect(first).toMatchObject({ port: daemon.port, pid: process.pid, version: '9.9.9' })
+    expect(first.token).toMatch(/^[0-9a-f]{64}$/)
+    await daemon.stop()
+
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const second = JSON.parse(await readFile(file, 'utf8'))
+    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    expect(second.token).not.toBe(first.token)
+  })
+
+  test('refuses /tasks without the token or with a wrong one', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const none = await rawRequest(daemon.port, { path: '/tasks' })
+    const wrong = await rawRequest(daemon.port, {
+      path: '/tasks',
+      headers: { authorization: `Bearer ${'0'.repeat(64)}` },
+    })
+
+    expect(none.status).toBe(401)
+    expect(wrong.status).toBe(401)
+  })
+
+  test.each([
+    ['a Host that is not loopback', { host: 'evil.example' }, 403],
+    ['a Host that only starts with localhost', { host: 'localhost.evil.example' }, 403],
+    ['a browser Origin', { origin: 'http://127.0.0.1:3000' }, 403],
+  ])('refuses requests with %s, even with the token', async (_, headers, status) => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const token = await tokenFor(home)
+
+    for (const route of ['/healthz', '/tasks']) {
+      const res = await rawRequest(daemon.port, {
+        path: route,
+        headers: { authorization: `Bearer ${token}`, ...headers },
+      })
+      expect(res.status, route).toBe(status)
+    }
+  })
+
+  test('accepts localhost as the Host', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const res = await rawRequest(daemon.port, {
+      path: '/healthz',
+      headers: { host: `localhost:${daemon.port}` },
+    })
+
+    expect(res.status).toBe(200)
+  })
+
+  test('creates and lists Tasks with the token, and keeps them across a restart', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    let token = await tokenFor(home)
+
+    const created = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/tasks',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ title: 'Fix login' }),
+    })
+    expect(created.status).toBe(201)
+    expect(JSON.parse(created.body)).toMatchObject({ displayId: 'DEV-1', title: 'Fix login' })
+
+    await daemon.stop()
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    token = await tokenFor(home)
+
+    const listed = await rawRequest(daemon.port, {
+      path: '/tasks',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(listed.status).toBe(200)
+    expect(JSON.parse(listed.body)).toEqual([JSON.parse(created.body)])
+  })
+
+  test('refuses a Task without a title', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const token = await tokenFor(home)
+
+    const res = await rawRequest(daemon.port, {
+      method: 'POST',
+      path: '/tasks',
+      headers: { authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: '  ' }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+})

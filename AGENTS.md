@@ -2,6 +2,18 @@
 
 TED (“Totally Excellent Development”) is a desktop app for running software factories: agents carry development tasks through a configurable workflow, and the human steers through an inbox and comments. Vocabulary lives in `GLOSSARY.md`; use its terms.
 
+## Code
+
+pnpm workspace on Node 24: `packages/protocol` (paths, `daemon.json`, API types, `DaemonClient`), `packages/daemon`, `packages/cli`. Node runs the `.ts` files directly; there is no build step.
+
+- `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes), `pnpm test` (Vitest). CI runs all three on Ubuntu.
+- `pnpm ted <args>` runs the `ted` CLI from source. It starts the daemon if needed.
+- Set `TED_HOME` to use a folder other than `~/.ted`. Tests always set it to a temp folder. `TED_IDLE_EXIT_MS` shortens the idle exit of a daemon that `ted` started.
+- Write erasable TypeScript only, and name the `.ts` file in relative imports (ADR 0008).
+- Only `packages/daemon/src/store/` imports LiveStore. Events are named `v<N>.<PastTense>` and never edited once shipped; a change is a new versioned event (ADR 0010).
+- Every daemon route sits behind the loopback guard in `packages/daemon/src/server.ts`; clients call the daemon only through `DaemonClient` (ADR 0009).
+- Test through public seams: `TedStore`, the daemon’s HTTP API, the daemon process, the `ted` binary. Tests that start agents use a stub agent.
+
 ## Issue tracker: Linear
 
 - Workspace `kriyadesign`, team **Kriya Design** (`KRI`), project **TED**: https://linear.app/kriyadesign/project/ted-4c57b190ffe4/overview
