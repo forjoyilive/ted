@@ -19,7 +19,7 @@ import type {
   SlotHolder,
   StartPlanRequest,
 } from '@ted/protocol'
-import { planProposal, planRequestLabel, planTitle } from '@ted/protocol'
+import { planRequestLabel, planTitle } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -29,6 +29,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
 import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
+import { approvedShape, createProposalTasks } from '../tasks/proposal-tasks.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
@@ -598,40 +599,18 @@ export function createPlans(options: PlansOptions): Plans {
     const proposal = view(plan, request).proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
     const task = proposal.firstPiece ? linkedTask(plan) : undefined
-    const skip = [...(answer.proposal?.skip ?? [])].sort((a, b) => a - b)
-    const outside = skip.find((row) => row < 1 || row > proposal.rows.length)
-    if (outside !== undefined) throw new RequestError(400, `the proposal has no row ${outside}`)
-    if (task && skip.includes(1)) {
-      throw new RequestError(400, `row 1 is ${task.displayId}, so it’s always kept`)
-    }
-    const shape = planProposal(proposal, skip)
-    if (shape.creates === 0) throw new RequestError(400, 'check at least one row to create')
+    const { skip, shape } = approvedShape(
+      proposal,
+      answer.proposal?.skip,
+      task && { name: task.displayId },
+    )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
-    const ids = new Map<number, string>()
-    if (task) ids.set(1, task.id)
-    const created: ProposalCreated['tasks'] = []
-    for (const row of shape.order) {
-      const planned = shape.rows[row - 1]
-      const piece = proposal.rows[row - 1]
-      if (!planned || !piece) continue
-      const blockedBy = planned.blockedBy.flatMap((b) => {
-        const id = ids.get(b)
-        return id === undefined ? [] : [id]
-      })
-      const made = await store.createTask({
-        title: piece.title,
-        description: piece.description ?? piece.scope,
-        priority: piece.priority,
-        factoryId: plan.factoryId,
-        blockedBy,
-        startRequested: blockedBy.length > 0,
-        plan: { planId: plan.id, row },
-      })
-      ids.set(row, made.id)
-      created.push({ row, id: made.id, displayId: made.displayId })
-    }
-    created.sort((a, b) => a.row - b.row)
+    const created = await createProposalTasks(store, proposal, shape, {
+      firstPieceId: task?.id,
+      factoryId: plan.factoryId,
+      fields: (row) => ({ plan: { planId: plan.id, row } }),
+    })
     const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
     const answered = saved.answerRequest(request.id, {
       kind: 'approved',
