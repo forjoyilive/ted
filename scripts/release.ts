@@ -138,6 +138,7 @@ function main(): void {
   step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `TED ${version}`])
   step('Push', 'git', ['push', '--atomic', 'origin', 'main', `v${version}`])
   step('Build', 'pnpm', ['package', '--mac', '--arm64', '--dir'])
+  step('Smoke test the build', 'pnpm', ['--filter', '@ted/app', 'smoke'])
   install()
   console.log(`\nTED ${version} is tagged, pushed and installed in ${installed}.`)
 }
