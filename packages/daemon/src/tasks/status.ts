@@ -24,6 +24,8 @@ export interface TaskFacts {
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
+  mergePending?: boolean
+  autoMergeLeft?: boolean
   needsPlanning?: boolean
   agentActivity?: string
   archived?: boolean
@@ -81,6 +83,7 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   if (status?.kind === 'failed') return 'failed'
   if (status?.kind === 'stopped') return 'stopped'
   if (status?.kind === 'paused') return 'paused'
+  if (facts.mergePending) return 'merge-pending'
   return facts.leadLive ? 'live' : 'no-run'
 }
 
@@ -107,6 +110,9 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
+  if (facts.autoMergeLeft) {
+    return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
+  }
   if (facts.checking) {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`

@@ -47,6 +47,7 @@ export const tasks = State.SQLite.table({
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
+    chosenRepos: State.SQLite.text({ nullable: true }),
     activity: State.SQLite.text({ nullable: true }),
     activityEntries: State.SQLite.integer({ nullable: true }),
     rank: State.SQLite.real({ nullable: true }),
@@ -769,6 +770,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskReposSet: Events.synced({
+    name: 'v1.TaskReposSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repos: Schema.Array(Schema.String),
+      names: Schema.Array(Schema.String),
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   commentAnswered: Events.synced({
     name: 'v1.CommentAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
@@ -879,6 +891,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestAutoMergeDisabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeDisabled',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
   pullRequestMerged: Events.synced({
     name: 'v1.PullRequestMerged',
     schema: Schema.Struct({
@@ -909,6 +925,14 @@ export const events = {
       onto: Schema.String,
       at: Schema.String,
     }),
+  }),
+  mergeStarted: Events.synced({
+    name: 'v1.MergeStarted',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  mergeCanceled: Events.synced({
+    name: 'v1.MergeCanceled',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -1052,6 +1076,24 @@ export const events = {
   localFolderSet: Events.synced({
     name: 'v1.LocalFolderSet',
     schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
+  }),
+  localFolderCleared: Events.synced({
+    name: 'v1.LocalFolderCleared',
+    schema: Schema.Struct({ repo: Schema.String, at: Schema.String }),
+  }),
+  factoryRenamed: Events.synced({
+    name: 'v1.FactoryRenamed',
+    schema: Schema.Struct({ factoryId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  factoryReposChanged: Events.synced({
+    name: 'v1.FactoryReposChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
   }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
@@ -1484,6 +1526,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { depth: args.depth, by: args.by, runId: args.runId, why: args.why }),
   'v1.TaskLeadSet': (args) =>
     task(args, { agent: args.agent, model: args.model, effort: args.effort }),
+  'v1.TaskReposSet': (args) =>
+    task(args, { repos: args.repos, names: args.names, by: args.by, runId: args.runId }),
   'v1.TaskWorktreeCreated': (args) =>
     task(args, { name: args.name, copied: args.copied, skipped: args.skipped }),
   'v1.TaskWorktreeSetupStarted': (args) => task(args, { name: args.name, command: args.command }),
@@ -1497,7 +1541,11 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
+  'v1.MergeStarted': (args) => task(args),
+  'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1641,6 +1689,8 @@ const materializers = counted(
       ],
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -1733,6 +1783,8 @@ const materializers = counted(
         tasks
           .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
           .where({ id: taskId }),
+      'v1.TaskReposSet': ({ taskId, repos, at }) =>
+        tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
@@ -1966,6 +2018,8 @@ const materializers = counted(
         pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
         pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeDisabled': ({ taskId, name }) =>
+        pullRequests.update({ autoMerge: null }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
         pullRequests
           .update({
@@ -1984,6 +2038,15 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+      'v1.LocalFolderCleared': ({ repo }) => localFolders.delete().where({ repo }),
+      'v1.FactoryRenamed': ({ factoryId, name }) =>
+        factories.update({ name }).where({ id: factoryId }),
+      'v1.FactoryReposChanged': ({ factoryId, repos }) => [
+        factoryRepos.delete().where({ factoryId }),
+        ...repos.map((repo, position) =>
+          factoryRepos.insert({ ...repo, id: `${factoryId}:${position}`, factoryId, position }),
+        ),
+      ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
           .insert({ layer, files, version, acceptedAt: at })

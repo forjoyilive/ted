@@ -111,7 +111,15 @@ export interface TrackStage {
   state: TrackState
 }
 
-export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done' | 'archived'
+export type CommentBox =
+  | 'live'
+  | 'paused'
+  | 'no-run'
+  | 'stopped'
+  | 'failed'
+  | 'done'
+  | 'merge-pending'
+  | 'archived'
 
 export interface TaskRun {
   id: string
@@ -160,6 +168,7 @@ export interface Task {
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]
+  chosenRepos: string[]
   createdBy: CreatedBy
   followUpOf?: TaskLink
   merged?: TaskMerged
@@ -189,6 +198,33 @@ export interface ArchiveDoneResult {
 export interface MoveTaskRequest {
   after?: string
   before?: string
+}
+
+export type SetTaskReposRequest =
+  | { set: string[]; confirm?: boolean }
+  | { add: string[] }
+  | { remove: string[]; confirm?: boolean }
+
+export interface RepoToConfirm {
+  name: string
+  commits: number
+}
+
+export interface TaskReposResult {
+  task: Task
+  confirm?: RepoToConfirm[]
+  repos: string[]
+  added: string[]
+  removed: string[]
+}
+
+export interface RepoSetupReport {
+  name: string
+  worktree?: string
+  state: 'none' | 'running' | WorktreeCommandOutcome
+  command?: string
+  exitCode?: number
+  output: string
 }
 
 export interface SetPriorityRequest {
@@ -333,6 +369,7 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
+  | { kind: 'withdrawn'; at: string; ciReported: true }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
@@ -347,12 +384,47 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
-  gate?: { approveLabel: string; caption?: string }
+  gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
   failed?: { runId: string }
+}
+
+export interface CommentGate {
+  approveLabel: string
+  caption?: string
+  pullRequests?: MergeRow[]
+  changes?: SignOffChanges
+}
+
+export interface MergeRow {
+  name: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  checks: { passed: number; failed: number; pending: number }
+  mergeable: boolean
+  method: MergeMethod
+  reviewMissing: boolean
+}
+
+export interface SignOffChanges {
+  since: string
+  summary?: string
+  repos: { name: string; files: ChangedFile[]; unavailable?: boolean }[]
+}
+
+export interface ChangedFile {
+  path: string
+  added: number
+  removed: number
+}
+
+export interface CancelMergeRequest {
+  comment: string
 }
 
 export interface PermissionAsk {
@@ -412,7 +484,7 @@ export interface SetActivityRequest {
 }
 
 export type ReportOutcomeRequest =
-  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments }
+  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments; changes?: string }
   | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
   | { outcome: 'ask'; question: string; choices?: string[] }
 

@@ -336,6 +336,12 @@ export function threadEvents(
             : `Task Lead started · ${agentLine(data)}`,
         )
         break
+      case 'v1.TaskReposSet': {
+        const names = Array.isArray(data.names) ? data.names.map(String).join(', ') : ''
+        if (data.by === 'human') add(entry, 'edit', `You set Repos to ${names}`)
+        else add(entry, 'run', `Task Lead set Repos to ${names}`)
+        break
+      }
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

@@ -23,6 +23,8 @@ import type {
   Diagnostics,
   Factory,
   FactoryBoard,
+  FactorySettingsChanges,
+  FactorySettingsView,
   InboxItem,
   IntegrationsHealth,
   LinearLookup,
@@ -42,11 +44,16 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveSettingsRequest,
+  SaveSettingsResult,
+  SetTaskReposRequest,
+  SettingsPreview,
   StageEntry,
   StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
+  TaskReposResult,
   ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
@@ -73,6 +80,8 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  cancelMerge: (taskId: string, comment: string) =>
+    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
   postComment: (taskId: string, body: string) =>
     window.ted.request('postComment', taskId, body) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>
@@ -149,6 +158,8 @@ export const ted = {
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
+    window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>
     window.ted.request('chooseFolder', title) as Promise<string | undefined>,
   homeFolder: () => window.ted.request('homeFolder') as Promise<string>,
@@ -156,6 +167,19 @@ export const ted = {
     window.ted.request('checkRepo', request) as Promise<RepoCheck>,
   createFactory: (request: CreateFactoryRequest) =>
     window.ted.request('createFactory', request) as Promise<Factory>,
+  factorySettings: (factoryId: string) =>
+    window.ted.request('factorySettings', factoryId) as Promise<FactorySettingsView>,
+  previewFactorySettings: (factoryId: string, changes: FactorySettingsChanges) =>
+    window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
+  saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
+    window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  renameFactory: (factoryId: string, name: string) =>
+    window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
+  setRepoLocalFolder: (factoryId: string, repoName: string, folder: string) =>
+    window.ted.request('setRepoLocalFolder', factoryId, repoName, folder) as Promise<Factory>,
+  clearRepoLocalFolder: (factoryId: string, repoName: string) =>
+    window.ted.request('clearRepoLocalFolder', factoryId, repoName) as Promise<Factory>,
+  openOnGitHub: (url: string) => window.ted.request('openOnGitHub', url) as Promise<void>,
   retryClone: (factoryId: string) =>
     window.ted.request('retryClone', factoryId) as Promise<Factory>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,

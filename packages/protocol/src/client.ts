@@ -30,6 +30,14 @@ import type {
   Factory,
   RepoCheck,
 } from './factory.ts'
+import type {
+  FactorySettingsChanges,
+  FactorySettingsView,
+  RenameFactoryRequest,
+  SaveSettingsRequest,
+  SaveSettingsResult,
+  SettingsPreview,
+} from './factory-settings.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
@@ -50,6 +58,7 @@ import type {
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
@@ -59,13 +68,16 @@ import type {
   PostCommentRequest,
   Priority,
   ReportOutcomeRequest,
+  RepoSetupReport,
   ResumeTaskRequest,
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
+  SetTaskReposRequest,
   Task,
   TaskBrief,
   TaskDefaults,
+  TaskReposResult,
   ThreadEvent,
 } from './task.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -163,6 +175,11 @@ export class DaemonClient {
   resumeTask(ref: string, comment?: string): Promise<Task> {
     const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
+  }
+
+  cancelMerge(ref: string, comment: string): Promise<Comment> {
+    const body: CancelMergeRequest = { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
   }
 
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
@@ -296,6 +313,17 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
   }
 
+  setTaskRepos(ref: string, request: SetTaskReposRequest): Promise<TaskReposResult> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/repos`, request)
+  }
+
+  repoSetup(ref: string, repo: string): Promise<RepoSetupReport> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup`,
+    )
+  }
+
   async setupLog(ref: string, repo: string): Promise<string> {
     const { text } = await this.#request<{ text: string }>(
       'GET',
@@ -418,6 +446,53 @@ export class DaemonClient {
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/factories', input)
+  }
+
+  factorySettings(factoryId: string): Promise<FactorySettingsView> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  }
+
+  previewFactorySettings(
+    factoryId: string,
+    changes: FactorySettingsChanges,
+  ): Promise<SettingsPreview> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/preview`,
+      changes,
+    )
+  }
+
+  saveFactorySettings(
+    factoryId: string,
+    request: SaveSettingsRequest,
+  ): Promise<SaveSettingsResult> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/save`,
+      request,
+    )
+  }
+
+  renameFactory(factoryId: string, name: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/name`, {
+      name,
+    } satisfies RenameFactoryRequest)
+  }
+
+  setRepoLocalFolder(factoryId: string, repoName: string, path: string): Promise<Factory> {
+    return this.#request(
+      'PUT',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+      { path },
+    )
+  }
+
+  clearRepoLocalFolder(factoryId: string, repoName: string): Promise<Factory> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+    )
   }
 
   retryClone(factoryId: string): Promise<Factory> {

@@ -361,6 +361,10 @@ export interface TedStore {
     entry: NewStageEntry
     repo: NewWorktree
   }): Task
+  setTaskRepos(
+    taskId: string,
+    input: { repos: string[]; names: string[]; by: 'human' | 'task-lead'; runId?: string },
+  ): Task
   worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
   recordedSetup(taskId: string, name: string): RecordedSetup | undefined
   worktreeSetupFinished(
@@ -411,8 +415,15 @@ export interface TedStore {
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  autoMergeDisabled(taskId: string, name: string): void
+  mergeStarted(taskId: string): void
+  mergeCanceled(taskId: string, commentId: string): void
+  mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
+  clearLocalFolder(repo: string): void
+  renameFactory(factoryId: string, name: string): StoredFactory
+  changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
@@ -817,6 +828,34 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
+  const mergePendingFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+    repos: readonly TaskRepo[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    const open = repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged')
+    if (!open) return false
+    const last = store
+      .query(queryDb(taskLog.where({ taskId })))
+      .filter(
+        (e) => (e.name === 'v1.MergeStarted' || e.name === 'v1.MergeCanceled') && e.at >= since,
+      )
+      .sort((a, b) => sequence(a.id) - sequence(b.id))
+      .at(-1)
+    return last?.name === 'v1.MergeStarted'
+  }
+
+  const mergeCanceledFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    return store
+      .query(queryDb(taskLog.where({ taskId, name: 'v1.MergeCanceled' })))
+      .some((e) => e.at >= since)
+  }
+
   const isMerged = (taskId: string): boolean =>
     taskRow(taskId)?.stage === 'done' &&
     store
@@ -894,6 +933,7 @@ export async function openStore({
     clarifyDepthBy,
     branch,
     worktree,
+    chosenRepos,
     activity,
     activityEntries,
     leadAgent,
@@ -925,6 +965,15 @@ export async function openStore({
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
             ?.waiting
         : undefined
+    const mergeWaits = stage === 'merge' && mergePendingFor(row.id, entries, repos)
+    const autoMergeLeft =
+      stage === 'merge' &&
+      !mergeWaits &&
+      repos.some(
+        (r) =>
+          !r.removed && r.pullRequest?.autoMerge !== undefined && r.pullRequest.state !== 'merged',
+      ) &&
+      mergeCanceledFor(row.id, entries)
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -957,6 +1006,8 @@ export async function openStore({
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
       ...(github !== undefined && { github }),
+      ...(mergeWaits && { mergePending: true }),
+      ...(autoMergeLeft && { autoMergeLeft: true }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1031,6 +1082,12 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       repos,
+      chosenRepos:
+        chosenRepos !== null
+          ? (JSON.parse(chosenRepos) as string[])
+          : listFactories()
+              .filter((f) => f.id === row.factoryId)
+              .map((f) => f.repo),
       attachments: attachmentsOf(row.id),
       ...(source && { source }),
       stage,
@@ -1750,6 +1807,19 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    setTaskRepos(taskId, { repos, names, by, runId }) {
+      commit(
+        events.taskReposSet({
+          taskId,
+          repos,
+          names,
+          by,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(
         events.taskWorktreeSetupStarted({
@@ -1893,6 +1963,22 @@ export async function openStore({
       updatedTask(taskId)
     },
     isMerged: (taskId) => isMerged(taskId),
+    autoMergeDisabled(taskId, name) {
+      commit(events.pullRequestAutoMergeDisabled({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergeStarted(taskId) {
+      commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergeCanceled(taskId, commentId) {
+      commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergePending(taskId) {
+      const task = taskRow(taskId)
+      return task?.stage === 'merge' && mergePendingFor(taskId, entryRows(taskId), reposOf(taskId))
+    },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
         events.pullRequestSignedOff({
@@ -1906,6 +1992,17 @@ export async function openStore({
     },
     setLocalFolder(repo, path) {
       commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    clearLocalFolder(repo) {
+      commit(events.localFolderCleared({ repo, at: new Date().toISOString() }))
+    },
+    renameFactory(factoryId, name) {
+      commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
+    },
+    changeFactoryRepos(factoryId, repos) {
+      commit(events.factoryReposChanged({ factoryId, repos, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {

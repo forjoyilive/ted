@@ -8,6 +8,7 @@ import {
   type BlockedChoice,
   type BlockTaskRequest,
   blockedChoices,
+  type CancelMergeRequest,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
@@ -23,6 +24,7 @@ import {
   type RunChecksRequest,
   type SetActivityRequest,
   type SetClarifyDepthRequest,
+  type SetTaskReposRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
@@ -248,6 +250,22 @@ export const taskRoutes: Route[] = [
     },
   },
   {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/repos$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      return [200, await tasks.setRepos(ref, caller, reposRequest(await readJson(req)))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup$/,
+    runToken: true,
+    async handle({ params: [ref = '', name = ''], caller }, { tasks }) {
+      return [200, await tasks.repoSetup(ref, name, caller)]
+    },
+  },
+  {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup-log$/,
     async handle({ params: [ref = '', name = ''] }, { tasks }) {
@@ -280,6 +298,16 @@ export const taskRoutes: Route[] = [
           ...(supersedes !== undefined && { supersedes }),
         }),
       ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/cancel-merge$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<CancelMergeRequest> | null
+      const text = typeof body?.comment === 'string' ? body.comment.trim() : ''
+      if (text === '') throw new HttpError(400, 'comment is required')
+      return [201, await tasks.cancelMerge(ref, text)]
     },
   },
   {
@@ -403,6 +431,31 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.board(id)],
   },
 ]
+
+const maxRepoRefs = 20
+
+function reposRequest(body: unknown): SetTaskReposRequest {
+  const given = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  const list = (value: unknown, key: string): string[] => {
+    if (
+      !Array.isArray(value) ||
+      value.length > maxRepoRefs ||
+      !value.every((v) => typeof v === 'string' && v.trim() !== '' && v.length <= 200)
+    ) {
+      throw new HttpError(400, `${key} must be a list of repo names`)
+    }
+    return value.map((v: string) => v.trim())
+  }
+  if (given.confirm !== undefined && typeof given.confirm !== 'boolean') {
+    throw new HttpError(400, 'confirm must be true or false')
+  }
+  const confirm = given.confirm === true
+  const keys = ['set', 'add', 'remove'].filter((k) => given[k] !== undefined)
+  if (keys.length !== 1) throw new HttpError(400, 'give exactly one of set, add or remove')
+  if (given.set !== undefined) return { set: list(given.set, 'set'), confirm }
+  if (given.add !== undefined) return { add: list(given.add, 'add') }
+  return { remove: list(given.remove, 'remove'), confirm }
+}
 
 function agentChoice(body: unknown): TaskLead {
   const { agent, model, effort } = (body ?? {}) as Record<string, unknown>
@@ -597,10 +650,15 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const judged = judgments(request.judged)
   if (request.outcome === 'advance') {
+    const changes = typeof request.changes === 'string' ? oneLine(request.changes) : ''
+    if ([...changes].length > 300) {
+      throw new HttpError(400, 'the changes summary is limited to 300 characters')
+    }
     return {
       outcome: 'advance',
       ...(request.skip === true && { skip: true }),
       ...(judged && { judged }),
+      ...(changes !== '' && { changes }),
     }
   }
   if (request.outcome === 'back') {

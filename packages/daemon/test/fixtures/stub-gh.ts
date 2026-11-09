@@ -24,6 +24,8 @@ interface StubCheck {
 
 interface StubMerge {
   origin?: string
+  disableAutoFails?: boolean
+  title?: string
   mergeState?: string
   mergeable?: string
   reviewDecision?: string | null
@@ -38,6 +40,7 @@ interface StubMerge {
   merged?: boolean
   autoMerge?: string
   mergedWith?: string
+  updateBase?: boolean
 }
 
 const readyHosts = {
@@ -123,6 +126,7 @@ function pullRequests(variables: Record<string, unknown>) {
       deleteBranchOnMerge: merge.deleteBranchOnMerge ?? false,
       pullRequest: {
         id: `PR_${number}`,
+        title: merge.title ?? 'Stub pull request',
         state: merge.merged ? 'MERGED' : 'OPEN',
         isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),
@@ -182,6 +186,16 @@ function rebaseBranch(): string {
 
 function mergePullRequest(): void {
   const merge = state.merge ?? {}
+  if (args.includes('--disable-auto')) {
+    if (merge.disableAutoFails) {
+      process.stderr.write('GraphQL: Something went wrong (disablePullRequestAutoMerge)\n')
+      process.exit(1)
+    }
+    delete merge.autoMerge
+    state.merge = merge
+    save()
+    return
+  }
   const method = ['squash', 'merge', 'rebase'].find((m) => args.includes(`--${m}`)) ?? ''
   const expected = args[args.indexOf('--match-head-commit') + 1]
   if (expected !== headOf(args[2] ?? '')) {
@@ -192,6 +206,9 @@ function mergePullRequest(): void {
   else {
     merge.merged = true
     merge.mergedWith = method
+    if (merge.updateBase && merge.origin && expected) {
+      runGit(merge.origin, 'update-ref', 'refs/heads/main', expected)
+    }
   }
   state.merge = merge
   save()
