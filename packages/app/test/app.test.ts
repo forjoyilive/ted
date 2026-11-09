@@ -1397,6 +1397,11 @@ describe('daemon crashes', () => {
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
     await waitForNewDaemon(await killDaemon())
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await expect
+      .poll(() => readFile(path.join(home, 'logs', 'daemon.log'), 'utf8').catch(() => ''), {
+        timeout: 20_000,
+      })
+      .toMatch(/TED daemon .* listening on/)
     const last = await killDaemon()
 
     const banner = window.getByRole('region', { name: 'Problems' }).getByRole('alert')
