@@ -97,6 +97,32 @@ export async function killRunHosts(home: string): Promise<void> {
   }
 }
 
+export function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function waitForExit(pid: number, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (isAlive(pid)) {
+    if (Date.now() > deadline) throw new Error(`pid ${pid} still running`)
+    await sleep(50)
+  }
+}
+
+export async function stopDaemonIn(home: string): Promise<void> {
+  const info = await readDaemonInfo(home)
+  if (info && isAlive(info.pid)) {
+    process.kill(info.pid, 'SIGTERM')
+    await waitForExit(info.pid)
+  }
+  await killRunHosts(home)
+}
+
 export function api(port: number, token: string) {
   const call = async (method: string, route: string, body?: unknown) => {
     const res = await rawRequest(port, {

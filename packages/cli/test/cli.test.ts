@@ -15,9 +15,11 @@ import { stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
 import {
   commitToOrigin,
-  killRunHosts,
+  isAlive,
   makeOriginRepo,
+  stopDaemonIn,
   stubCodexPath,
+  waitForExit,
 } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
@@ -32,12 +34,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  const info = await readDaemonInfo(home)
-  if (info) {
-    process.kill(info.pid, 'SIGTERM')
-    await waitForExit(info.pid)
-  }
-  await killRunHosts(home)
+  await stopDaemonIn(home)
   await rm(home, { recursive: true, force: true })
 })
 
@@ -53,23 +50,6 @@ function ted(args: string[], idleExitMs = 30_000, extraEnv: NodeJS.ProcessEnv = 
     },
     cwd: home,
   })
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForExit(pid: number, timeoutMs = 10_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (isAlive(pid)) {
-    if (Date.now() > deadline) throw new Error(`pid ${pid} still running`)
-    await sleep(50)
-  }
 }
 
 async function client(): Promise<DaemonClient> {

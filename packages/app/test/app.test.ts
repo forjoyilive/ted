@@ -22,8 +22,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest
 import {
   commitToOrigin,
   hostRecords,
-  killRunHosts,
+  isAlive,
   makeOriginRepo,
+  stopDaemonIn,
+  waitForExit,
 } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
@@ -51,12 +53,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await closeApp(app)
   app = undefined
-  const info = await readDaemonInfo(home)
-  if (info && isAlive(info.pid)) {
-    process.kill(info.pid, 'SIGTERM')
-    await waitForExit(info.pid)
-  }
-  await killRunHosts(home)
+  await stopDaemonIn(home)
   await rm(home, { recursive: true, force: true })
 }, 30_000)
 
@@ -126,23 +123,6 @@ async function daemonPid(): Promise<number> {
 async function commandOf(pid: number): Promise<string> {
   const { stdout } = await run('ps', ['-o', 'command=', '-p', String(pid)])
   return stdout.trim()
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForExit(pid: number): Promise<void> {
-  const deadline = Date.now() + 10_000
-  while (isAlive(pid)) {
-    if (Date.now() > deadline) throw new Error(`pid ${pid} still running`)
-    await sleep(50)
-  }
 }
 
 describe('TED app', () => {
