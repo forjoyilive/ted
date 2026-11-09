@@ -38,6 +38,10 @@ export const ted = {
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
+  setupLog: (taskId: string, repo: string) =>
+    window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  locateLocalFolder: (key: string) =>
+    window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -215,6 +215,38 @@ describe('TED app', () => {
     expect(
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
+  })
+
+  test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const code = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+    await code.getByText('No worktree yet').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await code.getByText(/^ted\/nb-1/).waitFor()
+    await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
+  })
+
+  test('a missing local folder raises a Factory banner with Locate', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const folder = path.join(home, 'local')
+    await mkdir(folder)
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
+    await rm(folder, { recursive: true })
+
+    const window = await launchApp()
+
+    const banner = window.getByRole('alert')
+    await banner.getByText('Local folder for widgets not found').waitFor()
+    await banner.getByRole('button', { name: 'Locate' }).waitFor()
   })
 
   test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {

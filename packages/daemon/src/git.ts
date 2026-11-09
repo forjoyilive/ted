@@ -34,10 +34,14 @@ export async function defaultBranch(repo: string): Promise<string> {
 }
 
 export async function branchExists(repo: string, branch: string): Promise<boolean> {
-  return git(repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`).then(
-    () => true,
-    () => false,
-  )
+  for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+    const found = await git(repo, 'show-ref', '--verify', '--quiet', ref).then(
+      () => true,
+      () => false,
+    )
+    if (found) return true
+  }
+  return false
 }
 
 export async function addWorktree(
@@ -67,6 +71,10 @@ export async function showFile(repo: string, commit: string, file: string): Prom
     maxBuffer: 16 * 1024 * 1024,
   })
   return stdout
+}
+
+export async function deleteBranch(repo: string, branch: string): Promise<void> {
+  await git(repo, 'branch', '-D', branch)
 }
 
 export async function removeWorktree(repo: string, worktree: string): Promise<void> {

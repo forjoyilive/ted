@@ -13,7 +13,7 @@ const safeSegment = /^[A-Za-z0-9_.-]+$/
 
 export async function addFactory(
   { store, reposDir, workflows }: { store: TedStore; reposDir: string; workflows: Workflows },
-  input: { repo: string; key: string },
+  input: { repo: string; key: string; localFolder?: string },
 ): Promise<Factory> {
   if (!keyPattern.test(input.key)) {
     throw new RequestError(
@@ -23,6 +23,8 @@ export async function addFactory(
   }
   const { repo, cloneUrl } = parseRepo(input.repo)
   checkUnused(store, input.key, repo)
+  const localFolder =
+    input.localFolder === undefined ? undefined : await checkLocalFolder(input.localFolder)
 
   const clone = path.join(reposDir, ...repo.split('/'))
   if (await exists(clone)) await git.fetch(clone)
@@ -42,7 +44,31 @@ export async function addFactory(
   await workflows.resolve(factory, { fetch: false }).catch((error: unknown) => {
     console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
   })
-  return publicFactory(factory)
+  if (localFolder !== undefined) store.setLocalFolder(repo, localFolder)
+  return publicFactory(store, factory)
+}
+
+export function listFactories(store: TedStore): Promise<Factory[]> {
+  return Promise.all(store.listFactories().map((f) => publicFactory(store, f)))
+}
+
+export async function setLocalFolder(
+  store: TedStore,
+  key: string,
+  folder: string,
+): Promise<Factory> {
+  const factory = store.listFactories().find((f) => f.key === key)
+  if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+  store.setLocalFolder(factory.repo, await checkLocalFolder(folder))
+  return publicFactory(store, factory)
+}
+
+async function checkLocalFolder(folder: string): Promise<string> {
+  if (!path.isAbsolute(folder))
+    throw new RequestError(400, 'a local folder must be an absolute path')
+  const found = await stat(folder).catch(() => undefined)
+  if (!found?.isDirectory()) throw new RequestError(400, `there’s no folder at ${folder}`)
+  return path.normalize(folder)
 }
 
 const recovering = new Map<string, Promise<string>>()
@@ -99,8 +125,14 @@ export function clonePath(reposDir: string, factory: Factory): string {
   return path.join(reposDir, ...factory.repo.split('/'))
 }
 
-function publicFactory({ cloneUrl: _, ...factory }: StoredFactory): Factory {
-  return factory
+async function publicFactory(
+  store: TedStore,
+  { cloneUrl: _, ...factory }: StoredFactory,
+): Promise<Factory> {
+  const folder = store.localFolder(factory.repo)
+  if (folder === undefined) return factory
+  const found = (await stat(folder).catch(() => undefined))?.isDirectory() ?? false
+  return { ...factory, localFolder: { path: folder, found } }
 }
 
 function parseRepo(given: string): { repo: string; cloneUrl: string } {

@@ -14,6 +14,7 @@ import {
   type ClarifyDepth,
   type Comment,
   type ConversationEntry,
+  type CopySkip,
   type DaemonEvent,
   defaultMachineSettings,
   type Effort,
@@ -28,7 +29,9 @@ import {
   type StageId,
   type Task,
   type TaskLead,
+  type TaskRepo,
   type TrackStage,
+  type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import {
@@ -37,6 +40,7 @@ import {
   conversationEntries,
   events,
   factories,
+  localFolders,
   machineSettings,
   machineSettingValues,
   runs,
@@ -44,6 +48,7 @@ import {
   stageEntries,
   taskAttachments,
   taskBlockers,
+  taskRepos,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -87,6 +92,19 @@ export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
   order: PlannedStage[]
 }
 
+export interface NewWorktree {
+  name: string
+  repo: string
+  copied: string[]
+  skipped: CopySkip[]
+}
+
+export interface RecordedSetup {
+  command: string
+  timeoutMs: number
+  env: Record<string, string>
+}
+
 export interface AcceptedLayer {
   files: Record<string, string | null>
   version: string
@@ -106,7 +124,22 @@ export interface TedStore {
     branch: string
     worktree: string
     entry: NewStageEntry
+    repo: NewWorktree
   }): Task
+  worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
+  recordedSetup(taskId: string, name: string): RecordedSetup | undefined
+  worktreeSetupFinished(
+    taskId: string,
+    name: string,
+    result: { outcome: WorktreeCommandOutcome; exitCode?: number },
+  ): void
+  worktreeRemoved(
+    taskId: string,
+    name: string,
+    teardown?: { command: string; outcome: WorktreeCommandOutcome },
+  ): void
+  setLocalFolder(repo: string, path: string): void
+  localFolder(repo: string): string | undefined
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
@@ -165,6 +198,38 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const taskRuns = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
+  const toTaskRepo = (row: typeof taskRepos.Type): TaskRepo => ({
+    name: row.name,
+    repo: row.repo,
+    branch: row.branch,
+    worktree: row.worktree,
+    copied: JSON.parse(row.copied) as string[],
+    skipped: JSON.parse(row.skipped) as CopySkip[],
+    ...(row.setupCommand !== null &&
+      row.setupState !== null && {
+        setup: {
+          command: row.setupCommand,
+          state: row.setupState as NonNullable<TaskRepo['setup']>['state'],
+          ...(row.setupExitCode !== null && { exitCode: row.setupExitCode }),
+        },
+      }),
+    ...(row.removedAt !== null && {
+      removed: {
+        at: row.removedAt,
+        ...(row.teardownCommand !== null &&
+          row.teardownOutcome !== null && {
+            teardown: {
+              command: row.teardownCommand,
+              outcome: row.teardownOutcome as WorktreeCommandOutcome,
+            },
+          }),
+      },
+    }),
+  })
+
+  const reposOf = (taskId: string) =>
+    store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
+
   const blockersOf = (taskId: string) =>
     store
       .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
@@ -220,6 +285,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         },
       }),
       blockedBy,
+      repos: reposOf(row.id),
       attachments: attachmentsOf(row.id),
       stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
@@ -384,14 +450,66 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       const row = taskRow(ref)
       return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
     },
-    startTask({ taskId, stage, branch, worktree, entry }) {
+    startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
       store.commit(
         events.taskStarted({ taskId, stage, branch, worktree, at }),
+        events.taskWorktreeCreated({ taskId, ...repo, branch, worktree, at }),
         stageEntered(taskId, stage, entry, at),
       )
       return updatedTask(taskId)
     },
+    worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
+      store.commit(
+        events.taskWorktreeSetupStarted({
+          taskId,
+          name,
+          command,
+          timeoutMs,
+          env: JSON.stringify(env),
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    recordedSetup(taskId, name) {
+      const row = store.query(queryDb(taskRepos.where({ id: `${taskId}:${name}` }))).at(0)
+      if (!row?.setupCommand || row.setupTimeoutMs === null || row.setupEnv === null)
+        return undefined
+      return {
+        command: row.setupCommand,
+        timeoutMs: row.setupTimeoutMs,
+        env: JSON.parse(row.setupEnv) as Record<string, string>,
+      }
+    },
+    worktreeSetupFinished(taskId, name, { outcome, exitCode }) {
+      store.commit(
+        events.taskWorktreeSetupFinished({
+          taskId,
+          name,
+          outcome,
+          exitCode: exitCode ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    worktreeRemoved(taskId, name, teardown) {
+      store.commit(
+        events.taskWorktreeRemoved({
+          taskId,
+          name,
+          teardownCommand: teardown?.command ?? null,
+          teardownOutcome: teardown?.outcome ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    setLocalFolder(repo, path) {
+      store.commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
       store.commit(

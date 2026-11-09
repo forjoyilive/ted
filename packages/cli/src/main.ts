@@ -27,8 +27,9 @@ const usage = `Usage:
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
-  ted dev factory add <owner/repo | git URL> --key <key>
+  ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
+  ted dev factory local-folder <key> <dir>   Set the folder new worktrees copy files from
   ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
                                              Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
@@ -47,6 +48,7 @@ function parse() {
         cwd: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
+        'local-folder': { type: 'string' },
         task: { type: 'string' },
       },
     })
@@ -123,8 +125,22 @@ try {
     const repo = rest[1] ?? ''
     const key = options.key
     if (key === undefined) throw new UsageError('give the Factory key with --key')
-    const factory = await withDaemon(home, (client) => client.addFactory({ repo, key }))
+    const folder = options['local-folder']
+    const localFolder = folder === undefined ? undefined : path.resolve(folder)
+    const factory = await withDaemon(home, (client) =>
+      client.addFactory({ repo, key, ...(localFolder !== undefined && { localFolder }) }),
+    )
     console.log(`Added Factory ${factory.key}  ${factory.repo}`)
+  } else if (
+    group === 'dev' &&
+    command === 'factory' &&
+    rest[0] === 'local-folder' &&
+    rest.length === 3
+  ) {
+    const key = rest[1] ?? ''
+    const folder = path.resolve(rest[2] ?? '')
+    const factory = await withDaemon(home, (client) => client.setLocalFolder(key, folder))
+    console.log(`${factory.key} copies files from ${factory.localFolder?.path ?? folder}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
     const cwd = path.resolve(options.cwd ?? process.cwd())
     const prompt = rest.slice(1).join(' ')

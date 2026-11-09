@@ -73,6 +73,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     worktreesDir: paths.worktrees,
     defaultLead: () => agents.defaultLead(),
     attachmentFile: (attachment) => attachments.file(attachment),
+    logsDir: paths.logs,
+    ...(idle && { idle }),
   })
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
