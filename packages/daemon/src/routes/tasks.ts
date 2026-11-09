@@ -480,6 +480,9 @@ function answerRequest(body: unknown): AnswerRequest {
   if (request.action === 'request-changes') {
     return { action: 'request-changes', text: text ?? '' }
   }
+  if (request.action === 'deny') {
+    return { action: 'deny', ...(text !== undefined && { text }) }
+  }
   if (request.action === 'answer') {
     if (request.choice !== undefined && typeof request.choice !== 'string') {
       throw new HttpError(400, 'choice must be a string')
@@ -490,7 +493,7 @@ function answerRequest(body: unknown): AnswerRequest {
       ...(text !== undefined && { text }),
     }
   }
-  throw new HttpError(400, 'action must be approve, request-changes or answer')
+  throw new HttpError(400, 'action must be approve, request-changes, deny or answer')
 }
 
 function oneLine(text: string): string {

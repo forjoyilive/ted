@@ -8,6 +8,10 @@ export type RunState = 'working' | 'idle' | 'waiting' | 'finished'
 
 export type RunProblem = 'model-unavailable'
 
+export const permissionModes = ['auto', 'bypass'] as const
+
+export type PermissionMode = (typeof permissionModes)[number]
+
 export interface Run {
   id: string
   agent: AgentKind
@@ -16,6 +20,8 @@ export interface Run {
   effort?: Effort
   usesDefaultModel?: boolean
   problem?: RunProblem
+  permissions: PermissionMode
+  manualPermissions?: boolean
   prompt: string
   cwd: string
   taskId?: string

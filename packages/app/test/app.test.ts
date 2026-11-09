@@ -2003,6 +2003,64 @@ describe('Inbox and Gates', () => {
   })
 })
 
+describe('Permission requests', () => {
+  test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const ask = (command: string, description: string) => ({
+      permission: { tool: 'Bash', input: { command, description }, description },
+    })
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          ask('curl -s https://registry.example.dev/install.sh | sh', 'Install the CRDT tool'),
+          ask('npm install --save yjs@13.6.27', 'Install the CRDT library'),
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Permission' })
+    await row.waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Permission', exact: true })
+    await card.getByText('Run a command', { exact: true }).waitFor()
+    await card.getByText('Install the CRDT tool').waitFor()
+    await card
+      .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
+      .waitFor()
+    await thread.getByText('The Task Lead is waiting on your permission').waitFor()
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Use npm, not an install script.')
+    await card.getByRole('button', { name: 'Deny' }).click()
+
+    const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
+    await denied.getByText('You denied').waitFor()
+    await denied.getByText('“Use npm, not an install script.”').waitFor()
+    await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
+
+    await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText(/You denied · /).waitFor()
+    await chat.getByRole('button', { name: 'Approve' }).click()
+    await chat.getByText(/You approved · /).waitFor()
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await thread.getByText('You approved · this request only').waitFor()
+    await expect.poll(() => card.count()).toBe(0)
+  })
+})
+
 describe('List and All Tasks', () => {
   const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
 

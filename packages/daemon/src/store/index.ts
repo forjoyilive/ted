@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
@@ -34,6 +35,7 @@ import {
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type PermissionMode,
   type Priority,
   type Run,
   type RunMessage,
@@ -104,6 +106,29 @@ export interface RunOutput {
   state?: RunState
   sessionId?: string
   problem?: RunProblem
+  permissionPrompts?: NewPermissionPrompt[]
+  closedPermissions?: string[]
+  autoModeUnavailable?: boolean
+  agentRestarted?: boolean
+}
+
+export interface NewPermissionPrompt {
+  requestId: string
+  generation: number
+  details?: string
+  cwd?: string
+  title: string
+  command: string
+  reason?: string
+  input?: unknown
+}
+
+export interface PermissionTarget {
+  runId: string
+  requestId: string
+  generation: number
+  command: string
+  input?: unknown
 }
 
 export interface RunFlags {
@@ -342,8 +367,11 @@ export interface TedStore {
     taskId?: string
     model?: string
     effort?: Effort
+    permissions?: PermissionMode
   }): Run
   recordRunOutput(runId: string, output: RunOutput): void
+  permissionTarget(commentId: string): PermissionTarget | undefined
+  answerPermission(commentId: string, answer: CommentAnswer): Comment
   restartRun(runId: string, flags: RunFlags): Run
   getRun(id: string): Run | undefined
   listRuns(): Run[]
@@ -614,6 +642,7 @@ export async function openStore({
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).length,
+      ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(stoppedAt === null &&
@@ -723,9 +752,13 @@ export async function openStore({
     effort,
     usesDefaultModel,
     problem,
+    permissions,
+    manualPermissions,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
+    permissions: permissions === 'bypass' ? 'bypass' : 'auto',
+    ...(manualPermissions && { manualPermissions }),
     agent: row.agent as AgentKind,
     state: row.state as RunState,
     ...(sessionId !== '' && { sessionId }),
@@ -747,6 +780,7 @@ export async function openStore({
     deliveredRunId,
     deliveredAt,
     readAt,
+    permission,
     answerHeld: _,
     ...row
   }: typeof comments.Type): Comment => ({
@@ -760,11 +794,32 @@ export async function openStore({
     ...(title !== null && { title }),
     ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
+    ...(permission !== null && { permission: publicPermission(permission) }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
     ...(deliveredRunId !== null &&
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
   })
+
+  const openPermissionRows = (runId: string, requestId?: string) =>
+    store
+      .query(queryDb(comments.where({ authorRunId: runId, kind: 'permission' })))
+      .filter(
+        (row) =>
+          row.answer === null &&
+          row.permission !== null &&
+          (requestId === undefined || storedPermission(row.permission).requestId === requestId),
+      )
+
+  const permissionWait = (taskId: string, leadId: string | undefined) => {
+    const asking = openRequestRows(taskId).filter((r) => r.kind === 'permission')
+    if (asking.length === 0) return {}
+    return {
+      waitingOnPermission: asking.some((r) => r.authorRunId === leadId)
+        ? ('lead' as const)
+        : ('sub-agent' as const),
+    }
+  }
 
   const openRequestRows = (taskId?: string) =>
     store
@@ -923,6 +978,38 @@ export async function openStore({
       createdAt,
     })
     return { id, event }
+  }
+  const repoAt = (taskId: string, cwd: string) => {
+    if (!path.isAbsolute(cwd)) return undefined
+    const real = realPath(cwd)
+    return reposOf(taskId).find((r) => {
+      const inside = path.relative(realPath(r.worktree), real)
+      return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside))
+    })?.name
+  }
+  const askedEvent = (taskId: string, runId: string, prompt: NewPermissionPrompt, at: string) => {
+    const id = randomUUID()
+    const task = taskRow(taskId)
+    const run = runRow(runId)
+    const repo = task && run ? repoAt(taskId, prompt.cwd ?? run.cwd) : undefined
+    return {
+      id,
+      event: events.permissionRequested({
+        id,
+        taskId,
+        runId,
+        requestId: prompt.requestId,
+        stage: task?.stage ?? null,
+        title: prompt.title,
+        body: prompt.reason ?? '',
+        command: prompt.command,
+        details: prompt.details ?? null,
+        generation: prompt.generation,
+        repo: repo ?? null,
+        input: prompt.input === undefined ? null : JSON.stringify(prompt.input),
+        createdAt: at,
+      }),
+    }
   }
   const emitComment = (id: string) => {
     const comment = requireComment(id)
@@ -1521,7 +1608,7 @@ export async function openStore({
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun({ taskId, sessionId, model, effort, ...input }) {
+    startRun({ taskId, sessionId, model, effort, permissions = 'auto', ...input }) {
       const row = {
         ...input,
         sessionId: sessionId ?? '',
@@ -1530,11 +1617,16 @@ export async function openStore({
         effort: effort ?? null,
         startedAt: new Date().toISOString(),
       }
-      commit(events.runStartedV3(row))
+      commit(
+        events.runStartedV3(row),
+        events.runPermissionsSet({ runId: row.id, permissions, at: row.startedAt }),
+      )
       const run = toRun({
         ...row,
         usesDefaultModel: false,
         problem: null,
+        permissions,
+        manualPermissions: false,
         state: 'working',
         readOffset: 0,
       })
@@ -1543,10 +1635,55 @@ export async function openStore({
       noteActivity()
       return run
     },
-    recordRunOutput(runId, { toOffset, entries, state, sessionId, problem }) {
+    recordRunOutput(
+      runId,
+      {
+        toOffset,
+        entries,
+        state,
+        sessionId,
+        problem,
+        permissionPrompts = [],
+        closedPermissions = [],
+        autoModeUnavailable,
+        agentRestarted,
+      },
+    ) {
       const current = runRow(runId)
       if (!current) throw new Error(`no Run ${runId}`)
       const at = new Date().toISOString()
+      const taskId = current.taskId
+      const asked =
+        taskId === null
+          ? []
+          : permissionPrompts.map((prompt) => askedEvent(taskId, runId, prompt, at))
+      const answeredAtOnce = asked.flatMap(({ id }, index) =>
+        state === 'finished'
+          ? [{ id, answer: { kind: 'withdrawn', at, runStopped: true } as CommentAnswer }]
+          : closedPermissions.includes(permissionPrompts[index]?.requestId ?? '')
+            ? [{ id, answer: { kind: 'withdrawn', at, cancelled: true } as CommentAnswer }]
+            : [],
+      )
+      const withdrawn = [
+        ...closedPermissions.flatMap((requestId) =>
+          openPermissionRows(runId, requestId).map((row) => ({
+            id: row.id,
+            answer: { kind: 'withdrawn', at, cancelled: true } as CommentAnswer,
+          })),
+        ),
+        ...(state === 'finished' || agentRestarted
+          ? openPermissionRows(runId).map((row) => ({
+              id: row.id,
+              answer: { kind: 'withdrawn', at, runStopped: true } as CommentAnswer,
+            }))
+          : []),
+      ]
+      withdrawn.push(...answeredAtOnce)
+      const withdrawnOnce = withdrawn.filter(
+        ({ id }, index) => withdrawn.findIndex((w) => w.id === id) === index,
+      )
+      const unavailable =
+        autoModeUnavailable === true && current.permissions === 'auto' && !current.manualPermissions
       const newProblem = problem !== undefined && current.problem === null
       const holding = (current.problem !== null || newProblem) && state === 'idle'
       const target = holding ? 'waiting' : state
@@ -1564,9 +1701,19 @@ export async function openStore({
         ...(stateChanged && target !== undefined
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
+        ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
+        ...asked.map(({ event }) => event),
+        ...withdrawnOnce.map(({ id, answer }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
       )
       if (entries.length > 0) emit({ type: 'run-output', runId })
-      if (newProblem || stateChanged) {
+      for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
+      for (const { id } of withdrawnOnce) emitComment(id)
+      if (asked.length > 0 || withdrawnOnce.length > 0) {
+        if (taskId !== null && !(newProblem || stateChanged)) updatedTask(taskId)
+      }
+      if (newProblem || stateChanged || unavailable) {
         const row = runRow(runId)
         if (row) emit({ type: 'run-updated', run: toRun(row) })
         const taskId = taskIdOfRun(runId)
@@ -1575,15 +1722,22 @@ export async function openStore({
       if (stateChanged) noteActivity()
     },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
+      const at = new Date().toISOString()
+      const withdrawn = openPermissionRows(runId)
+      const answer: CommentAnswer = { kind: 'withdrawn', at, runStopped: true }
       commit(
         events.runRestarted({
           runId,
           model: model ?? null,
           effort: effort ?? null,
           usesDefaultModel,
-          at: new Date().toISOString(),
+          at,
         }),
+        ...withdrawn.map(({ id }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
       )
+      for (const { id } of withdrawn) emitComment(id)
       const row = runRow(runId)
       if (!row) throw new Error(`no Run ${runId}`)
       const run = toRun(row)
@@ -1596,6 +1750,43 @@ export async function openStore({
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)
+    },
+    permissionTarget(commentId) {
+      const row = store.query(queryDb(comments.where({ id: commentId }))).at(0)
+      if (!row?.permission || row.authorRunId === null) return undefined
+      const { requestId, generation, command, input } = storedPermission(row.permission)
+      return {
+        runId: row.authorRunId,
+        requestId,
+        generation: generation ?? 1,
+        command,
+        ...(input !== undefined && { input: JSON.parse(input) as unknown }),
+      }
+    },
+    answerPermission(commentId, answer) {
+      const row = store.query(queryDb(comments.where({ id: commentId }))).at(0)
+      const runId = row?.authorRunId ?? undefined
+      const run = runId === undefined ? undefined : runRow(runId)
+      const othersOpen =
+        runId === undefined
+          ? false
+          : openPermissionRows(runId).some((other) => other.id !== commentId)
+      const resume =
+        run !== undefined && run.state === 'waiting' && run.problem === null && !othersOpen
+      commit(
+        events.commentAnswered({ id: commentId, answer: JSON.stringify(answer), at: answer.at }),
+        ...(resume && run
+          ? [events.runStateChanged({ runId: run.id, state: 'working', at: answer.at })]
+          : []),
+      )
+      if (resume && run) {
+        const updated = runRow(run.id)
+        if (updated) emit({ type: 'run-updated', run: toRun(updated) })
+        noteActivity()
+      }
+      const comment = emitComment(commentId)
+      updatedTask(comment.taskId)
+      return comment
     },
     listRuns: () => store.query(allRuns).map(toRun),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
@@ -1802,4 +1993,35 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
 
 function builtInRank(id: StageId): number {
   return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
+}
+
+function realPath(dir: string): string {
+  const resolved = path.resolve(dir)
+  try {
+    return realpathSync(resolved)
+  } catch {
+    return resolved
+  }
+}
+
+interface StoredPermission {
+  requestId: string
+  generation?: number
+  command: string
+  details?: string
+  repo?: string
+  input?: string
+}
+
+function storedPermission(json: string): StoredPermission {
+  return JSON.parse(json) as StoredPermission
+}
+
+function publicPermission(json: string): NonNullable<Comment['permission']> {
+  const { command, details, repo } = storedPermission(json)
+  return {
+    command,
+    ...(details !== undefined && { details }),
+    ...(repo !== undefined && { repo }),
+  }
 }

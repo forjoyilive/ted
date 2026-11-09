@@ -10,6 +10,7 @@ import {
   type HostDriver,
   type HostRecord,
   type LaunchFile,
+  readGenerationLine,
   runFiles,
 } from '../host-files.ts'
 
@@ -33,6 +34,7 @@ interface Started {
 }
 
 let current: Started | undefined
+let generation = 0
 let restarting = false
 let restartWanted = false
 
@@ -47,6 +49,7 @@ async function startAgent(): Promise<Started> {
     stdio: ['pipe', 'pipe', 'pipe'],
   })
   write({ t: 'start', v: 1, hostPid: process.pid, agentPid: agent.pid ?? null })
+  generation += 1
 
   let spawnError: string | undefined
   agent.on('error', (error) => {
@@ -98,7 +101,10 @@ const forwardInput = () => {
       }
       const lines = buffer.toString('utf8', 0, end).split('\n')
       inputOffset += end + 1
-      for (const line of lines) {
+      for (const raw of lines) {
+        const tagged = readGenerationLine(raw)
+        if (tagged && tagged.forGeneration !== generation) continue
+        const line = tagged ? tagged.line : raw
         if (driver?.onInput) driver.onInput(line)
         else send(line)
       }

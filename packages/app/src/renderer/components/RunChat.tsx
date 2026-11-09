@@ -261,6 +261,81 @@ function HumanMessage({ item, now }: { item: Extract<ChatItem, { kind: 'human' }
   )
 }
 
+function permissionAnswer(request: ChatPermission['request']):
+  | {
+      mark: string
+      tone: string
+      text: string
+      at: string
+    }
+  | undefined {
+  const { answer } = request
+  if (!answer) return undefined
+  if (answer.kind === 'approved')
+    return { mark: '✓', tone: 'good', text: 'You approved', at: answer.at }
+  if (answer.kind === 'denied') return { mark: '✕', tone: 'bad', text: 'You denied', at: answer.at }
+  return { mark: '–', tone: 'quiet', text: 'Withdrawn', at: answer.at }
+}
+
+type ChatPermission = Extract<ChatItem, { kind: 'permission' }>
+
+function PermissionRow({ item, now }: { item: ChatPermission; now: number }) {
+  const { request } = item
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string>()
+  const answer = permissionAnswer(request)
+
+  async function send(action: 'approve' | 'deny') {
+    setSending(true)
+    setError(undefined)
+    try {
+      await ted.answerRequest(request.id, { action })
+    } catch (failed) {
+      setError(readableError(failed))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className={styles.permission} data-open={answer === undefined}>
+      <div className={styles.permissionHead}>
+        <span className={styles.permissionKind}>Permission</span>
+        <span className={styles.rowLabel}>{request.title}</span>
+        <span className={styles.rowMeta}>{ago(item.at, now)}</span>
+      </div>
+      {request.permission && (
+        <pre className={styles.permissionCommand}>
+          {request.permission.repo !== undefined && `${request.permission.repo} $ `}
+          {request.permission.command}
+        </pre>
+      )}
+      {answer ? (
+        <p className={styles.permissionAnswer}>
+          <span className={styles[answer.tone]} aria-hidden>
+            {answer.mark}
+          </span>
+          {` ${answer.text} · ${ago(answer.at, now)}`}
+        </p>
+      ) : (
+        <div className={styles.permissionButtons}>
+          {error !== undefined && (
+            <span className={styles.error} role="alert">
+              {error}
+            </span>
+          )}
+          <Button disabled={sending} onClick={() => void send('deny')}>
+            Deny
+          </Button>
+          <Button variant="primary" disabled={sending} onClick={() => void send('approve')}>
+            Approve
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: number }) {
   switch (item.kind) {
     case 'instructions':
@@ -297,6 +372,8 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
       return <HumanMessage item={item} now={now} />
     case 'tool':
       return <ToolRow item={item} now={now} />
+    case 'permission':
+      return <PermissionRow item={item} now={now} />
   }
 }
 

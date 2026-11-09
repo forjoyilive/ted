@@ -801,6 +801,7 @@ export function createTasks(options: {
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
       ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
@@ -1070,6 +1071,44 @@ export function createTasks(options: {
     const answered = store.answerComment(comment.id, answer)
     if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
     return answered
+  }
+
+  async function answerPermission(
+    task: Task,
+    comment: Comment,
+    request: AnswerRequest,
+    text: string,
+  ): Promise<Comment> {
+    if (request.action !== 'approve' && request.action !== 'deny') {
+      throw new RequestError(400, 'answer a permission request with Approve or Deny')
+    }
+    const target = store.permissionTarget(comment.id)
+    if (!target) throw new RequestError(409, 'this request can’t be answered')
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (store.getRun(target.runId)?.state === 'finished') {
+        throw new RequestError(409, 'the Run that asked has stopped')
+      }
+      const approved = request.action === 'approve'
+      const at = new Date().toISOString()
+      const answered = store.answerPermission(comment.id, {
+        kind: approved ? 'approved' : 'denied',
+        at,
+        ...(text !== '' && { text }),
+      })
+      const said = permissionMessage(approved, target.command, text)
+      await runs.answerPermission(target.runId, target.generation, {
+        requestId: target.requestId,
+        approved,
+        ...(target.input !== undefined && { input: target.input }),
+        ...(said !== undefined && { text: said }),
+      })
+      return answered
+    })
   }
 
   function visitStart(task: Task): string {
@@ -1917,6 +1956,7 @@ export function createTasks(options: {
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
       const text = request.text?.trim() ?? ''
+      if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
         if (request.action === 'request-changes') {
           if (text === '') throw new RequestError(400, 'Request changes needs your comment')
@@ -2275,6 +2315,17 @@ function briefGoal(text: string): string | undefined {
 
 const continueMessage =
   'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+
+function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
+  if (approved) {
+    return text === ''
+      ? undefined
+      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
+  }
+  return text === ''
+    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
+    : `The human denied this request and said:\n\n${text}`
+}
 
 function humanMessage(body: string): string {
   return `The human posted a Comment on this Task:\n\n${body}`
