@@ -27,6 +27,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
 }
 
 let window: BrowserWindow | undefined
+const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
 const applySettings = ({ appearance }: MachineSettings) => {
   nativeTheme.themeSource = appearance
 }
@@ -48,13 +49,16 @@ async function start(): Promise<void> {
     return request(client, ...args)
   })
 
+  if (hiddenWindow) app.dock?.hide()
   window = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 900,
     minHeight: 560,
     title: 'TED',
+    show: !hiddenWindow,
     webPreferences: {
+      backgroundThrottling: !hiddenWindow,
       preload: path.join(import.meta.dirname, 'preload.cjs'),
       sandbox: true,
       contextIsolation: true,
