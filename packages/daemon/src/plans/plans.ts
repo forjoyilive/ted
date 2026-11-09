@@ -301,9 +301,17 @@ export function createPlans(options: PlansOptions): Plans {
     )
   }
 
+  const cleaning = new Map<string, Promise<void>>()
+
   function cleanUp(id: string): void {
     const plan = saved.get(id)
-    void discard(plan?.checkout ?? [], folderOf(id))
+    const before = cleaning.get(id) ?? Promise.resolve()
+    const done = before
+      .then(() => discard(plan?.checkout ?? [], folderOf(id)))
+      .finally(() => {
+        if (cleaning.get(id) === done) cleaning.delete(id)
+      })
+    cleaning.set(id, done)
   }
 
   function envFor(plan: StoredPlan, factory: StoredFactory, entries: FactoryRepoEntry[]) {
@@ -852,6 +860,7 @@ export function createPlans(options: PlansOptions): Plans {
         if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is retrying')
         retrying.add(plan.id)
         try {
+          await cleaning.get(plan.id)
           const checkout = await checkOut(plan, factory, await entriesOf(factory)).catch(
             (error: unknown) => {
               throw new RequestError(409, `Couldn’t check out the repos: ${messageOf(error)}`)

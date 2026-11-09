@@ -177,6 +177,10 @@ describe('Planning chats', () => {
     await failedRow.getByText('Failed').waitFor()
     expect(await failedRow.textContent()).toContain('—')
     await sidebar(window).getByRole('img', { name: 'A planning chat failed' }).waitFor()
+    await window.keyboard.press('j')
+    await expect
+      .poll(() => window.evaluate(() => document.activeElement?.textContent))
+      .toBe('Failing plan')
 
     const past = list.getByRole('region', { name: 'Past planning chats' })
     const pastToggle = past.getByRole('button', { name: /Past/ })

@@ -188,6 +188,7 @@ function PlanRow({ plan, actions }: { plan: Plan; actions: RowActions }) {
         ) : (
           <button
             type="button"
+            data-nav-item
             className={styles.title}
             onClick={() => actions.onOpenPlan(plan.id)}
           >
