@@ -72,6 +72,7 @@ import {
   shell,
   Tray,
 } from 'electron'
+import { appIconPng } from './app-icon.ts'
 import {
   appMenu,
   appName,
@@ -1016,6 +1017,9 @@ function onConnection(connection: DaemonConnection): void {
 }
 
 async function start(): Promise<void> {
+  if (platform === 'darwin' && edition === 'dev' && !hiddenWindow) {
+    app.dock?.setIcon(nativeImage.createFromBuffer(appIconPng({ size: 512, edition })))
+  }
   loginItem = makeLoginItem()
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
