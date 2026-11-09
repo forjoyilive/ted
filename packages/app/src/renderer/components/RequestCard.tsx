@@ -332,7 +332,7 @@ export function RequestCard({
       {request.kind === 'signoff' && request.stage === 'review' && (
         <ConfirmationRow request={request} task={task} />
       )}
-      {request.design ? (
+      {request.design && Object.keys(request.design).length > 0 ? (
         <DesignReviewContent
           design={request.design}
           files={request.attachments ?? []}

@@ -5255,7 +5255,8 @@ export function createTasks(options: {
           body: brief.text,
           author: { kind: 'run', runId },
           gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
-          ...(design && { attachments: designFiles(design), design: storedDesign(design) }),
+          ...(design && { attachments: designFiles(design) }),
+          ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
         })
         if (stage === 'validate') pullRequestWork(task.id, 'again')
         if (stage === 'review' || workflow.next(stage) === 'merge') {
@@ -5482,6 +5483,10 @@ function designNote(design: DesignSubmission, goal: string | undefined): string 
       : []),
     ...(design.figma ? [`Figma: ${design.figma.url}`] : []),
   ].join('\n\n')
+}
+
+function hasDesign(design: DesignReview): boolean {
+  return Object.keys(design).length > 0
 }
 
 function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {

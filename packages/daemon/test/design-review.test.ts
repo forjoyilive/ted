@@ -316,4 +316,21 @@ describe('the design review', () => {
     ])
     expect(await inbox(client)).toEqual([])
   })
+
+  test('an empty design file posts the review without a design, so the card shows the brief', async () => {
+    const client = await start()
+    const file = await designFile('empty.json', {})
+    await startTask(
+      client,
+      ...atDesign(
+        client,
+        { run: ['ted', 'outcome', 'advance', '--design', file] },
+        { endTurn: true },
+      ),
+    )
+    const { request } = await waitForRequest(client)
+    expect(request.kind).toBe('review')
+    expect(request.design).toBeUndefined()
+    expect(request.body).toContain('## Goal')
+  })
 })
