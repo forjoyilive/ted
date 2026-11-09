@@ -33,6 +33,8 @@ The daemon accepts three kinds of caller:
 | `ted backup restore` | `POST /backups/restore` |
 | `ted doctor` | `POST /integrations/check` |
 | `ted open` | `POST /app/open` |
+| `ted automation disable` | `POST /automations/:id/disable` |
+| (reads only: the next firings of a schedule) | `POST /automations/schedule-preview` |
 | (the app’s takeover) | `POST /shutdown` with `keepRuns: true` only |
 
 `ted status`, `ted task list`, `ted backup list`, `ted brief show`, `ted dev run show` and `ted workflow check` only read. Commands meant for Runs (`ted comment`, `ted ask`, `ted outcome`, `ted brief write`, `ted checks`, `ted status "…"`) use the Run token as before.

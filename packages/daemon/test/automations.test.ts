@@ -12,8 +12,10 @@ import type {
   RunWithConversation,
   Task,
 } from '@ted/protocol'
+import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   assistantTexts,
@@ -23,6 +25,7 @@ import {
   makeTempHome,
   stubClaudePath,
   stubCodexPath,
+  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -171,6 +174,54 @@ describe('Automations', () => {
     })
     expect(kept).toMatchObject({ effort: 'low' })
     expect(kept.model).toBeUndefined()
+  })
+
+  test('a Run token can only read Automations, and the file token can only read, preview and turn off', async () => {
+    const client = await startTed()
+    const automation = await create(client, { on: true })
+    const id = automation.id
+    const changes: [string, string, unknown?][] = [
+      ['POST', '/automations', {
+        name: 'Mine',
+        factory: 'NB',
+        prompt: 'x',
+        schedule: { kind: 'daily', at: '09:00' },
+      }],
+      ['PATCH', `/automations/${id}`, { name: 'Renamed' }],
+      ['POST', `/automations/${id}/enable`],
+      ['POST', `/automations/${id}/disable`],
+      ['POST', `/automations/${id}/run`],
+      ['POST', '/automation-runs/firing-1/retry'],
+      ['DELETE', `/automations/${id}`],
+    ]
+    const asRun = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1'),
+    )
+    for (const [method, route, body] of changes) {
+      expect(await asRun.call(method, route, body), `${method} ${route}`).toEqual({
+        status: 403,
+        body: { error: 'Ask the human to change Automations' },
+      })
+    }
+    const asFile = api(daemon?.port ?? 0, await tokenFor(home))
+    for (const [method, route, body] of changes.filter(([, r]) => !r.endsWith('/disable'))) {
+      expect(await asFile.call(method, route, body), `${method} ${route}`).toEqual({
+        status: 403,
+        body: { error: 'only the TED app can do this' },
+      })
+    }
+    expect((await detail(client, id)).automation).toMatchObject({ name: automation.name, on: true })
+    expect(
+      await asFile.call('POST', '/automations/schedule-preview', {
+        schedule: { kind: 'daily', at: '09:00' },
+        timeZone: 'Europe/London',
+      }),
+    ).toMatchObject({ status: 200 })
+    expect(await asFile.call('POST', `/automations/${id}/disable`)).toMatchObject({
+      status: 200,
+      body: { on: false },
+    })
   })
 
   test('the shortest interval is 15 minutes and bad schedules are refused', async () => {
