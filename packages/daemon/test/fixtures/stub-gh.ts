@@ -6,6 +6,7 @@ interface StubState {
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
   paths?: Record<string, { status?: number; message?: string; body?: unknown }>
+  pr?: { number?: number; createFails?: string }
 }
 
 const readyHosts = {
@@ -28,7 +29,8 @@ const args = process.argv.slice(2)
 
 const logPath = process.env.TED_STUB_GH_LOG
 if (logPath) {
-  const stdin = args.includes('--input') ? readFileSync(0, 'utf8') : undefined
+  const stdin =
+    args.includes('--input') || args.includes('--body-file') ? readFileSync(0, 'utf8') : undefined
   appendFileSync(
     logPath,
     `${JSON.stringify({
@@ -70,6 +72,19 @@ if (args[0] === '--version') {
     process.exit(1)
   }
   process.stdout.write(`${JSON.stringify(state.api?.body ?? {})}\n`)
+} else if (args[0] === 'pr') {
+  const repo = args[args.indexOf('--repo') + 1] ?? 'acme/widgets'
+  const number = state.pr?.number ?? 7
+  if (args[1] === 'create' && state.pr?.createFails) {
+    process.stderr.write(`${state.pr.createFails}\n`)
+    process.exit(1)
+  }
+  if (args[1] === 'create') process.stdout.write(`https://github.com/${repo}/pull/${number}\n`)
+  else if (args[1] === 'list') process.stdout.write('[]\n')
+  else if (!['ready', 'edit', 'close'].includes(args[1] ?? '')) {
+    process.stderr.write(`stub gh: unknown command ${args.join(' ')}\n`)
+    process.exit(1)
+  }
 } else {
   process.stderr.write(`stub gh: unknown command ${args.join(' ')}\n`)
   process.exit(1)

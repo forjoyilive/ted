@@ -83,3 +83,11 @@
   font-size: 12px;
   white-space: pre-wrap;
 }
+
+.pullRequest {
+  margin: 0;
+}
+
+.prState {
+  color: var(--text-tertiary);
+}

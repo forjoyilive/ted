@@ -145,13 +145,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
         ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
       })
+      const ghBin = given.ghBin ?? process.env.TED_GH_BIN
       const integrations = createIntegrations({
         store,
         banners,
         emit,
         openTerminal,
         loginShell: given.loginShell ?? false,
-        ...(given.ghBin !== undefined && { ghBin: given.ghBin }),
+        ...(ghBin !== undefined && { ghBin }),
         ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
         ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
         ...(given.watchAfterFix !== undefined && { watchAfterFix: given.watchAfterFix }),
@@ -200,6 +201,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         logsDir: paths.logs,
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
+        gh: integrations.gh,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
       })
