@@ -16,10 +16,12 @@ import {
 } from '../board.ts'
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
+import { boardEmpty } from '../empty-states.ts'
 import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
@@ -183,6 +185,7 @@ export function Board({
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
   const chips = filterChips(filters, factories)
+  const empty = boardEmpty(tasks, filters)
 
   function endDrag() {
     setDragging(undefined)
@@ -411,44 +414,71 @@ export function Board({
           ))}
         </div>
       )}
-      <div className={styles.board}>
-        {columns.map((column) => {
-          const state = columnState(column)
-          return (
-            <section
-              key={column.stage}
-              data-stage={column.stage}
-              data-drop={state}
-              className={[
-                styles.column,
-                column.turnedOff ? styles.turnedOff : '',
-                state ? styles[state] : '',
-              ].join(' ')}
-              aria-label={stageName(column.stage)}
-              onDragOver={(event) => onDragOver(event, column)}
-              onDrop={(event) => {
-                event.preventDefault()
-                onDrop().catch(report)
-              }}
+      <div className={styles.boardArea}>
+        <div className={styles.board}>
+          {columns.map((column) => {
+            const state = columnState(column)
+            return (
+              <section
+                key={column.stage}
+                data-stage={column.stage}
+                data-drop={state}
+                className={[
+                  styles.column,
+                  column.turnedOff ? styles.turnedOff : '',
+                  state ? styles[state] : '',
+                ].join(' ')}
+                aria-label={stageName(column.stage)}
+                onDragOver={(event) => onDragOver(event, column)}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  onDrop().catch(report)
+                }}
+              >
+                <h2 className={styles.columnTitle}>
+                  {stageName(column.stage)}
+                  <span className={styles.columnCount}>{column.tasks.length}</span>
+                  {column.gate && (
+                    <span className={styles.gate}>
+                      <LockIcon />
+                      Gate
+                    </span>
+                  )}
+                  {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}
+                  {column.stage === 'done' && (
+                    <DoneMenu count={allDone} onArchiveAll={() => setArchivingDone(true)} />
+                  )}
+                </h2>
+                {cards(column)}
+              </section>
+            )
+          })}
+        </div>
+        {empty === 'no-tasks' && (
+          <div className={styles.emptyOverlay}>
+            <EmptyState
+              card
+              title="No Tasks yet"
+              help="A Task is one piece of work that agents carry through this Factory’s Stages, from request to merge. Plan helps split a piece of work too big for one Task."
             >
-              <h2 className={styles.columnTitle}>
-                {stageName(column.stage)}
-                <span className={styles.columnCount}>{column.tasks.length}</span>
-                {column.gate && (
-                  <span className={styles.gate}>
-                    <LockIcon />
-                    Gate
-                  </span>
-                )}
-                {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}
-                {column.stage === 'done' && (
-                  <DoneMenu count={allDone} onArchiveAll={() => setArchivingDone(true)} />
-                )}
-              </h2>
-              {cards(column)}
-            </section>
-          )
-        })}
+              <Button variant="primary" size="small" onClick={onNewTask}>
+                New Task
+              </Button>
+              <Button size="small" onClick={onPlan}>
+                Plan
+              </Button>
+            </EmptyState>
+          </div>
+        )}
+        {empty === 'no-matches' && (
+          <div className={styles.emptyOverlay}>
+            <EmptyState card title="No Tasks match these filters">
+              <Button size="small" onClick={() => onFilters({})}>
+                Clear filters
+              </Button>
+            </EmptyState>
+          </div>
+        )}
       </div>
       {archivingDone && (
         <ArchiveDoneDialog

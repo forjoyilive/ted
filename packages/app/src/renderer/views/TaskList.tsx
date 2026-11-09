@@ -23,6 +23,7 @@ import {
   useState,
 } from 'react'
 import { Button } from '../components/Button.tsx'
+import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -772,43 +773,33 @@ export function TaskList({
   function empty() {
     if (inScope.length === 0) {
       return (
-        <div className={styles.empty}>
-          <p className={styles.emptyTitle}>No Tasks yet</p>
-          <div className={styles.emptyActions}>
-            <Button variant="primary" size="small" onClick={onNewTask}>
-              New Task
+        <EmptyState title="No Tasks yet">
+          <Button variant="primary" size="small" onClick={onNewTask}>
+            New Task
+          </Button>
+          {onPlan && (
+            <Button size="small" onClick={onPlan}>
+              Plan
             </Button>
-            {onPlan && (
-              <Button size="small" onClick={onPlan}>
-                Plan
-              </Button>
-            )}
-          </div>
-        </div>
+          )}
+        </EmptyState>
       )
     }
     if (archivedOnly && activeFilterCount(view.filters) === 1 && text === '') {
-      return (
-        <div className={styles.empty}>
-          <p className={styles.emptyTitle}>No archived Tasks</p>
-        </div>
-      )
+      return <EmptyState title="No archived Tasks" />
     }
     return (
-      <div className={styles.empty}>
-        <p className={styles.emptyTitle}>No Tasks match these filters</p>
-        <div className={styles.emptyActions}>
-          <Button
-            size="small"
-            onClick={() => {
-              setText('')
-              changeFilters({})
-            }}
-          >
-            Clear filters
-          </Button>
-        </div>
-      </div>
+      <EmptyState title="No Tasks match these filters">
+        <Button
+          size="small"
+          onClick={() => {
+            setText('')
+            changeFilters({})
+          }}
+        >
+          Clear filters
+        </Button>
+      </EmptyState>
     )
   }
 
