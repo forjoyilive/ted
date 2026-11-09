@@ -394,3 +394,134 @@
 .openRun:hover {
   text-decoration: underline;
 }
+
+.headRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mergeRows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  list-style: none;
+}
+
+.mergeRow {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.mergeRow + .mergeRow {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.mergeIndex {
+  color: var(--text-caption);
+  font-size: var(--text-13);
+  font-variant-numeric: tabular-nums;
+}
+
+.mergeBody {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mergeLine {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  font-size: var(--text-13);
+}
+
+.mergeRepo {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.mergeLink {
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--accent-link);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mergeLink:hover {
+  text-decoration: underline;
+}
+
+.mergeDetail {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.changes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-inset);
+}
+
+.changedFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.changedFile {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-13);
+}
+
+.changedRepo {
+  flex-shrink: 0;
+  color: var(--text-caption);
+}
+
+.changedPath {
+  overflow: hidden;
+  flex: 1;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12-5);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.noChanges {
+  color: var(--text-primary);
+}
+
+.counts {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.added {
+  color: var(--diff-added-count);
+}
+
+.removed {
+  color: var(--diff-removed-count);
+}

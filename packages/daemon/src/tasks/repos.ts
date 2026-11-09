@@ -44,10 +44,11 @@ export function factoryRepos(
       const repo = settings.remote === undefined ? undefined : githubRepoOf(settings.remote)
       if (repo === undefined || settings.remote === undefined) continue
       const stored = factory.repos.find((r) => sameRepo(r.repo, repo))
+      if (!stored) continue
       add({
-        name: settings.name ?? stored?.name ?? (repo.split('/')[1] ?? repo).toLowerCase(),
-        repo,
-        cloneUrl: stored?.cloneUrl ?? cloneUrlFor(settings.remote, repo),
+        name: settings.name ?? stored.name,
+        repo: stored.repo,
+        cloneUrl: stored.cloneUrl,
         primary: false,
         ...(settings.base_branch !== undefined && { baseBranch: settings.base_branch }),
         ...worktreeCommands(settings.worktree),
@@ -66,11 +67,6 @@ export function factoryRepos(
     }
   }
   return entries
-}
-
-function cloneUrlFor(remote: string, repo: string): string {
-  const ssh = /^(?:ssh:\/\/|[^@/:]+@github\.com:)/i.test(remote.trim())
-  return ssh ? `git@github.com:${repo}.git` : `https://github.com/${repo}.git`
 }
 
 export function findRepo(

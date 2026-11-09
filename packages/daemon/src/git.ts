@@ -385,6 +385,87 @@ export async function replayedTree(
   }
 }
 
+export interface FileChange {
+  path: string
+  added: number
+  removed: number
+}
+
+export async function changesBetween(
+  worktree: string,
+  input: { from: string; to: string; baseTip?: string },
+): Promise<FileChange[]> {
+  if (input.from === input.to) return []
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const base = input.baseTip
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-changes-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const bareEnv = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects })
+  const bare = async (args: string[], allowConflicts = false) => {
+    try {
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: scratch,
+        env: bareEnv,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+      return stdout
+    } catch (error) {
+      const { stdout, code } = error as { stdout?: string; code?: number }
+      if (allowConflicts && code === 1 && stdout) return stdout
+      throw new GitError(`git ${args[0]} failed`)
+    }
+  }
+  try {
+    await bare(['init', '--bare', '--quiet', gitDir])
+    const ancestor = await bare(['merge-base', '--is-ancestor', input.from, input.to]).then(
+      () => true,
+      () => false,
+    )
+    let from = input.from
+    if (!ancestor && base !== undefined) {
+      const mergeBaseOf = (a: string, b: string) =>
+        bare(['merge-base', a, b]).then(
+          (out) => out.trim(),
+          () => '',
+        )
+      const oldBase = await mergeBaseOf(input.from, base)
+      const newBase = await mergeBaseOf(input.to, base)
+      if (oldBase !== '' && newBase !== '') {
+        const replayed = await bare(
+          ['merge-tree', '--write-tree', '--merge-base', oldBase, newBase, input.from],
+          true,
+        )
+        from = replayed.split('\n')[0]?.trim() || input.from
+      }
+    }
+    const out = await bare([
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-renames',
+      '--numstat',
+      '-z',
+      from,
+      input.to,
+      '--',
+    ])
+    return out
+      .split('\0')
+      .filter((entry) => entry !== '')
+      .map((entry) => {
+        const [added = '', removed = '', ...rest] = entry.split('\t')
+        return {
+          path: rest.join('\t'),
+          added: Number.parseInt(added, 10) || 0,
+          removed: Number.parseInt(removed, 10) || 0,
+        }
+      })
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
 export async function headCommit(worktree: string): Promise<string> {
   return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
 }
@@ -416,4 +497,96 @@ export async function moveBranchTo(worktree: string, commit: string): Promise<vo
     '--keep',
     commit,
   )
+}
+
+export async function commitAndPush(
+  clone: string,
+  options: {
+    base: string
+    files: Record<string, string | null>
+    message: string
+    branch: string
+    url: string
+    timeoutMs?: number
+  },
+): Promise<string> {
+  const objects = path.join(clone, '.git', 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-commit-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv(
+    {},
+    { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(scratch, 'index') },
+  )
+  const run = async (
+    args: string[],
+    input?: string,
+    extra: NodeJS.ProcessEnv = {},
+    timeout?: number,
+  ): Promise<string> => {
+    const running = execFileAsync('git', args, {
+      cwd: scratch,
+      env: { ...env, ...extra },
+      maxBuffer: 16 * 1024 * 1024,
+      ...(timeout !== undefined && { timeout }),
+    })
+    running.child.stdin?.end(input ?? '')
+    return (await running).stdout.trim()
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await run(['read-tree', `${options.base}^{tree}`])
+    for (const [file, text] of Object.entries(options.files)) {
+      if (text === null) {
+        await run(['update-index', '--force-remove', '--', file])
+        continue
+      }
+      const blob = await run(['hash-object', '-w', '--no-filters', '--stdin'], text)
+      await run(['update-index', '--add', '--cacheinfo', `100644,${blob},${file}`])
+    }
+    const tree = await run(['write-tree'])
+    const identity = await run(['var', 'GIT_COMMITTER_IDENT']).then(
+      () => ({}),
+      () => ({
+        GIT_AUTHOR_NAME: 'TED',
+        GIT_AUTHOR_EMAIL: 'ted@localhost',
+        GIT_COMMITTER_NAME: 'TED',
+        GIT_COMMITTER_EMAIL: 'ted@localhost',
+      }),
+    )
+    const commit = await run(
+      ['commit-tree', tree, '-p', options.base, '-F', '-'],
+      `${options.message}\n`,
+      identity,
+    )
+    await run(
+      [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'protocol.ext.allow=never',
+        'push',
+        '--no-verify',
+        '--porcelain',
+        '--',
+        options.url,
+        `${commit}:refs/heads/${options.branch}`,
+      ],
+      undefined,
+      {},
+      options.timeoutMs ?? 5 * 60_000,
+    )
+    return commit
+  } catch (error) {
+    const output = `${(error as { stdout?: string }).stdout ?? ''}\n${(error as { stderr?: string }).stderr ?? ''}`
+    const reason = output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:|!)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`saving TED settings failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
 }

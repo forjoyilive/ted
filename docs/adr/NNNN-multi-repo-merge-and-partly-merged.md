@@ -22,5 +22,5 @@ TED never reverts a merged pull request.
 
 ## Consequences
 
-- The re-sign-off card’s “Changes since you approved” block and the Merge Gate’s rows per pull request come with KRI-131.
+- The Merge Gate (ADR 0062-merge-gate-merge-off-re-sign-off-and-ci-stuck) is posted only once every open pull request is ready, so its rows follow the same `repos` order; auto-merge stays off with a Merge Gate, as there.
 - A pull request auto-merge was turned on for while the Task had one repo keeps it if a second repo is added later; GitHub may then merge it before the other is green.

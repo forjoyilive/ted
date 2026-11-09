@@ -883,6 +883,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestAutoMergeDisabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeDisabled',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
   pullRequestMerged: Events.synced({
     name: 'v1.PullRequestMerged',
     schema: Schema.Struct({
@@ -922,6 +926,14 @@ export const events = {
       onto: Schema.String,
       at: Schema.String,
     }),
+  }),
+  mergeStarted: Events.synced({
+    name: 'v1.MergeStarted',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  mergeCanceled: Events.synced({
+    name: 'v1.MergeCanceled',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -1065,6 +1077,24 @@ export const events = {
   localFolderSet: Events.synced({
     name: 'v1.LocalFolderSet',
     schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
+  }),
+  localFolderCleared: Events.synced({
+    name: 'v1.LocalFolderCleared',
+    schema: Schema.Struct({ repo: Schema.String, at: Schema.String }),
+  }),
+  factoryRenamed: Events.synced({
+    name: 'v1.FactoryRenamed',
+    schema: Schema.Struct({ factoryId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  factoryReposChanged: Events.synced({
+    name: 'v1.FactoryReposChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
   }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
@@ -1510,8 +1540,12 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
   'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
+  'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
+  'v1.MergeStarted': (args) => task(args),
+  'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1655,6 +1689,8 @@ const materializers = counted(
       ],
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -1978,6 +2014,8 @@ const materializers = counted(
         pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
         pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeDisabled': ({ taskId, name }) =>
+        pullRequests.update({ autoMerge: null }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
         pullRequests
           .update({
@@ -1998,6 +2036,15 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+      'v1.LocalFolderCleared': ({ repo }) => localFolders.delete().where({ repo }),
+      'v1.FactoryRenamed': ({ factoryId, name }) =>
+        factories.update({ name }).where({ id: factoryId }),
+      'v1.FactoryReposChanged': ({ factoryId, repos }) => [
+        factoryRepos.delete().where({ factoryId }),
+        ...repos.map((repo, position) =>
+          factoryRepos.insert({ ...repo, id: `${factoryId}:${position}`, factoryId, position }),
+        ),
+      ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
           .insert({ layer, files, version, acceptedAt: at })

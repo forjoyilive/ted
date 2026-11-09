@@ -26,6 +26,7 @@ export function CommentBox({ task }: { task: Task }) {
   const note = notes[state]
 
   const resumes = state === 'stopped'
+  const cancels = state === 'merge-pending'
 
   if (state === 'archived') {
     return (
@@ -41,6 +42,7 @@ export function CommentBox({ task }: { task: Task }) {
     setError(undefined)
     try {
       if (andResume) await ted.resumeTask(task.id, text)
+      else if (cancels) await ted.cancelMerge(task.id, text)
       else await ted.postComment(task.id, text)
       setText('')
     } catch (failed) {
@@ -52,6 +54,11 @@ export function CommentBox({ task }: { task: Task }) {
 
   return (
     <div className={styles.composer} data-state={state}>
+      {cancels && (
+        <p className={styles.mergeNote}>
+          The merge is pending. Sending a Comment now cancels it and counts as Request changes.
+        </p>
+      )}
       <textarea
         className={styles.box}
         aria-label="Comment"
@@ -72,11 +79,11 @@ export function CommentBox({ task }: { task: Task }) {
       <div className={styles.buttons}>
         {note !== undefined && <Help>{note}</Help>}
         <Button
-          variant={resumes ? 'secondary' : 'primary'}
+          variant={cancels ? 'danger' : resumes ? 'secondary' : 'primary'}
           disabled={sending || !typed}
           onClick={() => void send()}
         >
-          {state === 'done' ? 'Comment only' : 'Send'}
+          {state === 'done' ? 'Comment only' : cancels ? 'Send and cancel merge' : 'Send'}
         </Button>
         {resumes && (
           <Button variant="primary" disabled={sending || !typed} onClick={() => void send(true)}>
