@@ -112,6 +112,7 @@ import {
 } from './failures.ts'
 import {
   activityMessage,
+  failedCheckList,
   failedChecks,
   freshRunReason,
   type GitHubNotice,
@@ -120,6 +121,7 @@ import {
   logTail,
   noticesFor,
   previewOf,
+  trustedCheck,
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
@@ -993,7 +995,9 @@ export function createTasks(options: {
     const tails = new Map<string, string>()
     const gh = options.gh
     if (!gh) return tails
-    for (const check of failedChecks(pr).slice(0, 5)) {
+    for (const check of failedChecks(pr)
+      .filter((c) => trustedCheck(pr, c))
+      .slice(0, 5)) {
       const logPath = jobLogPath(repo, check)
       if (logPath === undefined) continue
       try {
@@ -1730,7 +1734,10 @@ export function createTasks(options: {
         case 'ci-failed':
           return mergeSendBack(
             taskId,
-            `CI failed on ${target.repo}#${target.number} at Merge: ${step.checks.join(', ')}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
+            `CI failed on ${target.repo}#${target.number} at Merge: ${failedCheckList(
+              pr,
+              relevantChecks(pr).filter((c) => c.state === 'failed'),
+            )}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
           )
         case 'wait':
           if (
