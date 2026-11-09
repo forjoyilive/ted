@@ -3905,7 +3905,9 @@ export function createTasks(options: {
     const resolution =
       original.lead && !input.automation
         ? undefined
-        : await resolveWorkflow(factoryOf(original), { fetch: false })
+        : await resolveWorkflow(factoryOf(original), {
+            fetch: input.automation !== undefined && cloned(original.factoryId),
+          })
     const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
     const text = input.description?.trim() ?? ''
     refuseOpen()
