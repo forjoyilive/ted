@@ -146,6 +146,29 @@ export function threadEvents(
       case 'v1.TaskArchived':
         add(entry, 'edit', 'You archived this Task')
         break
+      case 'v2.TaskArchived': {
+        const closing = Array.isArray(data.closing) ? data.closing.map(String) : []
+        const branches = typeof data.branches === 'number' ? data.branches : 0
+        add(
+          entry,
+          'edit',
+          [
+            'You archived this Task',
+            ...(closing.length > 0 ? [`closed ${joinAnd(closing)} on GitHub`] : []),
+            ...(branches === 1 ? ['kept the branch'] : branches > 1 ? ['kept the branches'] : []),
+          ].join(' · '),
+        )
+        break
+      }
+      case 'v1.TaskUnarchived':
+        add(
+          entry,
+          'edit',
+          data.queued === true
+            ? 'You unarchived this Task · a fresh Task Lead Run starts from the brief'
+            : 'You unarchived this Task',
+        )
+        break
       case 'v1.TaskBlockerAdded':
       case 'v2.TaskBlockerAdded':
         add(
@@ -404,4 +427,9 @@ export function threadEvents(
     }
   }
   return lines
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }
