@@ -74,6 +74,7 @@ Merge it.
 `
 
 export interface GhMerge {
+  disableAutoFails?: boolean
   title?: string
   origin?: string
   mergeState?: string

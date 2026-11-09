@@ -93,7 +93,7 @@ function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string
 }
 
 function changedRepos(changes: SignOffChanges) {
-  return changes.repos.filter((r) => r.files.length > 0)
+  return changes.repos.filter((r) => r.files.length > 0 || r.unavailable)
 }
 
 function MergeChangesLine({ changes }: { changes: SignOffChanges }) {
@@ -114,7 +114,9 @@ function ChangesBlock({ changes }: { changes: SignOffChanges }) {
             ? [
                 <li key={repo.name} className={styles.changedFile}>
                   <span className={styles.changedRepo}>{repo.name}</span>
-                  <span className={styles.noChanges}>no changes</span>
+                  <span className={styles.noChanges}>
+                    {repo.unavailable ? 'TED couldn’t compare this repo' : 'no changes'}
+                  </span>
                 </li>,
               ]
             : repo.files.map((file) => (
@@ -279,7 +281,8 @@ export function RequestCard({
   const [showingFirst, setShowingFirst] = useState(false)
   const changes = request.gate?.changes
   const rows = request.gate?.pullRequests
-  const short = changes !== undefined && rows === undefined
+  const short =
+    changes !== undefined && rows === undefined && !changes.repos.some((r) => r.unavailable)
 
   async function send(answer: AnswerRequest) {
     setSending(true)
@@ -309,7 +312,7 @@ export function RequestCard({
     >
       <div className={styles.headRow}>
         <CardHead request={request} task={task} now={now} />
-        {short && !readOnly && (
+        {changes && !rows && !readOnly && (
           <button
             type="button"
             className={styles.showRequest}
@@ -320,11 +323,11 @@ export function RequestCard({
           </button>
         )}
       </div>
-      {showingFirst && short && <FirstSignOff id={changes.since} task={task} />}
+      {showingFirst && changes && !rows && <FirstSignOff id={changes.since} task={task} />}
       <h2 className={styles.title}>{headline(request)}</h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
-      {short && <ChangesBlock changes={changes} />}
+      {changes && !rows && <ChangesBlock changes={changes} />}
       {request.kind === 'signoff' && request.stage === 'review' && (
         <ConfirmationRow request={request} task={task} />
       )}

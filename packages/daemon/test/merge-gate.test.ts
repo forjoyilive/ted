@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { type Comment, type InboxItem, type Task, tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -83,6 +83,22 @@ describe('Merge Gate', () => {
     const done = await waitForStage(client, task, 'done')
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await merges()).toHaveLength(1)
+  })
+
+  test('Request changes at the Merge Gate holds the merge until the Task goes back', async () => {
+    const client = await start({
+      workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
+    })
+    const { task, signoff } = await toSignoff(client)
+    await writeFile(client.mergingFile, '')
+    await client.ok('POST', `/comments/${signoff.id}/answer`, {
+      action: 'request-changes',
+      text: 'Not yet.',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
+    expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
+    expect(await merges()).toEqual([])
   })
 
   test('with no Review Gate, the Merge sign-off carries the brief', async () => {
@@ -257,6 +273,44 @@ describe('Sending after sign-off', () => {
   })
 })
 
+describe('Cancelling when GitHub won’t turn auto-merge off', () => {
+  test('the cancel fails closed and TED keeps trying until auto-merge is off', async () => {
+    const client = await start({
+      files: ci,
+      merge: {
+        mergeState: 'BLOCKED',
+        autoMergeAllowed: true,
+        disableAutoFails: true,
+        checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }],
+      },
+    })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.repos[0]?.pullRequest?.autoMerge && current.commentBox === 'merge-pending'
+    }, 'auto-merge and a pending merge')
+
+    const failed = await client.call('POST', `/tasks/${task.id}/cancel-merge`, {
+      comment: 'Stop.',
+    })
+    expect(failed.status).toBe(502)
+    expect(JSON.stringify(failed.body)).toContain('auto-merge is still on for acme/widgets#7')
+    const stuck = await getTask(client, task.id)
+    expect(stuck.repos[0]?.pullRequest?.autoMerge).toBeDefined()
+    expect(stuck.activity).toBe(
+      'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off',
+    )
+
+    await setGh({ disableAutoFails: false })
+    await waitUntil(
+      async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.autoMerge === undefined,
+      'auto-merge to be turned off',
+    )
+    expect((await readGh()).merge.autoMerge).toBeUndefined()
+  })
+})
+
 describe('CI stuck', () => {
   const stuck = { noChecks: 300, pending: 700 }
 
@@ -295,6 +349,18 @@ describe('CI stuck', () => {
     })
     const done = await waitForStage(client, task, 'done')
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+  })
+
+  test('CI that never starts is asked about even while a GitHub review is also missing', async () => {
+    const client = await start({
+      files: ci,
+      ciStuckMs: stuck,
+      merge: { reviewDecision: 'REVIEW_REQUIRED', mergeState: 'BLOCKED' },
+    })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    const asked = await question(client, task, 1)
+    expect(asked.title).toBe('CI hasn’t started on acme/widgets#7')
   })
 
   test('a required check still pending offers no Merge anyway, and the question goes away when CI reports', async () => {

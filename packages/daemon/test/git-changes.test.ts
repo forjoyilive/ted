@@ -45,25 +45,37 @@ test('changes since sign-off leave out what the base added, after a rebase', asy
   const approved = await commit({ 'search.ts': 'a\nb\nc\nguard\n' }, 'guard')
   await git('checkout', '-q', 'main')
   await commit({ 'other.ts': 'x\ny\nz\n' }, 'main moved')
-  await git('update-ref', 'refs/remotes/origin/main', 'main')
+  const baseTip = await git('rev-parse', 'main')
   await git('checkout', '-q', 'task')
   await git('rebase', '-q', 'main')
   const head = await commit({ 'search.test.ts': 'test\ntest\n' }, 'test')
   const marker = path.join(dir, '..', `${path.basename(dir)}-ran`)
   await git('config', 'diff.external', `touch '${marker}'`)
 
-  const changes = await changesBetween(dir, {
-    from: approved,
-    to: head,
-    base: 'refs/remotes/origin/main',
-  })
+  const changes = await changesBetween(dir, { from: approved, to: head, baseTip })
 
   expect(changes).toEqual([{ path: 'search.test.ts', added: 2, removed: 0 }])
   await expect(access(marker)).rejects.toThrow()
 })
 
+test('with no trusted base, a rebase shows everything that differs, never less', async () => {
+  await git('init', '-q', '--initial-branch=main')
+  await commit({ 'search.ts': 'a\n', 'other.ts': 'x\n' }, 'base')
+  await git('checkout', '-qb', 'task')
+  const approved = await commit({ 'search.ts': 'a\nguard\n' }, 'guard')
+  await git('checkout', '-q', 'main')
+  await commit({ 'other.ts': 'x\ny\n' }, 'main moved')
+  await git('checkout', '-q', 'task')
+  await git('rebase', '-q', 'main')
+  const head = await git('rev-parse', 'HEAD')
+
+  const changes = await changesBetween(dir, { from: approved, to: head })
+
+  expect(changes).toEqual([{ path: 'other.ts', added: 1, removed: 0 }])
+})
+
 test('no changes when the head is the approved commit', async () => {
   await git('init', '-q', '--initial-branch=main')
   const only = await commit({ 'a.ts': 'a\n' }, 'one')
-  expect(await changesBetween(dir, { from: only, to: only, base: 'main' })).toEqual([])
+  expect(await changesBetween(dir, { from: only, to: only })).toEqual([])
 })

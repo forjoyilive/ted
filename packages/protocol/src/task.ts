@@ -352,7 +352,7 @@ export interface MergeRow {
 export interface SignOffChanges {
   since: string
   summary?: string
-  repos: { name: string; files: ChangedFile[] }[]
+  repos: { name: string; files: ChangedFile[]; unavailable?: boolean }[]
 }
 
 export interface ChangedFile {

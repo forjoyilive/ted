@@ -23,6 +23,7 @@ export interface TaskFacts {
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
   mergePending?: boolean
+  autoMergeLeft?: boolean
   needsPlanning?: boolean
   agentActivity?: string
   archived?: boolean
@@ -94,6 +95,9 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
+  if (facts.autoMergeLeft) {
+    return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
+  }
   if (facts.checking) {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`

@@ -823,6 +823,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestAutoMergeDisabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeDisabled',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
   pullRequestMerged: Events.synced({
     name: 'v1.PullRequestMerged',
     schema: Schema.Struct({
@@ -1445,6 +1449,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
   'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
   'v1.MergeStarted': (args) => task(args),
@@ -1861,6 +1866,8 @@ const materializers = counted(
         pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
         pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeDisabled': ({ taskId, name }) =>
+        pullRequests.update({ autoMerge: null }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
         pullRequests
           .update({

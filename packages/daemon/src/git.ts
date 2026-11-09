@@ -373,20 +373,12 @@ export interface FileChange {
 
 export async function changesBetween(
   worktree: string,
-  input: { from: string; to: string; base: string },
+  input: { from: string; to: string; baseTip?: string },
 ): Promise<FileChange[]> {
   if (input.from === input.to) return []
   const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
   const objects = path.join(path.resolve(worktree, common), 'objects')
-  const base = await git(
-    worktree,
-    ...noHooks,
-    'rev-parse',
-    '--verify',
-    '--quiet',
-    '--end-of-options',
-    `${input.base}^{commit}`,
-  ).catch(() => undefined)
+  const base = input.baseTip
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-changes-'))
   const gitDir = path.join(scratch, 'repo.git')
   const bareEnv = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects })
@@ -411,14 +403,14 @@ export async function changesBetween(
       () => false,
     )
     let from = input.from
-    if (!ancestor) {
+    if (!ancestor && base !== undefined) {
       const mergeBaseOf = (a: string, b: string) =>
         bare(['merge-base', a, b]).then(
           (out) => out.trim(),
           () => '',
         )
-      const oldBase = await mergeBaseOf(input.from, base ?? input.to)
-      const newBase = await mergeBaseOf(input.to, base ?? input.from)
+      const oldBase = await mergeBaseOf(input.from, base)
+      const newBase = await mergeBaseOf(input.to, base)
       if (oldBase !== '' && newBase !== '') {
         const replayed = await bare(
           ['merge-tree', '--write-tree', '--merge-base', oldBase, newBase, input.from],

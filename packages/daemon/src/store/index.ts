@@ -395,6 +395,7 @@ export interface TedStore {
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
   mergeCanceled(taskId: string, commentId: string): void
   mergePending(taskId: string): boolean
@@ -819,6 +820,16 @@ export async function openStore({
     return last?.name === 'v1.MergeStarted'
   }
 
+  const mergeCanceledFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    return store
+      .query(queryDb(taskLog.where({ taskId, name: 'v1.MergeCanceled' })))
+      .some((e) => e.at >= since)
+  }
+
   const isMerged = (taskId: string): boolean =>
     taskRow(taskId)?.stage === 'done' &&
     store
@@ -908,6 +919,14 @@ export async function openStore({
             ?.waiting
         : undefined
     const mergeWaits = stage === 'merge' && mergePendingFor(row.id, entries, repos)
+    const autoMergeLeft =
+      stage === 'merge' &&
+      !mergeWaits &&
+      repos.some(
+        (r) =>
+          !r.removed && r.pullRequest?.autoMerge !== undefined && r.pullRequest.state !== 'merged',
+      ) &&
+      mergeCanceledFor(row.id, entries)
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -940,6 +959,7 @@ export async function openStore({
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(github !== undefined && { github }),
       ...(mergeWaits && { mergePending: true }),
+      ...(autoMergeLeft && { autoMergeLeft: true }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1801,6 +1821,10 @@ export async function openStore({
       updatedTask(taskId)
     },
     isMerged: (taskId) => isMerged(taskId),
+    autoMergeDisabled(taskId, name) {
+      commit(events.pullRequestAutoMergeDisabled({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     mergeStarted(taskId) {
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)

@@ -742,10 +742,7 @@ export function createTasks(options: {
     if (task.stage !== 'merge' || task.archived) return undefined
     if (!workflow.stages.includes('merge')) return 'off'
     const since = visitStart(task)
-    const canceled = store
-      .taskLog(task.id)
-      .some((e) => e.name === 'v1.MergeCanceled' && e.at >= since)
-    if (canceled) return 'canceled'
+    if (lastChangesRequested(task) !== '') return 'canceled'
     if (workflow.settings.stages.merge?.gate !== true) return 'merge'
     const approved = store
       .listComments(task.id)
@@ -1155,10 +1152,14 @@ export function createTasks(options: {
     const approval = lastApproval(task)
     if (approval?.answer?.kind !== 'approved') return undefined
     const approvedAt = approval.answer.at
+    await pullRequestQueue.get(task.id)
+    const current = find(task.id)
     const log = store.taskLog(task.id)
-    const targets = await pullRequestTargets(task)
+    const targets = await pullRequestTargets(current)
     const repos: SignOffChanges['repos'] = []
     for (const target of targets) {
+      const repo = current.repos.find((r) => r.name === target.name)
+      const to = repo?.pullRequest?.signedOff ?? repo?.pushed?.commit
       const approved = log.find(
         (e) =>
           e.name === 'v1.PullRequestSignedOff' &&
@@ -1166,23 +1167,27 @@ export function createTasks(options: {
           e.data.name === target.name &&
           typeof e.data.commit === 'string',
       )?.data.commit as string | undefined
-      if (approved === undefined) continue
-      const repo = task.repos.find((r) => r.name === target.name)
+      if (approved === undefined || to === undefined) continue
       const base = repo?.pullRequest?.base ?? target.base
+      const baseTip = await git
+        .fetchBranch(target.worktree, { url: target.url, branch: base, haves: [approved, to] })
+        .catch(() => undefined)
       const files = await git
         .changesBetween(target.worktree, {
           from: approved,
-          to: await git.headCommit(target.worktree),
-          base: `refs/remotes/origin/${base}`,
+          to,
+          ...(baseTip !== undefined && { baseTip }),
         })
         .catch((error: unknown) => {
           console.error(
             `couldn’t list the changes since sign-off in ${target.name}:`,
             redactSecrets(textOf(error)),
           )
-          return []
+          return undefined
         })
-      repos.push({ name: target.name, files })
+      repos.push(
+        files ? { name: target.name, files } : { name: target.name, files: [], unavailable: true },
+      )
     }
     if (repos.length === 0) return undefined
     return {
@@ -1245,17 +1250,8 @@ export function createTasks(options: {
       return comment
     })
     await mergeInFlight.get(task.id)
-    const gh = options.gh
-    for (const repo of find(task.id).repos) {
-      const pr = repo.pullRequest
-      if (!gh || !pr || pr.autoMerge === undefined || pr.state === 'merged') continue
-      await disableAutoMerge(gh, { repo: repo.repo, number: pr.number }).catch((error: unknown) =>
-        console.error(
-          `couldn’t turn off auto-merge for ${repo.repo}#${pr.number}:`,
-          redactSecrets(textOf(error)),
-        ),
-      )
-    }
+    const stillOn = await turnOffAutoMerge(task.id)
+    watchMerge(task.id)
     for (const repo of find(task.id).repos) {
       if (repo.pullRequest?.waiting !== undefined && repo.pullRequest.state !== 'merged') {
         store.pullRequestWaiting(task.id, repo.name, undefined)
@@ -1263,13 +1259,42 @@ export function createTasks(options: {
     }
     const current = find(task.id)
     const run = liveLead(current)
-    if (!run) return store.getComment(posted.id) ?? posted
-    await sendComment(run.id, posted)
-    await deliver(
-      current,
-      'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
-    )
+    if (run) {
+      await sendComment(run.id, posted)
+      await deliver(
+        current,
+        'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+      )
+    }
+    if (stillOn.length > 0) {
+      throw new RequestError(
+        502,
+        `Your Comment is posted and TED won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. TED keeps trying to turn it off.`,
+      )
+    }
     return store.getComment(posted.id) ?? posted
+  }
+
+  async function turnOffAutoMerge(taskId: string): Promise<string[]> {
+    const gh = options.gh
+    const stillOn: string[] = []
+    for (const repo of find(taskId).repos) {
+      const pr = repo.pullRequest
+      if (repo.removed || !pr || pr.autoMerge === undefined || pr.state === 'merged') continue
+      const where = `${repo.repo}#${pr.number}`
+      if (!gh) {
+        stillOn.push(where)
+        continue
+      }
+      try {
+        await disableAutoMerge(gh, { repo: repo.repo, number: pr.number })
+        store.autoMergeDisabled(taskId, repo.name)
+      } catch (error) {
+        console.error(`couldn’t turn off auto-merge for ${where}:`, redactSecrets(textOf(error)))
+        stillOn.push(where)
+      }
+    }
+    return stillOn
   }
 
   async function watchOnlyCycle(taskId: string): Promise<MergeCycle> {
@@ -1325,7 +1350,8 @@ export function createTasks(options: {
     if (task.stage === 'done') return watchOnlyCycle(taskId)
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
-    if (mode === undefined || mode === 'canceled') return 'done'
+    if (mode === undefined) return 'done'
+    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'off') return watchOnlyCycle(taskId)
     if (mode === 'merge') startMerging(task)
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
@@ -1437,7 +1463,9 @@ export function createTasks(options: {
             break
           }
           setWait(taskId, target.name, step.on)
-          if (step.on === 'ci') waitingForCi.push({ target, pr })
+          if (ciState(target, pr, { mergeAnyway: anyway }) === 'pending') {
+            waitingForCi.push({ target, pr })
+          }
           if (step.autoMerge && mode === 'merge') await enableAutoMerge(gh, task, target, pr)
           break
         case 'merge':

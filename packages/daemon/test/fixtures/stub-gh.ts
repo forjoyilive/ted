@@ -24,6 +24,7 @@ interface StubCheck {
 
 interface StubMerge {
   origin?: string
+  disableAutoFails?: boolean
   title?: string
   mergeState?: string
   mergeable?: string
@@ -185,6 +186,10 @@ function rebaseBranch(): string {
 function mergePullRequest(): void {
   const merge = state.merge ?? {}
   if (args.includes('--disable-auto')) {
+    if (merge.disableAutoFails) {
+      process.stderr.write('GraphQL: Something went wrong (disablePullRequestAutoMerge)\n')
+      process.exit(1)
+    }
     delete merge.autoMerge
     state.merge = merge
     save()
