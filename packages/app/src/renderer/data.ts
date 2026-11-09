@@ -66,11 +66,13 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   return [...byId.values()]
 }
 
+const keepAll = () => undefined
+
 function useLive<T extends { id: string }>(
   load: () => Promise<T[]>,
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
-  drop: (event: TedEvent) => string | undefined = () => undefined,
+  drop: (event: TedEvent) => string | undefined = keepAll,
 ): T[] {
   const [items, setItems] = useState<T[]>([])
   const { epoch } = useConnection()
