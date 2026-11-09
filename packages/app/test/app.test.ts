@@ -1288,7 +1288,8 @@ describe('Working Runs', () => {
     await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
 
     const popover = window.getByRole('dialog', { name: 'Working Runs' })
-    await popover.getByText('1 of 1 slots on this Mac').waitFor()
+    const machine = process.platform === 'darwin' ? 'this Mac' : 'this computer'
+    await popover.getByText(`1 of 1 slots on ${machine}`).waitFor()
     const working = popover.getByRole('region', { name: 'Working' })
     await working.getByText('NB-1', { exact: true }).waitFor()
     await working.getByText('widgets · Task Lead').waitFor()
