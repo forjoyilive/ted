@@ -680,7 +680,9 @@ describe('TED app frame', () => {
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
-    expect(await appearance.getByRole('radio', { name: 'Light' }).isChecked()).toBe(true)
+    await expect
+      .poll(() => appearance.getByRole('radio', { name: 'Light' }).isChecked(), { timeout: 5_000 })
+      .toBe(true)
   })
 
   test('the Appearance setting applies when the app starts', async () => {
@@ -2110,7 +2112,7 @@ describe('List and All Tasks', () => {
         .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
         .every((t) => t.archived !== undefined),
     )
-    expect(await rowIds(window)).toEqual(['MS-2'])
+    await expect.poll(() => rowIds(window)).toEqual(['MS-2'])
 
     await main.getByRole('button', { name: 'Filter' }).click()
     await main.getByRole('menuitemradio', { name: 'Only' }).click()

@@ -80,6 +80,7 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
   const log = await readFile(path.join(home, 'runs', runId, 'host.log'), 'utf8').catch(() => '')
   return log
     .split('\n')
+    .slice(0, -1)
     .filter((l) => l !== '')
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
