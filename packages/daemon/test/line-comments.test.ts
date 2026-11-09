@@ -315,6 +315,25 @@ describe('sending', () => {
   })
 })
 
+test('a line comment on a file with CRLF line endings isn’t outdated until its line changes', async () => {
+  const client = await startTed()
+  const { task, worktree } = await startedTask(client)
+  await writeFile(path.join(worktree, 'win.txt'), 'alpha\r\nbeta\r\n')
+  await client.ok('POST', `/tasks/${task.id}/line-comments`, {
+    repo: 'widgets',
+    path: 'win.txt',
+    from: { new: 2 },
+    body: 'Rename beta.',
+  })
+
+  const before = await client.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)
+  await writeFile(path.join(worktree, 'win.txt'), 'alpha\r\ngamma\r\n')
+  const after = await client.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)
+
+  expect(before[0]?.outdated).toBeUndefined()
+  expect(after[0]?.outdated).toBe(true)
+})
+
 describe('at a Gate', () => {
   const workflow = 'version: 1\norder: [intake, design, work, merge]\n'
   const gateTask = async (client: Client) => {

@@ -1,4 +1,4 @@
-import { lstat, readFile } from 'node:fs/promises'
+import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   DiffRow,
@@ -121,17 +121,27 @@ export async function markOutdated(
   )
 }
 
+const maxReadBytes = 20 * 1024 * 1024
+
+const withoutCr = (text: string) => text.replace(/\r$/, '')
+
 async function newSideChanged(comment: LineComment, worktree: string): Promise<boolean> {
   const file = path.join(worktree, comment.path)
   const inside = path.relative(worktree, file)
   if (inside.startsWith('..') || path.isAbsolute(inside)) return true
   const stat = await lstat(file).catch(() => undefined)
   if (!stat) return true
-  if (!stat.isFile()) return false
-  const lines = (await readFile(file, 'utf8')).split('\n')
-  return comment.quoted.some(
-    (row) => row.new !== undefined && lines[row.new - 1]?.replace(/\r$/, '') !== row.text,
-  )
+  if (!stat.isFile() || stat.size > maxReadBytes) return false
+  const [root, real] = await Promise.all([realpath(worktree), realpath(file)]).catch(() => [])
+  if (root === undefined || real === undefined) return true
+  const within = path.relative(root, real)
+  if (within.startsWith('..') || path.isAbsolute(within)) return false
+  const lines = (await readFile(real, 'utf8')).split('\n')
+  return comment.quoted.some((row) => {
+    if (row.new === undefined) return false
+    const line = lines[row.new - 1]
+    return line === undefined || withoutCr(line) !== withoutCr(row.text)
+  })
 }
 
 function oldSideChanged(comment: LineComment, diff: FileDiff | undefined): boolean {
@@ -140,7 +150,7 @@ function oldSideChanged(comment: LineComment, diff: FileDiff | undefined): boole
   return comment.quoted.some(
     (quoted) =>
       quoted.old !== undefined &&
-      !rows.some((row) => row.old === quoted.old && row.text === quoted.text),
+      !rows.some((row) => row.old === quoted.old && withoutCr(row.text) === withoutCr(quoted.text)),
   )
 }
 
