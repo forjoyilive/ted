@@ -14,7 +14,8 @@ import {
 } from '@ted/protocol'
 import { compareVersions } from './backups.ts'
 import type { Banners } from './banners.ts'
-import { findBin, readLoginEnv } from './cli-env.ts'
+import { findBin } from './cli-env.ts'
+import { createEnvironment, type Environment, ghEnv, gitEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { createGh, type Gh } from './github/gh.ts'
 import { redactSecrets } from './redact.ts'
@@ -38,6 +39,7 @@ export interface IntegrationsOptions {
   ghBin?: string
   gitBin?: string
   loginShell?: boolean
+  environment?: Environment
   checkEveryMs?: number
   watchAfterFix?: { everyMs: number; forMs: number }
   platform?: NodeJS.Platform
@@ -54,7 +56,6 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   const { store, banners } = options
   const platform = options.platform ?? process.platform
   const now = options.now ?? (() => new Date())
-  let env: Promise<NodeJS.ProcessEnv> | undefined
   let last: IntegrationsHealth | undefined
   let running: Promise<IntegrationsHealth> | undefined
   let timer: NodeJS.Timeout | undefined
@@ -62,13 +63,13 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   let unsubscribe: (() => void) | undefined
   let closed = false
 
-  const loadEnv = (fresh: boolean) => {
-    if (fresh || !env) {
-      env = options.loginShell
-        ? readLoginEnv()
-        : Promise.resolve({ ...process.env, GIT_TERMINAL_PROMPT: '0' })
-    }
-    return env
+  const environment =
+    options.environment ?? createEnvironment({ loginShell: options.loginShell ?? false })
+  let loaded: Promise<unknown> = options.environment ? Promise.resolve() : environment.reload()
+  const loadEnv = async (fresh: boolean) => {
+    if (fresh) loaded = environment.reload()
+    await loaded
+    return gitEnv(environment.current())
   }
 
   const gh = createGh({
@@ -317,7 +318,8 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
       throw new RequestError(400, 'host must be a hostname like github.com')
     }
     const { command } = commandFor(kind, host)
-    await options.openTerminal(command, await loadEnv(false))
+    await loaded
+    await options.openTerminal(command, environment.current())
     watch(kind, host ?? defaultHost)
     return { command }
   }
@@ -452,7 +454,7 @@ function run(bin: string, args: string[], env: NodeJS.ProcessEnv): Promise<strin
       bin,
       args,
       {
-        env: { ...env, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' },
+        env: ghEnv(env),
         timeout: 15_000,
         maxBuffer: 1024 * 1024,
       },

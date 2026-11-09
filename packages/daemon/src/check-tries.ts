@@ -48,6 +48,7 @@ export function createCheckTries(options: {
   scratchDir: string
   emit: (event: DaemonEvent) => void
   maxAgeMs?: number
+  env?: () => NodeJS.ProcessEnv
 }): CheckTries {
   const { store, banners, workflows, reposDir, scratchDir, emit } = options
   const maxAgeMs = options.maxAgeMs ?? scratchMaxAgeMs
@@ -189,7 +190,7 @@ export function createCheckTries(options: {
       const result = await runWorktreeCommand({
         command: entry.setup,
         cwd: worktree,
-        env: worktreeCommandEnv(entry.env, {}),
+        env: worktreeCommandEnv(entry.env, {}, options.env?.() ?? process.env),
         log,
         signal,
       })
