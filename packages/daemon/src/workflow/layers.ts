@@ -22,8 +22,9 @@ export async function readLayerDirectory(dir: string): Promise<LayerFiles | unde
     if (top.includes(name)) files[name] = await readOrNull(path.join(dir, name))
   }
   if (top.includes('stages')) {
-    const stages = await readdir(path.join(dir, 'stages')).catch(() => [])
-    for (const name of stages.sort()) {
+    const stages = await readdir(path.join(dir, 'stages')).catch(() => undefined)
+    if (!stages) files.stages = null
+    for (const name of (stages ?? []).sort()) {
       files[`stages/${name}`] = await readOrNull(path.join(dir, 'stages', name))
     }
   }

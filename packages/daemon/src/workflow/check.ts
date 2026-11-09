@@ -115,6 +115,15 @@ export function checkLayer(input: {
   }
 
   const stageFiles: Partial<Record<AgentStageId, string>> = {}
+  if (files.stages === null) {
+    problems.push({
+      severity: 'error',
+      file: displayPath(kind, 'stages'),
+      line: 1,
+      column: 1,
+      message: 'TED couldn’t read the stages folder',
+    })
+  }
   for (const [file, text] of Object.entries(files)) {
     if (!file.startsWith('stages/')) continue
     const at = { severity: 'error' as const, file: displayPath(kind, file), line: 1, column: 1 }
@@ -321,8 +330,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           case 'gate':
             if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
-            } else if (entry.name === 'enabled' && id === 'work' && scalar(node) === false) {
-              error(node, 'Work can’t be turned off')
+            } else if (
+              entry.name === 'enabled' &&
+              (id === 'intake' || id === 'work') &&
+              scalar(node) === false
+            ) {
+              error(node, `${id === 'work' ? 'Work' : 'Intake'} can’t be turned off`)
             } else stage[entry.name] = scalar(node) as boolean
             break
           case 'max_back':

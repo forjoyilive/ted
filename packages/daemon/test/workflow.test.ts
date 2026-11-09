@@ -281,6 +281,18 @@ describe('checking a layer', () => {
     expect(layer.valid).toBe(false)
   })
 
+  test('Intake can’t be turned off either', () => {
+    expect(problems({ 'workflow.yaml': 'stages:\n  intake: { enabled: false }\n' })).toEqual([
+      'error .ted/workflow.yaml 2 22 Intake can’t be turned off',
+    ])
+  })
+
+  test('an unreadable stages folder is an error, so the last valid version stays in use', () => {
+    expect(problems({ stages: null }, 'library')).toEqual([
+      'error stages 1 1 TED couldn’t read the stages folder',
+    ])
+  })
+
   test('version must be 1', () => {
     expect(problems({ 'workflow.yaml': 'version: 2\n' })).toEqual([
       'error .ted/workflow.yaml 1 10 `version` must be 1',
