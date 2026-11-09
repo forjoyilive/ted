@@ -11,6 +11,8 @@ import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
+import type { Factories } from './factory-setup.ts'
+import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
@@ -25,7 +27,9 @@ export interface Services {
   tasks: Tasks
   banners: Banners
   workflows: Workflows
+  health: AgentHealthMonitor
   integrations: Integrations
+  factories: Factories
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {

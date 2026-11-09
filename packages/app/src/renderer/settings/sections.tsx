@@ -1,6 +1,7 @@
 import type { MachineSettings } from '@ted/protocol'
 import type { ComponentType } from 'react'
 import type { SettingsSectionId } from '../navigation.ts'
+import { AgentsPage } from './AgentsPage.tsx'
 import { SettingsPage } from './controls.tsx'
 import { DeveloperPage } from './DeveloperPage.tsx'
 import { GeneralPage } from './GeneralPage.tsx'
@@ -29,7 +30,7 @@ export function NotBuiltYet({ title }: { title: string }) {
 export const settingsSections: readonly SettingsSection[] = [
   { id: 'general', label: 'General', Page: GeneralPage },
   { id: 'notifications', label: 'Notifications' },
-  { id: 'agents', label: 'Agents' },
+  { id: 'agents', label: 'Agents', Page: AgentsPage },
   { id: 'limits', label: 'Limits', Page: LimitsPage },
   { id: 'integrations', label: 'Integrations', Page: IntegrationsPage },
   { id: 'library', label: 'Library' },

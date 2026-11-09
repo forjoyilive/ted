@@ -12,6 +12,10 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
+  type BannerActionInput,
+  type BlockTaskRequest,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   clarifyDepths,
   createdByKinds,
@@ -25,10 +29,12 @@ import {
   listGroups,
   listSorts,
   type MachineSettings,
+  type NewFactoryRepo,
   type PostCommentRequest,
   priorities,
   quitChoices,
   type ReportOutcomeRequest,
+  type RepoSource,
   type RestoreBackupRequest,
   type RunFixRequest,
   type SetActivityRequest,
@@ -43,11 +49,13 @@ import {
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
+import type { CommandLine } from './command-line.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
-import { addFactory, listFactories, setLocalFolder } from './factories.ts'
+import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
+import type { Linear } from './linear/linear.ts'
 import { readProfile } from './profile.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunTokens } from './run-token.ts'
@@ -62,10 +70,12 @@ export interface BaseOptions {
   agents: Agents
   runTokens: RunTokens
   attachments: Attachments
+  linear: Linear
   reposDir: string
   appStreams: Set<http.ServerResponse>
   onShutdown: () => void
   home: string
+  commandLine: CommandLine
 }
 
 export type ServerOptions = BaseOptions & Services
@@ -125,6 +135,16 @@ const dataRoutes: Route<BaseOptions>[] = [
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
+  },
+  {
+    method: 'GET',
+    path: /^\/command-line$/,
+    handle: async (_, { commandLine }) => [200, await commandLine.status()],
+  },
+  {
+    method: 'POST',
+    path: /^\/command-line\/install$/,
+    handle: async (_, { commandLine }) => [200, await commandLine.install()],
   },
   {
     method: 'POST',
@@ -214,6 +234,25 @@ const routes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.archive(ref)],
   },
   {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/blockers$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<BlockTaskRequest> | null
+      const by = typeof body?.by === 'string' ? body.by.trim() : ''
+      if (by === '') throw new HttpError(400, 'by is required')
+      return [200, await tasks.block(ref, caller, by)]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
+    runToken: true,
+    async handle({ params: [ref = '', by], caller }, { tasks }) {
+      return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
+    },
+  },
+  {
     method: 'GET',
     path: /^\/slots$/,
     handle: async (_, { tasks }) => [200, await tasks.slots()],
@@ -258,16 +297,52 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories$/,
-    handle: async (_, { store }) => [200, await listFactories(store)],
+    handle: async (_, { factories }) => [200, await factories.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CreateFactoryRequest> | null
+      const repos = Array.isArray(body?.repos) ? body.repos.map(newRepo) : []
+      return [
+        201,
+        await factories.create({
+          name: typeof body?.name === 'string' ? body.name : '',
+          key: typeof body?.key === 'string' ? body.key.trim() : '',
+          repos,
+          showTutorial: body?.showTutorial === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/check-repo$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CheckRepoRequest> | null
+      return [
+        200,
+        await factories.checkRepo({
+          source: repoSource(body?.source),
+          primary: body?.primary === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/retry-clone$/,
+    handle: async ({ params: [id = ''] }, { factories }) => [200, await factories.retry(id)],
   },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/local-folder$/,
-    async handle({ req, params: [key = ''] }, { store }) {
+    async handle({ req, params: [key = ''] }, { factories }) {
       const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
       const folder = typeof body?.path === 'string' ? body.path : ''
       if (folder === '') throw new HttpError(400, 'path is required')
-      return [200, await setLocalFolder(store, key, folder)]
+      return [200, await factories.setLocalFolder(key, folder)]
     },
   },
   {
@@ -397,9 +472,30 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ params: [id = ''] }, { banners }) {
-      await banners.act(id)
+    async handle({ req, params: [id = ''] }, { banners }) {
+      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
+      const folder = typeof body?.folder === 'string' ? body.folder : undefined
+      await banners.act(id, folder === undefined ? {} : { folder })
       return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/agents\/health$/,
+    handle: async (_, { health }) => [200, health.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/health\/check$/,
+    handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/([^/]+)\/fix$/,
+    async handle({ params: [agent = ''] }, { health }) {
+      const kind = agentKinds.find((k) => k === agent)
+      if (!kind) throw new HttpError(404, 'no such agent')
+      return [200, await health.fix(kind)]
     },
   },
   {
@@ -429,21 +525,56 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/integrations\/linear$/,
+    handle: async (_, { linear }) => [200, await linear.status()],
+  },
+  {
+    method: 'PUT',
+    path: /^\/integrations\/linear\/key$/,
+    async handle({ req }, { linear }) {
+      const body = (await readJson(req)) as Partial<Record<'key' | 'inFile', unknown>> | null
+      if (typeof body?.key !== 'string') throw new HttpError(400, 'key must be text')
+      if (body.inFile !== undefined && typeof body.inFile !== 'boolean') {
+        throw new HttpError(400, 'inFile must be true or false')
+      }
+      return [200, await linear.save({ key: body.key, inFile: body.inFile === true })]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/integrations\/linear\/key$/,
+    handle: async (_, { linear }) => [200, await linear.remove()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/linear\/test$/,
+    handle: async (_, { linear }) => [200, await linear.test()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/linear\/lookup$/,
+    async handle({ req }, { linear }) {
+      const body = (await readJson(req)) as Partial<Record<'url', unknown>> | null
+      if (typeof body?.url !== 'string') throw new HttpError(400, 'url must be text')
+      return [200, await linear.lookup(body.url)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/dev\/factories$/,
-    async handle({ req }, { store, reposDir, workflows }) {
+    async handle({ req }, { store, reposDir, workflows, factories }) {
       const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
       const localFolder = typeof body?.localFolder === 'string' ? body.localFolder : undefined
-      return [
-        201,
-        await addFactory(
-          { store, reposDir, workflows },
-          { repo, key, ...(localFolder !== undefined && { localFolder }) },
-        ),
-      ]
+      const added = await addFactory(
+        { store, reposDir, workflows },
+        { repo, key, ...(localFolder !== undefined && { localFolder }) },
+      )
+      await factories.checkLocalFolders()
+      return [201, await factories.get(added.id)]
     },
   },
   {
@@ -633,7 +764,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'a Task must be an object')
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
-  const text = (name: 'title' | 'description' | 'factory') => {
+  const text = (name: 'title' | 'description' | 'factory' | 'source') => {
     const value = request[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
@@ -654,6 +785,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const title = text('title')
   const description = text('description')
   const factory = text('factory')
+  const source = sourceUrl(text('source'))
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
   const lead = taskLead(request.lead)
@@ -686,6 +818,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(lead !== undefined && { lead }),
     ...(blockedBy !== undefined && { blockedBy }),
     ...(attached.length > 0 && { attachments: attached }),
+    ...(source !== undefined && { source }),
     ...(request.start !== undefined && { start: request.start }),
   }
 
@@ -707,6 +840,21 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
       ...(level !== undefined && { effort: level }),
     }
   }
+}
+
+function sourceUrl(text: string | undefined): string | undefined {
+  if (text === undefined || text.trim() === '') return undefined
+  const trimmed = text.trim()
+  const parsed = URL.canParse(trimmed) ? new URL(trimmed) : undefined
+  if (
+    !parsed ||
+    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+    trimmed.length > 2048 ||
+    /\s/.test(trimmed)
+  ) {
+    throw new HttpError(400, 'source must be a web address starting with https://')
+  }
+  return trimmed
 }
 
 const maxChoices = 6
@@ -903,6 +1051,27 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
     return value
   },
+}
+
+function repoSource(given: unknown): RepoSource {
+  const source = (typeof given === 'object' && given !== null ? given : {}) as Record<
+    string,
+    unknown
+  >
+  if (typeof source.folder === 'string') return { folder: source.folder }
+  return { remote: typeof source.remote === 'string' ? source.remote : '' }
+}
+
+function newRepo(given: unknown): NewFactoryRepo {
+  const repo = (typeof given === 'object' && given !== null ? given : {}) as Record<string, unknown>
+  return { source: repoSource(repo.source), name: typeof repo.name === 'string' ? repo.name : '' }
+}
+
+async function readOptionalJson(req: http.IncomingMessage): Promise<unknown> {
+  if (req.headers['content-length'] === '0' || req.headers['content-type'] === undefined) {
+    return readJson(req).catch(() => null)
+  }
+  return readJson(req)
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

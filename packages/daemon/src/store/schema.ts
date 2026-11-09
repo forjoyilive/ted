@@ -10,7 +10,21 @@ export const factories = State.SQLite.table({
     repo: State.SQLite.text(),
     cloneUrl: State.SQLite.text(),
     defaultBranch: State.SQLite.text(),
+    showTutorial: State.SQLite.boolean({ default: false }),
+    clonedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const factoryRepos = State.SQLite.table({
+  name: 'factoryRepos',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    repo: State.SQLite.text(),
+    name: State.SQLite.text(),
+    cloneUrl: State.SQLite.text(),
   },
 })
 
@@ -28,6 +42,7 @@ export const tasks = State.SQLite.table({
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
     startRequested: State.SQLite.boolean({ default: false }),
+    waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
@@ -55,6 +70,7 @@ export const taskBlockers = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
     blockerId: State.SQLite.text(),
+    setByRunId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -68,6 +84,19 @@ export const taskAttachments = State.SQLite.table({
     name: State.SQLite.text(),
     size: State.SQLite.integer(),
     mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const taskSources = State.SQLite.table({
+  name: 'taskSources',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    url: State.SQLite.text(),
+    linearIdentifier: State.SQLite.text({ nullable: true }),
+    linearTitle: State.SQLite.text({ nullable: true }),
+    linearBranchName: State.SQLite.text({ nullable: true }),
+    linearDescription: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -241,6 +270,25 @@ export const localFolders = State.SQLite.table({
   },
 })
 
+export const agentPauses = State.SQLite.table({
+  name: 'agentPauses',
+  columns: {
+    agent: State.SQLite.text({ primaryKey: true }),
+    reason: State.SQLite.text(),
+    since: State.SQLite.text(),
+  },
+})
+
+export const heldRuns = State.SQLite.table({
+  name: 'heldRuns',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    agent: State.SQLite.text(),
+    sessionId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 const stageEnteredFields = {
   id: Schema.String,
   taskId: Schema.String,
@@ -273,6 +321,24 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  factoryAddedV2: Events.synced({
+    name: 'v2.FactoryAdded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      key: Schema.String,
+      name: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      defaultBranch: Schema.String,
+      showTutorial: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  factoryCloned: Events.synced({
+    name: 'v1.FactoryCloned',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
   taskCreated: Events.synced({
     name: 'v1.TaskCreated',
     schema: Schema.Struct({
@@ -304,6 +370,40 @@ export const events = {
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
   }),
+  taskBlockerAddedV2: Events.synced({
+    name: 'v2.TaskBlockerAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBlockerRemoved: Events.synced({
+    name: 'v1.TaskBlockerRemoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskStartRequestChanged: Events.synced({
+    name: 'v1.TaskStartRequestChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      startRequested: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  taskWaitingForBlockers: Events.synced({
+    name: 'v1.TaskWaitingForBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskRequeuedAfterBlockers: Events.synced({
+    name: 'v1.TaskRequeuedAfterBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
     schema: Schema.Struct({
@@ -312,6 +412,18 @@ export const events = {
       name: Schema.String,
       size: Schema.Number,
       mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskSourceSet: Events.synced({
+    name: 'v1.TaskSourceSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      url: Schema.String,
+      linearIdentifier: Schema.NullOr(Schema.String),
+      linearTitle: Schema.NullOr(Schema.String),
+      linearBranchName: Schema.NullOr(Schema.String),
+      linearDescription: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -545,6 +657,27 @@ export const events = {
     name: 'v1.BannerCleared',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
+  agentPaused: Events.synced({
+    name: 'v1.AgentPaused',
+    schema: Schema.Struct({ agent: Schema.String, reason: Schema.String, at: Schema.String }),
+  }),
+  agentResumed: Events.synced({
+    name: 'v1.AgentResumed',
+    schema: Schema.Struct({ agent: Schema.String, at: Schema.String }),
+  }),
+  taskRunHeld: Events.synced({
+    name: 'v1.TaskRunHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskRunReleased: Events.synced({
+    name: 'v1.TaskRunReleased',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -596,17 +729,62 @@ export const events = {
 
 const materializers = counted(
   State.SQLite.materializers(events, {
-    'v1.FactoryAdded': (factory) => factories.insert(factory),
+    'v1.FactoryAdded': (factory) => [
+      factories.insert({ ...factory, clonedAt: factory.createdAt }),
+      factoryRepos.insert({
+        id: `${factory.id}:0`,
+        factoryId: factory.id,
+        position: 0,
+        repo: factory.repo,
+        name: factory.repo.split('/').at(-1) ?? factory.repo,
+        cloneUrl: factory.cloneUrl,
+      }),
+    ],
+    'v2.FactoryAdded': ({ repos, ...factory }) => [
+      factories.insert({
+        ...factory,
+        repo: repos[0]?.repo ?? '',
+        cloneUrl: repos[0]?.cloneUrl ?? '',
+        clonedAt: null,
+      }),
+      ...repos.map((repo, position) =>
+        factoryRepos.insert({
+          ...repo,
+          id: `${factory.id}:${position}`,
+          factoryId: factory.id,
+          position,
+        }),
+      ),
+    ],
+    'v1.FactoryCloned': ({ factoryId, at }) =>
+      factories.update({ clonedAt: at }).where({ id: factoryId }),
     'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
       taskBlockers
         .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
         .onConflict('id', 'ignore'),
+    'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
+      taskBlockers
+        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
+        .onConflict('id', 'replace'),
+    'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
+      taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+    'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
+      tasks.update({ startRequested }).where({ id: taskId }),
+    'v1.TaskWaitingForBlockers': ({ taskId }) => [
+      taskQueue.delete().where({ taskId }),
+      tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
+    ],
+    'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+      tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+    ],
     'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
       taskAttachments
         .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
         .onConflict('id', 'ignore'),
+    'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
     'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
       tasks.update({ stage, branch, worktree }).where({ id: taskId }),
     'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
@@ -721,16 +899,23 @@ const materializers = counted(
     'v1.BannerDismissed': ({ id, until }) =>
       banners.update({ dismissedUntil: until }).where({ id }),
     'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
+    'v1.AgentPaused': ({ agent, reason, at }) =>
+      agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
+    'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
+    'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+    'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
   }),
 )
 
 const state = State.SQLite.makeState({
   tables: {
     factories,
+    factoryRepos,
     tasks,
     taskQueue,
     taskBlockers,
     taskAttachments,
+    taskSources,
     runs,
     conversationEntries,
     comments,
@@ -744,6 +929,8 @@ const state = State.SQLite.makeState({
     machineSettings,
     machineSettingValues,
     banners,
+    agentPauses,
+    heldRuns,
   },
   materializers,
 })

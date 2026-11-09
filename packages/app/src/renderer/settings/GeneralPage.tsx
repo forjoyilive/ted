@@ -2,6 +2,7 @@ import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protoc
 import { useEffect, useState } from 'react'
 import { PersonAvatar } from '../components/Avatar.tsx'
 import { ted } from '../ted.ts'
+import { AboutGroup, CommandLineGroup } from './CommandLineGroup.tsx'
 import {
   Button,
   Segmented,
@@ -126,6 +127,9 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           </SettingRow>
         )}
       </SettingsGroup>
+
+      <CommandLineGroup />
+      <AboutGroup />
     </SettingsPage>
   )
 }

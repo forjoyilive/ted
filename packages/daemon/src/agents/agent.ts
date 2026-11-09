@@ -16,6 +16,21 @@ export interface TokenCount {
   total: boolean
 }
 
+export interface AuthCheck {
+  signedIn: boolean
+  account?: string
+}
+
+export interface AgentHealthSpec {
+  minimumVersion: string
+  versionArgs: string[]
+  authArgs: string[]
+  auth(result: { code: number | null; stdout: string; stderr: string }): AuthCheck
+  signIn: string
+  update: string
+  install: string
+}
+
 export interface Agent {
   kind: AgentKind
   binary: string
@@ -32,4 +47,7 @@ export interface Agent {
   sessionIdFrom(line: string): string | undefined
   problemFrom(line: string): RunProblem | undefined
   tokensFrom(line: string): TokenCount | undefined
+  authErrorFrom(line: string): boolean
+  environment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv
+  health: AgentHealthSpec
 }
