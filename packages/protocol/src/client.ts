@@ -1,5 +1,6 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import type { AppLog, AppRef, TaskApp } from './app.ts'
 import {
   bodyHash,
   daemonProof,
@@ -479,6 +480,29 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/changes/${encodeURIComponent(repo)}/diffs${query}`,
+    )
+  }
+
+  listApps(ref: string): Promise<TaskApp[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/apps`)
+  }
+
+  startApp(ref: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/start`, app)
+  }
+
+  stopApp(ref: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/stop`, app)
+  }
+
+  restartApp(ref: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/restart`, app)
+  }
+
+  appLog(ref: string, app: { repo: string; name: string }): Promise<AppLog> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/apps/${encodeURIComponent(app.repo)}/${encodeURIComponent(app.name)}/log`,
     )
   }
 

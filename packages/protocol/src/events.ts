@@ -31,6 +31,7 @@ export type DaemonEvent =
   | { type: 'data-status'; status: DataStatus }
   | { type: 'agent-health-changed'; health: AgentHealth }
   | { type: 'slots-changed'; slots: RunSlots }
+  | { type: 'apps-changed'; taskId: string }
   | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }

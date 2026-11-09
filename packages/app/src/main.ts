@@ -26,10 +26,12 @@ import {
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
+  DaemonRequestError,
   defaultMachineSettings,
   downloadUrl,
   type EditTaskRequest,
   type FactorySettingsChanges,
+  isLoopbackUrl,
   type LibraryChanges,
   linearKeyPage,
   type MachineSettings,
@@ -136,6 +138,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
   taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
+  taskBrief: (client, taskId) =>
+    client.getBrief(String(taskId)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
   search: (client, query, factoryId) =>
     client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
   setClarifyDepth: (client, taskId, depth) =>
@@ -213,6 +220,32 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
+  listApps: (client, taskId) => client.listApps(String(taskId)),
+  startApp: (client, taskId, repo, name) =>
+    client.startApp(String(taskId), { repo: String(repo), name: String(name) }),
+  stopApp: (client, taskId, repo, name) =>
+    client.stopApp(String(taskId), { repo: String(repo), name: String(name) }),
+  restartApp: (client, taskId, repo, name) =>
+    client.restartApp(String(taskId), { repo: String(repo), name: String(name) }),
+  appLog: (client, taskId, repo, name) =>
+    client.appLog(String(taskId), { repo: String(repo), name: String(name) }),
+  openAppPreview: async (client, taskId, repo, name) => {
+    const app = (await client.listApps(String(taskId))).find(
+      (a) => a.repo === String(repo) && a.name === String(name),
+    )
+    if (app?.url === undefined || app.kind !== 'web' || !isLoopbackUrl(app.url)) {
+      throw new Error('That App isn’t running')
+    }
+    await shell.openExternal(app.url)
+  },
+  openHostedPreview: async (client, taskId, repoName) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.preview?.url
+    if (url === undefined || !/^https?:\/\/[^\s]+$/.test(url) || !URL.canParse(url)) {
+      throw new Error('That pull request has no preview')
+    }
+    await shell.openExternal(url)
+  },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {

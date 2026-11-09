@@ -61,6 +61,7 @@ export interface DaemonOptions {
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
   stallAfterMs?: number
+  apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
@@ -309,6 +310,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
+        appsDir: paths.apps,
+        ...(options.apps !== undefined && { apps: options.apps }),
       })
       const automationOptions = options.automations ?? {}
       const automations = createAutomations({

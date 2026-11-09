@@ -1,0 +1,107 @@
+import type { Task } from '@ted/protocol'
+import { type ReactNode, useState } from 'react'
+import { appStatusLine, hostOf, previewChoice } from '../apps.ts'
+import { useTaskApps } from '../data.ts'
+import { useNow } from '../requests.ts'
+import { readableError, ted } from '../ted.ts'
+import type { ShownApp } from './AppsSection.tsx'
+import { Button } from './Button.tsx'
+import { OpenIcon, PlayIcon } from './icons.tsx'
+import styles from './PreviewRow.module.css'
+
+export function PreviewRow({
+  task,
+  onOpenApp,
+}: {
+  task: Task
+  onOpenApp?: ((app: ShownApp) => void) | undefined
+}) {
+  const apps = useTaskApps(task.id)
+  const now = useNow()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const choice = previewChoice(task, apps)
+  if (!choice) return null
+  const act = (request: () => Promise<unknown>) => {
+    setBusy(true)
+    setError(undefined)
+    request()
+      .catch((failed: unknown) => setError(readableError(failed)))
+      .finally(() => setBusy(false))
+  }
+
+  let detail: string
+  let action: ReactNode
+  if (choice.kind === 'hosted') {
+    const { hosted } = choice
+    detail = `${hostOf(hosted.preview.url)} · ${hosted.preview.label}`
+    action = (
+      <Button
+        size="small"
+        variant="primary"
+        disabled={busy}
+        onClick={() => act(() => ted.openHostedPreview(task.id, hosted.repo))}
+      >
+        Open <OpenIcon />
+      </Button>
+    )
+  } else if (choice.kind === 'local') {
+    const { app } = choice
+    detail =
+      app.state === 'running'
+        ? `${hostOf(app.url ?? '')} · ${app.name}, running locally`
+        : appStatusLine(app, now)
+    action = (
+      <Button
+        size="small"
+        variant="primary"
+        disabled={busy || app.state !== 'running'}
+        onClick={() => act(() => ted.openAppPreview(task.id, app.repo, app.name))}
+      >
+        Open <OpenIcon />
+      </Button>
+    )
+  } else {
+    const { app, again } = choice
+    detail = again ? `${app.name} · ${appStatusLine(app, now)}` : `${app.name} isn’t running`
+    action = (
+      <>
+        {again && onOpenApp && (
+          <button
+            type="button"
+            className={styles.link}
+            onClick={() => onOpenApp({ repo: app.repo, name: app.name })}
+          >
+            Log
+          </button>
+        )}
+        <Button
+          size="small"
+          variant="primary"
+          disabled={busy || task.archived !== undefined}
+          onClick={() => act(() => ted.startApp(task.id, app.repo, app.name))}
+        >
+          {again ? 'Run again' : 'Run'}
+        </Button>
+      </>
+    )
+  }
+
+  return (
+    <div className={styles.row}>
+      <span className={styles.icon} aria-hidden>
+        <PlayIcon />
+      </span>
+      <span className={styles.text}>
+        <span className={styles.title}>Preview</span>
+        <span className={styles.detail}>{detail}</span>
+        {error !== undefined && (
+          <span className={styles.error} role="alert">
+            {error}
+          </span>
+        )}
+      </span>
+      <span className={styles.actions}>{action}</span>
+    </div>
+  )
+}

@@ -1,6 +1,7 @@
 import type { TaskChanges } from '@ted/protocol'
 import { type ChangedFile, splitPath } from '../changes.ts'
 import styles from './ChangesSection.module.css'
+import { DetailsSection } from './DetailsSection.tsx'
 
 export type DraftCount = (file: ChangedFile) => number
 
@@ -29,21 +30,25 @@ export function ChangesSection({
   if (!changes || changes.repos.length === 0) return null
   const count = changes.files === 1 ? '1 file' : `${changes.files} files`
   return (
-    <section className={styles.section} aria-label="Changes">
-      <div className={styles.headingRow}>
-        <h2 className={styles.heading}>Changes · {count}</h2>
-        {onExpandAll && changes.files > 0 && (
-          <button type="button" className={styles.link} onClick={onExpandAll}>
+    <DetailsSection
+      id="changes"
+      title="Changes"
+      summary={count}
+      action={
+        onExpandAll &&
+        changes.files > 0 && (
+          <button type="button" className={styles.expandAll} onClick={onExpandAll}>
             Expand all
           </button>
-        )}
-      </div>
+        )
+      }
+    >
       {changes.files === 0 && changes.repos.every((r) => !r.unavailable) ? (
         <p className={styles.empty}>No changes yet</p>
       ) : (
         <ChangeList changes={changes} selected={selected} onOpen={onOpen} drafts={drafts} />
       )}
-    </section>
+    </DetailsSection>
   )
 }
 

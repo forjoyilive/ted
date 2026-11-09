@@ -1,13 +1,14 @@
 import type { Task, TaskRepo } from '@ted/protocol'
 import { useState } from 'react'
+import { DetailsSection } from './components/DetailsSection.tsx'
+import { codeSummary } from './details.ts'
 import { ted } from './ted.ts'
 import styles from './worktree.module.css'
 
 export function CodeSection({ task }: { task: Task }) {
   const repos = task.repos.filter((repo) => !repo.removed)
   return (
-    <section className={styles.code} aria-label="Code">
-      <h2 className={styles.heading}>Code</h2>
+    <DetailsSection id="code" title="Code" collapsedSummary={codeSummary(task)}>
       {repos.length === 0 ? (
         <>
           <p className={styles.empty}>
@@ -26,7 +27,7 @@ export function CodeSection({ task }: { task: Task }) {
           ))}
         </ul>
       )}
-    </section>
+    </DetailsSection>
   )
 }
 

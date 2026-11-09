@@ -3,6 +3,7 @@ import type {
   AgentHealth,
   AgentKind,
   AnswerRequest,
+  AppLog,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -67,6 +68,8 @@ import type {
   StageEntry,
   StorageSummary,
   Task,
+  TaskApp,
+  TaskBrief,
   TaskChanges,
   TaskDefaults,
   TaskLead,
@@ -132,6 +135,8 @@ export const ted = {
     window.ted.request('editTask', taskId, edit) as Promise<Task>,
   taskDescriptions: (taskId: string) =>
     window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
+  taskBrief: (taskId: string) =>
+    window.ted.request('taskBrief', taskId) as Promise<TaskBrief | null>,
   search: (query: string, factoryId?: string) =>
     window.ted.request('search', query, factoryId) as Promise<SearchResults>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
@@ -191,6 +196,19 @@ export const ted = {
     window.ted.request('taskChanges', taskId) as Promise<TaskChanges>,
   fileDiffs: (taskId: string, repo: string, path?: string) =>
     window.ted.request('fileDiffs', taskId, repo, path) as Promise<FileDiff[]>,
+  listApps: (taskId: string) => window.ted.request('listApps', taskId) as Promise<TaskApp[]>,
+  startApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('startApp', taskId, repo, name) as Promise<TaskApp>,
+  stopApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('stopApp', taskId, repo, name) as Promise<TaskApp>,
+  restartApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('restartApp', taskId, repo, name) as Promise<TaskApp>,
+  appLog: (taskId: string, repo: string, name: string) =>
+    window.ted.request('appLog', taskId, repo, name) as Promise<AppLog>,
+  openAppPreview: (taskId: string, repo: string, name: string) =>
+    window.ted.request('openAppPreview', taskId, repo, name) as Promise<void>,
+  openHostedPreview: (taskId: string, repo: string) =>
+    window.ted.request('openHostedPreview', taskId, repo) as Promise<void>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>

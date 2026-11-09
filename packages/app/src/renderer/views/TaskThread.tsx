@@ -9,6 +9,7 @@ import type {
   Priority,
   RunState,
   Task,
+  TaskBrief,
   TaskEnding,
   ThreadEvent,
 } from '@ted/protocol'
@@ -17,6 +18,8 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { type ChangedFile, useTaskChanges } from '../changes.ts'
+import { AppLogView } from '../components/AppLogView.tsx'
+import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -25,8 +28,10 @@ import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { FullBrief } from '../components/FullBrief.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
   AnsweredCard,
@@ -44,9 +49,11 @@ import {
   useComments,
   useDescriptions,
   useStageEntries,
+  useTaskBrief,
   useTaskRuns,
   useThreadEvents,
 } from '../data.ts'
+import { briefPart, briefSummary } from '../details.ts'
 import { useNow } from '../requests.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
@@ -244,20 +251,45 @@ export function TaskPanes({
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
   const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
+  const [app, setApp] = useState<{ taskId: string; app: ShownApp }>()
+  const [briefFor, setBriefFor] = useState<string>()
   useEffect(() => {
     if (answeredId !== undefined) {
       setShown(undefined)
       setChangesView(undefined)
+      setApp(undefined)
+      setBriefFor(undefined)
     }
   }, [answeredId])
   const changes = useTaskChanges(task)
+  const brief = useTaskBrief(task.id)
+  const fullBrief = briefFor === task.id
   const view = changesView?.taskId === task.id ? changesView.view : undefined
-  const showChanges = (next: ChangesView | undefined) =>
+  const showChanges = (next: ChangesView | undefined) => {
+    if (next !== undefined) {
+      setApp(undefined)
+      setBriefFor(undefined)
+    }
     setChangesView(next && { taskId: task.id, view: next })
+  }
+  const shownApp = app?.taskId === task.id ? app.app : undefined
+  const openApp = (chosen: ShownApp) => {
+    setChangesView(undefined)
+    setBriefFor(undefined)
+    setApp({ taskId: task.id, app: chosen })
+  }
+  const closeApp = () => setApp(undefined)
+  const openBrief = () => {
+    setChangesView(undefined)
+    setApp(undefined)
+    setBriefFor(task.id)
+  }
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
   const show = (runId: string | undefined) => {
     showChanges(undefined)
+    setApp(undefined)
+    setBriefFor(undefined)
     setShown({ taskId: task.id, runId })
   }
   const openRun = (runId: string) => {
@@ -275,6 +307,7 @@ export function TaskPanes({
       {all && (
         <AllChanges taskId={task.id} changes={changes} onCollapse={() => showChanges(undefined)} />
       )}
+      {fullBrief && <FullBrief task={task} brief={brief} onBack={() => setBriefFor(undefined)} />}
       {view?.kind === 'diff' && (
         <DiffView
           taskId={task.id}
@@ -296,7 +329,10 @@ export function TaskPanes({
         onShowRun={show}
         onOpenRun={openRun}
         onCloseRun={closeRun}
-        hidden={all || view?.kind === 'diff'}
+        hidden={all || view?.kind === 'diff' || fullBrief}
+        shownApp={shownApp}
+        onOpenApp={openApp}
+        onCloseApp={closeApp}
       />
       <TaskDetails
         task={task}
@@ -312,6 +348,11 @@ export function TaskPanes({
             onExpandAll={() => showChanges({ kind: 'all' })}
           />
         }
+        shownApp={shownApp}
+        onOpenApp={openApp}
+        brief={brief}
+        briefOpen={fullBrief}
+        onOpenBrief={openBrief}
       />
     </>
   )
@@ -332,6 +373,9 @@ export function TaskThread({
   onOpenRun,
   onCloseRun,
   hidden = false,
+  shownApp,
+  onOpenApp,
+  onCloseApp,
 }: {
   task: Task
   backLink: string | undefined
@@ -345,6 +389,9 @@ export function TaskThread({
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
   hidden?: boolean
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
+  onCloseApp?: (() => void) | undefined
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -452,7 +499,14 @@ export function TaskThread({
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
       <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
-      {shownRun !== undefined ? (
+      {shownApp !== undefined ? (
+        <AppLogView
+          key={`${shownApp.repo}/${shownApp.name}`}
+          task={task}
+          shown={shownApp}
+          onBack={() => onCloseApp?.()}
+        />
+      ) : shownRun !== undefined ? (
         <RunChat
           key={shownRun}
           runId={shownRun}
@@ -545,7 +599,13 @@ export function TaskThread({
           {pinned ? (
             <div className={styles.pinned}>
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
+              <RequestCard
+                key={pinned.id}
+                request={pinned}
+                task={task}
+                onOpenRun={onOpenRun}
+                onOpenApp={onOpenApp}
+              />
             </div>
           ) : (
             <div className={styles.pinned}>
@@ -615,6 +675,11 @@ export function TaskDetails({
   onOpenRun,
   changes,
   hidden = false,
+  shownApp,
+  onOpenApp,
+  brief,
+  briefOpen = false,
+  onOpenBrief,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -622,6 +687,11 @@ export function TaskDetails({
   onOpenRun: (runId: string) => void
   changes?: ReactNode
   hidden?: boolean
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
+  brief?: TaskBrief | null | undefined
+  briefOpen?: boolean
+  onOpenBrief?: (() => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -757,7 +827,13 @@ export function TaskDetails({
       <CodeSection task={task} />
       {changes}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
-      <TaskBriefSection task={task} />
+      <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
+      <TaskBriefSection
+        task={task}
+        brief={brief}
+        open={briefOpen}
+        onOpenBrief={() => onOpenBrief?.()}
+      />
     </aside>
   )
 }
@@ -795,15 +871,51 @@ function FieldSelect({
   )
 }
 
-function TaskBriefSection({ task }: { task: Task }) {
+function TaskBriefSection({
+  task,
+  brief,
+  open,
+  onOpenBrief,
+}: {
+  task: Task
+  brief: TaskBrief | null | undefined
+  open: boolean
+  onOpenBrief: () => void
+}) {
+  const now = useNow()
+  const goal = brief ? briefPart(brief.text, 'Goal') : undefined
+  const next = brief ? briefPart(brief.text, 'Next step') : undefined
+  return (
+    <DetailsSection
+      id="brief"
+      title="Task brief"
+      collapsedSummary={brief === undefined ? undefined : briefSummary(brief, now)}
+    >
+      {brief === null && (
+        <p className={styles.briefEmpty}>The Task Lead hasn’t written a Task brief yet.</p>
+      )}
+      {brief && (
+        <>
+          {goal !== undefined && <p className={styles.briefLine}>{`Goal: ${goal}`}</p>}
+          {next !== undefined && <p className={styles.briefLine}>{`Next step: ${next}`}</p>}
+          <Button size="small" aria-pressed={open} onClick={onOpenBrief}>
+            Full brief
+          </Button>
+        </>
+      )}
+      <OriginalRequest task={task} />
+    </DetailsSection>
+  )
+}
+
+function OriginalRequest({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
   const versions = useDescriptions(task.id)
   const original = versions?.[0]
   const edits = (versions?.length ?? 1) - 1
   return (
-    <section className={styles.briefSection} aria-label="Task brief">
-      <h2 className={styles.sectionHeading}>Task brief</h2>
+    <>
       <div className={styles.originalRow}>
         <button
           type="button"
@@ -832,7 +944,7 @@ function TaskBriefSection({ task }: { task: Task }) {
       {history && versions !== undefined && (
         <DescriptionHistory task={task} versions={versions} onClose={() => setHistory(false)} />
       )}
-    </section>
+    </>
   )
 }
 

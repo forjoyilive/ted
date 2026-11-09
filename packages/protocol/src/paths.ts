@@ -22,6 +22,7 @@ export function tedPaths(home: string) {
     attachments: path.join(home, 'attachments'),
     tmp: path.join(home, 'tmp'),
     runs: path.join(home, 'runs'),
+    apps: path.join(home, 'apps'),
     simulators: path.join(home, 'simulators'),
     scratch: path.join(home, 'scratch'),
     secrets: path.join(home, 'secrets'),

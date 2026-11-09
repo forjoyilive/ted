@@ -172,3 +172,25 @@ export function ClockIcon({ className }: IconProps) {
     </svg>
   )
 }
+
+export function OpenIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden>
+      <path
+        d="M4 2.75H9.25V8M9.25 2.75L2.75 9.25"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        stroke="currentColor"
+      />
+    </svg>
+  )
+}
+
+export function PlayIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+      <path d="M4.5 3.2V10.8L10.8 7L4.5 3.2Z" fill="currentColor" />
+    </svg>
+  )
+}

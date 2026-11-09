@@ -39,7 +39,7 @@ export function createStorage(options: {
     worktrees: [paths.worktrees],
     simulators: [paths.simulators],
     clones: [paths.repos],
-    'conversations-and-logs': [paths.logs, paths.runs],
+    'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
     store: [paths.store],
     attachments: [paths.attachments],
     backups: [paths.backups],

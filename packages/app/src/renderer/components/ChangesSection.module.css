@@ -1,37 +1,19 @@
-.section {
-  margin-top: 20px;
-  font-size: var(--text-13);
-}
-
-.headingRow {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 0 6px;
-}
-
-.heading {
-  margin: 0;
-  color: var(--text-caption);
-  font-size: var(--text-13);
-  font-weight: var(--weight-medium);
-}
-
-.link {
+.expandAll {
+  flex-shrink: 0;
   padding: 0;
   border: none;
   background: none;
   color: var(--accent-link);
   font: inherit;
+  font-size: var(--text-12);
   cursor: pointer;
 }
 
-.link:hover {
+.expandAll:hover {
   text-decoration: underline;
 }
 
-.link:focus-visible,
+.expandAll:focus-visible,
 .file:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;

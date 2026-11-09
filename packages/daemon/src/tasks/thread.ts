@@ -119,6 +119,18 @@ function settingsFallback(layers: unknown): string | undefined {
   return undefined
 }
 
+function appWhere(data: Record<string, unknown>): string {
+  const url = text(data.url)
+  if (url !== '') return ` · ${url.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+  return typeof data.port === 'number' ? ` · port ${data.port}` : ''
+}
+
+export function appExitLine(name: string, code: unknown, signal: unknown): string {
+  if (typeof code === 'number') return `${name} exited with code ${code}`
+  if (typeof signal === 'string' && signal !== '') return `${name} was ended by ${signal}`
+  return `${name} stopped running`
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -410,6 +422,23 @@ export function threadEvents(
         if (line) add(entry, 'quiet', line)
         break
       }
+      case 'v1.AppStarted': {
+        const by = text(data.by)
+        const starter =
+          by === 'task-lead' ? 'Task Lead' : by === 'sub-agent' ? 'A sub-agent' : 'You'
+        const verb = data.restart === true ? 'restarted' : 'started'
+        add(entry, 'run', `${starter} ${verb} ${text(data.name)}${appWhere(data)}`)
+        break
+      }
+      case 'v1.AppStopped':
+        add(entry, 'quiet', `You stopped ${text(data.name)}`)
+        break
+      case 'v1.AppExited':
+        add(entry, 'failure', appExitLine(text(data.name), data.code, data.signal))
+        break
+      case 'v1.AppStartFailed':
+        add(entry, 'failure', `${text(data.name)} couldn’t start: ${text(data.problem)}`)
+        break
       case 'v1.TaskWorktreeSetupStarted':
         add(entry, 'run', `Setting up ${text(data.name)} · ${text(data.command)}`)
         break

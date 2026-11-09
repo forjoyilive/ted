@@ -1,3 +1,4 @@
+import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import type { StoredFactory } from '../store/index.ts'
 import { githubRepoOf } from '../workflow/check.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
@@ -8,6 +9,7 @@ export interface FactoryRepoEntry extends Omit<RepoWorktree, 'baseBranch'> {
   cloneUrl: string
   primary: boolean
   baseBranch?: string
+  apps?: AppDeclaration[]
 }
 
 const safeSegment = /^[A-Za-z0-9_.-]+$/
@@ -31,7 +33,13 @@ export function factoryRepos(
 ): FactoryRepoEntry[] {
   const primary = primaryRepoWorktree(workflow, factory)
   const entries: FactoryRepoEntry[] = [
-    { ...primary, repo: factory.repo, cloneUrl: factory.cloneUrl, primary: true },
+    {
+      ...primary,
+      repo: factory.repo,
+      cloneUrl: factory.cloneUrl,
+      primary: true,
+      apps: appDeclarations(workflow.settings.repos?.[0]?.apps),
+    },
   ]
   const listed = workflow.settings.repos
   const add = (entry: FactoryRepoEntry) => {
@@ -52,6 +60,7 @@ export function factoryRepos(
         primary: false,
         ...(settings.base_branch !== undefined && { baseBranch: settings.base_branch }),
         ...worktreeCommands(settings.worktree),
+        apps: appDeclarations(settings.apps),
       })
     }
   } else {

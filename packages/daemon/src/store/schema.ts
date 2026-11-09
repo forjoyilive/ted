@@ -722,6 +722,50 @@ export const events = {
     name: 'v1.TaskLeadNudged',
     schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
   }),
+  appStarted: Events.synced({
+    name: 'v1.AppStarted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      port: Schema.NullOr(Schema.Number),
+      url: Schema.NullOr(Schema.String),
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      restart: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  appStopped: Events.synced({
+    name: 'v1.AppStopped',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  appExited: Events.synced({
+    name: 'v1.AppExited',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      code: Schema.NullOr(Schema.Number),
+      signal: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  appStartFailed: Events.synced({
+    name: 'v1.AppStartFailed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      problem: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
     schema: Schema.Struct({
@@ -1864,6 +1908,21 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       teardownOutcome: args.teardownOutcome,
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
+  'v1.AppStarted': (args) =>
+    task(args, {
+      repo: args.repo,
+      name: args.name,
+      port: args.port,
+      url: args.url,
+      by: args.by,
+      runId: args.runId,
+      restart: args.restart,
+    }),
+  'v1.AppStopped': (args) => task(args, { repo: args.repo, name: args.name }),
+  'v1.AppExited': (args) =>
+    task(args, { repo: args.repo, name: args.name, code: args.code, signal: args.signal }),
+  'v1.AppStartFailed': (args) =>
+    task(args, { repo: args.repo, name: args.name, problem: args.problem }),
   'v1.TaskRunReleased': (args) => task(args),
   'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
   'v1.ValidateJudged': (args) =>
@@ -1976,6 +2035,10 @@ const materializers = counted(
       ],
       'v1.GitHubActivitySent': () => [],
       'v1.GitHubActivityHeld': () => [],
+      'v1.AppStarted': () => [],
+      'v1.AppStopped': () => [],
+      'v1.AppExited': () => [],
+      'v1.AppStartFailed': () => [],
       'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [

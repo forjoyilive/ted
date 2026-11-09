@@ -62,6 +62,8 @@ const usage = `Usage:
                                              Ask the human instead of moving on
   ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
                                              stopping at the first failure
+  ted run-app [<App>] [--repo <name>]        Start one of the Task's Apps, or reuse the running
+                                             one, and wait until it answers; prints its URL
   ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
                                              without --file)
   ted brief show                             Show the latest Task brief
@@ -131,6 +133,7 @@ function parse() {
         review: { type: 'string' },
         'review-notes': { type: 'string' },
         reviewer: { type: 'boolean' },
+        repo: { type: 'string' },
         visual: { type: 'string' },
         'visual-notes': { type: 'string' },
         round: { type: 'string' },
@@ -359,6 +362,8 @@ try {
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
     const sub = await withDaemon(home, (client) => client.stopSubAgent(rest[0] ?? ''))
     console.log(`Stopped sub-agent “${printable(sub.name)}”`)
+  } else if (group === 'run-app' && rest.length === 0) {
+    await runApp(command)
   } else if (group === 'checks' && command === undefined) {
     const ref = taskRef()
     const name = options.name
@@ -868,6 +873,62 @@ async function readRound(file: string): Promise<RoundInput> {
       `the round file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
     )
   }
+}
+
+async function runApp(given: string | undefined): Promise<void> {
+  const ref = taskRef()
+  const { app, log } = await withDaemon(home, async (client) => {
+    let wanted =
+      given === undefined ? undefined : { name: given, ...(options.repo && { repo: options.repo }) }
+    if (wanted === undefined) {
+      const apps = (await client.listApps(ref)).filter(
+        (a) => options.repo === undefined || a.repo === options.repo,
+      )
+      const [only] = apps
+      if (apps.length !== 1 || only === undefined) {
+        throw new UsageError(
+          apps.length === 0
+            ? 'this Task has no Apps'
+            : `name the App: ${apps.map((a) => printable(a.name)).join(', ')}`,
+        )
+      }
+      wanted = { name: only.name, repo: only.repo }
+    }
+    let app = await client.startApp(ref, wanted)
+    while (app.state === 'starting') {
+      await sleep(500)
+      const current = app
+      app =
+        (await client.listApps(ref)).find(
+          (a) => a.repo === current.repo && a.name === current.name,
+        ) ?? app
+    }
+    const log =
+      app.state === 'running'
+        ? undefined
+        : await client.appLog(ref, { repo: app.repo, name: app.name })
+    return { app, log }
+  })
+  const name = printable(app.name)
+  if (app.state === 'running') {
+    console.log(
+      app.url !== undefined
+        ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until the human stops it or the Task ends.`
+        : `${name} is running on port ${app.port}. It keeps running until the human stops it or the Task ends.`,
+    )
+    return
+  }
+  const why =
+    app.state === 'failed'
+      ? `couldn’t start: ${app.problem ?? 'it failed'}`
+      : app.exitCode !== undefined
+        ? `exited with code ${app.exitCode}`
+        : 'stopped'
+  const tail = (log?.text ?? '').split('\n').slice(-40).join('\n')
+  console.error(
+    `${name} ${printable(why)}.${tail.trim() === '' ? '' : ` The end of its log:\n${printable(tail)}`}`,
+  )
+  process.exitCode = 1
 }
 
 function printable(text: string): string {
