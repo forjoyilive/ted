@@ -245,4 +245,15 @@ describe('notification permission', () => {
     h.notifications.problem(banner({ id: 'offline', text: 'You’re offline' }))
     expect(h.shown).toHaveLength(2)
   })
+
+  test('with Inbox items off, the first Inbox item still lets the other kinds notify', () => {
+    const h = harness({ asksPermission: true, asked: false, settings: { notifyInboxItems: false } })
+    h.notifications.waiting([])
+    h.notifications.waiting([request('a')])
+    expect(h.shown).toEqual([])
+    expect(h.asked()).toBe(true)
+
+    h.notifications.problem(banner({}))
+    expect(h.shown).toHaveLength(1)
+  })
 })

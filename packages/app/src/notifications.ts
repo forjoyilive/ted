@@ -80,11 +80,9 @@ export function createNotifications(options: NotificationsOptions): Notification
       const ids = new Set(requests.map((r) => r.id))
       const fresh = seen === undefined ? [] : requests.filter((r) => !seen?.has(r.id))
       seen = ids
+      if (fresh.length > 0 && !asked()) markAsked()
       if (!settings().notifyInboxItems) return
-      for (const request of fresh) {
-        if (!asked()) markAsked()
-        send(inboxNotice(request))
-      }
+      for (const request of fresh) send(inboxNotice(request))
     },
     problem(banner) {
       const notice = problemNotice(banner)
