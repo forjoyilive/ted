@@ -65,6 +65,8 @@ describe('machine settings in the store', () => {
       firstLaunchDone: false,
       editor: null,
       editorCommand: '',
+      linearSync: true,
+      linearSyncTeams: {},
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -200,6 +202,8 @@ describe('settings and Factories over the daemon API', () => {
     ['a custom editor command with an open quote', { editorCommand: '"my editor {path}' }],
     ['a custom editor command over two lines', { editorCommand: 'code\n{path}' }],
     ['Developer mode that is not true or false', { developerMode: 'yes' }],
+    ['Linear sync that is not true or false', { linearSync: 'on' }],
+    ['a Linear team key that isn’t one', { linearSyncTeams: { f: ['not a key'] } }],
     ['a profile picture that is not an image', { profilePicture: 'data:text/html;base64,PGI+' }],
     ['a profile picture that is a link', { profilePicture: 'https://example.com/me.png' }],
     [

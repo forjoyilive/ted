@@ -232,6 +232,27 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifyTaskMerged: onOff('notifyTaskMerged'),
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
+  linearSync: onOff('linearSync'),
+  linearSyncTeams(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, 'linearSyncTeams must be an object of team keys by Factory ID')
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([factoryId, teams]) => {
+        if (
+          !Array.isArray(teams) ||
+          teams.length > 50 ||
+          teams.some((t) => typeof t !== 'string' || !linearTeamKey.test(t))
+        ) {
+          throw new HttpError(
+            400,
+            'linearSyncTeams lists Linear team keys like ENG for each Factory',
+          )
+        }
+        return [factoryId, [...new Set(teams.map((t: string) => t.toUpperCase()))]]
+      }),
+    )
+  },
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'billing must be an object of billing by agent')
@@ -270,6 +291,8 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
 }
 
 const maxEditorCommand = 2000
+
+const linearTeamKey = /^[A-Za-z][A-Za-z0-9_]{0,19}$/
 
 function onOff(name: keyof MachineSettings): (value: unknown) => boolean {
   return (value) => {

@@ -211,6 +211,8 @@ export const ted = {
   archiveTask: (taskId: string, options: ArchiveTaskRequest = {}) =>
     window.ted.request('archiveTask', taskId, options) as Promise<Task>,
   unarchiveTask: (taskId: string) => window.ted.request('unarchiveTask', taskId) as Promise<Task>,
+  allowLinearSync: (taskId: string) =>
+    window.ted.request('allowLinearSync', taskId) as Promise<Task>,
   followUpTask: (taskId: string, comment?: string, attachments: AttachmentRef[] = []) =>
     window.ted.request('followUpTask', taskId, comment, attachments) as Promise<Task>,
   archiveDone: (factoryId: string) =>

@@ -393,6 +393,17 @@ export function TaskActionsMenu({
                 <span className={styles.label}>Open source in Linear</span>
                 <span className={styles.hint}>{linear.identifier}</span>
               </button>
+              {task.linearSync === 'ask' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.item}
+                  onClick={() => act(() => ted.allowLinearSync(task.id))}
+                >
+                  <span className={styles.label}>Sync with Linear</span>
+                  <span className={styles.hint}>An Automation made this Task</span>
+                </button>
+              )}
             </>
           )}
           <hr className={styles.separator} />

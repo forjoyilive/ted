@@ -5,6 +5,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import type { Comment, Factory, InboxItem, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach } from 'vitest'
+import type { DaemonOptions } from '../src/daemon.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
@@ -137,6 +138,7 @@ export async function start(
     workflow?: string[]
     order?: string
     ciStuckMs?: { noChecks: number; pending: number }
+    daemon?: Partial<DaemonOptions>
   } = {},
 ) {
   await writeFile(ctx.ghState, JSON.stringify({ merge: { origin: ctx.origin, ...options.merge } }))
@@ -156,6 +158,7 @@ export async function start(
     claudeBin: stubClaudePath,
     mergePollMs: 100,
     ...(options.ciStuckMs && { ciStuckMs: options.ciStuckMs }),
+    ...options.daemon,
   })
   ctx.daemon = daemon
   const client = api(daemon.port, { appKey: daemon.appToken })
