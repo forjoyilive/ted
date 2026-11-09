@@ -324,11 +324,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   onShortcut.current = (event) => {
     if (event.defaultPrevented || event.isComposing || offline) return
     const commandKey = event.metaKey || event.ctrlKey
-    if (isTyping(event.target) && !commandKey) {
+    const typing = isTyping(event.target)
+    if (typing && !commandKey) {
       sequences.current.reset()
       return
     }
     const found = sequences.current.feed(event, event.timeStamp)
+    if (typing && found !== 'pending' && found?.id === 'archive') return
     if (found === 'pending') {
       event.preventDefault()
       return

@@ -533,7 +533,7 @@ export function TaskList({
     if (event.key === 'Enter') {
       event.preventDefault()
       onOpen(task)
-    } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    } else if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !event.altKey) {
       event.preventDefault()
       const next = ordered[at + (event.key === 'ArrowDown' ? 1 : -1)]
       if (!next) return

@@ -190,6 +190,38 @@ describe('Keyboard shortcuts', () => {
       .toEqual([second.id])
   })
 
+  test('⌥↓ moves a List row in rank, and ⌘⌫ in the comment box edits text instead of archiving', async () => {
+    const { window, ted } = await launch()
+    const first = await ted.createTask({
+      factory: 'NB',
+      title: 'One',
+      description: 'x',
+      start: false,
+    })
+    const second = await ted.createTask({
+      factory: 'NB',
+      title: 'Two',
+      description: 'y',
+      start: false,
+    })
+    await press(window, 'g', 'l')
+    await expect.poll(() => title(window).textContent()).toMatch(/List$/)
+
+    await window.locator(`tr[data-task="${first.displayId}"]`).focus()
+    await press(window, 'Alt+ArrowDown')
+    await expect
+      .poll(async () => (await ted.listTasks()).sort((a, b) => a.rank - b.rank).map((t) => t.id))
+      .toEqual([second.id, first.id])
+
+    await press(window, 'Enter')
+    const comment = window.getByRole('textbox', { name: 'Comment' })
+    await comment.fill('Keep this')
+    await press(window, 'ControlOrMeta+Backspace')
+    expect(await window.getByRole('dialog', { name: `Archive ${first.displayId}?` }).count()).toBe(
+      0,
+    )
+  })
+
   test('A needs a confirming Enter to approve, and Esc cancels it', async () => {
     const { window, ted } = await launch()
     const steps = {
