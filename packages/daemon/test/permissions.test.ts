@@ -1,7 +1,7 @@
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
+import type { Banner, Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -265,6 +265,70 @@ describe('permission modes', () => {
     expect(lines.map((l) => l.text)).toContain(
       'Claude Code’s auto mode isn’t available, so every permission prompt comes to you',
     )
+    const banner = await waitUntil(
+      async () =>
+        (await client.ok<Banner[]>('GET', '/banners')).find(
+          (b) => b.problem === 'auto-mode-unavailable',
+        ),
+      'the auto mode warning',
+    )
+    expect(banner).toMatchObject({
+      severity: 'warning',
+      factoryId: task.factoryId,
+      text: 'Claude Code’s auto mode isn’t available · every permission prompt comes to the Inbox',
+    })
+
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({}))
+    await startTask(client, [{ endTurn: true }])
+    await waitUntil(
+      async () =>
+        !(await client.ok<Banner[]>('GET', '/banners')).some(
+          (b) => b.problem === 'auto-mode-unavailable',
+        ),
+      'the auto mode warning to clear once a Run gets auto mode',
+    )
+  })
+
+  test('under API key billing Claude Code scrubs credentials, which turns off auto mode; the warning says so', async () => {
+    const client = await start()
+    await client.ok('PATCH', '/settings', { billing: { claude: 'api-key', codex: 'subscription' } })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.manualPermissions,
+      'the Run to be marked manual',
+    )
+    const banner = await waitUntil(
+      async () =>
+        (await client.ok<Banner[]>('GET', '/banners')).find(
+          (b) => b.problem === 'auto-mode-unavailable',
+        ),
+      'the auto mode warning',
+    )
+    expect(banner.text).toBe(
+      'Claude Code’s auto mode is off under API key billing, because TED keeps the key out of the commands Claude runs · every permission prompt comes to the Inbox',
+    )
+  })
+
+  test('under Subscription billing Claude Code gets auto mode and no warning', async () => {
+    const client = await start()
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    const { env } = await waitUntil(
+      () =>
+        readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')
+          .then((s) => JSON.parse(s) as { env: Record<string, string> })
+          .catch(() => undefined),
+      'the stub to start',
+    )
+    expect(env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.state === 'idle',
+      'the turn to end',
+    )
+    expect((await client.getRun(run.id)).run.manualPermissions).toBeFalsy()
+    const banners = await client.ok<Banner[]>('GET', '/banners')
+    expect(banners.some((b) => b.problem === 'auto-mode-unavailable')).toBe(false)
   })
 
   test('a Factory with permissions: bypass starts Claude Code with bypassPermissions', async () => {

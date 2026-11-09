@@ -156,7 +156,7 @@ describe('Codex Runs', () => {
       expect(env.CODEX_API_KEY).toBeUndefined()
       expect(env.OPENAI_API_KEY).toBeUndefined()
       expect(env.TED_RUN).toBe(run.id)
-      expect(env.TED_RUN_TOKEN).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
+      expect(env.TED_RUN_CAPABILITY).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
       expect(env.PATH?.split(':')[0]).toBe(path.join(home, 'bin'))
       await expect(stat(path.join(fakeHome, '.codex'))).rejects.toMatchObject({ code: 'ENOENT' })
     } finally {

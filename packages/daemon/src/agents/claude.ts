@@ -26,6 +26,51 @@ const boundaryGate =
 
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
+const credentialWords = new Set([
+  'TOKEN',
+  'KEY',
+  'APIKEY',
+  'SECRET',
+  'PASSWORD',
+  'PASSWD',
+  'PASS',
+  'AUTH',
+  'CREDENTIALS',
+])
+
+const keptEnv = new Set([
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CONFIG_DIR',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+])
+
+const proxyName = /^(https?|all|no)_proxy$/i
+
+function looksLikeCredential(name: string, value: string | undefined): boolean {
+  if (keptEnv.has(name) || proxyName.test(name) || name.startsWith('GIT_CONFIG_')) return false
+  if (
+    name
+      .toUpperCase()
+      .split('_')
+      .some((word) => credentialWords.has(word))
+  )
+    return true
+  if (value === undefined) return false
+  return (
+    /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i.test(value) ||
+    /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/.test(value)
+  )
+}
+
+function withoutCredentials(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name, value]) => !looksLikeCredential(name, value)),
+  )
+}
+
 const planWindowByType: Record<string, PlanWindowKind> = {
   five_hour: 'five-hour',
   seven_day: 'weekly',
@@ -127,6 +172,8 @@ function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): 
 
 const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
 
+const tedCommand = ['Bash(ted *)']
+
 const toolTitles: Record<string, string> = {
   Bash: 'Run a command',
   Edit: 'Edit a file',
@@ -221,9 +268,19 @@ export function claudeAgent(binary: string): Agent {
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
-        env: { ...withoutKeys(env, removedEnv, billing), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+        env: {
+          ...(billing === 'api-key'
+            ? { ...env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }
+            : withoutCredentials(env)),
+        },
         input: prompt === '' ? '' : userMessage(prompt),
-        files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
+        files: {
+          'settings.json': JSON.stringify(
+            { ...(permissions === 'auto' && { permissions: { allow: tedCommand } }), hooks },
+            null,
+            2,
+          ),
+        },
         sessionId,
       }
     },
@@ -247,14 +304,12 @@ export function claudeAgent(binary: string): Agent {
         ? message.request_id
         : undefined
     },
-    autoModeUnavailableFrom(line) {
+    autoModeFrom(line) {
       const message = parse(line)
-      return (
-        message?.type === 'system' &&
-        message.subtype === 'init' &&
-        typeof message.permissionMode === 'string' &&
-        !['auto', 'bypassPermissions'].includes(message.permissionMode)
-      )
+      if (message?.type !== 'system' || message.subtype !== 'init') return undefined
+      if (typeof message.permissionMode !== 'string') return undefined
+      if (message.permissionMode === 'bypassPermissions') return undefined
+      return message.permissionMode === 'auto' ? 'on' : 'unavailable'
     },
     permissionReply({ requestId, approved, input, text }) {
       const response = approved

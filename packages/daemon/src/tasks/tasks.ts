@@ -79,6 +79,7 @@ import {
   parseLinearUrl,
   sizeChoices,
 } from '@ted/protocol'
+import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
@@ -1058,6 +1059,23 @@ export function createTasks(options: {
       return result
     })()
     return { checkRun, done }
+  }
+
+  function reportAutoMode(factoryId: string, signal: AutoModeSignal): void {
+    const ref = { problem: 'auto-mode-unavailable', factoryId }
+    if (signal === 'on') {
+      if (store.getBanner(bannerId(ref))) banners.clear(ref)
+      return
+    }
+    const why =
+      store.settings().billing.claude === 'api-key'
+        ? 'Claude Code’s auto mode is off under API key billing, because TED keeps the key out of the commands Claude runs'
+        : 'Claude Code’s auto mode isn’t available'
+    banners.raise({
+      ...ref,
+      severity: 'warning',
+      text: `${why} · every permission prompt comes to the Inbox`,
+    })
   }
 
   function reportNotFound(factoryId: string, result: CheckRunnerResult): void {
@@ -5311,6 +5329,11 @@ export function createTasks(options: {
     },
     planUsage(run, windows) {
       health.planUsage(run.agent, windows)
+    },
+    autoMode(run, signal) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || run.permissions !== 'auto') return
+      reportAutoMode(task.factoryId, signal)
     },
     settled(run) {
       if (!interrupted.has(run.id)) signedOutAt.delete(run.id)

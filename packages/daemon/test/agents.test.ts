@@ -35,6 +35,34 @@ describe('agent kinds', () => {
     expect(codex.join(' ')).not.toContain('on-request')
   })
 
+  test('auto: Claude Code may run the ted command without asking; bypass needs no rule', () => {
+    const settings = (permissions: 'auto' | 'bypass') =>
+      JSON.parse(
+        agents.get('claude').launch({ ...run, permissions }).files['settings.json'] ?? '{}',
+      ) as { permissions?: { allow?: string[] }; hooks?: unknown }
+
+    expect(settings('auto').permissions).toEqual({ allow: ['Bash(ted *)'] })
+    expect(settings('auto').hooks).toBeDefined()
+    expect(settings('bypass').permissions).toBeUndefined()
+  })
+
+  test('Codex keeps network access in its sandbox, so ted reaches the daemon without asking', () => {
+    const codex = agents.get('codex').launch(run).args
+    expect(codex).toContain('sandbox_workspace_write.network_access=true')
+    expect(codex.join(' ')).not.toContain('danger-full-access')
+  })
+
+  test('Claude Code’s init line says whether auto mode took effect', () => {
+    const claude = agents.get('claude')
+    const init = (permissionMode: string) =>
+      JSON.stringify({ type: 'system', subtype: 'init', permissionMode })
+    expect(claude.autoModeFrom(init('default'))).toBe('unavailable')
+    expect(claude.autoModeFrom(init('auto'))).toBe('on')
+    expect(claude.autoModeFrom(init('bypassPermissions'))).toBeUndefined()
+    expect(claude.autoModeFrom(JSON.stringify({ type: 'assistant' }))).toBeUndefined()
+    expect(agents.get('codex').autoModeFrom(init('default'))).toBeUndefined()
+  })
+
   test('Claude Code resumes its session with --resume and the same per-Run flags', () => {
     const fresh = agents.get('claude').launch(run)
     const resumed = agents.get('claude').launch({ ...run, resume: 'session-1' })
@@ -212,7 +240,7 @@ describe('usage, credentials and cost', () => {
     expect(codex.launch({ ...run, env, billing: 'api-key' }).env.CODEX_API_KEY).toBe('c')
   })
 
-  test('an API key reaches the agent process but not the commands it runs', () => {
+  test('an API key reaches the agent process but not the commands it runs; Subscription has no key to scrub', () => {
     const env = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', CODEX_API_KEY: 'c' }
     const codexArgs = codex.launch({ ...run, env, billing: 'api-key' }).args
     expect(codexArgs).toContain(
@@ -220,6 +248,57 @@ describe('usage, credentials and cost', () => {
     )
     const claudeLaunch = claude.launch({ ...run, env, billing: 'api-key' })
     expect(claudeLaunch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
-    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
+  })
+
+  test('under Subscription TED removes what Claude Code’s scrub would, keeping what Claude signs in with', () => {
+    const removed = {
+      ANTHROPIC_API_KEY: 'k',
+      ANTHROPIC_AUTH_TOKEN: 't',
+      AWS_ACCESS_KEY_ID: 'AKIAABCDEFGHIJKLMNOP',
+      AWS_SECRET_ACCESS_KEY: 's',
+      AWS_SESSION_TOKEN: 's',
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/g.json',
+      NPM_TOKEN: 'n',
+      DB_PASSWORD: 'p',
+      MY_PASSWD: 'p',
+      MY_PASS: 'p',
+      MY_SECRET: 's',
+      OPENAI_API_KEY: 'o',
+      MY_APIKEY: 'k',
+      deploy_key: 'k',
+      PRIVATE_KEY_PATH: '/tmp/k',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      DATABASE_URL: 'postgres://user:pw@db.example.com/app',
+      SESSION: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
+    }
+    const kept = {
+      PATH: '/bin',
+      HOME: '/Users/me',
+      PWD: '/work',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
+      CLAUDE_CONFIG_DIR: '/Users/me/.claude-work',
+      GITHUB_TOKEN: 'g',
+      GH_TOKEN: 'g',
+      GH_ENTERPRISE_TOKEN: 'g',
+      GITHUB_ENTERPRISE_TOKEN: 'g',
+      HTTPS_PROXY: 'http://u:p@proxy:8080',
+      http_proxy: 'http://u:p@proxy:8080',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.file:///x/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/',
+      TED_RUN_CAPABILITY: 'run-1.abc',
+      KEYCHAIN_PATH: '/tmp/kc',
+      TOKENIZERS_PARALLELISM: 'false',
+      AUTHOR_NAME: 'a',
+      AWS_PROFILE: 'dev',
+      SITE_URL: 'https://example.com/x',
+    }
+    const launched = claude.launch({ ...run, env: { ...removed, ...kept } }).env
+    for (const name of Object.keys(removed)) expect(launched[name], name).toBeUndefined()
+    expect(launched).toMatchObject(kept)
+    const apiKey = claude.launch({ ...run, env: { ...removed, ...kept }, billing: 'api-key' }).env
+    expect(apiKey.AWS_SECRET_ACCESS_KEY).toBe('s')
+    expect(apiKey.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
   })
 })
