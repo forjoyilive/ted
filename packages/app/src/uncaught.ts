@@ -1,3 +1,6 @@
+import { appendFileSync, mkdirSync } from 'node:fs'
+import path from 'node:path'
+import { format } from 'node:util'
 import { DaemonUnreachableError } from '@ted/protocol'
 
 const connectionCodes = new Set([
@@ -18,8 +21,10 @@ export interface UncaughtSink {
 
 export function isConnectionError(error: unknown): boolean {
   if (error instanceof DaemonUnreachableError) return true
-  const { code, syscall } = (error ?? {}) as NodeJS.ErrnoException
-  return syscall === 'setTypeOfService' || (code !== undefined && connectionCodes.has(code))
+  const { code, syscall, stack } = (error ?? {}) as NodeJS.ErrnoException
+  if (syscall === 'setTypeOfService') return true
+  if (code === 'ERR_OUT_OF_RANGE' && stack?.includes('getSystemErrorName')) return true
+  return code !== undefined && connectionCodes.has(code)
 }
 
 export function handleUncaught(error: unknown, sink: UncaughtSink): void {
@@ -30,4 +35,34 @@ export function handleUncaught(error: unknown, sink: UncaughtSink): void {
     'TED hit an unexpected error',
     error instanceof Error ? (error.stack ?? error.message) : String(error),
   )
+}
+
+export function fileLog(file: string): (...args: unknown[]) => void {
+  return (...args) => {
+    try {
+      mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
+      appendFileSync(file, `${new Date().toISOString()} ${format(...args)}\n`, { mode: 0o600 })
+    } catch {}
+  }
+}
+
+export function ignoreBrokenPipes(
+  streams: NodeJS.EventEmitter[],
+  onBroken: (error: NodeJS.ErrnoException) => void,
+): void {
+  for (const stream of streams) stream.on('error', onBroken)
+}
+
+export function watchParent(
+  onGone: () => void,
+  { ppid = () => process.ppid, intervalMs = 1000 } = {},
+): () => void {
+  const parent = ppid()
+  const timer = setInterval(() => {
+    if (ppid() === parent) return
+    clearInterval(timer)
+    onGone()
+  }, intervalMs)
+  timer.unref()
+  return () => clearInterval(timer)
 }

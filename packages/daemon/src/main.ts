@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { tedHome, tedPaths, tedVersion } from '@ted/protocol'
+import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
@@ -61,5 +62,6 @@ try {
   throw error
 }
 
+watchExitWith(() => void shutdown())
 process.on('SIGTERM', shutdown)
 process.on('SIGINT', shutdown)
