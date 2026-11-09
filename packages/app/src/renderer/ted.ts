@@ -101,6 +101,7 @@ import type {
   TaskReposResult,
   TaskShell,
   ThreadEvent,
+  WaitingRequest,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import type { LoginItemState } from '../login-item.ts'
@@ -112,6 +113,7 @@ export type TedEvent =
   | { type: 'connection'; connection: DaemonConnection }
   | { type: 'login-item'; state: LoginItemState }
   | { type: 'update'; status: UpdateStatus }
+  | { type: 'notifications-off'; off: boolean }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -137,6 +139,7 @@ export const ted = {
   listThreadEvents: (taskId: string) =>
     window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  listWaiting: () => window.ted.request('listWaiting') as Promise<WaitingRequest[]>,
   listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
   getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
   startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,
@@ -366,6 +369,8 @@ export const ted = {
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
   loginItem: () => window.ted.request('loginItem') as Promise<LoginItemState>,
   openLoginItemsSettings: () => window.ted.request('openLoginItemsSettings') as Promise<void>,
+  notificationsOff: () => window.ted.request('notificationsOff') as Promise<boolean>,
+  openNotificationSettings: () => window.ted.request('openNotificationSettings') as Promise<void>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   updateStatus: () => window.ted.request('updateStatus') as Promise<UpdateStatus>,

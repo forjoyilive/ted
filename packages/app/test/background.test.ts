@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   appMenu,
   closeNotice,
+  dockBadge,
   type MenuEntry,
   mergedNotice,
   problemNotice,
@@ -40,9 +41,10 @@ describe('menu-bar menu', () => {
     const entries = statusMenu(
       {
         activity: {
-          ...activity({ working: 5, active: 6, waitingOnYou: 3 }),
+          ...activity({ working: 5, active: 6 }),
           runs: { working: 5, active: 6, queued: 2 },
         },
+        waiting: 3,
         banners: [
           banner({ id: 'disk', problem: 'disk', text: 'Disk almost full · 8.2 GB free' }),
           banner({
@@ -79,7 +81,8 @@ describe('menu-bar menu', () => {
   test('each item opens the right place', () => {
     const entries = statusMenu(
       {
-        activity: activity({ waitingOnYou: 1 }),
+        activity: noActivity,
+        waiting: 1,
         banners: [
           banner({ id: 'claude', severity: 'stops-work', text: 'Claude Code is signed out' }),
         ],
@@ -116,7 +119,7 @@ describe('menu-bar menu', () => {
   })
 
   test('leaves out problems and updates when there are none, and says when nothing waits', () => {
-    expect(labels(statusMenu({ activity: noActivity, banners: [] }, now))).toEqual([
+    expect(labels(statusMenu({ activity: noActivity, waiting: 0, banners: [] }, now))).toEqual([
       'Nothing waiting on you',
       'No Runs working',
       '—',
@@ -130,7 +133,7 @@ describe('menu-bar menu', () => {
 
   test('a dismissed warning stays off the menu and the icon until it comes back', () => {
     const dismissed = banner({ dismissedUntil: '2026-11-09T10:00:00.000Z' })
-    const state = { activity: noActivity, banners: [dismissed] }
+    const state = { activity: noActivity, waiting: 0, banners: [dismissed] }
 
     expect(labels(statusMenu(state, now))).not.toContain('Something')
     expect(trayWarning(state.banners, now)).toBe(false)
@@ -138,7 +141,8 @@ describe('menu-bar menu', () => {
   })
 
   test('Runs read in the singular and leave out an empty queue', () => {
-    const labelFor = (a: Activity) => labels(statusMenu({ activity: a, banners: [] }, now))[1]
+    const labelFor = (a: Activity) =>
+      labels(statusMenu({ activity: a, waiting: 0, banners: [] }, now))[1]
 
     expect(labelFor(activity({ working: 1, active: 1 }))).toBe('1 of 1 Run working')
     expect(labelFor(activity({ working: 0, active: 2 }))).toBe('0 of 2 Runs working')
@@ -150,8 +154,8 @@ describe('menu-bar menu', () => {
 
 describe('menu-bar icon and window title', () => {
   test('the icon shows the waiting count above zero and a dot only for app-wide banners', () => {
-    expect(trayLabel(activity({ waitingOnYou: 3 }))).toBe('3')
-    expect(trayLabel(noActivity)).toBe('')
+    expect(trayLabel(3)).toBe('3')
+    expect(trayLabel(0)).toBe('')
     expect(trayWarning([banner({ factoryId: 'nb' })], now)).toBe(false)
     expect(trayWarning([banner({})], now)).toBe(true)
   })
@@ -161,11 +165,17 @@ describe('menu-bar icon and window title', () => {
     expect(windowTitle('linux', 0)).toBe('TED')
     expect(windowTitle('darwin', 3)).toBe('TED')
   })
+
+  test('the Dock badge shows the waiting count, and nothing at zero', () => {
+    expect(dockBadge(4)).toBe('4')
+    expect(dockBadge(0)).toBe('')
+  })
 })
 
 describe('the app menu holds every menu-bar item', () => {
   const state = {
-    activity: activity({ waitingOnYou: 2, working: 1, active: 1 }),
+    activity: activity({ working: 1, active: 1 }),
+    waiting: 2,
     banners: [banner({ id: 'disk', text: 'Disk almost full' })],
   }
   const flatten = (entries: MenuEntry[]): MenuEntry[] =>

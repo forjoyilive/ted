@@ -56,7 +56,10 @@ describe('machine settings in the store', () => {
       startAtLogin: true,
       stayAwake: true,
       restartIdleRuns: true,
+      notifyInboxItems: true,
+      notifyProblems: true,
       notifyTaskMerged: false,
+      notifySound: false,
       listViews: {},
       billing: { claude: 'subscription', codex: 'subscription' },
       firstLaunchDone: false,
@@ -260,6 +263,12 @@ describe('settings and Factories over the daemon API', () => {
     expect(await ted.getSettings()).toMatchObject({ notifyTaskMerged: false })
     await ted.updateSettings({ notifyTaskMerged: true })
     expect(await ted.getSettings()).toMatchObject({ notifyTaskMerged: true })
+    await ted.updateSettings({ notifyInboxItems: false, notifyProblems: false, notifySound: true })
+    expect(await ted.getSettings()).toMatchObject({
+      notifyInboxItems: false,
+      notifyProblems: false,
+      notifySound: true,
+    })
   })
 
   test('a client marks first launch done', async () => {

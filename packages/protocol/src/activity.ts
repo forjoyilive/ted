@@ -5,7 +5,6 @@ export interface RunCounts {
 }
 
 export interface Activity {
-  waitingOnYou: number
   runs: RunCounts
   automationsOn: number
   factoriesSettingUp: number
@@ -14,7 +13,6 @@ export interface Activity {
 }
 
 export const noActivity: Activity = {
-  waitingOnYou: 0,
   runs: { working: 0, active: 0, queued: 0 },
   automationsOn: 0,
   factoriesSettingUp: 0,

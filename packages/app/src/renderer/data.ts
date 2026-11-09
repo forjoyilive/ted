@@ -664,6 +664,16 @@ export function useAutomation(id: string): AutomationDetail | null | undefined {
   )
 }
 
+export function useWaitingCount(): number {
+  return (
+    useReloading(
+      async () => (await ted.listWaiting()).length,
+      (event) => event.type === 'inbox-changed',
+      '',
+    ) ?? 0
+  )
+}
+
 export function useAutomationRequests(): AutomationRequest[] {
   return (
     useReloading(

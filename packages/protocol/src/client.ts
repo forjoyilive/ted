@@ -134,6 +134,7 @@ import type {
   ThreadEvent,
 } from './task.ts'
 import type { UpdateWork } from './update.ts'
+import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -455,6 +456,10 @@ export class DaemonClient {
 
   listAnswered(): Promise<InboxItem[]> {
     return this.#request('GET', '/inbox/answered')
+  }
+
+  listWaiting(): Promise<WaitingRequest[]> {
+    return this.#request('GET', '/inbox/waiting')
   }
 
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {

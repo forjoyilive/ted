@@ -58,6 +58,7 @@ import {
   useSlots,
   useTasks,
   useUpdateStatus,
+  useWaitingCount,
 } from './data.ts'
 import { waitingByFactory } from './inbox.ts'
 import {
@@ -82,6 +83,7 @@ import {
   withHistory,
 } from './navigation.ts'
 import { plansFailedByFactory } from './plans.ts'
+import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
   type SetupNotice,
@@ -272,7 +274,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const questions = useAutomationRequests()
   const allAutomations = useAutomations(undefined)
   const planInbox = usePlanInbox()
-  const inboxCount = inbox.length + questions.length + planInbox.length
+  const inboxCount = useWaitingCount()
+  const notificationsOff = useNotificationsOff()
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
   const answered = useAnswered(inboxScreen?.answered === true)
   const allPlans = useAllPlans()
@@ -993,7 +996,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               settings={settings}
               factories={factories}
               inboxCount={inboxCount}
-              stopsWork={sectionsStoppingWork(banners)}
+              stopsWork={{
+                ...sectionsStoppingWork(banners),
+                ...(notificationsOff && { notifications: true }),
+              }}
               counts={{ library: drift?.library ?? 0 }}
               dispatch={dispatch}
             />

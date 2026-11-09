@@ -60,10 +60,13 @@ describe('Stay Awake', () => {
   })
 
   test('a Run waiting on the human doesn’t keep the machine awake', async () => {
-    const { ted, raw } = await start()
+    const { raw } = await start()
 
-    await raw.startRun([{ hook: 'PermissionRequest:Bash' }, { waitFor: gate('done') }], cwd)
-    await expect.poll(async () => (await ted.getActivity()).waitingOnYou).toBe(1)
+    const run = await raw.startRun(
+      [{ hook: 'PermissionRequest:Bash' }, { waitFor: gate('done') }],
+      cwd,
+    )
+    await expect.poll(async () => (await raw.getRun(run.id)).run.state).toBe('waiting')
 
     expect(calls.at(-1) ?? 'release').toBe('release')
     await writeFile(gate('done'), '')
