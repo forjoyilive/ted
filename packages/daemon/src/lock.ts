@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 
 export class DaemonAlreadyRunningError extends Error {
   constructor() {
-    super(`TED's daemon is already running`)
+    super(`TED’s daemon is already running`)
   }
 }
 

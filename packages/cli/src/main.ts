@@ -74,19 +74,19 @@ const usage = `Usage:
                 [--visual pass|fail] [--visual-notes <n>] for the confirmation row
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
-  ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
+  ted checks [--name <Check>]                Run the Factory’s Checks now, one after another,
                                              stopping at the first failure
-  ted run-app [<App>] [--repo <name>]        Start one of the Task's Apps, or reuse the running
+  ted run-app [<App>] [--repo <name>]        Start one of the Task’s Apps, or reuse the running
              [--reason <text>]               one, and wait until it answers; prints its URL.
                                              An iOS simulator App waits for a free simulator;
                                              --reason tells the human why you need one
   ted app screenshot <App> [--repo <name>]   Save a screenshot of an iOS simulator App to the Task
-  ted app record <App> --start|--stop        Record an iOS simulator App's screen; --stop saves
+  ted app record <App> --start|--stop        Record an iOS simulator App’s screen; --stop saves
                                              the video to the Task
   ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
                                              without --file)
   ted brief show                             Show the latest Task brief
-  ted status [--task <id>] "<text>"          Set the Task's activity line
+  ted status [--task <id>] "<text>"          Set the Task’s activity line
   ted run start [--agent claude|codex] [--model <name>] [--effort <level>] --prompt-file <file>
                 [--name <name>] [--own-worktree]
                                              Start a sub-agent on this Task (Task Lead only);
@@ -94,7 +94,7 @@ const usage = `Usage:
   ted run start --reviewer --prompt-file <file>
                                              Start the reviewer: TED picks its agent, model and
                                              effort from the reviewer setting
-  ted run wait <id>                          Wait for a sub-agent's final message and print it
+  ted run wait <id>                          Wait for a sub-agent’s final message and print it
   ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
   ted run stop <id>                          Stop a sub-agent
   ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]
@@ -112,20 +112,20 @@ const usage = `Usage:
                                              blockedBy row numbers; row 1 is this Task
   ted task block [<id>] --by <id>            Make a Task wait until another Task merges
   ted task unblock [<id>] [--by <id>]        Remove one blocker, or all of them
-  ted task repos set <name> …                Set which of the Factory's repos the Task changes
+  ted task repos set <name> …                Set which of the Factory’s repos the Task changes
   ted task repos add <name>                  Add a repo; prints its setup output when done
   ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
-  ted backup list                            List backups of TED's data, newest first
+  ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
   ted task lead <id> claude|codex [--model <name>] [--effort <level>]
-                                             Set the Task Lead's agent, model and effort
-  ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
-                                             when its model isn't available
+                                             Set the Task Lead’s agent, model and effort
+  ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
+                                             when its model isn’t available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
-  ted dev run show <run-id>                  Show a Run's state and Conversation
+  ted dev run show <run-id>                  Show a Run’s state and Conversation
 ${automationUsage}
 
-Inside a Run, commands act on the Run's own Task (TED_TASK).`
+Inside a Run, commands act on the Run’s own Task (TED_TASK).`
 
 class UsageError extends Error {}
 

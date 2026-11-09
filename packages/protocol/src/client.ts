@@ -1065,7 +1065,7 @@ export class DaemonClient {
       if (typeof given !== 'string' || !equalHex(given, expected)) {
         throw new DaemonRequestError(
           res.statusCode ?? 0,
-          `the server on port ${this.#info.port} didn't prove it is TED's daemon`,
+          `the server on port ${this.#info.port} didn’t prove it is TED’s daemon`,
         )
       }
     }
@@ -1109,7 +1109,7 @@ export class DaemonClient {
         resolve(res)
       })
       req.on('timeout', () => {
-        req.destroy(new Error(`TED's daemon sent nothing for ${this.#idleTimeoutMs} ms`))
+        req.destroy(new Error(`TED’s daemon sent nothing for ${this.#idleTimeoutMs} ms`))
       })
       req.on('error', (error) => reject(unreachable(port, error)))
       req.end(payload)
@@ -1118,7 +1118,7 @@ export class DaemonClient {
 }
 
 function unreachable(port: number, cause: unknown): DaemonUnreachableError {
-  return new DaemonUnreachableError(`can't reach TED's daemon on port ${port}`, { cause })
+  return new DaemonUnreachableError(`can’t reach TED’s daemon on port ${port}`, { cause })
 }
 
 function isOk(res: IncomingMessage): boolean {

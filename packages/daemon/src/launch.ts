@@ -54,12 +54,12 @@ export async function withDaemon<T>(
     if (!child) child = await startDaemon(home, appToken)
     else if (exited(child) && !(await anotherDaemonStarting(home))) {
       throw new DaemonDidNotStartError(
-        `TED's daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
+        `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
       )
     }
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError(
-        `TED's daemon didn't start within ${Math.round(timeoutMs / 1000)} seconds; see ${tedPaths(home).daemonLog}`,
+        `TED’s daemon didn’t start within ${Math.round(timeoutMs / 1000)} seconds; see ${tedPaths(home).daemonLog}`,
       )
     }
     await sleep(retryDelayMs)

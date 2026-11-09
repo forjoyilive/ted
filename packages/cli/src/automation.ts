@@ -32,9 +32,9 @@ export interface AutomationOptions {
   off?: boolean
 }
 
-export const automationUsage = `  ted automation list                        List the Factory's Automations
+export const automationUsage = `  ted automation list                        List the Factory’s Automations
   ted automation show <id>                   Show an Automation: schedule, next firings, prompt
-  ted automation history <id>                Show an Automation's Runs, newest first
+  ted automation history <id>                Show an Automation’s Runs, newest first
   ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>
                 [--tz <zone>] [--template linear|sentry|github] [--agent claude|codex]
                 [--model <name>] [--effort <level>] [--off]
