@@ -19,6 +19,7 @@ import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { RunIcon } from '../components/RunIcon.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
+import { statusLabel } from '../components/TaskStatus.tsx'
 import { usePlan, useRunChat } from '../data.ts'
 import {
   planEnded,
@@ -27,11 +28,13 @@ import {
   requestHeading,
   requestState,
   timeOf,
+  when,
 } from '../plans.ts'
 import { ago, useNow } from '../requests.ts'
 import { agentLabels, modelChoices } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
+import { stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 export function PlanChatView({
@@ -411,14 +414,34 @@ function MoreMenu({
   )
 }
 
+function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
+  const from = plan.fromTask
+  if (!from || planEnded(plan)) return <>{planStartedLine(plan)}</>
+  return (
+    <>
+      {'Planning chat · started from '}
+      {from.gone === 'deleted' ? (
+        from.displayId
+      ) : (
+        <button type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
+          {from.displayId}
+        </button>
+      )}
+      {` ${when(plan.createdAt)}`}
+    </>
+  )
+}
+
 function PlanHeader({
   plan,
   onBack,
   onDeleted,
+  onOpenTask,
 }: {
   plan: Plan
   onBack: () => void
   onDeleted: () => void
+  onOpenTask: (ref: string) => void
 }) {
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
@@ -472,7 +495,7 @@ function PlanHeader({
         />
       </div>
       <p className={styles.startedLine}>
-        {planStartedLine(plan)}
+        <StartedLine plan={plan} onOpenTask={onOpenTask} />
         {plan.status === 'failed' && plan.error !== undefined && ` · ${plan.error}`}
       </p>
       {error !== undefined && (
@@ -685,7 +708,7 @@ function PlanChat({
   return (
     <>
       <section className={views.pane} aria-label="Planning chat">
-        <PlanHeader plan={plan} onBack={onBack} onDeleted={onDeleted} />
+        <PlanHeader plan={plan} onBack={onBack} onDeleted={onDeleted} onOpenTask={onOpenTask} />
         {plan.runId !== undefined ? (
           <RunChat
             runId={plan.runId}
@@ -693,7 +716,13 @@ function PlanChat({
               bar: false,
               extra: extraItems(detail, onOpenTask),
               ...(open && {
-                pinned: <PinnedCard request={open} onAnswered={() => setAnswered((n) => n + 1)} />,
+                pinned: (
+                  <PinnedCard
+                    key={open.id}
+                    request={open}
+                    onAnswered={() => setAnswered((n) => n + 1)}
+                  />
+                ),
               }),
               placeholder: 'Message the planner…',
               help: 'Goes to the planner. While a round is open, this talks it through.',
@@ -749,7 +778,7 @@ function PlanPane({
   return (
     <aside className={views.detailsPane} aria-label="Planning chat details">
       <Section title="Started from">
-        <p className={styles.paneText}>Plan, by you</p>
+        <StartedFrom plan={plan} onOpenTask={onOpenTask} />
       </Section>
       {tasks.length > 0 ? (
         <Section title={`Created Tasks · ${tasks.length}`}>
@@ -795,6 +824,40 @@ function PlanPane({
       )}
       {plan.runId !== undefined && <RunsSection plan={plan} runId={plan.runId} />}
     </aside>
+  )
+}
+
+function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
+  const from = plan.fromTask
+  if (!from) return <p className={styles.paneText}>Plan, by you</p>
+  const state =
+    from.gone === 'deleted'
+      ? ['Deleted']
+      : from.gone === 'archived'
+        ? ['Archived']
+        : [
+            ...(from.stage !== undefined ? [stageName(from.stage)] : []),
+            ...(from.status !== undefined
+              ? [statusLabel(from.status)]
+              : from.activity !== undefined
+                ? [from.activity]
+                : []),
+          ]
+  return (
+    <div className={styles.paneFrom}>
+      {from.gone === 'deleted' ? (
+        <span className={styles.paneText}>
+          <span className={styles.paneId}>{from.displayId}</span>
+          {from.title}
+        </span>
+      ) : (
+        <button type="button" className={styles.paneTask} onClick={() => onOpenTask(from.id)}>
+          <span className={styles.paneId}>{from.displayId}</span>
+          {from.title}
+        </button>
+      )}
+      {state.length > 0 && <span className={styles.paneMuted}>{state.join(' · ')}</span>}
+    </div>
   )
 }
 

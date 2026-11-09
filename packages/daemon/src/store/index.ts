@@ -506,6 +506,11 @@ export interface TedStore {
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
   ): void
+  taskPlanEnded(
+    taskId: string,
+    planId: string,
+    outcome: 'approved' | 'stopped' | 'failed' | 'deleted',
+  ): void
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
   editTask(taskId: string, edit: { title?: string; description?: string }): Task
@@ -1083,6 +1088,11 @@ export async function openStore({
   const planTitleOf = (planId: string) =>
     store.query(queryDb(plans.where({ id: planId }))).at(0)?.title
 
+  const planningFrom = (taskId: string) =>
+    store
+      .query(queryDb(plans.where({ fromTaskId: taskId })))
+      .some((p) => p.state !== 'ended' && p.fromTaskGone === null)
+
   const toTask = ({
     clarifyDepthBy,
     branch,
@@ -1184,6 +1194,7 @@ export async function openStore({
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
+      ...(stage === 'clarify' && planningFrom(row.id) && { planningInChat: true }),
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
@@ -1896,6 +1907,9 @@ export async function openStore({
     commit,
     emit,
     changed: () => noteActivity(),
+    taskChanged: (taskId) => {
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
   })
 
   return {
@@ -2078,6 +2092,11 @@ export async function openStore({
       const at = new Date().toISOString()
       const edited = taskEdited(taskId, { title: narrowedTo, description }, at)
       commit(...(edited ? [edited] : []), events.taskSplit({ taskId, pieceIds, narrowedTo, at }))
+      updatedTask(taskId)
+    },
+    taskPlanEnded(taskId, planId, outcome) {
+      if (!taskRow(taskId)) return
+      commit(events.taskPlanEnded({ taskId, planId, outcome, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     rankTask(taskId, rank, priority) {

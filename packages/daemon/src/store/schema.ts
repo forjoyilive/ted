@@ -647,6 +647,11 @@ export const plans = State.SQLite.table({
     createdAt: State.SQLite.text(),
     startedAt: State.SQLite.text({ nullable: true }),
     finishedAt: State.SQLite.text({ nullable: true }),
+    fromTaskId: State.SQLite.text({ nullable: true }),
+    fromTaskDisplayId: State.SQLite.text({ nullable: true }),
+    fromTaskTitle: State.SQLite.text({ nullable: true }),
+    sizeCheckId: State.SQLite.text({ nullable: true }),
+    fromTaskGone: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -2094,6 +2099,35 @@ export const events = {
     name: 'v1.PlanRequestAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
   }),
+  planStartedFromTask: Events.synced({
+    name: 'v1.PlanStartedFromTask',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      displayId: Schema.String,
+      taskTitle: Schema.String,
+      sizeCheckId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  planTaskDetached: Events.synced({
+    name: 'v1.PlanTaskDetached',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      reason: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskPlanEnded: Events.synced({
+    name: 'v1.TaskPlanEnded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      planId: Schema.String,
+      outcome: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   planTaskCreated: Events.synced({
     name: 'v1.PlanTaskCreated',
     schema: Schema.Struct({
@@ -2164,6 +2198,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
   'v1.TaskNeedsPlanning': (args) => task(args, { runId: args.runId }),
   'v1.TaskStartedAfterPlanning': (args) => task(args, { stage: args.stage }),
+  'v1.PlanStartedFromTask': (args) => task(args, { planId: args.id }),
+  'v1.TaskPlanEnded': (args) => task(args, { planId: args.planId, outcome: args.outcome }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
@@ -2950,6 +2986,18 @@ const materializers = counted(
         planRequests.insert({ ...request, createdAt: at }),
       'v1.PlanRequestAnswered': ({ id, answer }) => planRequests.update({ answer }).where({ id }),
       'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
+      'v1.PlanStartedFromTask': ({ id, taskId, displayId, taskTitle, sizeCheckId }) =>
+        plans
+          .update({
+            fromTaskId: taskId,
+            fromTaskDisplayId: displayId,
+            fromTaskTitle: taskTitle,
+            sizeCheckId,
+          })
+          .where({ id }),
+      'v1.PlanTaskDetached': ({ id, reason }) =>
+        plans.update({ fromTaskGone: reason }).where({ id }),
+      'v1.TaskPlanEnded': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
     }),
   ),
 )

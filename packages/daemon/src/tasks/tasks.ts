@@ -38,6 +38,7 @@ import type {
   MoveTaskRequest,
   OutcomeResult,
   Priority,
+  ProposalCreated,
   ProposalInput,
   RecordAppRequest,
   ReportOutcomeRequest,
@@ -207,7 +208,9 @@ import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
   afterPlanningWhy,
   grillAnywayMessage,
-  planInChatLater,
+  planApprovedLeadMessage,
+  planEndedLeadMessage,
+  planInChatMessage,
   planOutsideNote,
   proposalChangesMessage,
   sizeCheckTitle,
@@ -220,6 +223,28 @@ import { nudgeMessage, threadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
+
+export interface TaskPlanning {
+  fromTask(input: { taskId: string; sizeCheckId: string; text: string }): Promise<{
+    id: string
+    title: string
+  }>
+  taskGone(taskId: string, reason: 'archived' | 'deleted'): void
+}
+
+export interface PlanApproval {
+  planId: string
+  planTitle: string
+  narrowed: { title: string; description: string; priority: Priority }
+  created: ProposalCreated
+  text: string
+}
+
+export interface PlanEnd {
+  planId: string
+  planTitle: string
+  outcome: 'stopped' | 'failed' | 'deleted'
+}
 
 export interface CreateTaskInput
   extends Omit<
@@ -354,6 +379,8 @@ export interface Tasks {
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
   recordApp(ref: string, caller: Caller, request: RecordAppRequest): Promise<AppCapture>
   simulators(): SimulatorSlots
+  planApproved(taskId: string, input: PlanApproval): Promise<void>
+  planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
 
@@ -387,6 +414,7 @@ export function createTasks(options: {
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
+  planning?: () => TaskPlanning | undefined
 }): Tasks {
   const {
     store,
@@ -3262,7 +3290,7 @@ export function createTasks(options: {
     choice: string,
     text: string,
   ): Promise<Comment> {
-    if (choice === sizeChoices.chat) planInChat(task, comment)
+    if (choice === sizeChoices.chat) return planInChat(task, comment, text)
     return holding(task, async () => {
       unanswered(comment)
       const at = new Date().toISOString()
@@ -3284,8 +3312,68 @@ export function createTasks(options: {
     })
   }
 
-  function planInChat(_task: StoredTask, _comment: Comment): never {
-    throw new RequestError(409, planInChatLater)
+  function planningInChat(taskId: string): boolean {
+    return store.plans
+      .list()
+      .some((p) => p.fromTask?.taskId === taskId && !p.fromTask.gone && p.state !== 'ended')
+  }
+
+  async function planInChat(task: StoredTask, comment: Comment, text: string): Promise<Comment> {
+    const planning = options.planning?.()
+    if (!planning) throw new RequestError(503, 'Planning chats aren’t ready yet. Try again.')
+    return holding(task, async () => {
+      unanswered(comment)
+      if (find(task.id).stage !== 'clarify') {
+        throw new RequestError(409, `${task.displayId} has left Clarify`)
+      }
+      const plan = await planning.fromTask({ taskId: task.id, sizeCheckId: comment.id, text })
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        choice: sizeChoices.chat,
+        ...(text !== '' && { text }),
+        planId: plan.id,
+      })
+      await deliverAnswer(task, comment, planInChatMessage(plan.title))
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
+  async function tellLeadAboutPlan(taskId: string, text: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!run) return
+    await runs.send(run.id, text).catch((error: unknown) => {
+      console.error(
+        `couldn’t tell the Task Lead of ${task.displayId} about its planning chat:`,
+        error,
+      )
+    })
+  }
+
+  async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || task.archived) return
+    store.taskSplit(task.id, {
+      pieceIds: input.created.tasks.map((c) => c.id),
+      narrowedTo: input.narrowed.title,
+      description: input.narrowed.description,
+    })
+    if (input.narrowed.priority !== task.priority) {
+      store.setPriority(task.id, input.narrowed.priority)
+    }
+    store.taskPlanEnded(task.id, input.planId, 'approved')
+    await tellLeadAboutPlan(
+      task.id,
+      planApprovedLeadMessage({ displayId: task.displayId, ...input }),
+    )
+  }
+
+  async function planEnded(taskId: string, input: PlanEnd): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || task.archived) return
+    store.taskPlanEnded(task.id, input.planId, input.outcome)
+    await tellLeadAboutPlan(task.id, planEndedLeadMessage(input))
   }
 
   function planOutside(task: StoredTask, comment: Comment): void {
@@ -4193,6 +4281,7 @@ export function createTasks(options: {
         )
       : []
     const archived = store.archiveTask(task.id, { closing, branches: task.repos.length })
+    options.planning?.()?.taskGone(task.id, 'archived')
     if (closing.length > 0) pullRequestWork(task.id, 'close')
     inBackground(`archive ${task.displayId}`, () => clearing(task.id))
     return archived
@@ -4228,6 +4317,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} is already being deleted`)
     deleting.add(task.id)
     try {
+      options.planning?.()?.taskGone(task.id, 'deleted')
       settleDependents(task.id, blocked)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
@@ -5050,6 +5140,7 @@ export function createTasks(options: {
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).length > 0) return
+    if (planningInChat(task.id)) return
     const nudged = store
       .taskLog(task.id)
       .findLast((e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === run.id)?.at
@@ -5797,6 +5888,7 @@ export function createTasks(options: {
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
         descriptions: store.descriptionVersions(task.id),
+        planTitleOf: (planId) => store.plans.get(planId)?.title,
       })
     },
 
@@ -6414,6 +6506,8 @@ export function createTasks(options: {
       void pump()
       return () => void pump()
     },
+    planApproved,
+    planEnded,
 
     async close() {
       closed = true

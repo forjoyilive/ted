@@ -622,6 +622,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         answeredId={inboxScreen?.answered ? navigation.requestId : undefined}
         onBack={() => dispatch({ type: 'close-task' })}
         onOpenTask={openTaskByRef}
+        onOpenPlan={(planId) => dispatch({ type: 'open-plan', factoryId: task.factoryId, planId })}
         onFollowedUp={openTask}
       />
     )

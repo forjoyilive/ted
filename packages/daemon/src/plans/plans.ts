@@ -5,10 +5,12 @@ import type {
   Effort,
   Plan,
   PlanDetail,
+  PlanFromTask,
   PlanInboxItem,
   PlanRequest,
   PlanStatus,
   PlanTask,
+  PlanTaskGone,
   ProposalCreated,
   ProposalInput,
   QueuedForSlot,
@@ -25,23 +27,27 @@ import { ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { StoredFactory, TedStore } from '../store/index.ts'
+import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
 import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
 import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
-import type { Caller } from '../tasks/tasks.ts'
+import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
 import { copyFiles } from '../tasks/worktree.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
+  type PlanTaskContext,
   planApprovedMessage,
   planChangesMessage,
   planCreatedNote,
   plannerInstructions,
   planResumePrompt,
   planRoundAnswerMessage,
+  planToldLeadNote,
+  taskDetachedMessage,
+  taskDetachedNote,
 } from './prompts.ts'
 
 export interface PlanQueue {
@@ -61,12 +67,16 @@ export interface PlansOptions {
   reposDir: string
   isCloned?: (factoryId: string) => boolean
   startTask: (taskId: string) => Promise<unknown>
+  planApproved?: (taskId: string, input: PlanApproval) => Promise<void>
+  planEnded?: (taskId: string, input: PlanEnd) => Promise<void>
 }
 
 export interface Plans {
   list(factory?: string): Promise<Plan[]>
   detail(id: string): Promise<PlanDetail>
   start(input: StartPlanRequest, caller: Caller): Promise<Plan>
+  fromTask(input: { taskId: string; sizeCheckId: string; text: string }): Promise<Plan>
+  taskGone(taskId: string, reason: PlanTaskGone): void
   rename(id: string, title: string, caller: Caller): Promise<Plan>
   stop(id: string, caller: Caller): Promise<Plan>
   delete(id: string, caller: Caller): Promise<void>
@@ -117,6 +127,42 @@ export function createPlans(options: PlansOptions): Plans {
     const plan = saved.get(id)
     if (!plan || !factoryOf(plan)) throw new RequestError(404, `no planning chat ${id}`)
     return plan
+  }
+
+  function linkedTask(plan: StoredPlan): StoredTask | undefined {
+    if (!plan.fromTask || plan.fromTask.gone) return undefined
+    const task = store.getTask(plan.fromTask.taskId)
+    return task && !task.archived ? task : undefined
+  }
+
+  function view(plan: StoredPlan, request: PlanRequest): PlanRequest {
+    if (!request.proposal?.firstPiece || linkedTask(plan)) return request
+    if (request.answer?.kind === 'approved') return request
+    const { firstPiece: _, ...proposal } = request.proposal
+    return { ...request, proposal }
+  }
+
+  function taskContext(plan: StoredPlan): PlanTaskContext | undefined {
+    const task = linkedTask(plan)
+    if (!task || !plan.fromTask) return undefined
+    const sizeCheck = store.getComment(plan.fromTask.sizeCheckId)
+    return {
+      displayId: task.displayId,
+      title: task.title,
+      description: task.description,
+      ...(sizeCheck && { why: sizeCheck.body }),
+      settle: sizeCheck?.sizeCheck?.settle ?? [],
+    }
+  }
+
+  function endedWithout(plan: StoredPlan, outcome: PlanEnd['outcome']): void {
+    const task = linkedTask(plan)
+    if (!task || !options.planEnded) return
+    options
+      .planEnded(task.id, { planId: plan.id, planTitle: plan.title, outcome })
+      .catch((error: unknown) =>
+        console.error(`couldn’t tell ${task.displayId} its planning chat ended:`, error),
+      )
   }
 
   function factoryByRef(ref: string): StoredFactory {
@@ -303,7 +349,7 @@ export function createPlans(options: PlansOptions): Plans {
       await runs.start({
         id,
         agent: plan.agent,
-        prompt: `${plannerInstructions({ factory, entries, folder: folderOf(id) })}\n\n${plan.message}`,
+        prompt: `${plannerInstructions({ factory, entries, folder: folderOf(id), ...withTask(plan) })}\n\n${plan.message}`,
         cwd: single ?? folderOf(id),
         name: 'Planner',
         permissions: 'auto',
@@ -322,11 +368,17 @@ export function createPlans(options: PlansOptions): Plans {
     }
   }
 
+  function withTask(plan: StoredPlan): { task?: PlanTaskContext } {
+    const task = taskContext(plan)
+    return task ? { task } : {}
+  }
+
   function fail(id: string, error: string): void {
     const plan = saved.get(id)
     if (!plan || plan.state === 'ended') return
     withdrawOpen(id)
     saved.ended(id, { outcome: 'failed', error: firstLine(error) })
+    endedWithout(plan, 'failed')
     cleanUp(id)
   }
 
@@ -347,6 +399,7 @@ export function createPlans(options: PlansOptions): Plans {
     if (stopped) {
       withdrawOpen(plan.id)
       saved.ended(plan.id, { outcome: 'stopped' })
+      endedWithout(plan, 'stopped')
       cleanUp(plan.id)
       return
     }
@@ -435,6 +488,54 @@ export function createPlans(options: PlansOptions): Plans {
       ...(store.getRun(plan.id) && { runId: plan.id }),
       ...(latest?.proposal && { proposedTasks: latest.proposal.rows.length }),
       createdTasks: saved.createdTasks(plan.id).length,
+      ...fromTaskOf(plan),
+    }
+  }
+
+  function fromTaskOf(plan: StoredPlan): { fromTask?: PlanFromTask } {
+    const link = plan.fromTask
+    if (!link) return {}
+    const task = store.getTask(link.taskId)
+    const gone = link.gone ?? (task ? (task.archived ? 'archived' : undefined) : 'deleted')
+    const fromTask: PlanFromTask = {
+      id: link.taskId,
+      displayId: task?.displayId ?? link.displayId,
+      title: task?.title ?? link.title,
+      ...(task && { stage: task.stage }),
+      ...(task?.status && { status: task.status }),
+      ...(task?.activity !== undefined && { activity: task.activity }),
+      ...(gone !== undefined && { gone }),
+    }
+    return { fromTask }
+  }
+
+  function startable(factory: StoredFactory): void {
+    if (options.isCloned && !options.isCloned(factory.id)) {
+      throw new RequestError(409, `${factory.name} is still cloning. Plan once it’s ready.`)
+    }
+    if (store.newWorkHold() !== undefined) {
+      throw new RequestError(507, 'The disk is full, so TED isn’t starting new Runs')
+    }
+  }
+
+  async function plannerFor(
+    factory: StoredFactory,
+    input: Pick<StartPlanRequest, 'agent' | 'model' | 'effort'>,
+  ): Promise<Pick<StoredPlan, 'agent' | 'model' | 'effort'>> {
+    const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
+      ?.workflow.settings
+    const planner = resolveAgentChoices(settings, {
+      claude: options.agents.installed('claude'),
+      codex: options.agents.installed('codex'),
+    }).planner
+    const agent = input.agent ?? planner.agent
+    const same = agent === planner.agent
+    const model = input.model ?? (same ? planner.model : undefined)
+    const effort: Effort | undefined = input.effort ?? (same ? planner.effort : undefined)
+    return {
+      agent,
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort }),
     }
   }
 
@@ -467,16 +568,21 @@ export function createPlans(options: PlansOptions): Plans {
     request: PlanRequest,
     answer: Extract<AnswerRequest, { action: 'approve' }>,
   ): Promise<PlanRequest> {
-    const proposal = request.proposal
+    const proposal = view(plan, request).proposal
     if (!proposal) throw new RequestError(409, 'this proposal has no rows')
+    const task = proposal.firstPiece ? linkedTask(plan) : undefined
     const skip = [...(answer.proposal?.skip ?? [])].sort((a, b) => a - b)
     const outside = skip.find((row) => row < 1 || row > proposal.rows.length)
     if (outside !== undefined) throw new RequestError(400, `the proposal has no row ${outside}`)
+    if (task && skip.includes(1)) {
+      throw new RequestError(400, `row 1 is ${task.displayId}, so it’s always kept`)
+    }
     const shape = planProposal(proposal, skip)
     if (shape.creates === 0) throw new RequestError(400, 'check at least one row to create')
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
     const ids = new Map<number, string>()
+    if (task) ids.set(1, task.id)
     const created: ProposalCreated['tasks'] = []
     for (const row of shape.order) {
       const planned = shape.rows[row - 1]
@@ -506,13 +612,45 @@ export function createPlans(options: PlansOptions): Plans {
       ...(text !== '' && { text }),
       created: outcome,
     })
+    const first = proposal.rows[0]
+    const narrowed =
+      task && first
+        ? {
+            title: first.title,
+            description: first.description ?? first.scope,
+            priority: first.priority,
+          }
+        : undefined
     saved.postRequest({
       planId: plan.id,
       runId: plan.id,
       kind: 'note',
       author: 'ted',
-      body: planCreatedNote(created.map((c) => c.displayId)),
+      body: planCreatedNote(
+        created.map((c) => c.displayId),
+        task && narrowed ? { displayId: task.displayId, title: narrowed.title } : undefined,
+      ),
     })
+    if (task && narrowed && options.planApproved) {
+      await options
+        .planApproved(task.id, {
+          planId: plan.id,
+          planTitle: plan.title,
+          narrowed,
+          created: outcome,
+          text,
+        })
+        .catch((error: unknown) =>
+          console.error(`couldn’t narrow ${task.displayId} to its first piece:`, error),
+        )
+      saved.postRequest({
+        planId: plan.id,
+        runId: plan.id,
+        kind: 'note',
+        author: 'ted',
+        body: planToldLeadNote(task.displayId),
+      })
+    }
     const run = store.getRun(plan.id)
     if (run && run.state !== 'finished') {
       await runs.send(run.id, planApprovedMessage(created)).catch(() => undefined)
@@ -559,44 +697,73 @@ export function createPlans(options: PlansOptions): Plans {
       const plan = find(id)
       return {
         plan: describe(plan, await slotsNow()),
-        requests: saved.requests(plan.id),
+        requests: saved.requests(plan.id).map((r) => view(plan, r)),
         tasks: createdTasks(plan.id),
       }
     },
     async start(input, caller) {
       refuseRun(caller)
       const factory = factoryByRef(input.factory)
-      if (options.isCloned && !options.isCloned(factory.id)) {
-        throw new RequestError(409, `${factory.name} is still cloning. Plan once it’s ready.`)
-      }
-      if (store.newWorkHold() !== undefined) {
-        throw new RequestError(507, 'The disk is full, so TED isn’t starting new Runs')
-      }
+      startable(factory)
       const message = input.message.trim()
       if (message === '') throw new RequestError(400, 'say what you want to plan')
       if (message.length > maxMessageLength) {
         throw new RequestError(400, `the message is limited to ${maxMessageLength} characters`)
       }
-      const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
-        ?.workflow.settings
-      const planner = resolveAgentChoices(settings, {
-        claude: options.agents.installed('claude'),
-        codex: options.agents.installed('codex'),
-      }).planner
-      const agent = input.agent ?? planner.agent
-      const same = agent === planner.agent
-      const model = input.model ?? (same ? planner.model : undefined)
-      const effort: Effort | undefined = input.effort ?? (same ? planner.effort : undefined)
       const plan = saved.start({
         factoryId: factory.id,
         title: planTitle(message) || 'Planning chat',
         message,
-        agent,
-        ...(model !== undefined && { model }),
-        ...(effort !== undefined && { effort }),
+        ...(await plannerFor(factory, input)),
       })
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
+    },
+    async fromTask({ taskId, sizeCheckId, text }) {
+      const task = store.getTask(taskId)
+      const factory = task && store.getFactory(task.factoryId)
+      if (!task || !factory) throw new RequestError(404, `no Task ${taskId}`)
+      const open = live().find(
+        (p) => p.fromTask?.taskId === taskId && !p.fromTask.gone && p.state !== 'ended',
+      )
+      if (open) {
+        throw new RequestError(409, `${task.displayId} is already being planned in “${open.title}”`)
+      }
+      startable(factory)
+      const message = [`Plan ${task.displayId}: ${task.title}`, text.trim()]
+        .filter((part) => part !== '')
+        .join('\n\n')
+      const plan = saved.start({
+        factoryId: factory.id,
+        title: [...`Plan: ${task.title}`].slice(0, maxTitleLength).join(''),
+        message: message.slice(0, maxMessageLength),
+        ...(await plannerFor(factory, {})),
+        fromTask: { taskId, displayId: task.displayId, title: task.title, sizeCheckId },
+      })
+      pump()
+      return describe(saved.get(plan.id) ?? plan, await slotsNow())
+    },
+    taskGone(taskId, reason) {
+      for (const plan of live()) {
+        if (plan.fromTask?.taskId !== taskId || plan.fromTask.gone || plan.state === 'ended') {
+          continue
+        }
+        const { displayId } = plan.fromTask
+        saved.detachTask(plan.id, reason)
+        saved.postRequest({
+          planId: plan.id,
+          runId: plan.id,
+          kind: 'note',
+          author: 'ted',
+          body: taskDetachedNote(displayId, reason),
+        })
+        const run = store.getRun(plan.id)
+        if (run && run.state !== 'finished' && plan.state === 'started') {
+          runs
+            .send(run.id, taskDetachedMessage(displayId, reason))
+            .catch((error: unknown) => console.error(error))
+        }
+      }
     },
     async rename(id, title, caller) {
       refuseRun(caller)
@@ -616,6 +783,7 @@ export function createPlans(options: PlansOptions): Plans {
         throw new RequestError(409, 'this planning chat has already ended')
       withdrawOpen(plan.id)
       saved.ended(plan.id, { outcome: 'stopped' })
+      endedWithout(plan, 'stopped')
       const run = store.getRun(plan.id)
       if (run && run.state !== 'finished') {
         await runs.stop(run.id).catch((error: unknown) => console.error(error))
@@ -639,7 +807,7 @@ export function createPlans(options: PlansOptions): Plans {
       return saved.requests().flatMap((request): PlanInboxItem[] => {
         const plan = plansById.get(request.planId)
         if (!plan || request.kind === 'note' || request.answer !== undefined) return []
-        return [{ request, plan: describe(plan, slots) }]
+        return [{ request: view(plan, request), plan: describe(plan, slots) }]
       })
     },
     post(caller, { round, proposal, supersedes }) {
@@ -648,6 +816,21 @@ export function createPlans(options: PlansOptions): Plans {
         throw new RequestError(400, 'send a round or a proposal')
       }
       const kind = round ? 'round' : 'proposal'
+      const task = linkedTask(plan)
+      if (proposal && task) {
+        if (proposal.tasks.length < 2) {
+          throw new RequestError(
+            400,
+            `this chat started from ${task.displayId}, so row 1 is that Task and the proposal needs at least one more row`,
+          )
+        }
+        if ((proposal.tasks[0]?.blockedBy ?? []).length > 0) {
+          throw new RequestError(
+            400,
+            `row 1 is ${task.displayId}, which carries on as soon as you’re approved, so it can’t be blocked`,
+          )
+        }
+      }
       const requests = saved.requests(plan.id)
       if (supersedes !== undefined) {
         const old = requests.find((r) => r.id === supersedes)
@@ -691,6 +874,7 @@ export function createPlans(options: PlansOptions): Plans {
             title: proposal?.title ?? '',
             body: proposal?.summary ?? '',
             proposal: {
+              ...(task && { firstPiece: { id: task.id, displayId: task.displayId } }),
               rows: (proposal?.tasks ?? []).map((row) => ({
                 title: row.title,
                 scope: row.scope,
@@ -709,7 +893,7 @@ export function createPlans(options: PlansOptions): Plans {
         })
       }
       pump()
-      return posted
+      return view(plan, posted)
     },
     async answer(id, request) {
       const found = saved.request(id)
@@ -728,21 +912,23 @@ export function createPlans(options: PlansOptions): Plans {
         if (!round) throw new RequestError(409, 'this round has no questions')
         const answers = roundAnswers(round, request)
         await deliver(plan, planRoundAnswerMessage(found, answers))
-        return saved.answerRequest(id, {
-          kind: 'answered',
-          at: new Date().toISOString(),
-          answers,
-        })
+        return view(
+          plan,
+          saved.answerRequest(id, { kind: 'answered', at: new Date().toISOString(), answers }),
+        )
       }
       if (request.action === 'request-changes') {
         const text = request.text.trim()
         if (text === '') throw new RequestError(400, 'Request changes needs your comment')
         await deliver(plan, planChangesMessage(text))
-        return saved.answerRequest(id, {
-          kind: 'changes-requested',
-          at: new Date().toISOString(),
-          text,
-        })
+        return view(
+          plan,
+          saved.answerRequest(id, {
+            kind: 'changes-requested',
+            at: new Date().toISOString(),
+            text,
+          }),
+        )
       }
       if (request.action !== 'approve') {
         throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
@@ -758,7 +944,10 @@ export function createPlans(options: PlansOptions): Plans {
 
   async function remove(plan: StoredPlan): Promise<void> {
     const run = store.getRun(plan.id)
-    if (plan.state !== 'ended') saved.ended(plan.id, { outcome: 'stopped' })
+    if (plan.state !== 'ended') {
+      saved.ended(plan.id, { outcome: 'stopped' })
+      endedWithout(plan, 'deleted')
+    }
     if (run && run.state !== 'finished') {
       await runs.stop(run.id).catch((error: unknown) => console.error(error))
     }

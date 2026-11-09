@@ -153,13 +153,15 @@ function EventRow({
   checkRun,
   onOpenOutput,
   onOpenRun,
+  onOpenPlan,
 }: {
   event: ThreadEvent
   checkRun: CheckRun | undefined
   onOpenOutput: OpenOutput
   onOpenRun: (runId: string) => void
+  onOpenPlan: (planId: string) => void
 }) {
-  const { runId, changes } = event
+  const { runId, changes, planId } = event
   const [showChanges, setShowChanges] = useState(false)
   return (
     <EventLine
@@ -167,7 +169,11 @@ function EventRow({
       text={event.text}
       at={event.at}
       action={
-        runId !== undefined ? (
+        planId !== undefined ? (
+          <button type="button" className={styles.linkButton} onClick={() => onOpenPlan(planId)}>
+            Open chat
+          </button>
+        ) : runId !== undefined ? (
           <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
             View message
           </button>
@@ -272,6 +278,7 @@ export function TaskPanes({
   answeredId,
   onBack,
   onOpenTask,
+  onOpenPlan,
   onFollowedUp,
 }: {
   task: Task
@@ -282,6 +289,7 @@ export function TaskPanes({
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
+  onOpenPlan: (planId: string) => void
   onFollowedUp: (followUp: Task) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
@@ -439,6 +447,7 @@ export function TaskPanes({
           answeredId={answeredId}
           onBack={onBack}
           onOpenTask={onOpenTask}
+          onOpenPlan={onOpenPlan}
           onFollowedUp={onFollowedUp}
           shownRun={visibleRun}
           onShowRun={show}
@@ -487,6 +496,7 @@ export function TaskThread({
   answeredId,
   onBack,
   onOpenTask,
+  onOpenPlan,
   onFollowedUp,
   shownRun,
   onShowRun,
@@ -504,6 +514,7 @@ export function TaskThread({
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
+  onOpenPlan: (planId: string) => void
   onFollowedUp: (followUp: Task) => void
   shownRun: string | undefined
   onShowRun: (runId: string | undefined) => void
@@ -688,6 +699,7 @@ export function TaskThread({
                     checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
                     onOpenOutput={openOutput}
                     onOpenRun={onOpenRun}
+                    onOpenPlan={onOpenPlan}
                   />
                 )
               }
@@ -767,6 +779,7 @@ export function TaskThread({
                 task={task}
                 onOpenRun={onOpenRun}
                 onOpenApp={onOpenApp}
+                onOpenPlan={onOpenPlan}
               />
             </div>
           ) : (

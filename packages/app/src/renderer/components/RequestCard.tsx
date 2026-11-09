@@ -6,7 +6,6 @@ import type {
   SignOffChanges,
   Task,
 } from '@ted/protocol'
-import { sizeChoices } from '@ted/protocol/task'
 import { useEffect, useRef, useState } from 'react'
 import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
 import {
@@ -302,12 +301,14 @@ export function RequestCard({
   readOnly = false,
   onOpenRun,
   onOpenApp,
+  onOpenPlan,
 }: {
   request: Comment
   task: Task
   readOnly?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
+  onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const now = useNow()
   const [text, setText] = useState('')
@@ -333,8 +334,11 @@ export function RequestCard({
     setSending(true)
     setError(undefined)
     try {
-      await ted.answerRequest(request.id, answer)
+      const answered = await ted.answerRequest(request.id, answer)
       setText('')
+      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
+        onOpenPlan?.(answered.answer.planId)
+      }
     } catch (failed) {
       setError(failed instanceof Error ? failed.message : String(failed))
     } finally {
@@ -461,21 +465,17 @@ export function RequestCard({
       )}
       {actionChoice === undefined && request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
-          {request.choices.map((choice) => {
-            const later = request.sizeCheck !== undefined && choice === sizeChoices.chat
-            return (
-              <button
-                key={choice}
-                type="button"
-                className={later ? `${styles.choice} ${styles.later}` : styles.choice}
-                disabled={sending || readOnly || later}
-                title={later ? 'Planning chats aren’t in TED yet' : undefined}
-                onClick={() => void send({ action: 'answer', choice, ...withText })}
-              >
-                {choice}
-              </button>
-            )
-          })}
+          {request.choices.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              className={styles.choice}
+              disabled={sending || readOnly}
+              onClick={() => void send({ action: 'answer', choice, ...withText })}
+            >
+              {choice}
+            </button>
+          ))}
         </div>
       )}
       {!readOnly && !request.round && !request.proposal && (

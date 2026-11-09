@@ -26,7 +26,7 @@ import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
-import { createPlans } from './plans/plans.ts'
+import { createPlans, type Plans } from './plans/plans.ts'
 import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
@@ -317,7 +317,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       await workflows.inherited().catch(() => undefined)
+      let plans: Plans | undefined
       const tasks = createTasks({
+        planning: () => plans,
         store,
         runs,
         workflows,
@@ -379,7 +381,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...automationOptions,
       })
-      const plans = createPlans({
+      plans = createPlans({
         home: paths.home,
         store,
         runs,
@@ -391,6 +393,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         startTask: (taskId) => tasks.start(taskId),
+        planApproved: (taskId, input) => tasks.planApproved(taskId, input),
+        planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
       wake = () => {
         tasks.wake()

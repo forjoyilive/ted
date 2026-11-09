@@ -481,6 +481,7 @@ export type CommentAnswer =
       text?: string
       answers?: RoundAnswer[]
       talkedThrough?: TalkedThrough
+      planId?: string
     }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
@@ -640,6 +641,7 @@ export interface ThreadEvent {
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
   changes?: ChatDiff
+  planId?: string
 }
 
 export interface Judgment {
