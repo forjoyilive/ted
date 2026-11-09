@@ -46,6 +46,12 @@ const config: Configuration = {
     buildResources: buildDir,
   },
   asar: false,
+  electronFuses: {
+    runAsNode: true,
+    enableNodeOptionsEnvironmentVariable: false,
+    enableNodeCliInspectArguments: false,
+    enableCookieEncryption: true,
+  },
   npmRebuild: false,
   nodeGypRebuild: false,
   files: ['**/*'],
@@ -53,10 +59,10 @@ const config: Configuration = {
   mac: {
     category: 'public.app-category.developer-tools',
     target: ['dmg', 'zip'],
-    hardenedRuntime: true,
+    hardenedRuntime: signs,
     entitlements: path.join(buildDir, 'entitlements.mac.plist'),
     entitlementsInherit: path.join(buildDir, 'entitlements.mac.plist'),
-    ...(!signs && { identity: null }),
+    ...(!signs && { identity: '-' }),
   },
   linux: {
     executableName: 'ted-app',
