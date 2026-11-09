@@ -100,7 +100,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         emit,
         login: () =>
           integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
-        onCloned: () => started?.wake(),
+        onCloned: (factory) => started?.wake(factory.id),
+        ...(idle && { idle }),
       })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)

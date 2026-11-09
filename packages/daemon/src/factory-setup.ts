@@ -17,6 +17,7 @@ import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import * as git from './git.ts'
 import { type Gh, GhError } from './github/gh.ts'
+import type { IdleTimer } from './idle.ts'
 import { redactSecrets } from './redact.ts'
 import {
   basicFactory,
@@ -50,6 +51,7 @@ export interface FactoriesOptions {
   login?: () => string | undefined
   onCloned?: (factory: StoredFactory) => void
   retryEveryMs?: number
+  idle?: IdleTimer
 }
 
 export const cloneFailedProblem = 'clone-failed'
@@ -301,6 +303,7 @@ export function createFactories(options: FactoriesOptions): Factories {
   function cloneAll(factory: StoredFactory): Promise<void> {
     const current = running.get(factory.id)
     if (current) return current
+    const release = options.idle?.hold()
     const work = (async () => {
       const results = await Promise.all(factory.repos.map((repo) => cloneOne(factory, repo)))
       if (stopping.signal.aborted) return
@@ -315,7 +318,10 @@ export function createFactories(options: FactoriesOptions): Factories {
       options.onCloned?.(cloned)
     })()
       .catch((error: unknown) => console.error(`setting up ${factory.name} failed:`, error))
-      .finally(() => running.delete(factory.id))
+      .finally(() => {
+        running.delete(factory.id)
+        release?.()
+      })
     running.set(factory.id, work)
     return work
   }

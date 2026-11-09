@@ -519,6 +519,7 @@ export async function openStore({
         queued: 0,
       },
       automationsOn: 0,
+      factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
     }
   }
   let lastActivity = activity()
@@ -565,10 +566,12 @@ export async function openStore({
       )
       const added = requireFactory(id)
       emit({ type: 'factory-added', factory: basicFactory(added) })
+      noteActivity()
       return added
     },
     factoryCloned(factoryId) {
       store.commit(events.factoryCloned({ factoryId, at: new Date().toISOString() }))
+      noteActivity()
       return requireFactory(factoryId)
     },
     listFactories,

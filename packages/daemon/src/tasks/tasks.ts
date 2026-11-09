@@ -68,7 +68,7 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
-  wake(): void
+  wake(factoryId?: string): void
   close(): Promise<void>
 }
 
@@ -804,7 +804,8 @@ export function createTasks(options: {
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
     },
 
-    wake() {
+    wake(factoryId) {
+      if (factoryId !== undefined) caps.delete(factoryId)
       void pump()
     },
 

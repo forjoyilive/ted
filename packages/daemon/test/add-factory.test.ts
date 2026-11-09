@@ -4,13 +4,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { Banner, Factory, RepoCheck, Task } from '@ted/protocol'
+import type { Activity, Banner, Factory, RepoCheck, RunSlots, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { githubRepo } from '../src/factory-setup.ts'
 import { parseProgress } from '../src/git.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -365,9 +366,17 @@ describe('adding a Factory', () => {
       .catch(async () => (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id))
     expect(queued?.leadRunId).toBeUndefined()
 
+    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 1 })
+
     await rename(hidden, origin)
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
     await client.ok('POST', `/banners/${encodeURIComponent(banner?.id ?? '')}/action`)
     await untilCloned(client, factory.id)
+    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 0 })
+    await waitUntil(async () => {
+      const slots = await client.ok<RunSlots>('GET', '/slots')
+      return slots.factories.some((f) => f.factoryId === factory.id && f.cap === 1)
+    }, 'the Factory’s own cap to apply once cloned')
     expect(
       (await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'clone-failed'),
     ).toBe(false)
