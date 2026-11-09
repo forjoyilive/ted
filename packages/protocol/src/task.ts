@@ -187,6 +187,31 @@ export interface TaskRepo {
     at: string
     teardown?: { command: string; outcome: WorktreeCommandOutcome }
   }
+  pushed?: TaskPush
+  pushFailed?: { message: string; at: string }
+  pullRequest?: TaskPullRequest
+}
+
+export const ciSignals = ['workflow-files', 'required-checks', 'recent-checks'] as const
+
+export type CiSignal = (typeof ciSignals)[number]
+
+export interface TaskPush {
+  commit: string
+  at: string
+  ci: boolean
+  ciSignals: CiSignal[]
+}
+
+export interface TaskPullRequest {
+  number: number
+  url: string
+  base: string
+  state: 'draft' | 'ready' | 'closed'
+}
+
+export interface ArchiveTaskRequest {
+  closePullRequests?: boolean
 }
 
 export interface CreateTaskRequest {
@@ -258,6 +283,9 @@ export type CommentAnswer =
   | { kind: 'answered'; at: string; choice?: string; text?: string; answers?: RoundAnswer[] }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'withdrawn'; at: string; runStopped: true }
+  | { kind: 'withdrawn'; at: string; cancelled: true }
+  | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
 export interface Comment {
@@ -272,9 +300,16 @@ export interface Comment {
   choices?: string[]
   round?: Round
   gate?: { approveLabel: string; caption?: string }
+  permission?: PermissionAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
+}
+
+export interface PermissionAsk {
+  command: string
+  details?: string
+  repo?: string
 }
 
 export type ThreadEventTone = 'edit' | 'done' | 'run' | 'failure' | 'quiet' | 'request'
@@ -298,6 +333,7 @@ export interface InboxItem {
 export type AnswerRequest =
   | { action: 'approve'; text?: string }
   | { action: 'request-changes'; text: string }
+  | { action: 'deny'; text?: string }
   | { action: 'answer'; choice?: string; text?: string }
   | { action: 'answer-round'; answers: RoundAnswerInput[] }
   | { action: 'accept-recommended' }

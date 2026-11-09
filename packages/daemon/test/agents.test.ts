@@ -2,9 +2,39 @@ import { describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
 
 const agents = createAgents({ claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' })
-const run = { prompt: 'Carry on', runDir: '/tmp/run', env: { PATH: '/bin' } }
+const run = {
+  prompt: 'Carry on',
+  runDir: '/tmp/run',
+  env: { PATH: '/bin' },
+  permissions: 'auto' as const,
+}
+
+const after = (args: string[], flag: string) => args[args.indexOf(flag) + 1]
 
 describe('agent kinds', () => {
+  test('auto: Claude Code in auto mode with prompts on stdio; Codex in workspace-write on-request', () => {
+    const claude = agents.get('claude').launch(run).args
+    const codex = agents.get('codex').launch(run).args
+
+    expect(after(claude, '--permission-mode')).toBe('auto')
+    expect(after(claude, '--permission-prompt-tool')).toBe('stdio')
+    expect(codex).toEqual(
+      expect.arrayContaining(['sandbox_mode="workspace-write"', 'approval_policy="on-request"']),
+    )
+  })
+
+  test('bypass: Claude Code bypassPermissions; Codex danger-full-access with no approvals', () => {
+    const claude = agents.get('claude').launch({ ...run, permissions: 'bypass' }).args
+    const codex = agents.get('codex').launch({ ...run, permissions: 'bypass' }).args
+
+    expect(after(claude, '--permission-mode')).toBe('bypassPermissions')
+    expect(codex).toEqual(
+      expect.arrayContaining(['sandbox_mode="danger-full-access"', 'approval_policy="never"']),
+    )
+    expect(codex.join(' ')).not.toContain('workspace-write')
+    expect(codex.join(' ')).not.toContain('on-request')
+  })
+
   test('Claude Code resumes its session with --resume and the same per-Run flags', () => {
     const fresh = agents.get('claude').launch(run)
     const resumed = agents.get('claude').launch({ ...run, resume: 'session-1' })

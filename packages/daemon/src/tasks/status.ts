@@ -26,6 +26,7 @@ export interface TaskFacts {
   agentActivity?: string
   archived?: boolean
   leadLive?: boolean
+  waitingOnPermission?: 'lead' | 'sub-agent'
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
@@ -86,6 +87,8 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
+  if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
+  if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
   if (facts.checking) {
     const { name, index, total } = facts.checking

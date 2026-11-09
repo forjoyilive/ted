@@ -115,6 +115,8 @@ export const runs = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     usesDefaultModel: State.SQLite.boolean({ default: false }),
     problem: State.SQLite.text({ nullable: true }),
+    permissions: State.SQLite.text({ default: 'auto' }),
+    manualPermissions: State.SQLite.boolean({ default: false }),
     prompt: State.SQLite.text(),
     cwd: State.SQLite.text(),
     taskId: State.SQLite.text({ nullable: true }),
@@ -169,6 +171,7 @@ export const comments = State.SQLite.table({
     choices: State.SQLite.text({ nullable: true }),
     round: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
+    permission: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     deliveredRunId: State.SQLite.text({ nullable: true }),
     deliveredAt: State.SQLite.text({ nullable: true }),
@@ -332,6 +335,25 @@ export const taskRepos = State.SQLite.table({
     teardownOutcome: State.SQLite.text({ nullable: true }),
     removedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const pullRequests = State.SQLite.table({
+  name: 'pullRequests',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    number: State.SQLite.integer({ nullable: true }),
+    url: State.SQLite.text({ nullable: true }),
+    base: State.SQLite.text({ nullable: true }),
+    state: State.SQLite.text({ nullable: true }),
+    pushedCommit: State.SQLite.text({ nullable: true }),
+    pushedAt: State.SQLite.text({ nullable: true }),
+    hasCi: State.SQLite.boolean({ nullable: true }),
+    ciSignals: State.SQLite.text({ nullable: true }),
+    pushError: State.SQLite.text({ nullable: true }),
+    pushErrorAt: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -659,6 +681,45 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskBranchPushed: Events.synced({
+    name: 'v1.TaskBranchPushed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      ci: Schema.Boolean,
+      ciSignals: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBranchPushFailed: Events.synced({
+    name: 'v1.TaskBranchPushFailed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      message: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestOpened: Events.synced({
+    name: 'v1.PullRequestOpened',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      number: Schema.Number,
+      url: Schema.String,
+      base: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestMarkedReady: Events.synced({
+    name: 'v1.PullRequestMarkedReady',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  pullRequestClosed: Events.synced({
+    name: 'v1.PullRequestClosed',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
     schema: Schema.Struct({
@@ -916,6 +977,36 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runPermissionsSet: Events.synced({
+    name: 'v1.RunPermissionsSet',
+    schema: Schema.Struct({ runId: Schema.String, permissions: Schema.String, at: Schema.String }),
+  }),
+  runAutoModeUnavailable: Events.synced({
+    name: 'v1.RunAutoModeUnavailable',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  permissionRequested: Events.synced({
+    name: 'v1.PermissionRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      runId: Schema.String,
+      requestId: Schema.String,
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.String,
+      body: Schema.String,
+      command: Schema.String,
+      details: Schema.NullOr(Schema.String),
+      generation: Schema.Number,
+      repo: Schema.NullOr(Schema.String),
+      input: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
   runOutputReadV2: Events.synced({
     name: 'v2.RunOutputRead',
     schema: Schema.Struct({
@@ -1025,6 +1116,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.TaskRunReleased': (args) => task(args),
+  'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
   'v1.RunMessageSent': (args) => ({
     taskId: args.lead === true ? str(args.taskId) : null,
     at: String(args.at),
@@ -1242,6 +1334,34 @@ const materializers = counted(
       'v1.ConversationTabClosed': ({ taskId, runId }) =>
         conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
       'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+      'v1.RunPermissionsSet': ({ runId, permissions }) =>
+        runs.update({ permissions }).where({ id: runId }),
+      'v1.RunAutoModeUnavailable': ({ runId }) =>
+        runs.update({ manualPermissions: true }).where({ id: runId }),
+      'v1.PermissionRequested': ({
+        runId,
+        requestId,
+        generation,
+        command,
+        details,
+        repo,
+        input,
+        ...comment
+      }) =>
+        comments.insert({
+          ...comment,
+          kind: 'permission',
+          authorKind: 'run',
+          authorRunId: runId,
+          permission: JSON.stringify({
+            requestId,
+            generation,
+            command,
+            ...(details !== null && { details }),
+            ...(repo !== null && { repo }),
+            ...(input !== null && { input }),
+          }),
+        }),
       'v1.RunSessionIdentified': ({ runId, sessionId }) =>
         runs.update({ sessionId }).where({ id: runId }),
       'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
@@ -1280,6 +1400,35 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
         tasks.update({ worktree: null }).where({ id: taskId }),
       ],
+      'v1.TaskBranchPushed': ({ taskId, name, commit, ci, ciSignals, at }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({
+            pushedCommit: commit,
+            pushedAt: at,
+            hasCi: ci,
+            ciSignals: JSON.stringify(ciSignals),
+            pushError: null,
+            pushErrorAt: null,
+          })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.TaskBranchPushFailed': ({ taskId, name, message, at }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({ pushError: message, pushErrorAt: at })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({ number, url, base, state: 'draft' })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.PullRequestMarkedReady': ({ taskId, name }) =>
+        pullRequests.update({ state: 'ready' }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestClosed': ({ taskId, name }) =>
+        pullRequests.update({ state: 'closed' }).where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
@@ -1344,6 +1493,7 @@ const state = State.SQLite.makeState({
     stageEntries,
     workflowLayers,
     taskRepos,
+    pullRequests,
     localFolders,
     machineSettings,
     machineSettingValues,

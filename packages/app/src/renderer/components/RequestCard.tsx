@@ -13,6 +13,7 @@ import {
 import { ted } from '../ted.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
+import { Help } from './Help.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 
@@ -74,6 +75,24 @@ function SignoffDecisions({ text }: { text: string }) {
       <p className={styles.openQuestions}>
         {`Open questions: ${open === '' ? 'none.' : open.replace(/\s*\n\s*/g, ' ')}`}
       </p>
+    </>
+  )
+}
+
+function PermissionCommand({ request }: { request: Comment }) {
+  const { permission } = request
+  if (!permission) return null
+  return (
+    <>
+      <pre className={styles.command}>
+        {permission.repo !== undefined && (
+          <span className={styles.commandRepo}>{`${permission.repo} $ `}</span>
+        )}
+        {permission.command}
+      </pre>
+      {permission.details !== undefined && (
+        <pre className={styles.commandDetails}>{permission.details}</pre>
+      )}
     </>
   )
 }
@@ -161,6 +180,7 @@ export function RequestCard({
           {error}
         </p>
       )}
+      <PermissionCommand request={request} />
       {actionChoice === undefined && request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
           {request.choices.map((choice) => (
@@ -182,16 +202,19 @@ export function RequestCard({
             className={styles.box}
             aria-label="Your answer"
             placeholder={
-              actionChoice !== undefined
-                ? 'Comment, or tell the Task Lead what to do next…'
-                : request.kind === 'question' && request.choices
-                  ? 'Or write your own answer…'
-                  : 'Comment to the Task Lead…'
+              request.permission
+                ? 'Comment, or say why you’re denying…'
+                : actionChoice !== undefined
+                  ? 'Comment, or tell the Task Lead what to do next…'
+                  : request.kind === 'question' && request.choices
+                    ? 'Or write your own answer…'
+                    : 'Comment to the Task Lead…'
             }
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !typed) return
+              if (request.permission) return
               event.preventDefault()
               void send(
                 request.gate ? { action: 'request-changes', text } : { action: 'answer', text },
@@ -207,7 +230,24 @@ export function RequestCard({
             {request.gate?.caption !== undefined && (
               <span className={styles.caption}>{request.gate.caption}</span>
             )}
-            {request.gate ? (
+            {request.permission ? (
+              <>
+                <Help>Applies to this request only.</Help>
+                <Button
+                  disabled={sending}
+                  onClick={() => void send({ action: 'deny', ...withText })}
+                >
+                  Deny
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={sending}
+                  onClick={() => void send({ action: 'approve', ...withText })}
+                >
+                  Approve
+                </Button>
+              </>
+            ) : request.gate ? (
               <>
                 <Button
                   disabled={sending || !typed}
@@ -264,7 +304,13 @@ function answerLine(
   if (!answer) return undefined
   switch (answer.kind) {
     case 'approved':
-      return { mark: '✓', tone: 'good', text: 'You approved' }
+      return {
+        mark: '✓',
+        tone: 'good',
+        text: request.permission ? 'You approved · this request only' : 'You approved',
+      }
+    case 'denied':
+      return { mark: '✕', tone: 'bad', text: 'You denied' }
     case 'changes-requested':
       return { mark: '↩', tone: 'neutral', text: 'You requested changes' }
     case 'answered':
@@ -275,6 +321,16 @@ function answerLine(
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }
         : { mark: '✓', tone: 'good', text: 'You answered in your own words' }
     case 'withdrawn':
+      if ('runStopped' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: `Withdrawn · ${runOwner(request, task)} Run stopped before you answered`,
+        }
+      }
+      if ('cancelled' in answer) {
+        return { mark: '–', tone: 'neutral', text: 'Withdrawn · the agent no longer needs it' }
+      }
       if ('archived' in answer) {
         return {
           mark: '–',
@@ -298,6 +354,15 @@ function answerLine(
       }
     }
   }
+}
+
+function runOwner(request: Comment, task: Task): string {
+  const who = poster(request, task)
+  return who === 'the Task Lead'
+    ? 'the Task Lead’s'
+    : who === 'a sub-agent'
+      ? 'the sub-agent’s'
+      : 'its'
 }
 
 const stageOrder: readonly string[] = [
@@ -348,7 +413,11 @@ export function AnsweredCard({
           {showing ? 'Hide request' : 'Show request'}
         </button>
       </div>
-      <p className={styles.answeredTitle}>{headline(request)}</p>
+      {request.permission ? (
+        <p className={styles.answeredCommand}>{request.permission.command}</p>
+      ) : (
+        <p className={styles.answeredTitle}>{headline(request)}</p>
+      )}
       {request.answer?.kind === 'answered' && request.answer.answers && (
         <RoundAnswers request={request} answers={request.answer.answers} />
       )}

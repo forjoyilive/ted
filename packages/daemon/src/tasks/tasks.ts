@@ -38,6 +38,7 @@ import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import type { Gh } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
@@ -72,6 +73,11 @@ import {
   tedSettingsCheck,
 } from './checks.ts'
 import { placeBetween } from './order.ts'
+import {
+  createPullRequests,
+  type PullRequestTarget,
+  type PullRequestTask,
+} from './pull-requests.ts'
 import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import {
   clarifySignoffCaption,
@@ -112,7 +118,7 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
-  archive(ref: string): Task
+  archive(ref: string, options?: { closePullRequests?: boolean }): Task
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -158,6 +164,7 @@ export function createTasks(options: {
   linear?: Pick<Linear, 'issueFor'>
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
+  gh?: Gh
   nudgeAfterMs?: number
 }): Tasks {
   const {
@@ -191,6 +198,8 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
+  const pullRequestQueue = new Map<string, Promise<void>>()
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -546,6 +555,57 @@ export function createTasks(options: {
     }
   }
 
+  async function pullRequestTargets(task: StoredTask): Promise<PullRequestTarget[]> {
+    const factory = factoryOf(task)
+    const { workflow } = await resolveWorkflow(factory, { fetch: false })
+    const primary = primaryRepoWorktree(workflow, factory)
+    const live = task.repos.filter((r) => !r.removed)
+    return Promise.all(
+      live.map(async (r) => ({
+        name: r.name,
+        repo: r.repo,
+        branch: r.branch,
+        worktree: r.worktree,
+        url: factory.repos.find((f) => f.repo === r.repo)?.cloneUrl ?? factory.cloneUrl,
+        base:
+          workflow.settings.repos?.find((s) => s.name === r.name)?.base_branch ??
+          (r.name === primary.name ? primary.baseBranch : await git.defaultBranch(r.worktree)),
+      })),
+    )
+  }
+
+  function pullRequestTask(task: StoredTask): PullRequestTask {
+    const brief = store.latestBrief(task.id)
+    const goal = brief ? briefSection(brief.text, 'goal') : task.description
+    return {
+      id: task.id,
+      displayId: task.displayId,
+      title: task.title,
+      ...(goal !== undefined && goal !== '' && { goal }),
+      ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
+    }
+  }
+
+  function pullRequestWork(taskId: string, what: 'first' | 'again' | 'ready' | 'close'): void {
+    const prs = pullRequests
+    if (!prs) return
+    const task = find(taskId)
+    const work = async () => {
+      if (what === 'close') return prs.close(taskId)
+      const current = find(taskId)
+      const targets = await pullRequestTargets(current)
+      if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
+      else await prs.push(pullRequestTask(current), targets, what)
+    }
+    const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
+    const settled = next.catch(() => undefined)
+    pullRequestQueue.set(taskId, settled)
+    void settled.then(() => {
+      if (pullRequestQueue.get(taskId) === settled) pullRequestQueue.delete(taskId)
+    })
+    inBackground(`update ${task.displayId}’s pull requests`, () => next)
+  }
+
   const leadFrom = (settings?: WorkflowSettings) =>
     resolveAgentChoices(settings, {
       claude: agents.installed('claude'),
@@ -722,6 +782,7 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
+    await pullRequestQueue.get(task.id)
     if (task.leadRunId) await runs.stop(task.leadRunId)
     const factory = factoryOf(task)
     const clone = clonePath(reposDir, factory)
@@ -812,6 +873,7 @@ export function createTasks(options: {
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
       ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
@@ -1158,6 +1220,8 @@ export function createTasks(options: {
     message: string | undefined,
   ): Promise<Task> {
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (next === 'validate') pullRequestWork(task.id, 'first')
+    if (next === 'merge') pullRequestWork(task.id, 'ready')
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
     } else if (next === 'validate' && message !== undefined) {
@@ -1180,6 +1244,44 @@ export function createTasks(options: {
     const answered = store.answerComment(comment.id, answer)
     if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
     return answered
+  }
+
+  async function answerPermission(
+    task: Task,
+    comment: Comment,
+    request: AnswerRequest,
+    text: string,
+  ): Promise<Comment> {
+    if (request.action !== 'approve' && request.action !== 'deny') {
+      throw new RequestError(400, 'answer a permission request with Approve or Deny')
+    }
+    const target = store.permissionTarget(comment.id)
+    if (!target) throw new RequestError(409, 'this request can’t be answered')
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (store.getRun(target.runId)?.state === 'finished') {
+        throw new RequestError(409, 'the Run that asked has stopped')
+      }
+      const approved = request.action === 'approve'
+      const at = new Date().toISOString()
+      const answered = store.answerPermission(comment.id, {
+        kind: approved ? 'approved' : 'denied',
+        at,
+        ...(text !== '' && { text }),
+      })
+      const said = permissionMessage(approved, target.command, text)
+      await runs.answerPermission(target.runId, target.generation, {
+        requestId: target.requestId,
+        approved,
+        ...(target.input !== undefined && { input: target.input }),
+        ...(said !== undefined && { text: said }),
+      })
+      return answered
+    })
   }
 
   function visitStart(task: Task): string {
@@ -1854,9 +1956,10 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
-    archive(ref) {
+    archive(ref, { closePullRequests = false } = {}) {
       const task = live(ref)
       const archived = store.archiveTask(task.id)
+      if (closePullRequests) pullRequestWork(task.id, 'close')
       inBackground(`archive ${task.displayId}`, () => clearAway(task.id))
       return archived
     },
@@ -2070,6 +2173,7 @@ export function createTasks(options: {
         throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
       }
       const text = request.text?.trim() ?? ''
+      if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
         if (request.action === 'request-changes') {
           if (text === '') throw new RequestError(400, 'Request changes needs your comment')
@@ -2237,6 +2341,7 @@ export function createTasks(options: {
           outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
+          if (stage === 'validate') pullRequestWork(task.id, 'again')
           const moved = await move(
             current,
             resolution,
@@ -2265,6 +2370,8 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           gate: gateButtons(workflow, stage),
         })
+        if (stage === 'validate') pullRequestWork(task.id, 'again')
+        if (stage === 'review') pullRequestWork(task.id, 'ready')
         return {
           task: publicTask(task.id),
           message: `Waiting for the human at the ${name}. TED sends you their answer.`,
@@ -2423,6 +2530,20 @@ function headings(text: string): { title: string; line: number }[] {
   })
 }
 
+function briefSection(text: string, title: string): string | undefined {
+  const lines = text.split('\n')
+  const found = headings(text)
+  const start = found.find((h) => h.title === title)
+  if (!start) return undefined
+  const end = found.find((h) => h.line > start.line)?.line ?? lines.length
+  return (
+    lines
+      .slice(start.line + 1, end)
+      .join('\n')
+      .trim() || undefined
+  )
+}
+
 function hasBriefHeadings(text: string): boolean {
   let next = 0
   for (const { title } of headings(text)) {
@@ -2442,6 +2563,17 @@ function briefGoal(text: string): string | undefined {
 
 const continueMessage =
   'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+
+function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
+  if (approved) {
+    return text === ''
+      ? undefined
+      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
+  }
+  return text === ''
+    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
+    : `The human denied this request and said:\n\n${text}`
+}
 
 function humanMessage(body: string): string {
   return `The human posted a Comment on this Task:\n\n${body}`

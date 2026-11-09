@@ -12,6 +12,7 @@ export interface CodexPlan {
 interface RpcMessage {
   id?: number | string
   method?: string
+  params?: Record<string, unknown>
   result?: { thread?: { id?: unknown }; data?: unknown }
   error?: unknown
 }
@@ -24,12 +25,22 @@ interface ListedModel {
 }
 
 const declined: Record<string, unknown> = {
-  'item/commandExecution/requestApproval': { decision: 'decline' },
-  'item/fileChange/requestApproval': { decision: 'decline' },
-  'item/permissions/requestApproval': { permissions: {}, scope: 'turn' },
   'mcpServer/elicitation/request': { action: 'decline', content: null, _meta: null },
-  execCommandApproval: { decision: { denied: { rejection: 'TED declined this request' } } },
-  applyPatchApproval: { decision: { denied: { rejection: 'TED declined this request' } } },
+}
+
+const rejection = { denied: { rejection: 'The human denied this request' } }
+
+const replies: Record<string, (approved: boolean, grant: unknown) => unknown> = {
+  'item/commandExecution/requestApproval': (approved) => ({
+    decision: approved ? 'accept' : 'decline',
+  }),
+  'item/fileChange/requestApproval': (approved) => ({ decision: approved ? 'accept' : 'decline' }),
+  'item/permissions/requestApproval': (approved, grant) => ({
+    permissions: approved && typeof grant === 'object' && grant !== null ? grant : {},
+    scope: 'turn',
+  }),
+  execCommandApproval: (approved) => ({ decision: approved ? 'approved' : rejection }),
+  applyPatchApproval: (approved) => ({ decision: approved ? 'approved' : rejection }),
 }
 
 export const drive: DriveAgent = ({ input, send, stop }) => {
@@ -42,6 +53,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   let turnActive = false
   let effort: Effort | undefined
   let model = plan.model
+  const asking = new Map<string, RpcMessage>()
 
   const request = (method: string, params: unknown) => {
     const id = ++nextId
@@ -104,12 +116,30 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
 
   return {
     onInput(line) {
-      let text: unknown
+      let input: {
+        text?: unknown
+        permission?: { id?: unknown; approved?: unknown; grant?: unknown }
+      }
       try {
-        text = (JSON.parse(line) as { text?: unknown }).text
+        input = JSON.parse(line)
       } catch {
         return
       }
+      if (input.permission !== undefined) {
+        const id = String(input.permission.id)
+        const request = asking.get(id)
+        const reply = request?.method !== undefined ? replies[request.method] : undefined
+        if (!request || !reply) return
+        asking.delete(id)
+        send(
+          JSON.stringify({
+            id: request.id,
+            result: reply(input.permission.approved === true, input.permission.grant),
+          }),
+        )
+        return
+      }
+      const text = input.text
       if (typeof text !== 'string') return
       if (threadId === undefined) pending.push(text)
       else queueTurn(text)
@@ -125,11 +155,18 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
         turnActive = false
         nextTurn()
       }
+      if (message.method === 'serverRequest/resolved') {
+        asking.delete(String(message.params?.requestId))
+      }
       if (message.id === undefined) return
       if (message.method === undefined) {
         if (typeof message.id !== 'number') return
         waiting.get(message.id)?.(message)
         waiting.delete(message.id)
+        return
+      }
+      if (replies[message.method]) {
+        asking.set(String(message.id), message)
         return
       }
       const result = declined[message.method]

@@ -125,7 +125,19 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
     client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
+  archiveTask: (client, taskId, options) =>
+    client.archiveTask(String(taskId), {
+      closePullRequests:
+        (options as { closePullRequests?: unknown } | undefined)?.closePullRequests === true,
+    }),
+  openPullRequest: async (client, taskId, repoName) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.url
+    if (url === undefined || !/^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
+      throw new Error('That pull request has no GitHub link')
+    }
+    await shell.openExternal(url)
+  },
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
   unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),
