@@ -81,6 +81,16 @@ export const taskBlockers = State.SQLite.table({
   },
 })
 
+export const deletedTasks = State.SQLite.table({
+  name: 'deletedTasks',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    number: State.SQLite.integer(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const taskAttachments = State.SQLite.table({
   name: 'taskAttachments',
   columns: {
@@ -664,6 +674,34 @@ export const events = {
     name: 'v1.TaskArchived',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
+  taskArchivedV2: Events.synced({
+    name: 'v2.TaskArchived',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      closing: Schema.Array(Schema.String),
+      branches: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  taskUnarchived: Events.synced({
+    name: 'v1.TaskUnarchived',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      rank: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
+  }),
+  taskDeleted: Events.synced({
+    name: 'v1.TaskDeleted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      factoryId: Schema.String,
+      number: Schema.Number,
+      runIds: Schema.Array(Schema.String),
+      checkRunIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -815,6 +853,15 @@ export const events = {
   pullRequestClosed: Events.synced({
     name: 'v1.PullRequestClosed',
     schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  pullRequestReopened: Events.synced({
+    name: 'v1.PullRequestReopened',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      state: Schema.String,
+      at: Schema.String,
+    }),
   }),
   pullRequestWaitChanged: Events.synced({
     name: 'v1.PullRequestWaitChanged',
@@ -1413,6 +1460,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
+  'v2.TaskArchived': (args) => task(args, { closing: args.closing, branches: args.branches }),
+  'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
@@ -1621,6 +1670,58 @@ const materializers = counted(
       'v1.TaskArchived': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
+      ],
+      'v2.TaskArchived': ({ taskId, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
+      ],
+      'v1.TaskUnarchived': ({ taskId, rank, at }) => [
+        ...(rank === null
+          ? []
+          : [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]),
+        tasks
+          .update({
+            archivedAt: null,
+            failedAt: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            waitsForBlockers: false,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskDeleted': ({ taskId, factoryId, number, runIds, checkRunIds, at }) => [
+        deletedTasks.insert({ id: taskId, factoryId, number, at }).onConflict('id', 'ignore'),
+        tasks.delete().where({ id: taskId }),
+        taskQueue.delete().where({ taskId }),
+        taskBlockers.delete().where({ taskId }),
+        taskAttachments.delete().where({ taskId }),
+        taskSources.delete().where({ taskId }),
+        runs.delete().where({ taskId }),
+        subAgentRequests.delete().where({ taskId }),
+        conversationTabs.delete().where({ taskId }),
+        comments.delete().where({ taskId }),
+        taskLog.delete().where({ taskId }),
+        taskBriefs.delete().where({ taskId }),
+        sendBacks.delete().where({ taskId }),
+        sendBackResets.delete().where({ taskId }),
+        checkRuns.delete().where({ taskId }),
+        stageEntries.delete().where({ taskId }),
+        taskRepos.delete().where({ taskId }),
+        pullRequests.delete().where({ taskId }),
+        heldRuns.delete().where({ taskId }),
+        ...(runIds.length === 0
+          ? []
+          : [
+              runs.delete().where({ id: { op: 'IN', value: runIds } }),
+              conversationEntries.delete().where({ runId: { op: 'IN', value: runIds } }),
+              runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
+              runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
+            ]),
+        ...(checkRunIds.length === 0
+          ? []
+          : [checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } })]),
       ],
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
@@ -1860,6 +1961,8 @@ const materializers = counted(
         pullRequests.update({ state: 'ready' }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestClosed': ({ taskId, name }) =>
         pullRequests.update({ state: 'closed' }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestReopened': ({ taskId, name, state }) =>
+        pullRequests.update({ state }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestWaitChanged': ({ taskId, name, on }) =>
         pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
@@ -1928,6 +2031,7 @@ const state = State.SQLite.makeState({
     tasks,
     taskQueue,
     taskBlockers,
+    deletedTasks,
     taskAttachments,
     taskSources,
     runs,

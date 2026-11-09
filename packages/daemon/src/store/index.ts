@@ -14,6 +14,7 @@ import {
   type Banner,
   type BannerAction,
   type BannerSeverity,
+  type BlockerEnded,
   bannerOrder,
   type CheckResult,
   type CheckRun,
@@ -81,6 +82,7 @@ import {
   comments,
   conversationEntries,
   conversationTabs,
+  deletedTasks,
   events,
   factories,
   factoryRepos,
@@ -202,6 +204,7 @@ export interface BlockerLink {
   blockerId: string
   displayId: string
   merged: boolean
+  ended?: BlockerEnded
   setByRunId?: string
   at: string
 }
@@ -357,17 +360,6 @@ export interface TedStore {
     entry: NewStageEntry
     repo: NewWorktree
   }): Task
-  worktreeCreated(
-    taskId: string,
-    repo: {
-      name: string
-      repo: string
-      branch: string
-      worktree: string
-      copied: string[]
-      skipped: CopySkip[]
-    },
-  ): void
   setTaskRepos(
     taskId: string,
     input: { repos: string[]; names: string[]; by: 'human' | 'task-lead'; runId?: string },
@@ -397,6 +389,18 @@ export interface TedStore {
   ): void
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
+  pullRequestReopened(taskId: string, name: string, state: 'draft' | 'ready'): void
+  worktreeCreated(
+    taskId: string,
+    repo: {
+      name: string
+      repo: string
+      branch: string
+      worktree: string
+      copied: string[]
+      skipped: CopySkip[]
+    },
+  ): void
   pullRequestWaiting(taskId: string, name: string, on: GitHubWait | undefined): void
   autoMergeEnabled(
     taskId: string,
@@ -417,7 +421,10 @@ export interface TedStore {
   moveToBacklog(taskId: string): Task
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
-  archiveTask(taskId: string): Task
+  archiveTask(taskId: string, record?: { closing: string[]; branches: number }): Task
+  unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
+  deleteTask(taskId: string): void
+  blockedBy(blockerId: string): string[]
   queue(): QueuedTask[]
   dequeue(taskId: string): Task
   blockers(taskId: string): BlockerLink[]
@@ -824,13 +831,33 @@ export async function openStore({
 
   const blockersOf = (taskId: string) => blockerRows(taskId).map((row) => row.blockerId)
 
+  const deletedRow = (id: string) => store.query(queryDb(deletedTasks.where({ id }))).at(0)
+
+  const blockerOf = (id: string) => {
+    const blocker = taskRow(id)
+    if (blocker) {
+      return {
+        displayId: `${factoryKey(blocker.factoryId)}-${blocker.number}`,
+        merged: isMerged(id),
+        ...(blocker.archivedAt !== null && { ended: 'archived' as const }),
+      }
+    }
+    const deleted = deletedRow(id)
+    return {
+      displayId: deleted ? `${factoryKey(deleted.factoryId)}-${deleted.number}` : id,
+      merged: false,
+      ended: 'deleted' as const,
+    }
+  }
+
   const blockerLinks = (taskId: string): BlockerLink[] =>
     blockerRows(taskId).map((row) => {
-      const blocker = taskRow(row.blockerId)
+      const { displayId, merged, ended } = blockerOf(row.blockerId)
       return {
         blockerId: row.blockerId,
-        displayId: blocker ? `${factoryKey(blocker.factoryId)}-${blocker.number}` : row.blockerId,
-        merged: isMerged(row.blockerId),
+        displayId,
+        merged,
+        ...(ended !== undefined && { ended }),
         ...(row.setByRunId !== null && { setByRunId: row.setByRunId }),
         at: row.at,
       }
@@ -893,10 +920,9 @@ export async function openStore({
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
     const repos = reposOf(row.id)
-    const waitingOn = blockedBy.flatMap((id) => {
-      const blocker = taskRow(id)
-      return blocker && !isMerged(id) ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`] : []
-    })
+    const unmerged = blockedBy.map(blockerOf).filter((b) => !b.merged)
+    const waitingOn = unmerged.map((b) => b.displayId)
+    const firstEnded = unmerged[0]?.ended
     const github =
       stage === 'merge'
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
@@ -932,6 +958,7 @@ export async function openStore({
       ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
       ...(github !== undefined && { github }),
       ...(stoppedAt === null &&
         place === 0 &&
@@ -1353,6 +1380,12 @@ export async function openStore({
     for (const { id } of queue()) if (id !== except) updatedTask(id)
   }
 
+  const updatedDependents = (blockerId: string) => {
+    for (const { taskId } of store.query(queryDb(taskBlockers.where({ blockerId })))) {
+      if (taskRow(taskId)) updatedTask(taskId)
+    }
+  }
+
   const settings = (): MachineSettings => {
     const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
     const values = Object.fromEntries(
@@ -1447,7 +1480,9 @@ export async function openStore({
       source,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
-      const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
+      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
+      const number =
+        Math.max(0, ...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
       commit(
@@ -1544,12 +1579,12 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    archiveTask(taskId) {
+    archiveTask(taskId, { closing, branches } = { closing: [], branches: 0 }) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId)
       const answer: CommentAnswer = { kind: 'withdrawn', at, archived: true }
       commit(
-        events.taskArchived({ taskId, at }),
+        events.taskArchivedV2({ taskId, closing, branches, at }),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
@@ -1557,8 +1592,41 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       updatedQueue(taskId)
+      updatedDependents(taskId)
       return task
     },
+    unarchiveTask(taskId, { queue: queued, waitForBlockers }) {
+      const at = new Date().toISOString()
+      const rank = queued ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null
+      commit(
+        events.taskUnarchived({ taskId, rank, at }),
+        ...(queued && waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      updatedDependents(taskId)
+      return task
+    },
+    deleteTask(taskId) {
+      const row = taskRow(taskId)
+      if (!row) return
+      const at = new Date().toISOString()
+      commit(
+        events.taskDeleted({
+          taskId,
+          factoryId: row.factoryId,
+          number: row.number,
+          runIds: taskRuns(taskId).map((r) => r.id),
+          checkRunIds: checkRunRows(taskId).map((r) => r.id),
+          at,
+        }),
+      )
+      emit({ type: 'task-deleted', taskId })
+      updatedQueue()
+      updatedDependents(taskId)
+    },
+    blockedBy: (blockerId) =>
+      store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
     queue,
     dequeue(taskId) {
       commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
@@ -1665,10 +1733,6 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    worktreeCreated(taskId, repo) {
-      commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))
-      updatedTask(taskId)
-    },
     setTaskRepos(taskId, { repos, names, by, runId }) {
       commit(
         events.taskReposSet({
@@ -1765,6 +1829,14 @@ export async function openStore({
     },
     pullRequestClosed(taskId, name) {
       commit(events.pullRequestClosed({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pullRequestReopened(taskId, name, state) {
+      commit(events.pullRequestReopened({ taskId, name, state, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    worktreeCreated(taskId, repo) {
+      commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     pullRequestWaiting(taskId, name, on) {

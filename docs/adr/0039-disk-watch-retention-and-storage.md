@@ -6,7 +6,7 @@
 
 **Retention.** `packages/daemon/src/retention.ts` prunes raw Run output (`runs/<id>/`) at start and every 6 hours: a Run folder is deleted 14 days after its `host.log` was last written, and a finished Run’s `host.log` over 100 MB keeps only its newest whole lines. It skips live Runs (by the store, and by the host’s lock), any name that isn’t a Run id, and anything that isn’t a real folder.
 
-**Time Machine.** On macOS the daemon runs `tmutil addexclusion` (no `-p`, so no admin rights) on `worktrees/`, `repos/`, `simulators/` and `scratch/` at start. The store and backups stay included.
+**Time Machine.** On macOS the daemon runs `tmutil addexclusion` (no `-p`, so no admin rights) on `worktrees/`, `repos/`, `simulators/` and `scratch/` at start. The store and backups stay included. Tests never run it: `vitest.config.ts` sets `TED_TIME_MACHINE=off`, which turns the exclusion off.
 
 **Storage.** `GET /storage` measures each category by walking its folders with `lstat` (allocated blocks, each inode once, links never followed). `POST /storage/remove-clones` deletes `repos/<owner>/<repo>` folders that no Factory and no unremoved Task repo uses and that aren’t being cloned right now, after checking that the real path is still that folder under `repos/`. Both routes are closed to Run tokens.
 

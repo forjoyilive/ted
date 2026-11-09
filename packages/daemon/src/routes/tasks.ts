@@ -5,7 +5,9 @@ import {
   type AnswerRequest,
   agentKinds,
   agentStageIds,
+  type BlockedChoice,
   type BlockTaskRequest,
+  blockedChoices,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
@@ -31,6 +33,14 @@ import type { CreateTaskInput } from '../tasks/tasks.ts'
 import { type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
+
+function blockedChoice(body: Record<string, unknown> | null): BlockedChoice {
+  const value = body?.blocked
+  if (value === undefined) return 'unblock'
+  const choice = blockedChoices.find((c) => c === value)
+  if (!choice) throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
+  return choice
+}
 
 export const taskRoutes: Route[] = [
   {
@@ -121,7 +131,24 @@ export const taskRoutes: Route[] = [
       if (close !== undefined && typeof close !== 'boolean') {
         throw new HttpError(400, 'closePullRequests must be true or false')
       }
-      return [200, tasks.archive(ref, { closePullRequests: close === true })]
+      return [
+        200,
+        tasks.archive(ref, { closePullRequests: close === true, blocked: blockedChoice(body) }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/unarchive$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/delete$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readOptionalJson(req)) as Record<string, unknown> | null
+      await tasks.delete(ref, { blocked: blockedChoice(body) })
+      return [200, {}]
     },
   },
   {

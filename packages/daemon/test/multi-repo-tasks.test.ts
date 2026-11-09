@@ -331,22 +331,65 @@ describe('a multi-repo Task', () => {
     expect(JSON.stringify(open.body)).toContain('api has an open pull request (#7)')
   })
 
-  test('archiving removes every repo’s worktree after its teardown', async () => {
+  test('archiving removes every repo’s worktree after its teardown; Unarchive makes them all again', async () => {
     const torn = path.join(scratch, 'torn-down')
-    await twoRepos(['    worktree:', `      teardown: "touch '${torn}'"`, ''].join('\n'))
+    await twoRepos(
+      [
+        '    worktree:',
+        `      teardown: "touch '${torn}'"`,
+        '      setup: "touch setup-ran"',
+        '',
+      ].join('\n'),
+    )
     const client = await start()
     await addFactory(client)
-    const task = await createTask(client, steps({ endTurn: true }))
+    const commit = [
+      'git',
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-C',
+      'api',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'api work',
+    ]
+    const task = await createTask(
+      client,
+      steps({ run: commit }, { endTurn: true }, { everyMessage: [{ endTurn: true }] }),
+    )
     await client.ok('PUT', `/tasks/${task.id}/repos`, { set: ['widgets', 'api'] })
     await client.ok('POST', `/tasks/${task.id}/start`)
-    await leadRun(client, task)
+    const run = await leadRun(client, task)
+    await commandResults(client, run.id, 1)
 
     await client.ok('POST', `/tasks/${task.id}/archive`, {})
 
     await waitUntil(async () => !(await exists(taskFolder())), 'the Task folder to go')
     expect(await exists(torn)).toBe(true)
-    const current = await getTask(client, task.id)
-    expect(current?.repos.every((r) => r.removed !== undefined)).toBe(true)
+    const archived = await getTask(client, task.id)
+    expect(archived?.repos.every((r) => r.removed !== undefined)).toBe(true)
+
+    await client.ok('POST', `/tasks/${task.id}/unarchive`)
+
+    const back = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return liveRepos(current).length === 2 && current?.leadRunId !== run.id ? current : undefined
+    }, 'both worktrees again')
+    expect(liveRepos(back)).toEqual(['widgets', 'api'])
+    expect(new Set(back?.repos.filter((r) => !r.removed).map((r) => r.branch))).toEqual(
+      new Set([archived?.branch]),
+    )
+    await waitUntil(
+      () => exists(path.join(taskFolder(), 'api', 'setup-ran')),
+      'api’s setup to run again',
+    )
+    const { stdout } = await execFileAsync('git', ['log', '--format=%s', '-1'], {
+      cwd: path.join(taskFolder(), 'api'),
+    })
+    expect(stdout.trim()).toBe('api work')
   })
 })
 
