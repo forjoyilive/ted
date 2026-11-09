@@ -41,7 +41,12 @@ async function start() {
   return { ted: new DaemonClient(info), raw: api(daemon.port, await tokenFor(home)) }
 }
 
-const idle = { waitingOnYou: 0, runs: { working: 0, active: 0, queued: 0 }, automationsOn: 0 }
+const idle = {
+  waitingOnYou: 0,
+  runs: { working: 0, active: 0, queued: 0 },
+  automationsOn: 0,
+  factoriesSettingUp: 0,
+}
 
 describe('activity', () => {
   test('counts working and waiting Runs, and tells subscribers when the counts change', async () => {

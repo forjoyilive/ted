@@ -18,7 +18,6 @@ export type Screen =
   | { kind: 'all-tasks' }
   | { kind: 'factory'; factoryId: string; view: FactoryView }
   | { kind: 'search' }
-  | { kind: 'add-factory' }
 
 export interface Navigation {
   screen: Screen

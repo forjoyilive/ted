@@ -8,6 +8,7 @@ export {
 export {
   type Banner,
   type BannerAction,
+  type BannerActionInput,
   type BannerPlace,
   type BannerRef,
   type BannerSeverity,
@@ -24,6 +25,7 @@ export {
   DaemonUnreachableError,
   type Subscription,
 } from './client.ts'
+export type { CommandLineStatus } from './command-line.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,
@@ -31,7 +33,6 @@ export {
   type BackupsSummary,
   backupKinds,
   type DataStatus,
-  downloadUrl,
   type RestoreBackupRequest,
   type RestoreBackupResult,
 } from './data.ts'
@@ -43,7 +44,28 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
-export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type AddFactoryRequest,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
+  type Factory,
+  type FactoryRepo,
+  keyProblem,
+  type LocalFolder,
+  type NewFactoryRepo,
+  type RepoCheck,
+  type RepoCloneState,
+  type RepoFix,
+  type RepoProblem,
+  type RepoProblemKind,
+  type RepoSetup,
+  type RepoSource,
+  repoNamePattern,
+  type SetLocalFolderRequest,
+  suggestFactoryName,
+  suggestKey,
+  suggestRepoName,
+} from './factory.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
@@ -69,6 +91,7 @@ export {
   type RunFixResult,
 } from './integrations.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
   type AgentKind,
   agentKinds,
@@ -96,6 +119,7 @@ export {
   type AnswerRequest,
   type Attachment,
   agentStageIds,
+  type BlockTaskRequest,
   briefHeadings,
   type ClarifyDepth,
   type Comment,

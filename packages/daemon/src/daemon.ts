@@ -4,8 +4,10 @@ import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
+import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
+import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
 import { startIdleTimer } from './idle.ts'
@@ -15,7 +17,7 @@ import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
-import { createTasks } from './tasks/tasks.ts'
+import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
@@ -33,6 +35,7 @@ export interface DaemonOptions {
   integrations?: DaemonIntegrationsOptions
   onShutdown?: () => void
   holdAwake?: HoldAwake
+  commandLine?: CommandLineOptions
 }
 
 export interface DaemonIntegrationsOptions {
@@ -114,11 +117,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         reposDir: paths.repos,
       })
-      banners.onAction('clone-failed', async ({ factoryId }) => {
+      let started: Tasks | undefined
+      const factories = createFactories({
+        store,
+        banners,
+        gh: integrations.gh,
+        workflows,
+        reposDir: paths.repos,
+        emit,
+        login: () =>
+          integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
+        onCloned: (factory) => started?.wake(factory.id),
+        ...(idle && { idle }),
+      })
+      banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
-        if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+        if (!factory) return
+        if (factory.clonedAt === undefined) await factories.retry(factory.id)
+        else await ensureClone({ banners, reposDir: paths.repos }, factory)
       })
       for (const factory of store.listFactories()) {
+        if (factory.clonedAt === undefined) continue
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       const tasks = createTasks({
@@ -132,8 +151,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         logsDir: paths.logs,
+        isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })
+      started = tasks
+      factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
@@ -145,16 +167,22 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         workflows,
         health,
         integrations,
+        factories,
         async close() {
           stayAwake?.close()
           health.close()
           integrations.close()
+          await factories.close()
           await tasks.close()
           await runs.close()
         },
       }
     },
   })
+  const commandLine = createCommandLine(options.commandLine)
+  commandLine
+    .refresh()
+    .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
@@ -168,6 +196,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     appStreams: new Set(),
     onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
+    commandLine,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

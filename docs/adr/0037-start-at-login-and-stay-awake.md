@@ -22,6 +22,6 @@ Spec 3.1 and 3.2 add two machine settings: **Start TED in the background when yo
 
 ## Consequences
 
-- Packaging must copy `packages/app/build/mac/LaunchAgents/` into `TED.app/Contents/Library/LaunchAgents/`; without it macOS reports `not-found` and the row says Start at login works only in an installed copy.
+- `pnpm package` copies `packages/app/build/mac/LaunchAgents/` into `TED.app/Contents/Library/LaunchAgents/` (`extraFiles` in `packages/app/scripts/package.ts`, ADR 0036). Without it macOS reports `not-found` and the row says Start at login works only in an installed copy.
 - Tests never touch the OS: `vitest.config.ts` sets `TED_STAY_AWAKE=off`, the daemon in tests gets a fake `holdAwake`, and the app writes login-item changes to `TED_LOGIN_ITEM_LOG` when it is set.
 - Whether the machine really stays awake, and whether login really starts TED with no window, needs a manual check on macOS and on Linux desktops.

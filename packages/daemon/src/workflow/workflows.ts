@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import type { LayerKind, LayerUse } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
@@ -87,7 +88,9 @@ export function createWorkflows(options: {
       const factoryLayer = choose(
         'factory',
         `factory:${factory.id}`,
-        await readGitLayer(clone, `origin/${factory.defaultBranch}`),
+        (await exists(clone))
+          ? await readGitLayer(clone, `origin/${factory.defaultBranch}`)
+          : undefined,
         factory.repo,
       )
       const chosen = [library, factoryLayer]
@@ -102,4 +105,11 @@ export function createWorkflows(options: {
       }
     },
   }
+}
+
+function exists(file: string): Promise<boolean> {
+  return stat(file).then(
+    () => true,
+    () => false,
+  )
 }

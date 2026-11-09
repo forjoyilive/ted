@@ -11,9 +11,10 @@ import type {
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 import { type DragEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
-import { ChevronIcon, CloseIcon, PaperclipIcon, PlusIcon } from '../components/icons.tsx'
+import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { Select } from '../components/Select.tsx'
 import {
   agentLabels,
@@ -23,7 +24,7 @@ import {
   modelChoices,
   priorityLabels,
 } from '../task-fields.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import styles from './NewTaskDialog.module.css'
 import views from './views.module.css'
 
@@ -390,100 +391,13 @@ function BlockedBy({
   onAdd: (id: string) => void
   onRemove: (id: string) => void
 }) {
-  const [searching, setSearching] = useState(false)
-  const [query, setQuery] = useState('')
-  const searchField = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (searching) searchField.current?.focus()
-  }, [searching])
-  const listId = useId()
-  const needle = query.trim().toLowerCase()
-  const matches = tasks
-    .filter((t) => t.stage !== 'done' && !blockers.includes(t))
-    .filter(
-      (t) =>
-        needle === '' ||
-        t.displayId.toLowerCase().includes(needle) ||
-        t.title.toLowerCase().includes(needle),
-    )
-    .slice(0, 8)
-
-  function choose(task: Task) {
-    onAdd(task.id)
-    setQuery('')
-    setSearching(false)
-  }
-
   return (
     <div className={`${styles.field} ${styles.grow}`}>
       <span className={styles.labelRow}>
         <span className={styles.label}>Blocked by</span>
         <span className={styles.hint}>any Factory</span>
       </span>
-      <div className={styles.blockers}>
-        {blockers.map((task) => (
-          <span key={task.id} className={styles.blocker}>
-            <span className={styles.blockerId}>{task.displayId}</span>
-            <span className={styles.blockerTitle}>{task.title}</span>
-            <button
-              type="button"
-              className={styles.chipRemove}
-              aria-label={`Remove ${task.displayId}`}
-              onClick={() => onRemove(task.id)}
-            >
-              <CloseIcon size={11} />
-            </button>
-          </span>
-        ))}
-        {searching ? (
-          <span className={styles.search}>
-            <input
-              className={styles.searchInput}
-              aria-label="Find a Task"
-              placeholder="Find a Task"
-              role="combobox"
-              aria-expanded
-              aria-controls={listId}
-              ref={searchField}
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setSearching(false)
-                } else if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
-                  event.preventDefault()
-                  const [first] = matches
-                  if (first) choose(first)
-                }
-              }}
-            />
-            <div className={styles.options} id={listId} role="listbox" aria-label="Tasks">
-              {matches.length === 0 && <p className={styles.noMatch}>No matching Tasks</p>}
-              {matches.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  role="option"
-                  aria-selected={false}
-                  className={styles.option}
-                  onClick={() => choose(task)}
-                >
-                  <span className={styles.blockerId}>{task.displayId}</span>
-                  <span className={styles.blockerTitle}>{task.title}</span>
-                </button>
-              ))}
-            </div>
-          </span>
-        ) : (
-          <Button size="small" onClick={() => setSearching(true)}>
-            <PlusIcon />
-            {blockers.length === 0 ? 'Add blocker' : 'Add'}
-          </Button>
-        )}
-      </div>
+      <BlockerPicker tasks={tasks} blockers={blockers} onAdd={onAdd} onRemove={onRemove} />
     </div>
   )
 }
@@ -570,9 +484,4 @@ function LeadFields({
 function joinIds(ids: readonly string[]): string {
   if (ids.length <= 1) return ids.join('')
   return `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
-}
-
-function readableError(failure: unknown): string {
-  const message = failure instanceof Error ? failure.message : String(failure)
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
 }

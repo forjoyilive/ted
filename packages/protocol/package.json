@@ -10,6 +10,8 @@
     "./banner": "./src/banner.ts",
     "./health": "./src/health.ts",
     "./integrations": "./src/integrations.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./factory": "./src/factory.ts",
+    "./version": "./src/version.ts"
   }
 }

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
 import { ted } from '../ted.ts'
+import { AboutGroup, CommandLineGroup } from './CommandLineGroup.tsx'
 import {
   Button,
   Segmented,
@@ -176,6 +177,9 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
       </SettingsGroup>
+
+      <CommandLineGroup />
+      <AboutGroup />
     </SettingsPage>
   )
 }

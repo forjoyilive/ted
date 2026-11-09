@@ -120,8 +120,22 @@ describe('machine settings in the store', () => {
         defaultBranch: 'main',
       })
 
-      const { cloneUrl: _, ...shown } = factory
-      expect(seen).toEqual([{ type: 'factory-added', factory: shown }])
+      expect(seen).toEqual([
+        {
+          type: 'factory-added',
+          factory: {
+            id: factory.id,
+            key: 'NB',
+            name: 'notebook',
+            repo: 'kriya/notebook',
+            defaultBranch: 'main',
+            repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
+            showTutorial: false,
+            cloned: true,
+            createdAt: factory.createdAt,
+          },
+        },
+      ])
     } finally {
       await store.close()
     }
