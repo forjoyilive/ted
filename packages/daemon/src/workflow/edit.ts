@@ -213,6 +213,11 @@ export function applyChanges(
     } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
   }
   if (changes.checks !== undefined) {
+    const removed = new Set(
+      changes.repos === undefined
+        ? []
+        : current.map((r) => r.was).filter((was) => !changes.repos?.some((r) => r.was === was)),
+    )
     const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
     writeChecks(doc, root, kept)
   }

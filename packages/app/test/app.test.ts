@@ -3133,6 +3133,8 @@ describe('Library settings', () => {
       async () =>
         (await readFile(path.join(home, 'library', 'workflow.yaml'), 'utf8')) === 'version: 1\n',
     )
+  })
+})
 
 describe('Factory row menu', () => {
   const row = (window: Page, name: string) =>
