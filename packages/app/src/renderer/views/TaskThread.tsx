@@ -10,6 +10,7 @@ import type {
   Priority,
   RunState,
   Task,
+  TaskBrief,
   TaskEnding,
   ThreadEvent,
 } from '@ted/protocol'
@@ -28,8 +29,10 @@ import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView, type LineFocus } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { FullBrief } from '../components/FullBrief.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
   DraftBar,
@@ -57,9 +60,11 @@ import {
   useComments,
   useDescriptions,
   useStageEntries,
+  useTaskBrief,
   useTaskRuns,
   useThreadEvents,
 } from '../data.ts'
+import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
 import { useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
@@ -281,29 +286,46 @@ export function TaskPanes({
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
   const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
   const [app, setApp] = useState<{ taskId: string; app: ShownApp }>()
+  const [briefFor, setBriefFor] = useState<string>()
   useEffect(() => {
     if (answeredId !== undefined) {
       setShown(undefined)
       setChangesView(undefined)
       setApp(undefined)
+      setBriefFor(undefined)
     }
   }, [answeredId])
   const changes = useTaskChanges(task)
+  const brief = useTaskBrief(task.id)
+  const fullBrief = briefFor === task.id
   const view = changesView?.taskId === task.id ? changesView.view : undefined
-  const showChanges = (next: ChangesView | undefined) =>
+  const showChanges = (next: ChangesView | undefined) => {
+    if (next !== undefined) {
+      setApp(undefined)
+      setBriefFor(undefined)
+    }
     setChangesView(next && { taskId: task.id, view: next })
+  }
   const shownApp = app?.taskId === task.id ? app.app : undefined
   const openApp = (chosen: ShownApp) => {
-    showChanges(undefined)
+    setChangesView(undefined)
+    setBriefFor(undefined)
     setShell(undefined)
     setApp({ taskId: task.id, app: chosen })
   }
   const closeApp = () => setApp(undefined)
+  const openBrief = () => {
+    setChangesView(undefined)
+    setApp(undefined)
+    setShell(undefined)
+    setBriefFor(task.id)
+  }
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
   const show = (runId: string | undefined) => {
     showChanges(undefined)
     setApp(undefined)
+    setBriefFor(undefined)
     setShown({ taskId: task.id, runId })
   }
   const openRun = (runId: string) => {
@@ -376,7 +398,7 @@ export function TaskPanes({
   }
   const draftsIn = (file: ChangedFile) =>
     drafts.filter((d) => d.repo === file.repo && d.path === file.path).length
-  const covered = all || view?.kind === 'diff'
+  const covered = all || view?.kind === 'diff' || fullBrief
   return (
     <>
       {all && (
@@ -388,6 +410,7 @@ export function TaskPanes({
           onCollapse={back}
         />
       )}
+      {fullBrief && <FullBrief task={task} brief={brief} onBack={() => setBriefFor(undefined)} />}
       {view?.kind === 'diff' && (
         <DiffView
           taskId={task.id}
@@ -446,6 +469,9 @@ export function TaskPanes({
             draftTotal={drafts.length}
           />
         }
+        brief={brief}
+        briefOpen={fullBrief}
+        onOpenBrief={openBrief}
       />
     </>
   )
@@ -814,6 +840,9 @@ export function TaskDetails({
   hidden = false,
   shownApp,
   onOpenApp,
+  brief,
+  briefOpen = false,
+  onOpenBrief,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -824,6 +853,9 @@ export function TaskDetails({
   hidden?: boolean
   shownApp?: ShownApp | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
+  brief?: TaskBrief | null | undefined
+  briefOpen?: boolean
+  onOpenBrief?: (() => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -960,7 +992,12 @@ export function TaskDetails({
       {changes}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
-      <TaskBriefSection task={task} />
+      <TaskBriefSection
+        task={task}
+        brief={brief}
+        open={briefOpen}
+        onOpenBrief={() => onOpenBrief?.()}
+      />
     </aside>
   )
 }
@@ -998,15 +1035,51 @@ function FieldSelect({
   )
 }
 
-function TaskBriefSection({ task }: { task: Task }) {
+function TaskBriefSection({
+  task,
+  brief,
+  open,
+  onOpenBrief,
+}: {
+  task: Task
+  brief: TaskBrief | null | undefined
+  open: boolean
+  onOpenBrief: () => void
+}) {
+  const now = useNow()
+  const goal = brief ? briefPart(brief.text, 'Goal') : undefined
+  const next = brief ? briefPart(brief.text, 'Next step') : undefined
+  return (
+    <DetailsSection
+      id="brief"
+      title="Task brief"
+      collapsedSummary={brief === undefined ? undefined : briefSummary(brief, now)}
+    >
+      {brief === null && (
+        <p className={styles.briefEmpty}>The Task Lead hasn’t written a Task brief yet.</p>
+      )}
+      {brief && (
+        <>
+          {goal !== undefined && <p className={styles.briefLine}>{`Goal: ${goal}`}</p>}
+          {next !== undefined && <p className={styles.briefLine}>{`Next step: ${next}`}</p>}
+          <Button size="small" aria-pressed={open} onClick={onOpenBrief}>
+            Full brief
+          </Button>
+        </>
+      )}
+      <OriginalRequest task={task} />
+    </DetailsSection>
+  )
+}
+
+function OriginalRequest({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
   const versions = useDescriptions(task.id)
   const original = versions?.[0]
   const edits = (versions?.length ?? 1) - 1
   return (
-    <section className={styles.briefSection} aria-label="Task brief">
-      <h2 className={styles.sectionHeading}>Task brief</h2>
+    <>
       <div className={styles.originalRow}>
         <button
           type="button"
@@ -1035,7 +1108,7 @@ function TaskBriefSection({ task }: { task: Task }) {
       {history && versions !== undefined && (
         <DescriptionHistory task={task} versions={versions} onClose={() => setHistory(false)} />
       )}
-    </section>
+    </>
   )
 }
 

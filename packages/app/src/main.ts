@@ -30,6 +30,7 @@ import {
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
+  DaemonRequestError,
   type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
@@ -179,6 +180,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
   taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
+  taskBrief: (client, taskId) =>
+    client.getBrief(String(taskId)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
   search: (client, query, factoryId) =>
     client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
   setClarifyDepth: (client, taskId, depth) =>

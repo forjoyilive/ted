@@ -597,13 +597,21 @@
   font-size: var(--text-12);
 }
 
-.briefSection {
-  margin-top: 20px;
-  font-size: var(--text-13);
+.briefLine {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.briefEmpty {
+  margin: 0 0 8px;
+  color: var(--text-tertiary);
 }
 
 .originalRow {
   display: flex;
+  margin-top: 12px;
   align-items: center;
   justify-content: space-between;
   gap: 8px;

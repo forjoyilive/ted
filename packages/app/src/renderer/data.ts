@@ -25,6 +25,7 @@ import type {
   StageId,
   Task,
   TaskApp,
+  TaskBrief,
   ThreadEvent,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -608,6 +609,14 @@ export function useTaskApps(taskId: string): TaskApp[] {
         (event.type === 'task-updated' && event.task.id === taskId),
       taskId,
     ) ?? []
+  )
+}
+
+export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
+  return useReloading(
+    () => ted.taskBrief(taskId),
+    (event) => event.type === 'task-updated' && event.task.id === taskId,
+    taskId,
   )
 }
 

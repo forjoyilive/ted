@@ -13,6 +13,7 @@ import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Apps.module.css'
 import { Button } from './Button.tsx'
+import { DetailsSection } from './DetailsSection.tsx'
 import { OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
@@ -38,10 +39,7 @@ export function AppsSection({
   const grouped = task.repos.filter((r) => !r.removed).length > 1 || repos.length > 1
   const summary = appsSummary(apps, hosted.length)
   return (
-    <section className={styles.section} aria-label="Apps">
-      <h2 className={styles.heading}>
-        Apps{summary !== undefined && <span className={styles.summary}> · {summary}</span>}
-      </h2>
+    <DetailsSection id="apps" title="Apps" summary={summary}>
       {repos.map((repo) => (
         <div key={repo} className={styles.group}>
           {grouped && <h3 className={styles.repo}>{repo}</h3>}
@@ -66,7 +64,7 @@ export function AppsSection({
           </ul>
         </div>
       ))}
-    </section>
+    </DetailsSection>
   )
 }
 

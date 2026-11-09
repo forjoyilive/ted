@@ -94,6 +94,7 @@ import type {
   StorageSummary,
   Task,
   TaskApp,
+  TaskBrief,
   TaskChanges,
   TaskDefaults,
   TaskLead,
@@ -176,6 +177,8 @@ export const ted = {
     window.ted.request('editTask', taskId, edit) as Promise<Task>,
   taskDescriptions: (taskId: string) =>
     window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
+  taskBrief: (taskId: string) =>
+    window.ted.request('taskBrief', taskId) as Promise<TaskBrief | null>,
   search: (query: string, factoryId?: string) =>
     window.ted.request('search', query, factoryId) as Promise<SearchResults>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>

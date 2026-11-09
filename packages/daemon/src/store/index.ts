@@ -2845,6 +2845,7 @@ export async function openStore({
       )
       const brief = briefRows(taskId).at(-1)
       if (!brief) throw new Error(`no brief for ${taskId}`)
+      updatedTask(taskId)
       return toBrief(brief)
     },
     latestBrief(taskId) {

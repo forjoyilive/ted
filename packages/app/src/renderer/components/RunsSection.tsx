@@ -1,7 +1,9 @@
 import type { RunSummary } from '@ted/protocol'
 import { useState } from 'react'
+import { runStateWord, runsCollapsedSummary } from '../details.ts'
 import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
+import { DetailsSection } from './DetailsSection.tsx'
 import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
 import { tokenCount } from './RunChat.tsx'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
@@ -17,13 +19,6 @@ export function runIconState(run: RunSummary): RunIconState {
 }
 
 const shortAgentNames = { claude: 'Claude', codex: 'Codex' } as const
-
-function stateWord(run: RunSummary): string {
-  if (run.paused !== undefined) return 'paused'
-  if (run.onSubAgents) return 'on sub-agents'
-  if (run.state === 'waiting') return 'waiting on you'
-  return run.state
-}
 
 function agentLine(run: RunSummary): string {
   return [
@@ -91,10 +86,12 @@ export function RunsSection({
     .filter((r) => r.state === 'finished')
     .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
   return (
-    <section className={styles.section} aria-label="Runs">
-      <h2 className={styles.heading}>
-        Runs<span className={styles.summary}> · {runsSummary(runs)}</span>
-      </h2>
+    <DetailsSection
+      id="runs"
+      title="Runs"
+      summary={runsSummary(runs)}
+      collapsedSummary={runsCollapsedSummary(runs)}
+    >
       <ul className={styles.list}>
         {live.map(({ run, nested }) => (
           <RunRow key={run.id} run={run} nested={nested} onOpen={() => onOpenRun(run.id)} />
@@ -120,7 +117,7 @@ export function RunsSection({
           )}
         </>
       )}
-    </section>
+    </DetailsSection>
   )
 }
 
@@ -147,7 +144,7 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
             <span className={styles.name}>{run.name}</span>
             {live ? (
               <span className={styles.state} data-state={runIconState(run)}>
-                {stateWord(run)}
+                {runStateWord(run)}
               </span>
             ) : (
               <span className={styles.state} data-state={run.failed ? 'failed' : 'idle'}>

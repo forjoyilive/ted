@@ -193,6 +193,23 @@ describe('TedStore', () => {
     }
   })
 
+  test('writing a Task brief updates the Task for the app', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Fix login' })
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+
+      const brief = store.writeBrief({ taskId: task.id, text: '## Goal\n\nFix it.\n' })
+
+      expect(seen.map((e) => e.type === 'task-updated' && [e.task.id, e.task.updatedAt])).toEqual([
+        [task.id, brief.createdAt],
+      ])
+    } finally {
+      await store.close()
+    }
+  })
+
   test('a Task waiting on an unmerged blocker says so, and updates when the blocker is done', async () => {
     const store = await openStore({ directory: dir })
     try {
