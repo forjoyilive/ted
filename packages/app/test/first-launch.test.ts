@@ -76,24 +76,28 @@ const lines = (name: string) => () =>
 const loginLines = lines('login-item.log')
 const fixesRun = lines('fix.log')
 
-async function launchApp(options: { codex?: boolean; env?: Record<string, string> } = {}) {
+type LaunchOptions = { codex?: boolean; env?: Record<string, string> }
+
+const appEnv = (options: LaunchOptions = {}) => ({
+  ...process.env,
+  TED_HOME: home,
+  TED_IDLE_EXIT_MS: '30000',
+  TED_HIDDEN_WINDOW: '1',
+  TED_SKIP_FIRST_LAUNCH: '',
+  TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: options.codex ? stubCodexPath : file('no-codex-here'),
+  TED_STUB_GH: file('gh-state.json'),
+  TED_FIX_LOG: file('fix.log'),
+  TED_LOGIN_ITEM_LOG: file('login-item.log'),
+  GIT_CONFIG_GLOBAL: file('gitconfig'),
+  ...options.env,
+})
+
+async function launchApp(options: LaunchOptions = {}) {
   app = await electron.launch({
     executablePath: electronPath,
     args: [appDir],
-    env: {
-      ...process.env,
-      TED_HOME: home,
-      TED_IDLE_EXIT_MS: '30000',
-      TED_HIDDEN_WINDOW: '1',
-      TED_SKIP_FIRST_LAUNCH: '',
-      TED_CLAUDE_BIN: stubClaudePath,
-      TED_CODEX_BIN: options.codex ? stubCodexPath : file('no-codex-here'),
-      TED_STUB_GH: file('gh-state.json'),
-      TED_FIX_LOG: file('fix.log'),
-      TED_LOGIN_ITEM_LOG: file('login-item.log'),
-      GIT_CONFIG_GLOBAL: file('gitconfig'),
-      ...options.env,
-    },
+    env: appEnv(options),
   })
   const window = await app.firstWindow()
   await window.emulateMedia({ colorScheme: null })
@@ -232,7 +236,7 @@ describe('first launch', () => {
   })
 
   test('a machine that already has a Factory gets the plain Add Factory form after Continue', async () => {
-    const ted = await daemonAsApp(home, { ...process.env, TED_IDLE_EXIT_MS: '30000' })
+    const ted = await daemonAsApp(home, appEnv())
     await ted.addFactory({ repo: await makeOriginRepo(home), key: 'NB' })
     const window = await launchApp()
 
