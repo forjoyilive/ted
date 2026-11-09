@@ -15,6 +15,7 @@ import type {
   StageEntry,
   StageId,
   Task,
+  TaskApp,
   ThreadEvent,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
@@ -502,6 +503,18 @@ export function useTaskRuns(taskId: string): RunSummary[] {
       () => ted.listTaskRuns(taskId),
       (event) =>
         (event.type === 'run-updated' && event.run.taskId === taskId) ||
+        (event.type === 'task-updated' && event.task.id === taskId),
+      taskId,
+    ) ?? []
+  )
+}
+
+export function useTaskApps(taskId: string): TaskApp[] {
+  return (
+    useReloading(
+      () => ted.listApps(taskId),
+      (event) =>
+        (event.type === 'apps-changed' && event.taskId === taskId) ||
         (event.type === 'task-updated' && event.task.id === taskId),
       taskId,
     ) ?? []

@@ -1,0 +1,48 @@
+import type { AppKind } from './factory-settings.ts'
+
+export const appStates = ['stopped', 'starting', 'running', 'exited', 'failed'] as const
+export type AppState = (typeof appStates)[number]
+
+export type AppStarter = 'human' | 'task-lead' | 'sub-agent'
+
+export interface TaskApp {
+  repo: string
+  name: string
+  kind: AppKind
+  state: AppState
+  port?: number
+  url?: string
+  startedAt?: string
+  endedAt?: string
+  exitCode?: number
+  signal?: string
+  problem?: string
+  startedBy?: AppStarter
+}
+
+export interface AppRef {
+  name: string
+  repo?: string
+}
+
+export interface AppLog {
+  text: string
+  truncated: boolean
+}
+
+export function appEnvName(name: string): string {
+  return name.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+}
+
+export function isLoopbackUrl(text: string): boolean {
+  let url: URL
+  try {
+    url = new URL(text)
+  } catch {
+    return false
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false
+  if (url.username !== '' || url.password !== '') return false
+  const host = url.hostname.toLowerCase()
+  return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
+}

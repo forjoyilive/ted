@@ -16,6 +16,8 @@ import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
 import { useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
+import { AppLogView } from '../components/AppLogView.tsx'
+import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -238,12 +240,22 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  const [app, setApp] = useState<{ taskId: string; app: ShownApp }>()
   useEffect(() => {
-    if (answeredId !== undefined) setShown(undefined)
+    if (answeredId !== undefined) {
+      setShown(undefined)
+      setApp(undefined)
+    }
   }, [answeredId])
+  const shownApp = app?.taskId === task.id ? app.app : undefined
+  const openApp = (chosen: ShownApp) => setApp({ taskId: task.id, app: chosen })
+  const closeApp = () => setApp(undefined)
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
-  const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
+  const show = (runId: string | undefined) => {
+    setApp(undefined)
+    setShown({ taskId: task.id, runId })
+  }
   const openRun = (runId: string) => {
     show(runId)
     void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
@@ -266,8 +278,18 @@ export function TaskPanes({
         onShowRun={show}
         onOpenRun={openRun}
         onCloseRun={closeRun}
+        shownApp={shownApp}
+        onOpenApp={openApp}
+        onCloseApp={closeApp}
       />
-      <TaskDetails task={task} tasks={tasks} factories={factories} onOpenRun={openRun} />
+      <TaskDetails
+        task={task}
+        tasks={tasks}
+        factories={factories}
+        onOpenRun={openRun}
+        shownApp={shownApp}
+        onOpenApp={openApp}
+      />
     </>
   )
 }
@@ -284,6 +306,9 @@ export function TaskThread({
   onShowRun,
   onOpenRun,
   onCloseRun,
+  shownApp,
+  onOpenApp,
+  onCloseApp,
 }: {
   task: Task
   backLink: string | undefined
@@ -296,6 +321,9 @@ export function TaskThread({
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
+  onCloseApp?: (() => void) | undefined
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -399,7 +427,14 @@ export function TaskThread({
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
       <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
-      {shownRun !== undefined ? (
+      {shownApp !== undefined ? (
+        <AppLogView
+          key={`${shownApp.repo}/${shownApp.name}`}
+          task={task}
+          shown={shownApp}
+          onBack={() => onCloseApp?.()}
+        />
+      ) : shownRun !== undefined ? (
         <RunChat
           key={shownRun}
           runId={shownRun}
@@ -492,7 +527,13 @@ export function TaskThread({
           {pinned ? (
             <div className={styles.pinned}>
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
+              <RequestCard
+                key={pinned.id}
+                request={pinned}
+                task={task}
+                onOpenRun={onOpenRun}
+                onOpenApp={onOpenApp}
+              />
             </div>
           ) : (
             <div className={styles.pinned}>
@@ -560,11 +601,15 @@ export function TaskDetails({
   tasks,
   factories,
   onOpenRun,
+  shownApp,
+  onOpenApp,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -695,6 +740,7 @@ export function TaskDetails({
       )}
       <CodeSection task={task} />
       <TaskRuns task={task} onOpenRun={onOpenRun} />
+      <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
       <TaskBriefSection task={task} />
     </aside>
   )

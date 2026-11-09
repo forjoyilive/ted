@@ -259,6 +259,37 @@ describe('checking a layer', () => {
     expect(layer.valid).toBe(true)
   })
 
+  test('Apps need a name and a run command, a localhost url and a port in range', () => {
+    const apps = [
+      'version: 1',
+      'repos:',
+      '  - name: app',
+      '    apps:',
+      '      - name: Web',
+      '        run: npm run dev',
+      `        url: "https://example.com:\${PORT}"`,
+      '      - name: web',
+      '        run: npm run api',
+      '        port: 70000',
+      '      - run: npm start',
+      '      - name: API',
+      '        kind: server',
+      '        ready: soon',
+      '        env: { PORT: "1" }',
+      '',
+    ].join('\n')
+    expect(problems({ 'workflow.yaml': apps })).toEqual([
+      `error .ted/workflow.yaml 7 14 an App \`url\` must be a localhost address, such as http://localhost:\${PORT}`,
+      'error .ted/workflow.yaml 8 15 two Apps would both set `TED_APP_WEB_PORT`',
+      'error .ted/workflow.yaml 10 15 `port` must be a number from 1 to 65535',
+      'error .ted/workflow.yaml 11 9 each App needs a `name`',
+      'error .ted/workflow.yaml 12 9 the App API needs a `run` command',
+      'error .ted/workflow.yaml 13 15 `kind` must be web, command or ios-simulator',
+      'error .ted/workflow.yaml 14 16 `ready` must be url or start',
+      'warning .ted/workflow.yaml 15 16 TED sets `PORT` itself or keeps it out of worktrees, so it ignores it here',
+    ])
+  })
+
   test('an unknown Stage id in order or stages is an error', () => {
     expect(
       problems({

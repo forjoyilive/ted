@@ -123,6 +123,27 @@ export async function killRunHosts(home: string): Promise<void> {
   }
 }
 
+export async function killAppHosts(home: string): Promise<void> {
+  const root = path.join(home, 'apps')
+  for (const task of await readdir(root).catch(() => [])) {
+    for (const repo of await readdir(path.join(root, task)).catch(() => [])) {
+      for (const app of await readdir(path.join(root, task, repo)).catch(() => [])) {
+        const text = await readFile(path.join(root, task, repo, app, 'host.jsonl'), 'utf8').catch(
+          () => '',
+        )
+        for (const line of text.split('\n').filter((l) => l.startsWith('{"t":"start"'))) {
+          const start = JSON.parse(line) as { hostPid: number; pid: number | null }
+          for (const pid of [start.pid === null ? undefined : -start.pid, start.hostPid]) {
+            try {
+              if (pid !== undefined) process.kill(pid, 'SIGKILL')
+            } catch {}
+          }
+        }
+      }
+    }
+  }
+}
+
 export function isAlive(pid: number): boolean {
   try {
     process.kill(pid, 0)
@@ -153,6 +174,7 @@ export async function stopDaemonIn(home: string): Promise<void> {
     await waitForExit(info.pid)
   }
   await killRunHosts(home)
+  await killAppHosts(home)
 }
 
 export function appHeaders(

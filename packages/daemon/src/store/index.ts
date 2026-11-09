@@ -9,6 +9,7 @@ import {
   type AgentKind,
   type AgentStageId,
   type Appearance,
+  type AppStarter,
   type Attachment,
   agentStageIds,
   type Banner,
@@ -475,6 +476,25 @@ export interface TedStore {
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
   leadNudged(taskId: string, runId: string): void
+  appStarted(input: {
+    taskId: string
+    repo: string
+    name: string
+    port?: number
+    url?: string
+    by: AppStarter
+    runId?: string
+    restart: boolean
+  }): void
+  appStopped(input: { taskId: string; repo: string; name: string }): void
+  appExited(input: {
+    taskId: string
+    repo: string
+    name: string
+    code?: number
+    signal?: string
+  }): void
+  appStartFailed(input: { taskId: string; repo: string; name: string; problem: string }): void
   leadFailed(failure: LeadFailure): Task
   retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
@@ -1895,6 +1915,43 @@ export async function openStore({
     },
     leadNudged(taskId, runId) {
       commit(events.taskLeadNudged({ taskId, runId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    appStarted({ taskId, repo, name, port, url, by, runId, restart }) {
+      commit(
+        events.appStarted({
+          taskId,
+          repo,
+          name,
+          port: port ?? null,
+          url: url ?? null,
+          by,
+          runId: runId ?? null,
+          restart,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    appStopped({ taskId, repo, name }) {
+      commit(events.appStopped({ taskId, repo, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    appExited({ taskId, repo, name, code, signal }) {
+      commit(
+        events.appExited({
+          taskId,
+          repo,
+          name,
+          code: code ?? null,
+          signal: signal ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    appStartFailed({ taskId, repo, name, problem }) {
+      commit(events.appStartFailed({ taskId, repo, name, problem, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask }) {

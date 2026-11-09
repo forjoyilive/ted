@@ -3,6 +3,7 @@ import type {
   AgentHealth,
   AgentKind,
   AnswerRequest,
+  AppLog,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -64,6 +65,7 @@ import type {
   StageEntry,
   StorageSummary,
   Task,
+  TaskApp,
   TaskDefaults,
   TaskLead,
   TaskReposResult,
@@ -177,6 +179,19 @@ export const ted = {
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  listApps: (taskId: string) => window.ted.request('listApps', taskId) as Promise<TaskApp[]>,
+  startApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('startApp', taskId, repo, name) as Promise<TaskApp>,
+  stopApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('stopApp', taskId, repo, name) as Promise<TaskApp>,
+  restartApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('restartApp', taskId, repo, name) as Promise<TaskApp>,
+  appLog: (taskId: string, repo: string, name: string) =>
+    window.ted.request('appLog', taskId, repo, name) as Promise<AppLog>,
+  openAppPreview: (taskId: string, repo: string, name: string) =>
+    window.ted.request('openAppPreview', taskId, repo, name) as Promise<void>,
+  openHostedPreview: (taskId: string, repo: string) =>
+    window.ted.request('openHostedPreview', taskId, repo) as Promise<void>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>
