@@ -84,6 +84,10 @@ _Avoid_: Ticket, issue, card, session, epic
 The folder `~/.ted/worktrees/<TASK-ID>/` holding one worktree per repo of a Task, each named after the repo’s `name`. In a Factory with several repos, the Task’s Runs work in it; in a one-repo Factory they work in the repo’s worktree.
 _Avoid_: Workspace, Task directory
 
+**Task shell**:
+The human’s own login shell in one repo’s worktree of a Task, shown in place of the thread; TED’s daemon keeps it running until the worktree is removed, and `ted` commands in it act as the human.
+_Avoid_: Terminal, console, Run
+
 **Follow-up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision

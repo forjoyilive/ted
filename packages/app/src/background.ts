@@ -183,10 +183,18 @@ export interface QuitDialog {
   checkboxLabel: string
 }
 
-function quitQuestion({ runs, automationsOn, factoriesSettingUp }: Activity): string {
+function quitQuestion({
+  runs,
+  automationsOn,
+  factoriesSettingUp,
+  shellsRunning,
+}: Activity): string {
   const count = runs.active + runs.queued
   const runPart = `${count} ${plural(count, 'Run is', 'Runs are')} still going`
   const automationPart = `${automationsOn} ${plural(automationsOn, 'Automation is', 'Automations are')} on`
+  if (count === 0 && automationsOn === 0 && factoriesSettingUp === 0 && shellsRunning > 0) {
+    return `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open. Keep TED running in the background so ${plural(shellsRunning, 'it keeps', 'they keep')} going?`
+  }
   if (count === 0 && automationsOn === 0) {
     return `${factoriesSettingUp} ${plural(factoriesSettingUp, 'Factory is', 'Factories are')} still cloning. Keep TED running in the background so ${plural(factoriesSettingUp, 'it finishes', 'they finish')}?`
   }

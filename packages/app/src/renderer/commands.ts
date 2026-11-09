@@ -7,9 +7,11 @@ import {
   followUpTaskEvent,
 } from './components/ArchiveDialogs.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
+import { openInEditor } from './editor.ts'
 import type { Direction } from './key-targets.ts'
 import { keysFor } from './keymap.ts'
 import type { FactoryView, NavigationAction } from './navigation.ts'
+import { hasWorktree, openTaskShell } from './shell.ts'
 import { runStatusAction, shortcutAction, statusAction } from './task-actions.ts'
 import { clarifyDepthLabels, priorityLabels } from './task-fields.ts'
 import { ted } from './ted.ts'
@@ -59,6 +61,8 @@ export interface Command {
   run?: (context: CommandContext) => unknown
   choices?: (context: CommandContext) => CommandChoice[]
 }
+
+export const shellShortcuts: readonly string[] = ['⌃`']
 
 const taskEvent = (name: string, task: Task | undefined) => {
   if (task) window.dispatchEvent(new CustomEvent(name, { detail: task.id }))
@@ -226,6 +230,26 @@ export function taskCommands(task: Task): Command[] {
       shortcuts: keysFor('blocked-by'),
       run: () => taskEvent(pickBlockerEvent, task),
     })
+  }
+  if (hasWorktree(task)) {
+    list.push({
+      id: 'shell',
+      label: 'Open shell',
+      scope: 'task',
+      shortcuts: shellShortcuts,
+      keywords: 'terminal worktree',
+      run: () => openTaskShell(task),
+    })
+    const repo = task.repos.find((r) => !r.removed)
+    if (repo) {
+      list.push({
+        id: 'open-in-editor',
+        label: 'Open in editor',
+        scope: 'task',
+        keywords: 'vs code cursor zed worktree',
+        run: () => openInEditor({ taskId: task.id, repo: repo.name }),
+      })
+    }
   }
   list.push(
     {

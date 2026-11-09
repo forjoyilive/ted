@@ -33,6 +33,7 @@ import type {
   FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
+  FoundEditor,
   InboxItem,
   IntegrationsHealth,
   LibraryChanges,
@@ -43,6 +44,7 @@ import type {
   LogText,
   MachineSettings,
   MoveTaskRequest,
+  OpenInEditorRequest,
   Priority,
   Profile,
   RemoveClonesResult,
@@ -63,12 +65,16 @@ import type {
   SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
+  ShellOutput,
+  ShellOutputQuery,
+  ShellSize,
   StageEntry,
   StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
   TaskReposResult,
+  TaskShell,
   ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
@@ -185,6 +191,19 @@ export const ted = {
     ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  openShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('openShell', taskId, repo, size) as Promise<TaskShell>,
+  restartShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('restartShell', taskId, repo, size) as Promise<TaskShell>,
+  writeShell: (taskId: string, repo: string, data: string) =>
+    window.ted.request('writeShell', taskId, repo, data) as Promise<void>,
+  resizeShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('resizeShell', taskId, repo, size) as Promise<void>,
+  readShell: (taskId: string, repo: string, query: ShellOutputQuery) =>
+    window.ted.request('readShell', taskId, repo, query) as Promise<ShellOutput>,
+  listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
+  openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
+    window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>

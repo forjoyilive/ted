@@ -101,6 +101,11 @@ function attachmentRefs(value: unknown): AttachmentRef[] {
   })
 }
 
+function shellSize(value: unknown): { cols: number; rows: number } {
+  const { cols, rows } = (value ?? {}) as Record<string, unknown>
+  return { cols: Number(cols), rows: Number(rows) }
+}
+
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
@@ -210,6 +215,31 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   readAttachment: (client, hash, name) =>
     client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  openShell: (client, taskId, repo, size) =>
+    client.openShell(String(taskId), String(repo), shellSize(size)),
+  restartShell: (client, taskId, repo, size) =>
+    client.restartShell(String(taskId), String(repo), shellSize(size)),
+  writeShell: (client, taskId, repo, data) =>
+    client.writeShell(String(taskId), String(repo), String(data)),
+  resizeShell: (client, taskId, repo, size) =>
+    client.resizeShell(String(taskId), String(repo), shellSize(size)),
+  readShell: (client, taskId, repo, query) => {
+    const given = (query ?? {}) as Record<string, unknown>
+    return client.readShell(String(taskId), String(repo), {
+      generation: Number(given.generation),
+      from: Number(given.from),
+      waitMs: Number(given.waitMs ?? 0),
+    })
+  },
+  listEditors: (client) => client.listEditors(),
+  openInEditor: (client, taskId, repo, at) => {
+    const given = (at ?? {}) as Record<string, unknown>
+    return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.file === 'string' && { file: given.file }),
+      ...(typeof given.line === 'number' && { line: given.line }),
+      ...(typeof given.column === 'number' && { column: given.column }),
+    })
+  },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {

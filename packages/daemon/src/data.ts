@@ -13,6 +13,7 @@ import { type Backups, compareVersions, createBackups, displayPath } from './bac
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { DiskWatch } from './disk.ts'
+import type { Editors } from './editors.ts'
 import { RequestError } from './errors.ts'
 import type { FactoryRemovals } from './factory-removal.ts'
 import type { FactorySettings } from './factory-settings.ts'
@@ -23,6 +24,7 @@ import type { LibrarySettings } from './library-settings.ts'
 import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
+import type { Shells } from './shells.ts'
 import type { Storage } from './storage.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
@@ -46,6 +48,8 @@ export interface Services {
   checkTries: CheckTries
   library: LibrarySettings
   conversations: Conversations
+  shells: Shells
+  editors: Editors
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {

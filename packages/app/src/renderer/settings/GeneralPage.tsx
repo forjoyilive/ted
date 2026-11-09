@@ -13,6 +13,7 @@ import {
   SettingsPage,
   Switch,
 } from './controls.tsx'
+import { EditorRow } from './EditorRow.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
@@ -178,7 +179,9 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
-      <CommandLineGroup />
+      <CommandLineGroup>
+        <EditorRow settings={settings} />
+      </CommandLineGroup>
       <AboutGroup />
     </SettingsPage>
   )

@@ -39,6 +39,7 @@ import {
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { searchRoutes } from './routes/search.ts'
+import { shellRoutes } from './routes/shells.ts'
 import { taskRoutes } from './routes/tasks.ts'
 import type { Caller } from './tasks/tasks.ts'
 
@@ -141,6 +142,7 @@ async function settled(data: Data): Promise<void> {
 
 const routes: Route[] = [
   ...taskRoutes,
+  ...shellRoutes,
   ...factoryRoutes,
   ...machineRoutes,
   ...libraryRoutes,

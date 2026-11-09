@@ -21,6 +21,7 @@ import {
   taskCommands,
 } from './commands.ts'
 import { BannerStack } from './components/BannerStack.tsx'
+import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -62,6 +63,7 @@ import {
   withHistory,
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { hasWorktree, isShellShortcut, openTaskShell } from './shell.ts'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
@@ -251,6 +253,17 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       }),
     [],
   )
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || runsOpen || !isShellShortcut(event)) return
+      if (!task || task.archived || !hasWorktree(task)) return
+      event.preventDefault()
+      openTaskShell(task)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, runsOpen, task])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
@@ -662,6 +675,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   const dialogs = (
     <>
+      <EditorPickerHost />
       {addFactoryOpen && (
         <AddFactoryDialog
           factories={factories}
