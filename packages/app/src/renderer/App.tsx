@@ -1,4 +1,3 @@
-import type { DaemonConnection } from '@ted/daemon/launch'
 import type { Banner, Task } from '@ted/protocol'
 import { type ReactNode, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
@@ -9,7 +8,8 @@ import {
   factoryBanners,
   settingsStopsWork,
 } from './banners.ts'
-import { type BannerMenuItem, BannerStack } from './components/BannerStack.tsx'
+import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
+import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { useBanners, useConnection, useFactories, useSettings, useTasks } from './data.ts'
@@ -55,36 +55,6 @@ function isTyping(target: EventTarget | null): boolean {
   )
 }
 
-const keepsStoppingProblem = 'daemon-keeps-stopping'
-
-function keepsStoppingBanner(connection: DaemonConnection): Banner[] {
-  if (connection.state !== 'stopped') return []
-  return [
-    {
-      id: `${keepsStoppingProblem}:app`,
-      problem: keepsStoppingProblem,
-      severity: 'stops-work',
-      text: 'TED’s background process keeps stopping',
-      action: { label: 'Restart' },
-      raisedAt: connection.crashes.at(-1) ?? new Date().toISOString(),
-    },
-  ]
-}
-
-const keepsStoppingMenu = (banner: Banner): BannerMenuItem[] | undefined =>
-  banner.problem === keepsStoppingProblem
-    ? [
-        {
-          label: 'Restart TED in the background',
-          onSelect: () => ted.restartDaemon().catch((error: unknown) => console.error(error)),
-        },
-        {
-          label: 'Copy report',
-          onSelect: () => ted.copyCrashReport().catch((error: unknown) => console.error(error)),
-        },
-      ]
-    : undefined
-
 function Offline({ when, children }: { when: boolean; children: ReactNode }) {
   return (
     <fieldset disabled={when} className={when ? styles.offline : styles.online}>
@@ -127,6 +97,10 @@ export function App() {
   const banners = useBanners()
   const { connection } = useConnection()
   const offline = connection.state !== 'connected'
+
+  useEffect(() => {
+    if (offline) setNewTaskOpen(false)
+  }, [offline])
 
   useEffect(() => {
     if (!offline) return
@@ -317,14 +291,12 @@ export function App() {
         </Offline>
       </main>
       {newTaskOpen && (
-        <Offline when={offline}>
-          <NewTaskDialog
-            factories={factories}
-            tasks={tasks}
-            factoryId={currentFactoryId(navigation, tasks)}
-            onClose={() => setNewTaskOpen(false)}
-          />
-        </Offline>
+        <NewTaskDialog
+          factories={factories}
+          tasks={tasks}
+          factoryId={currentFactoryId(navigation, tasks)}
+          onClose={() => setNewTaskOpen(false)}
+        />
       )}
     </>,
   )
