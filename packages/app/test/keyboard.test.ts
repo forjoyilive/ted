@@ -5,7 +5,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   appClient,
@@ -14,6 +13,7 @@ import {
   removeHome,
   stopDaemonIn,
 } from '../../daemon/test/helpers.ts'
+import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -28,7 +28,7 @@ let home: string
 let app: ElectronApplication | undefined
 
 beforeAll(async () => {
-  await build({ configFile: path.join(appDir, 'vite.config.ts'), logLevel: 'warn' })
+  await buildRenderer()
 })
 
 beforeEach(async () => {
