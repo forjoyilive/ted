@@ -117,6 +117,33 @@ describe('ted task', () => {
     expect(await readDaemonInfo(home)).toBeUndefined()
   })
 
+  test('lead sets the Task Lead’s agent, model and effort, and checks them', async () => {
+    await ted(['task', 'create', 'Fix login'])
+
+    const set = await ted([
+      'task',
+      'lead',
+      'DEV-1',
+      'codex',
+      '--model',
+      'gpt-6-mini',
+      '--effort',
+      'low',
+    ])
+    expect(set.stdout.trim()).toBe('DEV-1’s Task Lead is codex · gpt-6-mini · low')
+    const plain = await ted(['task', 'lead', 'DEV-1', 'claude'])
+    expect(plain.stdout.trim()).toBe('DEV-1’s Task Lead is claude · default model · default effort')
+
+    await expect(ted(['task', 'lead', 'DEV-1', 'gemini'])).rejects.toMatchObject({ code: 2 })
+    await expect(
+      ted(['task', 'lead', 'DEV-1', 'claude', '--effort', 'huge']),
+    ).rejects.toMatchObject({ code: 2 })
+    await expect(ted(['task', 'lead', 'DEV-1', '--default-model'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('isn’t waiting on its model'),
+    })
+  })
+
   test('list says so when there are no Tasks', async () => {
     const listed = await ted(['task', 'list'])
     expect(listed.stdout.trim()).toBe('No Tasks yet.')

@@ -34,6 +34,7 @@ interface CodexLine {
   params?: {
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
+    error?: { message?: unknown }
     tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
 }
@@ -51,7 +52,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume }) {
+    launch({ prompt, env, resume, model, effort }) {
       const plan: CodexPlan = {
         thread:
           resume === undefined
@@ -59,6 +60,8 @@ export function codexAgent(binary: string): Agent {
             : { method: 'thread/resume', params: { threadId: resume } },
         prompt,
         clientVersion: tedVersion,
+        ...(model !== undefined && { model }),
+        ...(effort !== undefined && { effort }),
       }
       return {
         command: binary,
@@ -88,6 +91,14 @@ export function codexAgent(binary: string): Agent {
       if (message?.method !== 'thread/started') return undefined
       const id = message.params?.thread?.id
       return typeof id === 'string' ? id : undefined
+    },
+    problemFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'error') return undefined
+      const text = message.params?.error?.message
+      return typeof text === 'string' && text.includes('model_not_found')
+        ? 'model-unavailable'
+        : undefined
     },
     tokensFrom(line) {
       const message = parse(line)

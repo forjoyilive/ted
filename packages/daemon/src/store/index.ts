@@ -25,6 +25,7 @@ import {
   type MachineSettings,
   type Priority,
   type Run,
+  type RunProblem,
   type RunState,
   type StageEntry,
   type StageId,
@@ -64,6 +65,13 @@ export interface RunOutput {
   entries: ConversationEntry[]
   state?: RunState
   sessionId?: string
+  problem?: RunProblem
+}
+
+export interface RunFlags {
+  model?: string
+  effort?: Effort
+  usesDefaultModel?: boolean
 }
 
 export interface StoredFactory extends Factory {
@@ -148,8 +156,10 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setTaskLead(taskId: string, lead: TaskLead): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
+  postTedComment(input: { taskId: string; kind: Comment['kind']; body: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
   startRun(input: {
@@ -159,8 +169,11 @@ export interface TedStore {
     prompt: string
     cwd: string
     taskId?: string
+    model?: string
+    effort?: Effort
   }): Run
   recordRunOutput(runId: string, output: RunOutput): void
+  restartRun(runId: string, flags: RunFlags): Run
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
@@ -330,18 +343,31 @@ export async function openStore({
 
   const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
-  const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
+  const toRun = ({
+    readOffset: _,
+    taskId,
+    sessionId,
+    model,
+    effort,
+    usesDefaultModel,
+    problem,
+    ...row
+  }: typeof runs.Type): Run => ({
     ...row,
     agent: row.agent as AgentKind,
     state: row.state as RunState,
     ...(sessionId !== '' && { sessionId }),
+    ...(model !== null && { model }),
+    ...(effort !== null && { effort: effort as Effort }),
+    ...(usesDefaultModel && { usesDefaultModel }),
+    ...(problem !== null && { problem: problem as RunProblem }),
     ...(taskId !== null && { taskId }),
   })
 
   const toComment = ({ authorRunId, ...row }: typeof comments.Type): Comment => ({
     ...row,
-    kind: 'note',
-    author: { kind: 'run', runId: authorRunId },
+    kind: row.kind as Comment['kind'],
+    author: authorRunId === null ? { kind: 'ted' } : { kind: 'run', runId: authorRunId },
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
@@ -574,6 +600,18 @@ export async function openStore({
         }
       )
     },
+    setTaskLead(taskId, { agent, model, effort }) {
+      store.commit(
+        events.taskLeadSet({
+          taskId,
+          agent,
+          model: model ?? null,
+          effort: effort ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
     setActivity(taskId, text, runId) {
       store.commit(
         events.taskActivitySet({
@@ -585,6 +623,13 @@ export async function openStore({
         }),
       )
       return updatedTask(taskId)
+    },
+    postTedComment({ taskId, kind, body }) {
+      const row = { id: randomUUID(), taskId, kind, body, createdAt: new Date().toISOString() }
+      store.commit(events.tedCommentPosted(row))
+      const comment = toComment({ ...row, authorRunId: null })
+      emit({ type: 'comment-posted', comment })
+      return comment
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {
@@ -606,31 +651,69 @@ export async function openStore({
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun({ taskId, sessionId, ...input }) {
+    startRun({ taskId, sessionId, model, effort, ...input }) {
       const row = {
         ...input,
         sessionId: sessionId ?? '',
         taskId: taskId ?? null,
+        model: model ?? null,
+        effort: effort ?? null,
         startedAt: new Date().toISOString(),
       }
-      store.commit(events.runStartedV2(row))
+      store.commit(events.runStartedV3(row))
+      const run = toRun({
+        ...row,
+        usesDefaultModel: false,
+        problem: null,
+        state: 'working',
+        readOffset: 0,
+      })
+      emit({ type: 'run-updated', run })
       if (taskId !== undefined) updatedTask(taskId)
-      return toRun({ ...row, state: 'working', readOffset: 0 })
+      return run
     },
-    recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
+    recordRunOutput(runId, { toOffset, entries, state, sessionId, problem }) {
       const current = runRow(runId)
       if (!current) throw new Error(`no Run ${runId}`)
+      const at = new Date().toISOString()
+      const newProblem = problem !== undefined && current.problem === null
+      const holding = (current.problem !== null || newProblem) && state === 'idle'
+      const target = holding ? 'waiting' : state
+      const stateChanged = target !== undefined && target !== current.state
       store.commit(
         events.runOutputRead({ runId, toOffset, entries }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
-        ...(state && state !== current.state
-          ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
+        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(stateChanged && target !== undefined
+          ? [events.runStateChanged({ runId, state: target, at })]
           : []),
       )
+      if (newProblem || stateChanged) {
+        const row = runRow(runId)
+        if (row) emit({ type: 'run-updated', run: toRun(row) })
+        const taskId = taskIdOfRun(runId)
+        if (taskId !== undefined) updatedTask(taskId)
+      }
+    },
+    restartRun(runId, { model, effort, usesDefaultModel = false }) {
+      store.commit(
+        events.runRestarted({
+          runId,
+          model: model ?? null,
+          effort: effort ?? null,
+          usesDefaultModel,
+          at: new Date().toISOString(),
+        }),
+      )
+      const row = runRow(runId)
+      if (!row) throw new Error(`no Run ${runId}`)
+      const run = toRun(row)
+      emit({ type: 'run-updated', run })
       const taskId = taskIdOfRun(runId)
-      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
+      if (taskId !== undefined) updatedTask(taskId)
+      return run
     },
     getRun(id) {
       const row = runRow(id)

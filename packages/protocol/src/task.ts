@@ -139,9 +139,9 @@ export type Outcome = 'advance'
 export interface Comment {
   id: string
   taskId: string
-  kind: 'note'
+  kind: 'note' | 'question'
   body: string
-  author: { kind: 'run'; runId: string }
+  author: { kind: 'run'; runId: string } | { kind: 'ted' }
   createdAt: string
 }
 
@@ -156,3 +156,5 @@ export interface SetActivityRequest {
 export interface ReportOutcomeRequest {
   outcome: Outcome
 }
+
+export type SetTaskLeadRequest = TaskLead

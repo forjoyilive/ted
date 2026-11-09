@@ -25,6 +25,10 @@ import {
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  getRun: async (client, runId) => (await client.getRun(String(runId))).run,
+  setTaskLead: (client, taskId, lead) =>
+    client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
+  useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),
