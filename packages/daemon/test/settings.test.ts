@@ -55,6 +55,7 @@ describe('machine settings in the store', () => {
       startAtLogin: true,
       stayAwake: true,
       listViews: {},
+      billing: { claude: 'subscription', codex: 'subscription' },
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })

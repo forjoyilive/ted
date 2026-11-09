@@ -32,6 +32,8 @@ interface StubHealth {
   autoUnavailable?: boolean
   resumeFails?: boolean
   resumeWaitsFor?: string
+  apiKeySource?: string
+  authMethod?: string
 }
 
 function stubHealth(): StubHealth {
@@ -51,7 +53,12 @@ function healthReply(): { text: string; code: number } | undefined {
   if (argv[0] === 'auth' && argv[1] === 'status') {
     const loggedIn = health.signedIn !== false
     const status = loggedIn
-      ? { loggedIn, authMethod: 'claude.ai', email: 'stub@example.com', subscriptionType: 'max' }
+      ? {
+          loggedIn,
+          authMethod: health.authMethod ?? 'claude.ai',
+          email: 'stub@example.com',
+          subscriptionType: 'max',
+        }
       : { loggedIn }
     return { text: `${JSON.stringify(status)}\n`, code: loggedIn ? 0 : 1 }
   }
@@ -273,7 +280,13 @@ for (;;) {
   }
   emit({ type: 'user', message: message.message })
   hook('UserPromptSubmit')
-  emit({ type: 'system', subtype: 'init', cwd: process.cwd(), permissionMode: permissionMode() })
+  emit({
+    type: 'system',
+    subtype: 'init',
+    cwd: process.cwd(),
+    permissionMode: permissionMode(),
+    apiKeySource: stubHealth().apiKeySource ?? 'none',
+  })
   if (model?.includes('unavailable')) {
     emit({
       type: 'assistant',

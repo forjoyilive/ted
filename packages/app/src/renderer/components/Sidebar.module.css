@@ -243,3 +243,26 @@
 .simulators {
   color: var(--text-muted);
 }
+
+.planChip {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.planChip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

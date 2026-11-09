@@ -31,7 +31,12 @@ interface Message {
 
 const argv = process.argv.slice(2)
 
-function stubHealth(): { version?: string; signedIn?: boolean } {
+function stubHealth(): {
+  version?: string
+  signedIn?: boolean
+  account?: 'chatgpt' | 'apiKey'
+  rateLimits?: Record<string, unknown>
+} {
   try {
     return JSON.parse(
       readFileSync(path.join(process.env.TED_HOME ?? '', 'stub-codex.json'), 'utf8'),
@@ -207,6 +212,19 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (message.method === 'initialized') {
   } else if (!initialized) {
     send({ id, error: { code: -32600, message: 'Not initialized' } })
+  } else if (message.method === 'account/read') {
+    const type = stubHealth().account ?? 'chatgpt'
+    send({
+      id,
+      result: {
+        account:
+          type === 'apiKey' ? { type } : { type, email: 'stub@example.com', planType: 'pro' },
+        requiresOpenaiAuth: true,
+      },
+    })
+  } else if (message.method === 'account/rateLimits/read') {
+    const limits = stubHealth().rateLimits
+    send({ id, result: { rateLimits: limits ?? { primary: null, secondary: null } } })
   } else if (message.method === 'model/list') {
     send({ id, result: { data: models, nextCursor: null } })
   } else if (message.method === 'thread/start') {

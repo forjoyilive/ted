@@ -48,6 +48,7 @@ export function runMeta(run: RunSummary): string {
     run.effort,
     run.credential,
     run.tokens !== undefined ? tokenCount(run.tokens) : undefined,
+    run.cost !== undefined ? `$${run.cost.toFixed(2)}` : undefined,
   ]
     .filter((part) => part !== undefined && part !== '')
     .join(' · ')

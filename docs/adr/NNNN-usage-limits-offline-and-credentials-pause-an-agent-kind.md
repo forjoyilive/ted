@@ -1,0 +1,25 @@
+# Usage limits, being offline and a wrong credential pause an agent kind through agent health
+
+**One pause per agent kind.** The agent health monitor (`packages/daemon/src/health/agent-health.ts`) is the only code that pauses or resumes an agent kind. It keeps four inputs per kind and composes them into one state, in this order: what the CLI health check found (not installed, signed out, too old, or an API key under Subscription from `claude auth status` / `codex login status`), a Run that reported an API key under Subscription (`wrong-credential`), being offline (`offline`), and a usage limit (`usage-limit`). The composed reason goes to `TedStore.pauseAgent` as before (ADR 0033), so the queue, held Task Lead Runs, the paused counts and the no-output clock (ADR 0051) all work from one place. A usage limit or offline pause therefore stops the 30-minute clock without any change in `tasks/`.
+
+**What an agent CLI says.** Each agent module turns its output lines into signals: `usageFrom` (a usage limit, with the reset time when given, or a sign that requests work again), `retryingFrom`, `credentialFrom` (the credential the Run reported at start), `planUsageFrom` (5-hour and weekly windows) and `costOf`. Claude Code: `rate_limit_event` (`rejected` with `resetsAt`, `utilization`, `rateLimitType`), an `assistant` message with `error: rate_limit`, `system/api_retry` with status 429 or 529, `system/init` `apiKeySource`, and `result` `total_cost_usd`. Codex: `error` and `turn/completed` with `codexErrorInfo` `usageLimitExceeded` (a reset time if given), `error` `willRetry`, and the answers to `account/read` and `account/rateLimits/read`, which the Codex driver asks for when it starts, plus `account/rateLimits/updated`. Codex dollars come from TED’s price list in `codex.ts`. The Run manager reads these signals in the same batch as everything else and tells observers; the Tasks module passes them to agent health.
+
+**Usage limit.** A limit pauses the whole kind. With a reset time, TED clears the limit 5 seconds after it; with none, it sends “carry on” to one interrupted Run every 15 minutes, and the limit clears when any Run of the kind shows a working request. Runs that hit the limit stay open and are told to carry on when the kind is Ready again, like Runs stopped by an auth error. A daemon restart reads the last lines of each live Run to find a limit again.
+
+**Offline.** The daemon checks every 30 seconds (every 10 while offline, and at once when a CLI retries) whether it can open a TCP connection to `api.anthropic.com` or `chatgpt.com` on port 443. It sends nothing. Tests set `TED_ONLINE_FILE` (in `vitest.config.ts`) to a file holding `online` or `offline`, or pass `online.isOnline` to `startDaemon`, so no test touches the network. Runs that were working when the machine went offline are told to carry on afterwards only if they are no longer working.
+
+**Billing and the credential check.** `billing` is a machine setting per agent kind, `subscription` (default) or `api-key`. Under Subscription the agent modules remove `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` (Claude Code) or `CODEX_API_KEY` and `OPENAI_API_KEY` (Codex) from both the Run’s environment and the health check’s. A Run that reports an API key under Subscription is interrupted and the kind pauses with “Using an API key, not your subscription”; the agent card says where the key comes from (`keyHelp`). The pause clears when billing changes to API key or the human presses Check again. TED never reads, asks for or stores a key.
+
+**Plan usage** is kept in memory, newest first, and sent with the agent’s health; the app draws the bars and the 85% footer chip from it.
+
+## Considered Options
+
+- **A separate pause store per cause.** Rejected: `pauseAgent` already drives the queue, held Runs, counts and the silence clock; composing causes in one module keeps one reason per kind.
+- **Detect offline from OS network events.** Rejected: Electron’s `net.isOnline` only reports a network interface, not whether the agents’ servers answer, and the daemon runs without Electron.
+- **Call the providers’ usage APIs directly.** Rejected: TED never handles the agents’ credentials; the CLIs already report usage.
+
+## Consequences
+
+- Plan usage and a limit with its reset time are lost on a daemon restart until a Run reports them again (a limit is re-read from recent Run output).
+- A stops-work banner starting now shows one OS notification from the app (`problemNotice` in `background.ts`); clicking it opens the banner’s Settings section.
+- The thread has no separate line for a usage-limit pause yet; the Task’s status carries the reason.

@@ -119,6 +119,7 @@ export interface RunOutput {
   autoModeUnavailable?: boolean
   agentRestarted?: boolean
   ending?: RunEnding
+  retrying?: boolean
 }
 
 export interface LeadFailure {
@@ -794,6 +795,7 @@ export async function openStore({
       ...(checking && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
+      ...(live.some((r) => r.retrying) && { retrying: true }),
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
@@ -912,6 +914,7 @@ export async function openStore({
     manualPermissions,
     revivedAt,
     ended,
+    retrying: _retrying,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
@@ -1887,6 +1890,7 @@ export async function openStore({
       )
       const run = toRun({
         ...row,
+        retrying: false,
         usesDefaultModel: false,
         problem: null,
         failure: null,
@@ -1961,6 +1965,7 @@ export async function openStore({
         autoModeUnavailable,
         agentRestarted,
         ending,
+        retrying,
       },
     ) {
       const current = runRow(runId)
@@ -2002,6 +2007,8 @@ export async function openStore({
       const holding = (current.problem !== null || newProblem) && state === 'idle'
       const target = holding ? 'waiting' : state
       const stateChanged = target !== undefined && target !== current.state
+      const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
+      const retryChanged = nowRetrying !== current.retrying
       commit(
         events.runOutputReadV2({
           runId,
@@ -2012,6 +2019,7 @@ export async function openStore({
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
         ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
         ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
         ...(stateChanged && target !== undefined
           ? [events.runStateChanged({ runId, state: target, at })]
@@ -2025,7 +2033,7 @@ export async function openStore({
       if (entries.length > 0) emit({ type: 'run-output', runId })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
-      if (asked.length > 0 || withdrawnOnce.length > 0) {
+      if (asked.length > 0 || withdrawnOnce.length > 0 || retryChanged) {
         if (taskId !== null && !(newProblem || stateChanged)) updatedTask(taskId)
       }
       if (newProblem || stateChanged || unavailable) {

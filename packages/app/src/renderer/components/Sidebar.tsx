@@ -14,6 +14,7 @@ export interface SidebarFooter {
   failed?: string
   paused?: string
   simulators?: string
+  planChips?: readonly string[]
 }
 
 interface SidebarProps {
@@ -27,6 +28,7 @@ interface SidebarProps {
   runsOpen?: boolean
   onOpenRuns?: () => void
   onOpenFailed?: () => void
+  onOpenPlanUsage?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: () => void
   onAddFactory: () => void
@@ -58,6 +60,7 @@ export function Sidebar({
   runsOpen = false,
   onOpenRuns,
   onOpenFailed,
+  onOpenPlanUsage,
   dispatch,
   onNewTask,
   onAddFactory,
@@ -65,7 +68,9 @@ export function Sidebar({
   const open = (screen: Screen) => dispatch({ type: 'open', screen })
   const current = (screen: Screen) =>
     sameScreen(navigation.screen, screen) ? { 'aria-current': 'page' as const } : {}
-  const footerLines = Object.entries(footer).filter(([, line]) => line !== undefined)
+  const footerLines = Object.entries(footer).filter(
+    ([, line]) => line !== undefined && (!Array.isArray(line) || line.length > 0),
+  )
 
   return (
     <nav className={styles.sidebar} aria-label="Sidebar">
@@ -187,6 +192,21 @@ export function Sidebar({
           {footer.simulators !== undefined && (
             <p className={styles.simulators}>{footer.simulators}</p>
           )}
+          {footer.planChips?.map((chip) => (
+            <button
+              key={chip}
+              type="button"
+              className={styles.planChip}
+              onClick={() =>
+                onOpenPlanUsage
+                  ? onOpenPlanUsage()
+                  : dispatch({ type: 'open-settings', section: 'agents' })
+              }
+            >
+              <DotIcon />
+              {chip}
+            </button>
+          ))}
         </footer>
       )}
     </nav>

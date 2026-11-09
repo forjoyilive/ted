@@ -2026,6 +2026,22 @@ export function createTasks(options: {
       if (run.state !== 'finished') interrupted.add(run.id)
       health.authFailed(run.agent)
     },
+    usage(run, signal) {
+      if (!signal.limited) {
+        if (store.agentPauses()[run.agent] !== undefined) health.usable(run.agent)
+        return
+      }
+      if (run.state !== 'finished') interrupted.add(run.id)
+      health.limited(run.agent, signal.resetsAt)
+    },
+    credential(run, report) {
+      if (!health.credentialReported(run.agent, report) || run.state === 'finished') return
+      interrupted.add(run.id)
+      runs.interrupt(run.id).catch((error: unknown) => console.error(error))
+    },
+    planUsage(run, windows) {
+      health.planUsage(run.agent, windows)
+    },
     accepted(run, texts) {
       markAccepted(run, texts)
       const timer = nudgeTimers.get(run.id)
@@ -2049,24 +2065,42 @@ export function createTasks(options: {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished' && run.agent !== agent) continue
       interrupted.delete(runId)
-      if (run && run.state !== 'finished') {
+      if (run && run.state !== 'finished' && run.state !== 'working') {
         runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
       }
     }
   })
 
+  health.onPaused((agent, state) => {
+    if (state !== 'offline') return
+    for (const run of store.listRuns()) {
+      if (run.agent === agent && run.state === 'working') interrupted.add(run.id)
+    }
+  })
+
+  health.onProbe((agent) => {
+    const run = [...interrupted]
+      .map((id) => store.getRun(id))
+      .find((r) => r !== undefined && r.agent === agent && r.state !== 'finished')
+    if (!run) return false
+    interrupted.delete(run.id)
+    runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
+    return true
+  })
+
   const paused = store.agentPauses()
   for (const run of store.listRuns()) {
-    if (run.state === 'finished' || paused[run.agent] === undefined) continue
+    if (run.state === 'finished') continue
     const agent = agents.get(run.agent)
-    if (
-      store
-        .conversation(run.id)
-        .slice(-5)
-        .some(({ line }) => agent.authErrorFrom(line))
-    ) {
+    const recent = store.conversation(run.id).slice(-5)
+    const limit = recent.map(({ line }) => agent.usageFrom(line)).findLast((u) => u !== undefined)
+    if (limit?.limited) {
       interrupted.add(run.id)
+      health.limited(run.agent, limit.resetsAt)
+      continue
     }
+    if (paused[run.agent] === undefined) continue
+    if (recent.some(({ line }) => agent.authErrorFrom(line))) interrupted.add(run.id)
   }
 
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
@@ -2879,7 +2913,7 @@ function briefGoal(text: string): string | undefined {
 }
 
 const continueMessage =
-  'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+  'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
 
 function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
   if (approved) {

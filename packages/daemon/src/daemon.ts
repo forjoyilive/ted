@@ -11,6 +11,7 @@ import { ensureClone } from './factories.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
+import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
@@ -47,6 +48,14 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   stallAfterMs?: number
+  online?: DaemonOnlineOptions
+  limitProbeMs?: number
+}
+
+export interface DaemonOnlineOptions {
+  isOnline?: () => Promise<boolean>
+  onlineEveryMs?: number
+  offlineEveryMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -147,7 +156,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         emit,
         ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
         ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
+        ...(options.limitProbeMs !== undefined && { probeAfterMs: options.limitProbeMs }),
       })
+      const onlineOptions = options.online ?? {}
+      const fakeOnline = process.env.TED_ONLINE_FILE
+      const online = watchOnline({
+        isOnline:
+          onlineOptions.isOnline ??
+          (fakeOnline ? () => onlineFromFile(fakeOnline) : agentHostsReachable),
+        onChange: (now) => health.setOnline(now),
+        ...(fakeOnline && { onlineEveryMs: 1000, offlineEveryMs: 1000 }),
+        ...(onlineOptions.onlineEveryMs !== undefined && {
+          onlineEveryMs: onlineOptions.onlineEveryMs,
+        }),
+        ...(onlineOptions.offlineEveryMs !== undefined && {
+          offlineEveryMs: onlineOptions.offlineEveryMs,
+        }),
+      })
+      void online.check()
+      runs.observe({ retrying: () => void online.check() })
       const ghBin = given.ghBin ?? process.env.TED_GH_BIN
       const integrations = createIntegrations({
         store,
@@ -265,6 +292,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           disk.close()
           clearInterval(pruneTimer)
           stopWatchingWrites()
+          online.close()
           health.close()
           integrations.close()
           await factories.close()

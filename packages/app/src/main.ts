@@ -59,6 +59,7 @@ import {
   type MenuEntry,
   type MenuState,
   type Platform,
+  problemNotice,
   quitAnswer,
   quitDialog,
   quitPlan,
@@ -361,9 +362,18 @@ function forward(event: DaemonEvent): void {
   if (event.type === 'banner-cleared') {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
+  if (event.type === 'banner-raised') notifyProblem(event.banner)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
+}
+
+function notifyProblem(banner: Banner): void {
+  const notice = problemNotice(banner)
+  if (!notice || hiddenWindow || !Notification.isSupported()) return
+  const shown = new Notification({ title: notice.title, body: notice.body })
+  shown.on('click', () => run(notice.opens))
+  shown.show()
 }
 
 function run(command: MenuCommand): void {
