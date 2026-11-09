@@ -98,10 +98,7 @@ export interface AgentChoice {
 export function agentChoice(value: unknown, name?: string): AgentChoice {
   const given = bodyObject(value, name)
   const field = (key: string) => (name === undefined ? key : `${name}.${key}`)
-  const set = (key: string) => (given[key] === '' || given[key] === null ? undefined : given[key])
-  const agent = set('agent')
-  const model = set('model')
-  const effort = set('effort')
+  const { agent, model, effort } = given
   if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
     throw new HttpError(400, `${field('agent')} must be ${agentKinds.join(' or ')}`)
   }

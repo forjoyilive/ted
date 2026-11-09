@@ -27,7 +27,7 @@ import {
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { addFactory } from '../factories.ts'
-import { agentChoice, optionalText, type Route, readJson, text } from './route.ts'
+import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
   {
@@ -338,7 +338,9 @@ function checkInput(given: unknown): CheckInput {
 }
 
 export function roleChoice(given: unknown, role: string): AgentChoiceInput | null {
-  return given === null ? null : agentChoice(given, role)
+  if (given === null) return null
+  const set = Object.entries(bodyObject(given, role)).filter(([, value]) => value !== '' && value !== null)
+  return agentChoice(Object.fromEntries(set), role)
 }
 
 export function record(given: unknown): Record<string, unknown> {
