@@ -2,11 +2,11 @@ import type { LinearStatus } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { Help } from '../components/Help.tsx'
 import { ted } from '../ted.ts'
-import { Button, SettingsGroup } from './controls.tsx'
+import { Button, SettingRow, SettingsGroup, Switch } from './controls.tsx'
 import styles from './linear.module.css'
 import settingsStyles from './settings.module.css'
 
-export function LinearGroup() {
+export function LinearGroup({ sync }: { sync: boolean }) {
   const [status, setStatus] = useState<LinearStatus>()
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<string>()
@@ -60,7 +60,7 @@ export function LinearGroup() {
   return (
     <SettingsGroup
       label="Linear"
-      help="TED uses the key only to fill in a Task from a pasted Linear issue URL. It never gives it to an agent."
+      help="TED uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent."
     >
       <div className={styles.row}>
         <div className={settingsStyles.titleLine}>
@@ -129,6 +129,18 @@ export function LinearGroup() {
           Create a key ↗
         </button>
       </div>
+      {stored && (
+        <SettingRow
+          title="Sync status with Linear"
+          help="When a Task comes from a Linear issue, TED moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, TED archives a Task that hasn’t started, or asks you."
+        >
+          <Switch
+            label="Sync status with Linear"
+            checked={sync}
+            onChange={(on) => void ted.updateSettings({ linearSync: on })}
+          />
+        </SettingRow>
+      )}
     </SettingsGroup>
   )
 }

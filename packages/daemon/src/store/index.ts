@@ -139,6 +139,21 @@ import {
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
+export const linearSteps = ['started', 'review', 'done'] as const
+
+export type LinearStep = (typeof linearSteps)[number]
+
+export interface LinearSeen {
+  stateType: string
+  state: string
+}
+
+export interface LinearSyncRecord {
+  seen?: LinearSeen
+  step?: LinearStep
+  linked: Set<string>
+}
+
 export interface GitHubNoticeRecord {
   key: string
   sig: string
@@ -462,6 +477,15 @@ export interface TedStore {
   gitHubActivityQueued(taskId: string, notices: readonly GitHubNoticeRecord[]): Task
   gitHubActivityHeld(taskId: string, notices: readonly GitHubNoticeRecord[]): void
   gitHubSeen(taskId: string): Map<string, string>
+  linearIssueSeen(taskId: string, identifier: string, seen: LinearSeen): void
+  linearIssueMoved(
+    taskId: string,
+    identifier: string,
+    step: LinearStep,
+    state: string | undefined,
+  ): void
+  linearPullRequestsLinked(taskId: string, identifier: string, urls: readonly string[]): void
+  linearSync(taskId: string): LinearSyncRecord
   worktreeCreated(
     taskId: string,
     repo: {
@@ -516,7 +540,7 @@ export interface TedStore {
   setPriority(taskId: string, priority: Priority): Task
   editTask(taskId: string, edit: { title?: string; description?: string }): Task
   descriptionVersions(taskId: string): DescriptionVersion[]
-  archiveTask(taskId: string, record?: { closing: string[]; branches: number }): Task
+  archiveTask(taskId: string, record?: { closing: string[]; branches: number; why?: string }): Task
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
   blockedBy(blockerId: string): string[]
@@ -2222,12 +2246,14 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
-    archiveTask(taskId, { closing, branches } = { closing: [], branches: 0 }) {
+    archiveTask(taskId, { closing, branches, why } = { closing: [], branches: 0 }) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId)
       const answer: CommentAnswer = { kind: 'withdrawn', at, archived: true }
       commit(
-        events.taskArchivedV2({ taskId, closing, branches, at }),
+        why === undefined
+          ? events.taskArchivedV2({ taskId, closing, branches, at })
+          : events.taskArchivedV3({ taskId, closing, branches, why, at }),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
@@ -2616,6 +2642,61 @@ export async function openStore({
         }
       }
       return seen
+    },
+    linearIssueSeen(taskId, identifier, { stateType, state }) {
+      commit(
+        events.linearIssueSeen({
+          taskId,
+          identifier,
+          stateType,
+          state,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    linearIssueMoved(taskId, identifier, step, state) {
+      commit(
+        events.linearIssueMoved({
+          taskId,
+          identifier,
+          step,
+          state: state ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    linearPullRequestsLinked(taskId, identifier, urls) {
+      commit(
+        events.linearPullRequestsLinked({
+          taskId,
+          identifier,
+          urls: [...urls],
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    linearSync(taskId) {
+      const record: LinearSyncRecord = { linked: new Set() }
+      const rows = store
+        .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
+        .filter((row) => row.name.startsWith('v1.Linear'))
+      for (const row of rows) {
+        const data = JSON.parse(row.data) as Record<string, unknown>
+        if (row.name === 'v1.LinearIssueSeen') {
+          record.seen = { stateType: String(data.stateType), state: String(data.state) }
+        } else if (row.name === 'v1.LinearIssueMoved') {
+          const step = linearSteps.find((s) => s === data.step)
+          const before = record.step === undefined ? -1 : linearSteps.indexOf(record.step)
+          if (step && linearSteps.indexOf(step) > before) {
+            record.step = step
+          }
+        } else if (row.name === 'v1.LinearPullRequestsLinked' && Array.isArray(data.urls)) {
+          for (const url of data.urls) record.linked.add(String(url))
+        }
+      }
+      return record
     },
     worktreeCreated(taskId, repo) {
       commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))

@@ -21,6 +21,24 @@ export interface Linear {
   remove(): Promise<LinearStatus>
   lookup(url: string): Promise<LinearLookup>
   issueFor(url: LinearUrl): Promise<LinearLookup>
+  issueStates(links: readonly LinearUrl[]): Promise<Map<string, LinearIssueState> | undefined>
+  teamStates(teamId: string): Promise<LinearWorkflowState[]>
+  moveIssue(issueId: string, stateId: string): Promise<void>
+  linkUrl(issueId: string, url: string, title: string): Promise<void>
+}
+
+export interface LinearWorkflowState {
+  id: string
+  name: string
+  type: string
+  position: number
+}
+
+export interface LinearIssueState {
+  id: string
+  identifier: string
+  teamId: string
+  state: LinearWorkflowState
 }
 
 export interface LinearOptions {
@@ -38,6 +56,8 @@ const linkOnly = 'The Task will be created with the link only.'
 const validKey = /^[\x21-\x7e]{8,512}$/
 const maxDescription = 20_000
 const maxTitle = 500
+const issuesPerQuery = 50
+const issueStateFields = 'id identifier state { id name type position } team { id }'
 
 const linearPriorities: Record<number, Priority> = {
   0: 'none',
@@ -78,6 +98,32 @@ export function createLinear(options: LinearOptions): Linear {
   const checked = new Map<string, LinearStatus>()
   const viewers = new Map<string, Viewer>()
   const issues = new Map<string, { at: number; lookup: LinearLookup }>()
+  const teams = new Map<string, { at: number; states: LinearWorkflowState[] }>()
+  let syncKey: { at: number; key: string | undefined } | undefined
+
+  async function keyForSync(): Promise<string | undefined> {
+    if (syncKey && now() - syncKey.at < cacheMs) return syncKey.key
+    const found = await read().catch((): KeyRead => ({}))
+    syncKey = { at: now(), key: found.stored?.key }
+    return syncKey.key
+  }
+
+  function forgetKey(): void {
+    syncKey = undefined
+    teams.clear()
+  }
+
+  async function requireKey(): Promise<string> {
+    const key = await keyForSync()
+    if (!key) throw new LinearApiError('invalid-key', 'No Linear API key')
+    return key
+  }
+
+  async function viewerOf(key: string): Promise<Viewer> {
+    const viewer = viewers.get(key) ?? (await whoIs(key))
+    viewers.set(key, viewer)
+    return viewer
+  }
 
   async function read(): Promise<KeyRead> {
     let problem: 'no-keyring' | 'locked' | undefined
@@ -134,7 +180,12 @@ export function createLinear(options: LinearOptions): Linear {
     return { user, workspace, urlKey }
   }
 
-  async function query<T>(key: string, text: string, variables?: object): Promise<T> {
+  async function query<T>(
+    key: string,
+    text: string,
+    variables?: object,
+    { partial = false }: { partial?: boolean } = {},
+  ): Promise<T> {
     let response: Response
     try {
       response = await fetch(apiUrl, {
@@ -160,8 +211,10 @@ export function createLinear(options: LinearOptions): Linear {
         e.extensions?.type === 'authentication error',
     )
     if (auth || response.status === 401 || response.status === 403) {
+      if (key === syncKey?.key) forgetKey()
       throw new LinearApiError('invalid-key', 'Linear didn’t accept the API key')
     }
+    if (partial && response.ok && body?.data) return body.data
     if (errors.some((e) => /not found/i.test(e.message ?? ''))) {
       throw new LinearApiError('not-found', 'not found')
     }
@@ -179,9 +232,7 @@ export function createLinear(options: LinearOptions): Linear {
 
   async function fetchIssue(key: string, link: LinearUrl): Promise<LinearLookup> {
     try {
-      const viewer = viewers.get(key) ?? (await whoIs(key))
-      viewers.set(key, viewer)
-      const { urlKey } = viewer
+      const { urlKey } = await viewerOf(key)
       if (urlKey !== '' && urlKey !== link.workspace) {
         return { state: 'failed', error: `This Linear key can’t read issues in ${link.workspace}` }
       }
@@ -234,6 +285,64 @@ export function createLinear(options: LinearOptions): Linear {
     return lookup
   }
 
+  async function issueStates(
+    links: readonly LinearUrl[],
+  ): Promise<Map<string, LinearIssueState> | undefined> {
+    const key = await keyForSync()
+    if (!key) return undefined
+    const found = new Map<string, LinearIssueState>()
+    const { urlKey } = await viewerOf(key)
+    const identifiers = [
+      ...new Set(
+        links.filter((l) => urlKey === '' || l.workspace === urlKey).map((l) => l.identifier),
+      ),
+    ]
+    for (let from = 0; from < identifiers.length; from += issuesPerQuery) {
+      const chunk = identifiers.slice(from, from + issuesPerQuery)
+      const aliases = chunk.map((_, i) => `i${i}`)
+      const params = aliases.map((a) => `$${a}: String!`).join(', ')
+      const fields = aliases.map((a) => `${a}: issue(id: $${a}) { ${issueStateFields} }`)
+      const data = await query<Record<string, unknown>>(
+        key,
+        `query TedIssueStates(${params}) { ${fields.join(' ')} }`,
+        Object.fromEntries(chunk.map((identifier, i) => [`i${i}`, identifier])),
+        { partial: true },
+      )
+      for (const alias of aliases) {
+        const issue = issueStateFrom(data[alias])
+        if (issue) found.set(issue.identifier.toUpperCase(), issue)
+      }
+    }
+    return found
+  }
+
+  async function teamStates(teamId: string): Promise<LinearWorkflowState[]> {
+    const cached = teams.get(teamId)
+    if (cached && now() - cached.at < cacheMs) return cached.states
+    const data = await query<{ team?: { states?: { nodes?: unknown[] } } | null }>(
+      await requireKey(),
+      'query TedTeamStates($id: String!) { team(id: $id) { states(first: 100) { nodes { id name type position } } } }',
+      { id: teamId },
+    )
+    const states = (data.team?.states?.nodes ?? []).flatMap((node) => {
+      const state = workflowStateFrom(node)
+      return state ? [state] : []
+    })
+    teams.set(teamId, { at: now(), states })
+    return states
+  }
+
+  async function mutate(text: string, variables: object, field: string): Promise<void> {
+    const data = await query<Record<string, { success?: boolean } | null>>(
+      await requireKey(),
+      text,
+      variables,
+    )
+    if (data[field]?.success !== true) {
+      throw new LinearApiError('failed', `Linear didn’t confirm ${field}`)
+    }
+  }
+
   return {
     status,
 
@@ -274,6 +383,7 @@ export function createLinear(options: LinearOptions): Linear {
         place = 'keyring'
       }
       issues.clear()
+      forgetKey()
       const known = described({ key, place })
       const next: LinearStatus = viewer
         ? { ...known, state: 'connected', user: viewer.user, workspace: viewer.workspace }
@@ -289,6 +399,7 @@ export function createLinear(options: LinearOptions): Linear {
       const found = await read()
       if (!found.stored) return found.problem ? { ...base(), state: found.problem } : noKey()
       issues.clear()
+      forgetKey()
       viewers.delete(found.stored.key)
       return check(found.stored)
     },
@@ -308,6 +419,7 @@ export function createLinear(options: LinearOptions): Linear {
       checked.clear()
       viewers.clear()
       issues.clear()
+      forgetKey()
       return problem ? { ...base(), state: problem } : noKey()
     },
 
@@ -318,7 +430,59 @@ export function createLinear(options: LinearOptions): Linear {
     },
 
     issueFor,
+    issueStates,
+    teamStates,
+
+    moveIssue(issueId, stateId) {
+      return mutate(
+        'mutation TedMoveIssue($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success } }',
+        { id: issueId, stateId },
+        'issueUpdate',
+      )
+    },
+
+    linkUrl(issueId, url, title) {
+      return mutate(
+        'mutation TedLinkPullRequest($issueId: String!, $url: String!, $title: String!) { attachmentCreate(input: { issueId: $issueId, url: $url, title: $title }) { success } }',
+        { issueId, url, title },
+        'attachmentCreate',
+      )
+    },
   }
+}
+
+function workflowStateFrom(value: unknown): LinearWorkflowState | undefined {
+  const state = value as Partial<LinearWorkflowState> | null | undefined
+  if (
+    typeof state?.id !== 'string' ||
+    typeof state.name !== 'string' ||
+    typeof state.type !== 'string'
+  ) {
+    return undefined
+  }
+  return {
+    id: state.id,
+    name: oneLine(state.name).slice(0, 100),
+    type: state.type,
+    position: typeof state.position === 'number' ? state.position : 0,
+  }
+}
+
+function issueStateFrom(value: unknown): LinearIssueState | undefined {
+  const issue = value as
+    | { id?: unknown; identifier?: unknown; state?: unknown; team?: { id?: unknown } | null }
+    | null
+    | undefined
+  const state = workflowStateFrom(issue?.state)
+  if (
+    typeof issue?.id !== 'string' ||
+    typeof issue.identifier !== 'string' ||
+    typeof issue.team?.id !== 'string' ||
+    !state
+  ) {
+    return undefined
+  }
+  return { id: issue.id, identifier: issue.identifier, teamId: issue.team.id, state }
 }
 
 function failedStatus(known: Pick<LinearStatus, 'keyring'>, error: unknown): LinearStatus {
