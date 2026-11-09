@@ -1,16 +1,18 @@
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { Factory } from '@ted/protocol'
+import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import * as git from './git.ts'
 import { placeholderFactory, type StoredFactory, type TedStore } from './store/index.ts'
+import type { Workflows } from './workflow/workflows.ts'
 
 const keyPattern = /^[A-Z][A-Z0-9]{1,4}$/
 const githubRepo = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const safeSegment = /^[A-Za-z0-9_.-]+$/
 
 export async function addFactory(
-  { store, reposDir }: { store: TedStore; reposDir: string },
+  { store, reposDir, workflows }: { store: TedStore; reposDir: string; workflows: Workflows },
   input: { repo: string; key: string },
 ): Promise<Factory> {
   if (!keyPattern.test(input.key)) {
@@ -37,7 +39,50 @@ export async function addFactory(
     cloneUrl,
     defaultBranch,
   })
+  await workflows.resolve(factory, { fetch: false }).catch((error: unknown) => {
+    console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
+  })
   return publicFactory(factory)
+}
+
+const recovering = new Map<string, Promise<string>>()
+
+export function ensureClone(
+  deps: { banners: Banners; reposDir: string },
+  factory: StoredFactory,
+): Promise<string> {
+  const clone = clonePath(deps.reposDir, factory)
+  const running = recovering.get(clone)
+  if (running) return running
+  const recovery = recoverClone(deps, factory, clone).finally(() => recovering.delete(clone))
+  recovering.set(clone, recovery)
+  return recovery
+}
+
+async function recoverClone(
+  { banners }: { banners: Banners },
+  factory: StoredFactory,
+  clone: string,
+): Promise<string> {
+  const ref = { problem: 'clone-failed', factoryId: factory.id }
+  if (!(await exists(clone))) {
+    try {
+      await mkdir(path.dirname(clone), { recursive: true })
+      await git.clone(factory.cloneUrl, clone)
+    } catch (error) {
+      await rm(clone, { recursive: true, force: true })
+      banners.raise({
+        ...ref,
+        severity: 'stops-work',
+        text: `Couldn’t clone ${factory.repo} · ${factory.name} can’t start Tasks until it’s cloned`,
+        action: { label: 'Retry' },
+      })
+      const reason = error instanceof Error ? `: ${error.message}` : ''
+      throw new RequestError(409, `Couldn’t clone ${factory.repo}${reason}`)
+    }
+  }
+  banners.clear(ref)
+  return clone
 }
 
 function checkUnused(store: TedStore, key: string, repo: string): void {

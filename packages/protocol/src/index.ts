@@ -1,4 +1,17 @@
 export {
+  type Banner,
+  type BannerAction,
+  type BannerPlace,
+  type BannerRef,
+  type BannerSeverity,
+  bannerDismissMs,
+  bannerId,
+  bannerOrder,
+  bannerSeverities,
+  isShowing,
+  type RaiseBanner,
+} from './banner.ts'
+export {
   DaemonClient,
   DaemonRequestError,
   DaemonUnreachableError,
