@@ -12,6 +12,7 @@ Let TED merge the Task’s pull requests.
 4. If CI fails, the branch conflicts with its base, or the branch changes after sign-off, TED sends the Task back to Work with Findings. Fix it there; the Task comes back through Validate for a short re-sign-off.
 5. If CI doesn’t report, TED asks the human. If they send it to you, the Task comes back to Work with what TED saw.
 6. If the human cancels the merge with a Comment, it counts as Request changes: send the Task back to Work or Design with `ted outcome back`.
+7. With several repos, TED merges in `repos` order, and only once every pull request is ready. If a merge fails after another merged, the Task shows Partly merged and goes back to Work. Fix only the repos that haven’t merged; TED never reverts a merged pull request.
 
 ## Done when
 
