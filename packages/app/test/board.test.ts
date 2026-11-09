@@ -32,6 +32,7 @@ function task(fields: Partial<Task> & { displayId: string }): Task {
     runs: [],
     tabs: [],
     repos: [],
+    chosenRepos: [],
     createdBy: 'human',
     commentBox: 'no-run',
     createdAt: '2026-11-06T10:00:00Z',

@@ -57,13 +57,16 @@ import type {
   PostCommentRequest,
   Priority,
   ReportOutcomeRequest,
+  RepoSetupReport,
   ResumeTaskRequest,
   SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
+  SetTaskReposRequest,
   Task,
   TaskBrief,
   TaskDefaults,
+  TaskReposResult,
   ThreadEvent,
 } from './task.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -274,6 +277,17 @@ export class DaemonClient {
 
   setLocalFolder(key: string, path: string): Promise<Factory> {
     return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
+  }
+
+  setTaskRepos(ref: string, request: SetTaskReposRequest): Promise<TaskReposResult> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/repos`, request)
+  }
+
+  repoSetup(ref: string, repo: string): Promise<RepoSetupReport> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup`,
+    )
   }
 
   async setupLog(ref: string, repo: string): Promise<string> {

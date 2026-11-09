@@ -4,6 +4,7 @@ import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'no
 import path from 'node:path'
 import type { CopySkip, WorktreeCommandOutcome } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
+import type { RepoSettings } from '../workflow/check.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export interface WorktreeCommand {
@@ -36,17 +37,24 @@ const outputTailBytes = 16 * 1024
 
 export function primaryRepoWorktree(
   workflow: ResolvedWorkflow,
-  factory: { name: string; defaultBranch: string },
+  factory: { name: string; defaultBranch: string; repos?: readonly { name: string }[] },
 ): RepoWorktree {
   const repo = workflow.settings.repos?.[0]
-  const worktree = repo?.worktree
+  return {
+    name: repo?.name ?? factory.repos?.[0]?.name ?? factory.name,
+    baseBranch: repo?.base_branch ?? factory.defaultBranch,
+    ...worktreeCommands(repo?.worktree),
+  }
+}
+
+export function worktreeCommands(
+  worktree: RepoSettings['worktree'],
+): Pick<RepoWorktree, 'setup' | 'teardown' | 'env' | 'copy'> {
   const command = (c: { run: string; timeout?: string } | undefined) =>
     c && { run: c.run, timeoutMs: c.timeout ? durationMs(c.timeout) : defaultTimeoutMs }
   const setup = command(worktree?.setup)
   const teardown = command(worktree?.teardown)
   return {
-    name: repo?.name ?? factory.name,
-    baseBranch: repo?.base_branch ?? factory.defaultBranch,
     ...(setup && { setup }),
     ...(teardown && { teardown }),
     env: worktree?.env ?? {},

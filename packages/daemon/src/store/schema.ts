@@ -47,6 +47,7 @@ export const tasks = State.SQLite.table({
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
+    chosenRepos: State.SQLite.text({ nullable: true }),
     activity: State.SQLite.text({ nullable: true }),
     activityEntries: State.SQLite.integer({ nullable: true }),
     rank: State.SQLite.real({ nullable: true }),
@@ -719,6 +720,17 @@ export const events = {
       by: Schema.String,
       runId: Schema.NullOr(Schema.String),
       why: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskReposSet: Events.synced({
+    name: 'v1.TaskReposSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repos: Schema.Array(Schema.String),
+      names: Schema.Array(Schema.String),
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -1424,6 +1436,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { depth: args.depth, by: args.by, runId: args.runId, why: args.why }),
   'v1.TaskLeadSet': (args) =>
     task(args, { agent: args.agent, model: args.model, effort: args.effort }),
+  'v1.TaskReposSet': (args) =>
+    task(args, { repos: args.repos, names: args.names, by: args.by, runId: args.runId }),
   'v1.TaskWorktreeCreated': (args) =>
     task(args, { name: args.name, copied: args.copied, skipped: args.skipped }),
   'v1.TaskWorktreeSetupStarted': (args) => task(args, { name: args.name, command: args.command }),
@@ -1617,6 +1631,8 @@ const materializers = counted(
         tasks
           .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
           .where({ id: taskId }),
+      'v1.TaskReposSet': ({ taskId, repos, at }) =>
+        tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>

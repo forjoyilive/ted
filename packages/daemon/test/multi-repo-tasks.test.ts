@@ -1,0 +1,369 @@
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { promisify } from 'node:util'
+import { type Factory, type Run, type Task, type TaskReposResult, tedPaths } from '@ted/protocol'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { openStore } from '../src/store/index.ts'
+import {
+  api,
+  assistantTexts,
+  commitToOrigin,
+  hostRecords,
+  killRunHosts,
+  makeOriginRepo,
+  makeTempHome,
+  stubClaudePath,
+  waitUntil,
+} from './helpers.ts'
+
+const execFileAsync = promisify(execFile)
+const gitEnv = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'Test',
+  GIT_AUTHOR_EMAIL: 'test@example.com',
+  GIT_COMMITTER_NAME: 'Test',
+  GIT_COMMITTER_EMAIL: 'test@example.com',
+}
+
+let home: string
+let cleanup: () => Promise<void>
+let scratch: string
+let origin: string
+let daemon: RunningDaemon | undefined
+const savedEnv = { ...process.env }
+
+beforeEach(async () => {
+  ;({ home, cleanup } = await makeTempHome())
+  scratch = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-multi-repo-')))
+  origin = await makeOriginRepo(scratch)
+  await makeSecondOrigin('api')
+  process.env.GIT_CONFIG_COUNT = '1'
+  process.env.GIT_CONFIG_KEY_0 = `url.file://${scratch}/.insteadOf`
+  process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/'
+})
+
+afterEach(async () => {
+  await daemon?.stop()
+  daemon = undefined
+  const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
+  for (const runId of runIds) {
+    await waitUntil(
+      async () => (await hostRecords(home, runId)).some((r) => r.t === 'start'),
+      `Run ${runId}’s host to start`,
+    ).catch(() => undefined)
+  }
+  await killRunHosts(home)
+  process.env = { ...savedEnv }
+  await cleanup()
+  await rm(scratch, { recursive: true, force: true })
+})
+
+async function makeSecondOrigin(name: string): Promise<void> {
+  const bare = path.join(scratch, 'acme', `${name}.git`)
+  const seed = path.join(scratch, `${name}-seed`)
+  await mkdir(bare, { recursive: true })
+  await execFileAsync('git', ['init', '--bare', '--initial-branch=main'], { cwd: bare })
+  await mkdir(seed)
+  await execFileAsync('git', ['init', '--initial-branch=main'], { cwd: seed })
+  await writeFile(path.join(seed, 'README.md'), `# ${name}\n`)
+  await execFileAsync('git', ['add', '-A'], { cwd: seed, env: gitEnv })
+  await execFileAsync('git', ['commit', '-m', 'first'], { cwd: seed, env: gitEnv })
+  await execFileAsync('git', ['push', bare, 'main'], { cwd: seed, env: gitEnv })
+}
+
+const twoRepos = (apiWorktree = '') =>
+  commitToOrigin(scratch, {
+    '.ted/workflow.yaml': [
+      'version: 1',
+      'order: [intake, work, merge]',
+      'repos:',
+      '  - name: widgets',
+      '  - name: api',
+      '    remote: https://github.com/acme/api.git',
+      apiWorktree,
+    ].join('\n'),
+  })
+
+async function start(options: { home?: string } = {}) {
+  daemon = await startDaemon({
+    home: options.home ?? home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+  })
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const call = async (method: string, route: string, body?: unknown) =>
+    client.call(method, route, body)
+  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+    const res = await call(method, route, body)
+    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+    return res.body as T
+  }
+  return { ...client, call, ok }
+}
+
+type Client = Awaited<ReturnType<typeof start>>
+
+const addFactory = (client: Client) =>
+  client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+
+const createTask = (client: Client, title: string) =>
+  client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
+
+const getTask = async (client: Client, id: string) =>
+  (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
+
+const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
+
+const taskFolder = (id = 'NB-1') => path.join(home, 'worktrees', id)
+
+const exists = (file: string) =>
+  stat(file).then(
+    () => true,
+    () => false,
+  )
+
+const leadRun = (client: Client, task: Task): Promise<Run> =>
+  waitUntil(async () => {
+    const current = await getTask(client, task.id)
+    return current?.leadRunId ? (await client.getRun(current.leadRunId)).run : undefined
+  }, `${task.displayId}’s Task Lead Run`)
+
+const firstMessage = async (client: Client, task: Task): Promise<string> => {
+  const run = await leadRun(client, task)
+  return waitUntil(async () => {
+    const [first] = (await client.getRun(run.id)).conversation
+    return first && (JSON.parse(first.line) as { message: { content: string } }).message.content
+  }, 'the Task Lead’s first message')
+}
+
+const commandResults = async (client: Client, runId: string, count: number) =>
+  waitUntil(async () => {
+    const results = assistantTexts((await client.getRun(runId)).conversation).map(
+      (text) => JSON.parse(text) as { code: number; stdout: string; stderr: string },
+    )
+    return results.length >= count ? results : undefined
+  }, `${count} command results`)
+
+const liveRepos = (task: Task | undefined) =>
+  (task?.repos ?? []).filter((r) => !r.removed).map((r) => r.name)
+
+describe('a multi-repo Task', () => {
+  test('starts with only the primary repo’s worktree and runs in the Task folder', async () => {
+    await twoRepos()
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(client, steps({ run: ['pwd'] }, { endTurn: true }))
+    expect(task.chosenRepos).toEqual(['acme/widgets'])
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+
+    const run = await leadRun(client, task)
+    expect(run.cwd).toBe(taskFolder())
+    const [pwd] = await commandResults(client, run.id, 1)
+    expect(await realpath(pwd?.stdout.trim() ?? '')).toBe(await realpath(taskFolder()))
+    expect(liveRepos(await getTask(client, task.id))).toEqual(['widgets'])
+    expect(await exists(path.join(taskFolder(), 'widgets', 'README.md'))).toBe(true)
+    expect(await exists(path.join(taskFolder(), 'api'))).toBe(false)
+    const first = await firstMessage(client, task)
+    expect(first).toContain('# Repos')
+    expect(first).toContain('- api: acme/api')
+    expect(first).toContain('ted task repos add')
+  })
+
+  test('the Task Lead adds a repo: same branch, setup runs, and the command prints its output', async () => {
+    await twoRepos(
+      ['    worktree:', '      setup: "echo installing api && touch setup-ran"', ''].join('\n'),
+    )
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(
+      client,
+      steps(
+        { run: ['ted', 'task', 'repos', 'add', 'api'] },
+        { run: ['git', '-C', 'api', 'branch', '--show-current'] },
+        { endTurn: true },
+      ),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+
+    const [added, branch] = await commandResults(client, run.id, 2)
+    expect(added?.code).toBe(0)
+    expect(added?.stdout).toContain(`Added api at ${path.join(taskFolder(), 'api')}.`)
+    expect(added?.stdout).toContain('Its setup, `echo installing api && touch setup-ran`, passed.')
+    expect(added?.stdout).toContain('installing api')
+    expect(added?.stdout).toContain('NB-1’s repos: widgets, api')
+    expect(await exists(path.join(taskFolder(), 'api', 'setup-ran'))).toBe(true)
+    const current = await getTask(client, task.id)
+    expect(branch?.stdout.trim()).toBe(current?.branch)
+    expect(liveRepos(current)).toEqual(['widgets', 'api'])
+    expect(current?.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
+    const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
+    expect(lines.map((l) => l.text)).toContain('Task Lead set Repos to widgets, api')
+  })
+
+  test('removing a repo whose worktree has commits waits for --yes, then removes the worktree', async () => {
+    await twoRepos()
+    const client = await start()
+    await addFactory(client)
+    const commit = [
+      'git',
+      '-c',
+      'user.name=Test',
+      '-c',
+      'user.email=test@example.com',
+      '-C',
+      'api',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'api work',
+    ]
+    const task = await createTask(
+      client,
+      steps(
+        { run: ['ted', 'task', 'repos', 'set', 'widgets', 'api'] },
+        { run: commit },
+        { run: ['ted', 'task', 'repos', 'remove', 'api'] },
+        { run: ['ted', 'task', 'repos', 'remove', 'api', '--yes'] },
+        { endTurn: true },
+      ),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+
+    const results = await commandResults(client, run.id, 4)
+    expect(results[1]?.code).toBe(0)
+    expect(results[2]?.code).toBe(1)
+    expect(results[2]?.stderr).toContain('api’s worktree has 1 commit that would be lost')
+    expect(results[3]?.code).toBe(0)
+    expect(results[3]?.stdout).toContain('Removed api; its worktree is gone.')
+    expect(await exists(path.join(taskFolder(), 'api'))).toBe(false)
+    expect(liveRepos(await getTask(client, task.id))).toEqual(['widgets'])
+  })
+
+  test('the human sets Repos in Backlog; both worktrees and setups are ready before the Task Lead', async () => {
+    await twoRepos(['    worktree:', '      setup: "touch setup-ran"', ''].join('\n'))
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(client, steps({ run: ['ls', 'api'] }, { endTurn: true }))
+
+    const set = await client.ok<TaskReposResult>('PUT', `/tasks/${task.id}/repos`, {
+      set: ['acme/widgets', 'acme/api'],
+    })
+    expect(set.repos).toEqual(['widgets', 'api'])
+    expect(set.task.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
+    expect(set.task.repos).toEqual([])
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+    const [ls] = await commandResults(client, run.id, 1)
+    expect(ls?.stdout.split('\n')).toContain('setup-ran')
+    const current = await getTask(client, task.id)
+    expect(liveRepos(current)).toEqual(['widgets', 'api'])
+    expect(new Set(current?.repos.map((r) => r.branch)).size).toBe(1)
+  })
+
+  test('the human adds a repo while the Task Lead works, and the Task Lead is told', async () => {
+    await twoRepos()
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(
+      client,
+      steps({ endTurn: true }, { everyMessage: [{ say: 'ok' }, { endTurn: true }] }),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Lead')
+
+    const added = await client.ok<TaskReposResult>('PUT', `/tasks/${task.id}/repos`, {
+      add: ['api'],
+    })
+    expect(added.added).toEqual(['api'])
+    expect(await exists(path.join(taskFolder(), 'api', 'README.md'))).toBe(true)
+    const told = await waitUntil(async () => {
+      const lines = (await client.getRun(run.id)).conversation.map((e) => e.line)
+      return lines.find((l) => l.includes('The human changed this Task’s repos'))
+    }, 'the message to the Task Lead')
+    expect(told).toContain('Added api (acme/api)')
+    const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
+    expect(lines.map((l) => l.text)).toContain('You set Repos to widgets, api')
+  })
+
+  test('refusals: unknown repo, no repos left, an open pull request, and Done', async () => {
+    await twoRepos()
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+
+    const unknown = await client.call('PUT', `/tasks/${task.id}/repos`, { add: ['web'] })
+    expect(unknown.status).toBe(400)
+    expect(JSON.stringify(unknown.body)).toContain('its repos are widgets, api')
+    const none = await client.call('PUT', `/tasks/${task.id}/repos`, { remove: ['widgets'] })
+    expect(none.status).toBe(400)
+    expect(JSON.stringify(none.body)).toContain('a Task needs at least one repo')
+    const both = await client.call('PUT', `/tasks/${task.id}/repos`, { set: [], add: ['api'] })
+    expect(both.status).toBe(400)
+
+    await client.ok('PUT', `/tasks/${task.id}/repos`, { set: ['widgets', 'api'] })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await leadRun(client, task)
+    await waitUntil(
+      async () => liveRepos(await getTask(client, task.id)).length === 2,
+      'two worktrees',
+    )
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    store.pullRequestOpened(task.id, 'api', {
+      number: 7,
+      url: 'https://github.com/acme/api/pull/7',
+      base: 'main',
+    })
+    await store.close()
+
+    const again = await start()
+    const open = await again.call('PUT', `/tasks/${task.id}/repos`, { remove: ['api'] })
+    expect(open.status).toBe(409)
+    expect(JSON.stringify(open.body)).toContain('api has an open pull request (#7)')
+  })
+
+  test('archiving removes every repo’s worktree after its teardown', async () => {
+    const torn = path.join(scratch, 'torn-down')
+    await twoRepos(['    worktree:', `      teardown: "touch '${torn}'"`, ''].join('\n'))
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    await client.ok('PUT', `/tasks/${task.id}/repos`, { set: ['widgets', 'api'] })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await leadRun(client, task)
+
+    await client.ok('POST', `/tasks/${task.id}/archive`, {})
+
+    await waitUntil(async () => !(await exists(taskFolder())), 'the Task folder to go')
+    expect(await exists(torn)).toBe(true)
+    const current = await getTask(client, task.id)
+    expect(current?.repos.every((r) => r.removed !== undefined)).toBe(true)
+  })
+})
+
+describe('a single-repo Factory', () => {
+  test('has no Repos to change and runs in the repo’s worktree', async () => {
+    const client = await start()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    expect(task.chosenRepos).toEqual(['acme/widgets'])
+
+    const refused = await client.call('PUT', `/tasks/${task.id}/repos`, { add: ['api'] })
+    expect(refused.status).toBe(409)
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await leadRun(client, task)
+    expect(run.cwd).toBe(path.join(taskFolder(), 'widgets'))
+    expect(await firstMessage(client, task)).not.toContain('# Repos')
+    expect(await readFile(path.join(run.cwd, 'README.md'), 'utf8')).toBe('# widgets\n')
+  })
+})

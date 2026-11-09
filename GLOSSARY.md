@@ -80,6 +80,10 @@ _Avoid_: Templates, presets
 A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several Tasks, the original narrowing to the first piece while keeping its original request.
 _Avoid_: Ticket, issue, card, session, epic
 
+**Task folder**:
+The folder `~/.ted/worktrees/<TASK-ID>/` holding one worktree per repo of a Task, each named after the repo’s `name`. In a Factory with several repos, the Task’s Runs work in it; in a one-repo Factory they work in the repo’s worktree.
+_Avoid_: Workspace, Task directory
+
 **Follow-up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
