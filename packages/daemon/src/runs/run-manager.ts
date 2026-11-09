@@ -171,7 +171,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
         autoModeUnavailable ||= agent.autoModeUnavailableFrom(record.line)
-        const prompt = agent.permissionPromptFrom(record.line)
+        const prompt = agent.permissionPromptFrom(record.line, (matches) => {
+          for (let i = entries.length - 2; i >= 0; i--) {
+            const line = entries[i]?.line
+            if (line !== undefined && matches(line)) return line
+          }
+          return store.conversation(runId).findLast((entry) => matches(entry.line))?.line
+        })
         if (prompt) prompts.push({ ...prompt, generation: generation.count })
         const closed = agent.permissionClosedFrom(record.line)
         if (closed !== undefined) closedPermissions.push(closed)

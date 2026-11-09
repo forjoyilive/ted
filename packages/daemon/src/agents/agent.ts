@@ -15,10 +15,13 @@ export interface PermissionPrompt {
   title: string
   command: string
   details?: string
+  cwd?: string
   reason?: string
   input?: unknown
   refuse?: boolean
 }
+
+export type EarlierLine = (matches: (line: string) => boolean) => string | undefined
 
 export interface PermissionReply {
   requestId: string
@@ -62,7 +65,7 @@ export interface Agent {
   }): AgentLaunch
   message(text: string): string
   stateFrom(line: string): RunState | undefined
-  permissionPromptFrom(line: string): PermissionPrompt | undefined
+  permissionPromptFrom(line: string, earlier: EarlierLine): PermissionPrompt | undefined
   permissionClosedFrom(line: string): string | undefined
   autoModeUnavailableFrom(line: string): boolean
   permissionReply(reply: PermissionReply): string[]

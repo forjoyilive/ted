@@ -15,7 +15,10 @@ type Step =
   | { exit: number }
   | { everyMessage: Step[] }
   | { authError: true }
-  | { permission: { tool: string; input: Record<string, unknown>; description?: string } }
+  | {
+      permission: { tool: string; input: Record<string, unknown>; description?: string }
+      noWait?: true
+    }
   | { cancelPermission: true }
 
 const argv = process.argv.slice(2)
@@ -125,7 +128,7 @@ async function runStep(step: Step): Promise<void> {
         }),
       },
     })
-    say(JSON.stringify(await answered))
+    if (!step.noWait) say(JSON.stringify(await answered))
   } else if ('cancelPermission' in step) {
     if (lastRequest !== undefined) {
       emit({ type: 'control_cancel_request', request_id: lastRequest })

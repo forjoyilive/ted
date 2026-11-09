@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
-import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
+import type { Agent, AuthCheck, EarlierLine, PermissionPrompt } from './agent.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
@@ -64,7 +64,106 @@ function isUnauthorized(error: unknown): boolean {
 
 const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined)
 
-function promptFrom(message: CodexLine): PermissionPrompt | undefined {
+interface ShownChange {
+  path: string
+  text: string
+}
+
+function changeText(kind: string, body: string, moveTo?: string): string {
+  return [`${kind}${moveTo ? ` → ${moveTo}` : ''}`, body].filter((part) => part !== '').join('\n')
+}
+
+function itemChanges(earlier: EarlierLine, itemId: unknown): ShownChange[] | undefined {
+  if (typeof itemId !== 'string') return undefined
+  const found = earlier((line) => {
+    const message = parse(line)
+    const item = (message?.params as { item?: { type?: unknown; id?: unknown } } | undefined)?.item
+    return (
+      (message?.method === 'item/started' || message?.method === 'item/updated') &&
+      item?.type === 'fileChange' &&
+      item.id === itemId
+    )
+  })
+  const changes = (parse(found ?? '')?.params as { item?: { changes?: unknown } } | undefined)?.item
+    ?.changes
+  if (!Array.isArray(changes) || changes.length === 0) return undefined
+  const shown: ShownChange[] = []
+  for (const change of changes as {
+    path?: unknown
+    diff?: unknown
+    kind?: { type?: unknown; move_path?: unknown }
+  }[]) {
+    if (typeof change.path !== 'string' || typeof change.diff !== 'string') return undefined
+    const kind = typeof change.kind?.type === 'string' ? change.kind.type : 'update'
+    const moveTo = typeof change.kind?.move_path === 'string' ? change.kind.move_path : undefined
+    shown.push({ path: change.path, text: changeText(kind, change.diff, moveTo) })
+  }
+  return shown
+}
+
+function patchChanges(fileChanges: unknown): ShownChange[] | undefined {
+  if (typeof fileChanges !== 'object' || fileChanges === null) return undefined
+  const shown: ShownChange[] = []
+  for (const [file, change] of Object.entries(fileChanges)) {
+    const { type, content, unified_diff, move_path } = (change ?? {}) as Record<string, unknown>
+    if ((type === 'add' || type === 'delete') && typeof content === 'string') {
+      shown.push({ path: file, text: changeText(type, content) })
+    } else if (type === 'update' && typeof unified_diff === 'string') {
+      shown.push({
+        path: file,
+        text: changeText(type, unified_diff, typeof move_path === 'string' ? move_path : undefined),
+      })
+    } else return undefined
+  }
+  return shown.length > 0 ? shown : undefined
+}
+
+function changePrompt(
+  base: PermissionPrompt,
+  changes: ShownChange[] | undefined,
+): PermissionPrompt {
+  if (!changes) return { ...base, command: 'changes TED can’t show', refuse: true }
+  return {
+    ...base,
+    command: changes.map((c) => c.path).join(' '),
+    details: changes.map((c) => `${c.path}\n${c.text}`).join('\n\n'),
+  }
+}
+
+const commandFields = new Set([
+  'kind',
+  'threadId',
+  'turnId',
+  'itemId',
+  'startedAtMs',
+  'approvalId',
+  'environmentId',
+  'reason',
+  'networkApprovalContext',
+  'command',
+  'cwd',
+  'commandActions',
+  'proposedExecpolicyAmendment',
+  'proposedNetworkPolicyAmendments',
+])
+
+function commandPrompt(
+  base: PermissionPrompt,
+  cwd: string | undefined,
+  network: string | undefined,
+): PermissionPrompt {
+  const details = [
+    ...(cwd !== undefined ? [`Runs in ${cwd}`] : []),
+    ...(network !== undefined ? [`Network access to ${network}`] : []),
+  ]
+  return {
+    ...base,
+    ...(cwd !== undefined && { cwd }),
+    ...(details.length > 0 && { details: details.join('\n') }),
+  }
+}
+
+function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt | undefined {
   if (typeof message.method !== 'string') return undefined
   if (typeof message.id !== 'number' && typeof message.id !== 'string') return undefined
   const params = (message.params ?? {}) as Record<string, unknown>
@@ -76,29 +175,51 @@ function promptFrom(message: CodexLine): PermissionPrompt | undefined {
     ...(reason !== undefined && { reason }),
   })
   switch (message.method) {
-    case 'item/commandExecution/requestApproval':
-      return ask(
-        params.kind === 'writeStdin'
-          ? 'Send input to a running command'
-          : params.networkApprovalContext
-            ? 'Run a command that needs the network'
-            : 'Run a command outside the sandbox',
-        text(params.command) ?? 'a command',
+    case 'item/commandExecution/requestApproval': {
+      const network = params.networkApprovalContext as
+        | { host?: unknown; protocol?: unknown }
+        | null
+        | undefined
+      const title = network
+        ? 'Run a command that needs the network'
+        : 'Run a command outside the sandbox'
+      const command = text(params.command)
+      const unknown = Object.keys(params).some(
+        (key) => !commandFields.has(key) && !isEmpty(params[key]),
       )
-    case 'execCommandApproval':
-      return ask(
-        'Run a command outside the sandbox',
-        Array.isArray(params.command) ? params.command.join(' ') : 'a command',
+      const host = network ? text(network.host) : undefined
+      if (
+        params.kind === 'writeStdin' ||
+        command === undefined ||
+        unknown ||
+        (network && host === undefined)
+      ) {
+        return { ...ask(title, command ?? 'a command TED can’t show'), refuse: true }
+      }
+      return commandPrompt(
+        ask(title, command),
+        text(params.cwd),
+        network && host !== undefined
+          ? `${text(network.protocol) ?? 'https'}://${host}`
+          : undefined,
       )
-    case 'item/fileChange/requestApproval':
-      return ask(
-        'Change files',
-        text(params.grantRoot) !== undefined ? `write under ${params.grantRoot}` : 'apply a patch',
-      )
-    case 'applyPatchApproval': {
-      const files = Object.keys((params.fileChanges ?? {}) as Record<string, unknown>)
-      return ask('Change files', files.length > 0 ? files.join(' ') : 'apply a patch')
     }
+    case 'execCommandApproval': {
+      const command = Array.isArray(params.command) ? params.command.join(' ') : undefined
+      const title = 'Run a command outside the sandbox'
+      if (command === undefined) return { ...ask(title, 'a command TED can’t show'), refuse: true }
+      return commandPrompt(ask(title, command), text(params.cwd), undefined)
+    }
+    case 'item/fileChange/requestApproval':
+      return changePrompt(
+        ask('Change files', ''),
+        isEmpty(params.grantRoot) ? itemChanges(earlier, params.itemId) : undefined,
+      )
+    case 'applyPatchApproval':
+      return changePrompt(
+        ask('Change files', ''),
+        isEmpty(params.grantRoot) ? patchChanges(params.fileChanges) : undefined,
+      )
     case 'item/permissions/requestApproval': {
       const grant = grantFrom(params.permissions)
       if (!grant) return { ...ask('Get more access', 'access TED can’t show'), refuse: true }
@@ -206,9 +327,9 @@ export function codexAgent(binary: string): Agent {
       }
     },
     message: (text) => JSON.stringify({ text }),
-    permissionPromptFrom(line) {
+    permissionPromptFrom(line, earlier) {
       const message = parse(line)
-      return message && promptFrom(message)
+      return message && promptFrom(message, earlier)
     },
     permissionClosedFrom(line) {
       const message = parse(line)

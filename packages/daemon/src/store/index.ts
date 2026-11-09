@@ -103,6 +103,7 @@ export interface NewPermissionPrompt {
   requestId: string
   generation: number
   details?: string
+  cwd?: string
   title: string
   command: string
   reason?: string
@@ -843,7 +844,7 @@ export async function openStore({
     const id = randomUUID()
     const task = taskRow(taskId)
     const run = runRow(runId)
-    const repo = task && run ? repoAt(taskId, run.cwd) : undefined
+    const repo = task && run ? repoAt(taskId, prompt.cwd ?? run.cwd) : undefined
     return {
       id,
       event: events.permissionRequested({
@@ -1429,6 +1430,13 @@ export async function openStore({
         taskId === null
           ? []
           : permissionPrompts.map((prompt) => askedEvent(taskId, runId, prompt, at))
+      const answeredAtOnce = asked.flatMap(({ id }, index) =>
+        state === 'finished'
+          ? [{ id, answer: { kind: 'withdrawn', at, runStopped: true } as CommentAnswer }]
+          : closedPermissions.includes(permissionPrompts[index]?.requestId ?? '')
+            ? [{ id, answer: { kind: 'withdrawn', at, cancelled: true } as CommentAnswer }]
+            : [],
+      )
       const withdrawn = [
         ...closedPermissions.flatMap((requestId) =>
           openPermissionRows(runId, requestId).map((row) => ({
@@ -1443,6 +1451,7 @@ export async function openStore({
             }))
           : []),
       ]
+      withdrawn.push(...answeredAtOnce)
       const withdrawnOnce = withdrawn.filter(
         ({ id }, index) => withdrawn.findIndex((w) => w.id === id) === index,
       )

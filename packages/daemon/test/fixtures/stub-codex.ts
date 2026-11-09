@@ -11,7 +11,8 @@ type Step =
   | { lines: number; everyMs: number }
   | { waitFor: string }
   | { run: string[] }
-  | { approval: 'command' | 'fileChange'; command?: string }
+  | { approval: 'command'; command?: string; cwd?: string; extra?: Record<string, unknown> }
+  | { approval: 'fileChange'; changes?: { path: string; diff: string }[] }
   | { approval: 'permissions'; permissions: Record<string, unknown> }
   | { endTurn: true }
   | { exit: number }
@@ -108,6 +109,18 @@ async function runStep(step: Step): Promise<void> {
   } else if ('approval' in step) {
     const id = nextRequest++
     const answered = new Promise<Message>((resolve) => answers.set(id, resolve))
+    if ('changes' in step && step.changes) {
+      notify('item/started', {
+        threadId,
+        turnId: 'turn-1',
+        item: {
+          type: 'fileChange',
+          id: `item-${id}`,
+          status: 'inProgress',
+          changes: step.changes.map((c) => ({ ...c, kind: { type: 'update', move_path: null } })),
+        },
+      })
+    }
     status({ type: 'active', activeFlags: ['waitingOnApproval'] })
     send({
       id,
@@ -115,13 +128,15 @@ async function runStep(step: Step): Promise<void> {
       params: {
         threadId,
         turnId: 'turn-1',
-        itemId: 'item-1',
+        itemId: `item-${id}`,
         ...('permissions' in step && { permissions: step.permissions, cwd: process.cwd() }),
         ...('command' in step &&
           step.command !== undefined && {
             command: step.command,
             reason: 'git needs to write outside the workspace',
           }),
+        ...('cwd' in step && step.cwd !== undefined && { cwd: step.cwd }),
+        ...('extra' in step && step.extra),
       },
     })
     const answer = await answered

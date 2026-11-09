@@ -388,4 +388,73 @@ describe('who can answer, and what an answer covers', () => {
     }, 'the agent to get an answer')
     expect(JSON.parse(reply)).toMatchObject({ behavior: 'deny' })
   })
+
+  test('a Codex file change shows the diff; one TED can’t show is denied without asking', async () => {
+    const client = await start()
+    const diff = '@@ -1 +1 @@\n-old\n+new\n'
+    const task = await startTask(
+      client,
+      [
+        { approval: 'fileChange', changes: [{ path: '/repo/.git/config', diff }] },
+        { approval: 'fileChange' },
+        { endTurn: true },
+      ],
+      { agent: 'codex' },
+    )
+    const request = await permissionOf(client, task)
+    expect(request.title).toBe('Change files')
+    expect(request.permission?.command).toBe('/repo/.git/config')
+    expect(request.permission?.details).toContain('+new')
+    const run = await leadRun(client, task)
+    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'approve' })
+    const replies = await waitUntil(async () => {
+      const texts = (await said(client, run.id)).filter((t) => t.includes('decision'))
+      return texts.length === 2 ? texts : undefined
+    }, 'Codex to get both answers')
+    expect(replies.map((t) => JSON.parse(t))).toEqual([
+      { decision: 'accept' },
+      { decision: 'decline' },
+    ])
+    expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
+  })
+
+  test('a request and the Run’s exit in one batch leave the request withdrawn, not open', async () => {
+    const client = await start()
+    const task = await startTask(client, [
+      { ...bash('make deploy', 'Deploy'), noWait: true },
+      { exit: 0 },
+    ])
+    const request = await waitUntil(
+      async () => (await comments(client, task)).find((c) => c.kind === 'permission' && c.answer),
+      'the request to be withdrawn',
+    )
+    expect(request.answer).toMatchObject({ kind: 'withdrawn', runStopped: true })
+    expect((await client.ok<InboxItem[]>('GET', '/inbox')).length).toBe(0)
+  })
+
+  test('a Codex command shows where it runs; one with a field TED can’t show is denied', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      [
+        { approval: 'command', command: 'rm -rf ./*', cwd: '/Users/someone' },
+        { approval: 'command', command: 'ls', extra: { sandboxOverride: 'none' } },
+        { endTurn: true },
+      ],
+      { agent: 'codex' },
+    )
+    const request = await permissionOf(client, task)
+    expect(request.permission).toEqual({ command: 'rm -rf ./*', details: 'Runs in /Users/someone' })
+    const run = await leadRun(client, task)
+    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'deny' })
+    const replies = await waitUntil(async () => {
+      const texts = (await said(client, run.id)).filter((t) => t.includes('decision'))
+      return texts.length === 2 ? texts : undefined
+    }, 'Codex to get both answers')
+    expect(replies.map((t) => JSON.parse(t))).toEqual([
+      { decision: 'decline' },
+      { decision: 'decline' },
+    ])
+    expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
+  })
 })
