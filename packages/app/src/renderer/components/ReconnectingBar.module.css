@@ -1,0 +1,33 @@
+.bar {
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 10px;
+  height: 35px;
+  padding: 0 16px;
+  background: var(--surface-inverse);
+  font-size: var(--text-13);
+  line-height: var(--leading-tight);
+  white-space: nowrap;
+}
+
+.ring {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--text-on-inverse);
+  border-radius: 50%;
+}
+
+.title {
+  color: var(--text-on-inverse);
+  font-weight: var(--weight-medium);
+}
+
+.detail {
+  overflow: hidden;
+  color: var(--text-on-inverse-muted);
+  text-overflow: ellipsis;
+}

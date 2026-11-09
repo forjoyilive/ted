@@ -1,5 +1,6 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type { Banner, Task } from '@ted/protocol'
-import { useReducer } from 'react'
+import { type ReactNode, useReducer } from 'react'
 import styles from './App.module.css'
 import {
   appWideBanners,
@@ -7,9 +8,10 @@ import {
   factoryBanners,
   settingsStopsWork,
 } from './banners.ts'
-import { BannerStack } from './components/BannerStack.tsx'
+import { type BannerMenuItem, BannerStack } from './components/BannerStack.tsx'
+import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useBanners, useFactories, useTasks } from './data.ts'
+import { useBanners, useConnection, useFactories, useTasks } from './data.ts'
 import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
 import { ted } from './ted.ts'
 import { AppSettings, Inbox, Stub } from './views/OtherViews.tsx'
@@ -24,11 +26,51 @@ const factoryViewTitles = {
 
 const stubTitles = { search: 'Search', 'new-task': 'New Task', 'add-factory': 'Add Factory' }
 
+const keepsStoppingProblem = 'daemon-keeps-stopping'
+
+function keepsStoppingBanner(connection: DaemonConnection): Banner[] {
+  if (connection.state !== 'stopped') return []
+  return [
+    {
+      id: `${keepsStoppingProblem}:app`,
+      problem: keepsStoppingProblem,
+      severity: 'stops-work',
+      text: 'TED’s background process keeps stopping',
+      action: { label: 'Restart' },
+      raisedAt: connection.crashes.at(-1) ?? new Date().toISOString(),
+    },
+  ]
+}
+
+const keepsStoppingMenu = (banner: Banner): BannerMenuItem[] | undefined =>
+  banner.problem === keepsStoppingProblem
+    ? [
+        {
+          label: 'Restart TED in the background',
+          onSelect: () => ted.restartDaemon().catch((error: unknown) => console.error(error)),
+        },
+        {
+          label: 'Copy report',
+          onSelect: () => ted.copyCrashReport().catch((error: unknown) => console.error(error)),
+        },
+      ]
+    : undefined
+
+function Offline({ when, children }: { when: boolean; children: ReactNode }) {
+  return (
+    <fieldset disabled={when} className={when ? styles.offline : styles.online}>
+      {children}
+    </fieldset>
+  )
+}
+
 export function App() {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
   const factories = useFactories()
   const banners = useBanners()
+  const { connection } = useConnection()
+  const offline = connection.state !== 'connected'
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
@@ -55,6 +97,7 @@ export function App() {
       banners={shown}
       onAction={act}
       onDismiss={(banner) => void ted.dismissBanner(banner.id)}
+      menu={keepsStoppingMenu}
     />
   )
 
@@ -99,22 +142,33 @@ export function App() {
   }
 
   return (
-    <div className={styles.app}>
-      <Sidebar
-        navigation={navigation}
-        factories={factories}
-        currentFactoryId={currentFactoryId(navigation, tasks)}
-        inboxCount={0}
-        badges={Object.fromEntries(
-          [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
-        )}
-        settingsProblem={settingsStopsWork(banners)}
-        dispatch={dispatch}
-      />
-      <main className={styles.main}>
-        {bannerStack('Problems', appWideBanners(banners))}
-        <div className={styles.panes}>{main()}</div>
-      </main>
+    <div className={styles.window}>
+      {connection.state === 'reconnecting' && <ReconnectingBar />}
+      <div className={styles.app}>
+        <Offline when={offline}>
+          <Sidebar
+            navigation={navigation}
+            factories={factories}
+            currentFactoryId={currentFactoryId(navigation, tasks)}
+            inboxCount={0}
+            badges={Object.fromEntries(
+              [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
+            )}
+            settingsProblem={settingsStopsWork(banners)}
+            dispatch={dispatch}
+          />
+        </Offline>
+        <main className={styles.main}>
+          {connection.state === 'stopped' ? (
+            bannerStack('Problems', keepsStoppingBanner(connection))
+          ) : (
+            <Offline when={offline}>{bannerStack('Problems', appWideBanners(banners))}</Offline>
+          )}
+          <Offline when={offline}>
+            <div className={styles.panes}>{main()}</div>
+          </Offline>
+        </main>
+      </div>
     </div>
   )
 }

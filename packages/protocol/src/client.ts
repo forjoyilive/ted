@@ -94,22 +94,34 @@ export class DaemonClient {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
   }
 
-  async subscribe(onEvent: (event: DaemonEvent) => void): Promise<Subscription> {
+  async subscribe(
+    onEvent: (event: DaemonEvent) => void,
+    onClose?: () => void,
+  ): Promise<Subscription> {
     const controller = new AbortController()
     const res = await this.#fetch('GET', '/events', undefined, controller.signal)
     if (!res.ok || !res.body) throw await requestError(res)
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
 
     const ready = Promise.withResolvers<void>()
+    let opened = false
+    const open = () => {
+      opened = true
+      ready.resolve()
+    }
     void (async () => {
       let buffer = ''
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
-        buffer = dispatch(buffer + value, onEvent, ready.resolve)
+        buffer = dispatch(buffer + value, onEvent, open)
       }
       ready.reject(new DaemonUnreachableError('the daemon closed the event stream'))
-    })().catch(ready.reject)
+    })()
+      .catch(ready.reject)
+      .finally(() => {
+        if (opened && !controller.signal.aborted) onClose?.()
+      })
     await ready.promise
 
     return { close: () => controller.abort() }
