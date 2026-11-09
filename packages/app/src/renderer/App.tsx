@@ -100,7 +100,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
-  const [addFactoryOpen, setAddFactoryOpen] = useState(addFactoryFirst)
+  const [addFactoryOpen, setAddFactoryOpen] = useState(false)
+  const addFactoryPending = useRef(addFactoryFirst)
+  useEffect(() => {
+    if (!factoriesLoaded || !addFactoryPending.current) return
+    addFactoryPending.current = false
+    setAddFactoryOpen(true)
+  }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen = newTaskOpen || addFactoryOpen
   const openNewTask = () => setNewTaskOpen(true)

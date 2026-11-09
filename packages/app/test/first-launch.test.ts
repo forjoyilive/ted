@@ -7,7 +7,13 @@ import { type MachineSettings, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
-import { appClient, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  appClient,
+  daemonAsApp,
+  makeOriginRepo,
+  removeHome,
+  stopDaemonIn,
+} from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -222,6 +228,21 @@ describe('first launch', () => {
     await expect.poll(settings).toMatchObject({ billing: { claude: 'api-key' } })
     await claude.getByText('Ready').waitFor()
     expect(await claude.getByText('Signed in with an API key', { exact: true }).count()).toBe(0)
+  })
+
+  test('a machine that already has a Factory gets the plain Add Factory form after Continue', async () => {
+    const ted = await daemonAsApp(home, { ...process.env, TED_IDLE_EXIT_MS: '30000' })
+    await ted.addFactory({ repo: await makeOriginRepo(home), key: 'NB' })
+    const window = await launchApp()
+
+    await row(window, 'Claude Code').getByText('Ready').waitFor()
+    await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
+    await continueButton(window).click()
+    const dialog = window.getByRole('dialog', { name: 'Add Factory' })
+    await dialog.waitFor()
+    expect(await dialog.getByRole('checkbox', { name: 'Show the tutorial' }).isChecked()).toBe(
+      false,
+    )
   })
 
   test('a shell API key variable asks for billing too', async () => {
