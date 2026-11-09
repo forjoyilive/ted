@@ -1,4 +1,5 @@
 import {
+  type AutomationHit,
   type CommentHit,
   type FactoryHit,
   foldText,
@@ -61,7 +62,9 @@ function taskField(
 
 export function search(store: TedStore, { query, factoryId }: SearchRequest): SearchResults {
   const terms = searchTerms(query)
-  if (terms.length === 0) return { query, tasks: [], comments: [], factories: [] }
+  if (terms.length === 0) {
+    return { query, tasks: [], comments: [], factories: [], automations: [] }
+  }
   const exact = foldText(query.trim())
   const tasks = store.listTasks()
   const here = (id: string) => (id === factoryId ? 0 : 1)
@@ -122,10 +125,18 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
     .sort((a, b) => here(a.id) - here(b.id))
     .map((f) => ({ factoryId: f.id, name: f.name }))
 
+  const factoryIds = new Set(store.listFactories().map((f) => f.id))
+  const automationHits: AutomationHit[] = store.automations
+    .list()
+    .filter((a) => factoryIds.has(a.factoryId) && matchesTerms(terms, a.name))
+    .sort((a, b) => here(a.factoryId) - here(b.factoryId) || Number(b.on) - Number(a.on))
+    .map((a) => ({ automationId: a.id, factoryId: a.factoryId, name: a.name, on: a.on }))
+
   return {
     query,
     tasks: taskHits.slice(0, searchLimits.tasks),
     comments: commentHits.slice(0, searchLimits.comments),
     factories: factoryHits.slice(0, searchLimits.factories),
+    automations: automationHits.slice(0, searchLimits.automations),
   }
 }

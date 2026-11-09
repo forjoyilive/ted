@@ -5,6 +5,7 @@ import type {
   Task,
   TaskRef,
 } from '@ted/protocol'
+import type { Automations } from './automations/automations.ts'
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
@@ -23,6 +24,7 @@ export function createFactoryRemovals(options: {
   store: TedStore
   banners: Banners
   tasks: Pick<Tasks, 'removeFactoryTasks'>
+  automations: Pick<Automations, 'removeFactory'>
   factories: Pick<Factories, 'forget'>
   checkTries: Pick<CheckTries, 'forget'>
   storage: () => Pick<Storage, 'removeUnusedClones'> | undefined
@@ -76,6 +78,7 @@ export function createFactoryRemovals(options: {
       removing.add(factory.id)
       try {
         await options.factories.forget(factory.id)
+        await options.automations.removeFactory(factory.id)
         await options.tasks.removeFactoryTasks(factory.id, { closePullRequests })
         await options.checkTries.forget(factory.id)
         banners.clearFactory(factory.id)

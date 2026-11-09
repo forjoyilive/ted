@@ -1,4 +1,5 @@
 import type {
+  AutomationHit,
   CommentHit,
   Factory,
   FactoryHit,
@@ -94,6 +95,21 @@ function commentContent(hit: CommentHit, now: number) {
       </span>
       <span className={styles.meta}>
         <StateChip state={hit.state} />
+      </span>
+    </>
+  )
+}
+
+function automationContent(hit: AutomationHit, factories: readonly Factory[]) {
+  return (
+    <>
+      <span className={styles.ref}>Automation</span>
+      <span className={styles.main}>
+        <span className={styles.title}>{hit.name}</span>
+      </span>
+      <span className={styles.meta}>
+        <span>{factoryName(factories, hit.factoryId)}</span>
+        {!hit.on && <span>Off</span>}
       </span>
     </>
   )
@@ -238,6 +254,19 @@ export function SearchPalette({
         label: hit.name,
         content: factoryContent(hit),
         run: () => onOpenFactory(hit.factoryId),
+      })
+    }
+    for (const hit of found?.automations ?? []) {
+      items.push({
+        key: `automation:${hit.automationId}`,
+        group: 'Automations',
+        label: hit.name,
+        content: automationContent(hit, context.factories),
+        run: () =>
+          context.dispatch({
+            type: 'open',
+            screen: { kind: 'factory', factoryId: hit.factoryId, view: 'automations' },
+          }),
       })
     }
   }
