@@ -404,6 +404,20 @@ describe('Clarify rounds', () => {
     expect(await getTask(client, task.id)).toMatchObject({ clarifyDepth: 'few' })
   })
 
+  test('a depth the human picks when creating the Task is a floor too', async () => {
+    const client = await start()
+    const task = await client.ok<Task>('POST', '/tasks', {
+      title: steps(advance, depth('few', 'looks small'), { endTurn: true }),
+      factory: 'NB',
+      clarifyDepth: 'grilling',
+    })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitUntil(async () => (await commandResults(client, task)).length >= 2, 'the depth pick')
+    const [, pick] = await commandResults(client, task)
+    expect(pick?.code).not.toBe(0)
+    expect(pick?.stderr).toMatch(/the human set the Clarify depth to Grill/)
+  })
+
   test('an open round is withdrawn when the Task goes back to Intake', async () => {
     const client = await start()
     const findings = path.join(scratch, 'findings.md')

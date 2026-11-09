@@ -1079,8 +1079,11 @@ export function createTasks(options: {
   function humanDepth(taskId: string): ClarifyDepth | undefined {
     const set = store
       .taskLog(taskId)
-      .findLast((e) => e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human')
-    const depth = set?.data.depth as ClarifyDepth | undefined
+      .findLast(
+        (e) =>
+          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
+      )
+    const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
     return depth === 'auto' ? undefined : depth
   }
 

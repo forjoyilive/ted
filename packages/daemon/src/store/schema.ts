@@ -1160,7 +1160,11 @@ const runStarted = (args: Args): Logged => ({
 
 const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
-  'v2.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
+  'v2.TaskCreated': (args) => ({
+    taskId: str(args.id),
+    at: String(args.createdAt),
+    data: { clarifyDepth: args.clarifyDepth },
+  }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
