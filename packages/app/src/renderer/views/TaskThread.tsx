@@ -462,6 +462,9 @@ export function TaskThread({
 function archivedFrom(ended: TaskEnding): string {
   if (ended.kind === 'never-started') return 'Archived before it started'
   if (ended.kind === 'merged') return 'Archived from Done'
+  if (ended.kind === 'pull-request-closed') {
+    return 'Archived after its pull request was closed on GitHub'
+  }
   return `Archived from ${stageName(ended.stage)}`
 }
 

@@ -100,15 +100,16 @@ describe('Approve and merge', () => {
   test('a failing required check sends the Task back to Work', async () => {
     const client = await start({
       files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
-      merge: {
-        checks: [
-          { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
-          { name: 'test', status: 'COMPLETED', conclusion: 'FAILURE', required: true },
-        ],
-      },
+      merge: { checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }] },
     })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
+    await setGh({
+      checks: [
+        { name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
+        { name: 'test', status: 'COMPLETED', conclusion: 'FAILURE', required: true },
+      ],
+    })
 
     await waitUntil(async () => {
       const text = await lines(client, task)

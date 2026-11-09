@@ -14,9 +14,46 @@ export interface MergeTarget {
 
 export type CheckState = 'pending' | 'passed' | 'failed'
 
+export interface RemoteCheck {
+  name: string
+  state: CheckState
+  required: boolean
+  conclusion?: string
+  url?: string
+}
+
+export interface RemoteAuthor {
+  login: string
+  bot: boolean
+}
+
+export interface RemoteReviewThread {
+  id: string
+  resolved: boolean
+  path: string
+  line: number | null
+  comments: { id: string; author: RemoteAuthor; body: string; url: string }[]
+}
+
+export interface RemoteReview {
+  id: string
+  state: string
+  author: RemoteAuthor
+  body: string
+  url: string
+}
+
+export interface RemoteDeployment {
+  environment: string
+  state: string
+  url?: string
+}
+
 export interface RemotePullRequest {
   id: string
   title: string
+  url: string
+  baseRefName: string
   state: 'OPEN' | 'MERGED' | 'CLOSED'
   isDraft: boolean
   headRefOid: string
@@ -24,11 +61,29 @@ export interface RemotePullRequest {
   mergeStateStatus: string
   reviewDecision: string | null
   autoMerge: boolean
-  checks: { name: string; state: CheckState; required: boolean }[]
+  checks: RemoteCheck[]
+  threads: RemoteReviewThread[]
+  reviews: RemoteReview[]
+  deployments: RemoteDeployment[]
   allowed: MergeMethod[]
   autoMergeAllowed: boolean
   deleteBranchOnMerge: boolean
 }
+
+export interface PullRequestRef {
+  key: string
+  repo: string
+  number: number
+  host?: string
+}
+
+export interface PullRequestRead {
+  pulls: Map<string, RemotePullRequest>
+  failed: Map<string, unknown>
+  hostOf: Map<string, string>
+}
+
+export const defaultHost = 'github.com'
 
 export type MergeStep =
   | { kind: 'merged' }
@@ -103,34 +158,64 @@ export function chooseMethod(
   return mergeMethods.find((m) => allowed.includes(m))
 }
 
+export async function readByHost(
+  gh: Pick<Gh, 'graphql'>,
+  refs: readonly PullRequestRef[],
+): Promise<PullRequestRead> {
+  const byHost = new Map<string, PullRequestRef[]>()
+  const hostOf = new Map<string, string>()
+  for (const ref of refs) {
+    const host = ref.host ?? defaultHost
+    hostOf.set(ref.key, host)
+    byHost.set(host, [...(byHost.get(host) ?? []), ref])
+  }
+  const pulls = new Map<string, RemotePullRequest>()
+  const failed = new Map<string, unknown>()
+  await Promise.all(
+    [...byHost].map(async ([host, group]) => {
+      try {
+        for (const [key, pr] of await readPullRequests(gh, group, host)) pulls.set(key, pr)
+      } catch (error) {
+        failed.set(host, error)
+      }
+    }),
+  )
+  return { pulls, failed, hostOf }
+}
+
 export async function readPullRequests(
   gh: Pick<Gh, 'graphql'>,
-  targets: readonly MergeTarget[],
+  refs: readonly PullRequestRef[],
+  host: string = defaultHost,
 ): Promise<Map<string, RemotePullRequest>> {
   const found = new Map<string, RemotePullRequest>()
-  if (targets.length === 0) return found
+  if (refs.length === 0) return found
   const variables: Record<string, unknown> = {}
   const params: string[] = []
-  const fields = targets.map((target, i) => {
-    const [owner = '', name = ''] = target.repo.split('/')
+  const fields = refs.map((ref, i) => {
+    const [owner = '', name = ''] = ref.repo.split('/')
     variables[`o${i}`] = owner
     variables[`n${i}`] = name
-    variables[`p${i}`] = target.number
+    variables[`p${i}`] = ref.number
     params.push(`$o${i}: String!`, `$n${i}: String!`, `$p${i}: Int!`)
     return repositoryFields(i)
   })
   const result = (await gh.graphql(
     `query(${params.join(', ')}) {\n${fields.join('\n')}\n}`,
     variables,
+    host === defaultHost ? {} : { host },
   )) as { data?: Record<string, RepositoryBody | null> }
-  targets.forEach((target, i) => {
+  refs.forEach((ref, i) => {
     const repository = result?.data?.[`r${i}`]
     const pr = repository?.pullRequest
     if (!repository || !pr || typeof pr.headRefOid !== 'string') return
-    const contexts = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []
-    found.set(target.name, {
+    const commit = pr.commits?.nodes?.[0]?.commit
+    const contexts = commit?.statusCheckRollup?.contexts?.nodes ?? []
+    found.set(ref.key, {
       id: String(pr.id ?? ''),
-      title: typeof pr.title === 'string' ? pr.title : '',
+      title: text(pr.title),
+      url: text(pr.url),
+      baseRefName: text(pr.baseRefName),
       state: pr.state === 'MERGED' || pr.state === 'CLOSED' ? pr.state : 'OPEN',
       isDraft: pr.isDraft === true,
       headRefOid: pr.headRefOid,
@@ -139,6 +224,9 @@ export async function readPullRequests(
       reviewDecision: typeof pr.reviewDecision === 'string' ? pr.reviewDecision : null,
       autoMerge: pr.autoMergeRequest != null,
       checks: contexts.flatMap((c) => (c ? [checkOf(c)] : [])),
+      threads: (pr.reviewThreads?.nodes ?? []).flatMap((t) => (t ? [threadOf(t)] : [])),
+      reviews: (pr.reviews?.nodes ?? []).flatMap((r) => (r ? [reviewOf(r)] : [])),
+      deployments: (commit?.deployments?.nodes ?? []).flatMap((d) => (d ? [deploymentOf(d)] : [])),
       allowed: [
         ...(repository.squashMergeAllowed ? (['squash'] as const) : []),
         ...(repository.mergeCommitAllowed ? (['merge'] as const) : []),
@@ -199,7 +287,7 @@ export async function deleteBranch(gh: Pick<Gh, 'api'>, target: MergeTarget): Pr
   await gh.api(`repos/${owner}/${name}/git/refs/heads/${ref}`, { method: 'DELETE' })
 }
 
-function checkOf(node: ContextBody): RemotePullRequest['checks'][number] {
+function checkOf(node: ContextBody): RemoteCheck {
   const required = node.isRequired === true
   if (node.__typename === 'StatusContext') {
     const state =
@@ -208,7 +296,13 @@ function checkOf(node: ContextBody): RemotePullRequest['checks'][number] {
         : node.state === 'PENDING' || node.state === 'EXPECTED'
           ? 'pending'
           : 'failed'
-    return { name: String(node.context ?? ''), state, required }
+    return {
+      name: String(node.context ?? ''),
+      state,
+      required,
+      conclusion: text(node.state),
+      ...(typeof node.targetUrl === 'string' && { url: node.targetUrl }),
+    }
   }
   const passed = ['SUCCESS', 'NEUTRAL', 'SKIPPED']
   const state =
@@ -217,20 +311,74 @@ function checkOf(node: ContextBody): RemotePullRequest['checks'][number] {
       : passed.includes(String(node.conclusion))
         ? 'passed'
         : 'failed'
-  return { name: String(node.name ?? ''), state, required }
+  return {
+    name: String(node.name ?? ''),
+    state,
+    required,
+    ...(typeof node.conclusion === 'string' && { conclusion: node.conclusion }),
+    ...(typeof node.detailsUrl === 'string' && { url: node.detailsUrl }),
+  }
+}
+
+function threadOf(node: ThreadBody): RemoteReviewThread {
+  return {
+    id: text(node.id),
+    resolved: node.isResolved === true,
+    path: text(node.path),
+    line: typeof node.line === 'number' ? node.line : null,
+    comments: (node.comments?.nodes ?? []).flatMap((c) =>
+      c
+        ? [{ id: text(c.id), author: authorOf(c.author), body: text(c.body), url: text(c.url) }]
+        : [],
+    ),
+  }
+}
+
+function reviewOf(node: ReviewBody): RemoteReview {
+  return {
+    id: text(node.id),
+    state: text(node.state),
+    author: authorOf(node.author),
+    body: text(node.body),
+    url: text(node.url),
+  }
+}
+
+function deploymentOf(node: DeploymentBody): RemoteDeployment {
+  const url = node.latestStatus?.environmentUrl
+  return {
+    environment: text(node.environment),
+    state: text(node.latestStatus?.state ?? node.state),
+    ...(typeof url === 'string' && url !== '' && { url }),
+  }
+}
+
+function authorOf(node: AuthorBody | null | undefined): RemoteAuthor {
+  return { login: text(node?.login), bot: node?.__typename === 'Bot' }
+}
+
+function text(value: unknown): string {
+  return typeof value === 'string' ? value : ''
 }
 
 function repositoryFields(i: number): string {
   return `r${i}: repository(owner: $o${i}, name: $n${i}) {
   squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed deleteBranchOnMerge
   pullRequest(number: $p${i}) {
-    id title state isDraft headRefOid mergeable mergeStateStatus reviewDecision
+    id title url baseRefName state isDraft headRefOid mergeable mergeStateStatus reviewDecision
     autoMergeRequest { enabledAt }
-    commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
-      __typename
-      ... on CheckRun { name status conclusion isRequired(pullRequestNumber: $p${i}) }
-      ... on StatusContext { context state isRequired(pullRequestNumber: $p${i}) }
-    } } } } } }
+    reviewThreads(last: 50) { nodes { id isResolved path line
+      comments(last: 20) { nodes { id body url author { __typename login } } }
+    } }
+    reviews(last: 30) { nodes { id state body url author { __typename login } } }
+    commits(last: 1) { nodes { commit {
+      deployments(last: 10) { nodes { environment state latestStatus { state environmentUrl } } }
+      statusCheckRollup { contexts(first: 100) { nodes {
+        __typename
+        ... on CheckRun { name status conclusion detailsUrl isRequired(pullRequestNumber: $p${i}) }
+        ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: $p${i}) }
+      } } }
+    } } }
   }
 }`
 }
@@ -240,9 +388,40 @@ interface ContextBody {
   name?: unknown
   status?: unknown
   conclusion?: unknown
+  detailsUrl?: unknown
   context?: unknown
   state?: unknown
+  targetUrl?: unknown
   isRequired?: unknown
+}
+
+interface AuthorBody {
+  __typename?: unknown
+  login?: unknown
+}
+
+interface ThreadBody {
+  id?: unknown
+  isResolved?: unknown
+  path?: unknown
+  line?: unknown
+  comments?: {
+    nodes?: ({ id?: unknown; body?: unknown; url?: unknown; author?: AuthorBody | null } | null)[]
+  }
+}
+
+interface ReviewBody {
+  id?: unknown
+  state?: unknown
+  body?: unknown
+  url?: unknown
+  author?: AuthorBody | null
+}
+
+interface DeploymentBody {
+  environment?: unknown
+  state?: unknown
+  latestStatus?: { state?: unknown; environmentUrl?: unknown } | null
 }
 
 interface RepositoryBody {
@@ -254,6 +433,8 @@ interface RepositoryBody {
   pullRequest?: {
     id?: unknown
     title?: unknown
+    url?: unknown
+    baseRefName?: unknown
     state?: unknown
     isDraft?: unknown
     headRefOid?: unknown
@@ -261,9 +442,14 @@ interface RepositoryBody {
     mergeStateStatus?: unknown
     reviewDecision?: unknown
     autoMergeRequest?: unknown
+    reviewThreads?: { nodes?: (ThreadBody | null)[] }
+    reviews?: { nodes?: (ReviewBody | null)[] }
     commits?: {
       nodes?: ({
-        commit?: { statusCheckRollup?: { contexts?: { nodes?: (ContextBody | null)[] } } | null }
+        commit?: {
+          deployments?: { nodes?: (DeploymentBody | null)[] } | null
+          statusCheckRollup?: { contexts?: { nodes?: (ContextBody | null)[] } } | null
+        }
       } | null)[]
     }
   } | null

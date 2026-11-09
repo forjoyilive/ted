@@ -260,6 +260,7 @@ export {
   type PermissionAsk,
   type PostCommentRequest,
   type Priority,
+  type PullRequestPreview,
   priorities,
   type ReportOutcomeRequest,
   type ResumeTaskRequest,

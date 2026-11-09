@@ -101,17 +101,32 @@ import {
   revivedMessage,
   silentReason,
 } from './failures.ts'
+import {
+  activityMessage,
+  failedChecks,
+  freshRunReason,
+  type GitHubNotice,
+  summary as gitHubSummary,
+  jobLogPath,
+  logTail,
+  noticesFor,
+  previewOf,
+  unseen,
+} from './github-activity.ts'
+import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import {
   chooseMethod,
   ciState,
+  defaultHost,
   deleteBranch,
   disableAutoMerge,
   type MergeTarget,
   mergePullRequest,
   nextStep,
+  type PullRequestRead,
+  type PullRequestRef,
   type RemotePullRequest,
-  readPullRequests,
   rebasePullRequest,
   relevantChecks,
   reviewMissing,
@@ -274,6 +289,15 @@ export function createTasks(options: {
   const autoMergeTried = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
   const ciStuckMs = options.ciStuckMs ?? { noChecks: 10 * 60_000, pending: 60 * 60_000 }
+  const watch =
+    options.gh &&
+    createPullRequestWatch({
+      gh: options.gh,
+      everyMs: mergePollMs,
+      refs: watchedPullRequests,
+      onRead: reactToGitHub,
+      inBackground: (what, work) => inBackground(what, work),
+    })
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -797,19 +821,179 @@ export function createTasks(options: {
     return openRequests(taskId).some((c) => !isCiStuck(c))
   }
 
+  function hostOfPullRequest(url: string): string {
+    try {
+      return new URL(url).host.toLowerCase() || defaultHost
+    } catch {
+      return defaultHost
+    }
+  }
+
+  function watchedPullRequests(): PullRequestRef[] {
+    return store.listTasks().flatMap((task) =>
+      task.archived
+        ? []
+        : task.repos.flatMap((repo) => {
+            const pr = repo.pullRequest
+            if (repo.removed || !pr || pr.state === 'merged') return []
+            return [
+              {
+                key: `${task.id}:${repo.name}`,
+                repo: repo.repo,
+                number: pr.number,
+                host: hostOfPullRequest(pr.url),
+              },
+            ]
+          }),
+    )
+  }
+
+  async function reactToGitHub(read: PullRequestRead): Promise<void> {
+    for (const { id } of store.listTasks()) {
+      if (closed) return
+      const task = store.getTask(id)
+      if (!task || task.archived) continue
+      try {
+        recordPullRequests(task, read)
+        await sendActivity(task.id, read)
+      } catch (error) {
+        console.error(
+          `couldn’t pass GitHub activity on to ${task.displayId}:`,
+          redactSecrets(textOf(error)),
+        )
+      }
+    }
+  }
+
+  function recordPullRequests(task: StoredTask, read: PullRequestRead): void {
+    for (const repo of task.repos) {
+      const stored = repo.pullRequest
+      const pr = read.pulls.get(`${task.id}:${repo.name}`)
+      if (repo.removed || !stored || !pr || stored.state === 'merged') continue
+      if (pr.state === 'CLOSED' && (stored.state === 'draft' || stored.state === 'ready')) {
+        store.pullRequestClosedOnGitHub(task.id, repo.name)
+      } else if (
+        pr.state === 'OPEN' &&
+        stored.state === 'closed' &&
+        stored.closedOnGitHub !== undefined
+      ) {
+        store.pullRequestReopened(task.id, repo.name, pr.isDraft ? 'draft' : 'ready')
+      }
+      const preview = previewOf(pr)
+      const known = stored.preview
+      if (
+        preview &&
+        (known?.url !== preview.url ||
+          known.label !== preview.label ||
+          known.source !== preview.source)
+      ) {
+        store.pullRequestPreviewFound(task.id, repo.name, preview)
+      }
+    }
+  }
+
+  function canStartFresh(task: StoredTask): boolean {
+    return (
+      !task.archived &&
+      !task.stopped &&
+      !task.waitsForBlockers &&
+      task.status?.kind !== 'failed' &&
+      task.stage !== 'backlog' &&
+      task.stage !== 'done' &&
+      task.repos.some((r) => !r.removed) &&
+      !store.queue().some((q) => q.id === task.id) &&
+      !store.heldRuns().some((h) => h.taskId === task.id) &&
+      !starting.has(task.id) &&
+      !relaunching.has(task.id) &&
+      !beginning.has(task.id) &&
+      !holds.has(task.id)
+    )
+  }
+
+  async function sendActivity(taskId: string, read: PullRequestRead): Promise<void> {
+    const task = find(taskId)
+    if (task.stage === 'backlog' || task.stage === 'done') return
+    const run = liveLead(task)
+    if (!run && !canStartFresh(task)) return
+    const mode =
+      task.stage === 'merge'
+        ? mergeMode(task, (await resolveWorkflow(factoryOf(task), { fetch: false })).workflow)
+        : undefined
+    const both = mode === undefined || mode === 'off'
+    const choice = { ci: both, conflict: both }
+    const seen = store.gitHubSeen(taskId)
+    const fresh: GitHubNotice[] = []
+    for (const repo of task.repos) {
+      const stored = repo.pullRequest
+      const key = `${taskId}:${repo.name}`
+      const pr = read.pulls.get(key)
+      if (repo.removed || !stored || !pr) continue
+      if (stored.state === 'merged' || stored.state === 'closed') continue
+      const where = `${repo.repo}#${stored.number}`
+      let notices = unseen(noticesFor(where, pr, choice), seen)
+      if (run && notices.some((n) => n.kind === 'ci')) {
+        const tails = await ciTails(repo.repo, read.hostOf.get(key) ?? defaultHost, pr)
+        notices = unseen(noticesFor(where, pr, choice, tails), seen)
+      }
+      fresh.push(...notices)
+    }
+    if (fresh.length === 0 || closed) return
+    const now = find(taskId)
+    const live = liveLead(now)
+    if (live?.id !== run?.id) return
+    if (live) {
+      await runs.send(live.id, activityMessage(fresh, now.stage))
+      store.gitHubActivitySent(taskId, live.id, fresh)
+    } else if (canStartFresh(now)) {
+      store.gitHubActivityQueued(taskId, fresh)
+      void pump()
+    }
+  }
+
+  async function ciTails(
+    repo: string,
+    host: string,
+    pr: RemotePullRequest,
+  ): Promise<Map<string, string>> {
+    const tails = new Map<string, string>()
+    const gh = options.gh
+    if (!gh) return tails
+    for (const check of failedChecks(pr).slice(0, 5)) {
+      const logPath = jobLogPath(repo, check.url)
+      if (logPath === undefined) continue
+      try {
+        const log = await gh.run(['api', logPath], host === defaultHost ? {} : { host })
+        const tail = logTail(log)
+        if (tail !== '') tails.set(check.name, tail)
+      } catch (error) {
+        console.error(`couldn’t read a CI log on ${repo}:`, redactSecrets(textOf(error)))
+      }
+    }
+    return tails
+  }
+
   function watchMerge(taskId: string): void {
     if (merging.has(taskId) || closed) return
     merging.add(taskId)
     const name = find(taskId).displayId
+    const canAct = () => {
+      const current = store.getTask(taskId)
+      return !current?.stopped && !checking.has(taskId) && !holdsMerge(taskId)
+    }
     inBackground(`merge ${name}’s pull requests`, async () => {
       try {
+        let urgent = true
         while (!closed) {
-          const current = store.getTask(taskId)
-          if (!watched(current)) return
+          if (!watched(store.getTask(taskId))) return
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
-          if (!current.stopped && !checking.has(taskId) && !holdsMerge(taskId)) {
-            const cycle = mergeCycle(taskId).catch((error: unknown) => {
+          let read: PullRequestRead | undefined
+          if (canAct() && watch) {
+            read = await watch.next({ now: urgent })
+            if (closed || !watched(store.getTask(taskId))) return
+          }
+          if (canAct()) {
+            const cycle = mergeCycle(taskId, read).catch((error: unknown) => {
               if (error instanceof RequestError && error.status === 409) return 'busy' as const
               console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
               return 'wait' as const
@@ -818,9 +1002,12 @@ export function createTasks(options: {
             next = await cycle.finally(() => mergeInFlight.delete(taskId))
           }
           if (next === 'done') return
-          await sleep(next === 'busy' ? 100 : mergePollMs, undefined, {
-            signal: stopping.signal,
-          }).catch(() => undefined)
+          urgent = next === 'busy'
+          if (next === 'busy' || read === undefined) {
+            await sleep(next === 'busy' ? 100 : mergePollMs, undefined, {
+              signal: stopping.signal,
+            }).catch(() => undefined)
+          }
         }
       } finally {
         merging.delete(taskId)
@@ -1309,12 +1496,33 @@ export function createTasks(options: {
     return stillOn
   }
 
-  async function watchOnlyCycle(taskId: string): Promise<MergeCycle> {
+  function remoteOf(
+    taskId: string,
+    targets: readonly { name: string }[],
+    read: PullRequestRead,
+  ): Map<string, RemotePullRequest> {
+    const found = new Map<string, RemotePullRequest>()
+    for (const target of targets) {
+      const key = `${taskId}:${target.name}`
+      const host = read.hostOf.get(key)
+      const failure = host === undefined ? undefined : read.failed.get(host)
+      if (failure !== undefined) throw failure
+      const pr = read.pulls.get(key)
+      if (pr) found.set(target.name, pr)
+    }
+    return found
+  }
+
+  async function watchOnlyCycle(
+    taskId: string,
+    read: PullRequestRead | undefined,
+  ): Promise<MergeCycle> {
     const task = find(taskId)
-    const open = openPullRequests(task)
+    const open = task.repos.filter(
+      (r) => !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged',
+    )
     if (open.length === 0) return task.stage === 'merge' ? finishMerge(taskId) : 'done'
-    const gh = options.gh
-    if (!gh) return 'wait'
+    if (!read) return 'wait'
     const targets = open.flatMap((r) =>
       r.pullRequest
         ? [
@@ -1333,7 +1541,7 @@ export function createTasks(options: {
     )
     let remote: Map<string, RemotePullRequest>
     try {
-      remote = await readPullRequests(gh, targets)
+      remote = remoteOf(taskId, targets, read)
     } catch (error) {
       if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
         if (task.stage === 'merge') {
@@ -1356,15 +1564,18 @@ export function createTasks(options: {
     return task.stage === 'merge' ? finishMerge(taskId) : 'done'
   }
 
-  async function mergeCycle(taskId: string): Promise<MergeCycle> {
+  async function mergeCycle(
+    taskId: string,
+    read: PullRequestRead | undefined,
+  ): Promise<MergeCycle> {
     const task = find(taskId)
     if (advancing.has(taskId)) return 'busy'
-    if (task.stage === 'done') return watchOnlyCycle(taskId)
+    if (task.stage === 'done') return watchOnlyCycle(taskId, read)
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
-    if (mode === 'off') return watchOnlyCycle(taskId)
+    if (mode === 'off') return watchOnlyCycle(taskId, read)
     if (mode === 'merge') startMerging(task)
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
@@ -1382,10 +1593,10 @@ export function createTasks(options: {
       )
     }
     const gh = options.gh
-    if (!gh) return 'wait'
+    if (!gh || !read) return 'wait'
     let remote: Map<string, RemotePullRequest>
     try {
-      remote = await readPullRequests(gh, targets)
+      remote = remoteOf(taskId, targets, read)
     } catch (error) {
       if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
         for (const target of targets) setWait(taskId, target.name, 'sign-in')
@@ -2877,6 +3088,9 @@ export function createTasks(options: {
         await launch(find(task.id), resolution, repo, env, undefined, { pickUp })
       }
       store.dequeue(task.id)
+      if (store.taskLog(task.id).findLast(asksForFreshRun)?.name === 'v1.GitHubActivityQueued') {
+        watch?.kick()
+      }
       return
     }
     if (task.repos.length > 0) return reopenWorktree(task)
@@ -3015,6 +3229,13 @@ export function createTasks(options: {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
         why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
+      })
+    }
+    if (last?.name === 'v1.GitHubActivityQueued') {
+      const notices = Array.isArray(last.data.notices) ? (last.data.notices as GitHubNotice[]) : []
+      return fromTheBrief(task, {
+        heading: 'Picking up after activity on GitHub',
+        why: freshRunReason(gitHubSummary(notices)),
       })
     }
     if (last?.name === 'v1.TaskResumed') {
@@ -3573,6 +3794,11 @@ export function createTasks(options: {
         if (!closed) wake()
       })
     }
+    if (event.type === 'task-updated' && watch) {
+      setImmediate(() => {
+        if (!closed) watch.poke()
+      })
+    }
     if (
       event.type === 'run-updated' ||
       event.type === 'task-created' ||
@@ -3584,6 +3810,7 @@ export function createTasks(options: {
   })
   void pump()
   wake()
+  watch?.poke()
   for (const task of store.listTasks()) {
     inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
   }
@@ -4325,6 +4552,7 @@ export function createTasks(options: {
       nudgeTimers.clear()
       unsubscribe()
       stopPumping()
+      watch?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)

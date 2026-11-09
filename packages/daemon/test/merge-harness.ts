@@ -79,7 +79,24 @@ export interface GhMerge {
   origin?: string
   mergeState?: string
   reviewDecision?: string | null
-  checks?: { name: string; status?: string; conclusion?: string | null; required?: boolean }[]
+  checks?: {
+    name: string
+    status?: string
+    conclusion?: string | null
+    required?: boolean
+    url?: string
+  }[]
+  mergeable?: string
+  closed?: boolean
+  threads?: {
+    id: string
+    resolved?: boolean
+    path?: string
+    line?: number
+    comments: { id: string; author: { login: string; bot?: boolean }; body: string }[]
+  }[]
+  reviews?: { id: string; state: string; author: { login: string; bot?: boolean }; body: string }[]
+  deployments?: { environment: string; state: string; url?: string }[]
   allowed?: string[]
   autoMergeAllowed?: boolean
   rebaseConflict?: boolean
@@ -209,7 +226,9 @@ export const ghCalls = async () =>
   (await readFile(ctx.ghLog, 'utf8').catch(() => ''))
     .split('\n')
     .filter((line) => line !== '')
-    .map((line) => JSON.parse(line) as { args: string[]; stdin?: string })
+    .map(
+      (line) => JSON.parse(line) as { args: string[]; stdin?: string; env: Record<string, string> },
+    )
 
 export const merges = async () =>
   (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge').map((c) => c.args)

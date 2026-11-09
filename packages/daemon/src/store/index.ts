@@ -42,6 +42,7 @@ import {
   type MergeMethod,
   type PermissionMode,
   type Priority,
+  type PullRequestPreview,
   type Round,
   type Run,
   type RunEnding,
@@ -114,6 +115,13 @@ import {
 } from './schema.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
+
+export interface GitHubNoticeRecord {
+  key: string
+  sig: string
+  kind: string
+  where: string
+}
 
 export interface RunOutput {
   toOffset: number
@@ -386,6 +394,11 @@ export interface TedStore {
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
   pullRequestReopened(taskId: string, name: string, state: 'draft' | 'ready'): void
+  pullRequestClosedOnGitHub(taskId: string, name: string): void
+  pullRequestPreviewFound(taskId: string, name: string, preview: PullRequestPreview): void
+  gitHubActivitySent(taskId: string, runId: string, notices: readonly GitHubNoticeRecord[]): void
+  gitHubActivityQueued(taskId: string, notices: readonly GitHubNoticeRecord[]): Task
+  gitHubSeen(taskId: string): Map<string, string>
   worktreeCreated(
     taskId: string,
     repo: {
@@ -762,6 +775,14 @@ export async function openStore({
             ...(row.autoMerge !== null && { autoMerge: row.autoMerge as MergeMethod }),
             ...(row.waitingOn !== null && { waiting: row.waitingOn as GitHubWait }),
             ...(row.signedOffCommit !== null && { signedOff: row.signedOffCommit }),
+            ...(row.closedOnGitHubAt !== null && { closedOnGitHub: row.closedOnGitHubAt }),
+            ...(row.previewUrl !== null && {
+              preview: {
+                url: row.previewUrl,
+                source: row.previewSource === 'status' ? 'status' : 'deployment',
+                label: row.previewLabel ?? '',
+              },
+            }),
           },
         }),
     }
@@ -1040,6 +1061,15 @@ export async function openStore({
           at: entries.findLast((e) => e.stage === 'done')?.at ?? row.createdAt,
         }
       }
+      const closedOnGitHub = repos
+        .flatMap((r) =>
+          r.pullRequest?.state === 'closed' && r.pullRequest.closedOnGitHub !== undefined
+            ? [r.pullRequest.closedOnGitHub]
+            : [],
+        )
+        .sort()
+        .at(-1)
+      if (closedOnGitHub !== undefined) return { kind: 'pull-request-closed', at: closedOnGitHub }
       return { kind: 'stopped', stage }
     }
     const source = sourceOf(row.id)
@@ -1851,8 +1881,57 @@ export async function openStore({
       updatedTask(taskId)
     },
     pullRequestReopened(taskId, name, state) {
-      commit(events.pullRequestReopened({ taskId, name, state, at: new Date().toISOString() }))
+      commit(events.pullRequestReopenedV2({ taskId, name, state, at: new Date().toISOString() }))
       updatedTask(taskId)
+    },
+    pullRequestClosedOnGitHub(taskId, name) {
+      commit(events.pullRequestClosedOnGitHub({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    pullRequestPreviewFound(taskId, name, preview) {
+      commit(
+        events.pullRequestPreviewFound({ taskId, name, ...preview, at: new Date().toISOString() }),
+      )
+      updatedTask(taskId)
+    },
+    gitHubActivitySent(taskId, runId, notices) {
+      commit(
+        events.gitHubActivitySent({
+          taskId,
+          runId,
+          notices: notices.map(({ key, sig, kind, where }) => ({ key, sig, kind, where })),
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    gitHubActivityQueued(taskId, notices) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      commit(
+        events.gitHubActivityQueued({
+          taskId,
+          rank,
+          notices: notices.map(({ key, sig, kind, where }) => ({ key, sig, kind, where })),
+          at: new Date().toISOString(),
+        }),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    gitHubSeen(taskId) {
+      const seen = new Map<string, string>()
+      const rows = store.query(
+        queryDb(taskLog.where({ taskId, name: 'v1.GitHubActivitySent' }).orderBy('at', 'asc')),
+      )
+      for (const row of rows) {
+        const notices = (JSON.parse(row.data) as { notices?: unknown }).notices
+        if (!Array.isArray(notices)) continue
+        for (const n of notices as { key?: unknown; sig?: unknown }[]) {
+          if (typeof n.key === 'string' && typeof n.sig === 'string') seen.set(n.key, n.sig)
+        }
+      }
+      return seen
     },
     worktreeCreated(taskId, repo) {
       commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))

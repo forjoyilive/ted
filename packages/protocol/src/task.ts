@@ -79,6 +79,7 @@ export type CreatedBy = (typeof createdByKinds)[number]
 export type TaskEnding =
   | { kind: 'never-started' }
   | { kind: 'merged'; at: string }
+  | { kind: 'pull-request-closed'; at: string }
   | { kind: 'stopped'; stage: StageId }
 
 export interface TaskArchive {
@@ -235,6 +236,14 @@ export interface TaskPullRequest {
   autoMerge?: MergeMethod
   waiting?: GitHubWait
   signedOff?: string
+  closedOnGitHub?: string
+  preview?: PullRequestPreview
+}
+
+export interface PullRequestPreview {
+  url: string
+  source: 'deployment' | 'status'
+  label: string
 }
 
 export const blockedChoices = ['unblock', 'keep'] as const
