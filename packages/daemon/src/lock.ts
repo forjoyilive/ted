@@ -1,36 +1,29 @@
-import { open, readFile, rm } from 'node:fs/promises'
+import { DatabaseSync } from 'node:sqlite'
 
 export class DaemonAlreadyRunningError extends Error {
-  readonly pid: number
-  constructor(pid: number) {
-    super(`TED's daemon is already running (pid ${pid})`)
-    this.pid = pid
+  constructor() {
+    super(`TED's daemon is already running`)
   }
 }
 
-export async function acquireLock(lockPath: string): Promise<{ release(): Promise<void> }> {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const file = await open(lockPath, 'wx', 0o600)
-      await file.writeFile(String(process.pid))
-      await file.close()
-      return { release: () => rm(lockPath, { force: true }) }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-    }
-    const pid = Number(await readFile(lockPath, 'utf8').catch(() => ''))
-    if (isAlive(pid)) throw new DaemonAlreadyRunningError(pid)
-    await rm(lockPath, { force: true })
-  }
-  throw new Error(`could not take ${lockPath}`)
-}
+const sqliteBusy = 5
 
-function isAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
+// SQLite's exclusive lock is an OS file lock, so the OS releases it when the process
+// exits, even on SIGKILL. Never delete the lock file: a waiter would lock a new inode.
+export function acquireLock(lockPath: string): { release(): void } {
+  const db = new DatabaseSync(lockPath, { timeout: 0 })
   try {
-    process.kill(pid, 0)
-    return true
+    db.exec('BEGIN EXCLUSIVE')
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+    db.close()
+    if ((error as { errcode?: number }).errcode === sqliteBusy)
+      throw new DaemonAlreadyRunningError()
+    throw error
+  }
+  return {
+    release() {
+      db.exec('ROLLBACK')
+      db.close()
+    },
   }
 }
