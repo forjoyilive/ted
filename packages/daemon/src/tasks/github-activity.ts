@@ -6,7 +6,7 @@ import type { PullRequestPreview, StageId } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
 import type { RemoteCheck, RemotePullRequest } from './merge.ts'
 
-export type GitHubNoticeKind = 'ci' | 'review' | 'conflict'
+export type GitHubNoticeKind = 'ci' | 'review' | 'conflict' | 'outside'
 
 export interface GitHubNotice {
   key: string
@@ -28,6 +28,12 @@ const failedConclusions = new Set([
   'ACTION_REQUIRED',
   'ERROR',
 ])
+
+const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
+
+export function trusted(author: RemotePullRequest['reviews'][number]['author']): boolean {
+  return trustedAssociations.has(author.association ?? '')
+}
 
 const maxBody = 4000
 const maxLine = 400
@@ -103,12 +109,14 @@ function reviewNotices(where: string, pr: RemotePullRequest): GitHubNotice[] {
     thread.comments
       .filter((comment) => comment.id !== '' && actionableComment(thread, comment))
       .map((comment) => {
+        const key = `comment:${where}:${comment.id}`
+        if (!trusted(comment.author)) return outside(key, comment.id, where)
         const location =
           thread.path === ''
             ? '(general)'
             : `${clean(thread.path, 300)}${thread.line ? `:${thread.line}` : ''}`
         return {
-          key: `comment:${where}:${comment.id}`,
+          key,
           sig: comment.id,
           kind: 'review' as const,
           where,
@@ -127,20 +135,28 @@ function reviewNotices(where: string, pr: RemotePullRequest): GitHubNotice[] {
         !r.author.bot &&
         (r.state === 'CHANGES_REQUESTED' || (r.state === 'COMMENTED' && r.body.trim() !== '')),
     )
-    .map((review) => ({
-      key: `review:${where}:${review.id}`,
-      sig: review.state,
-      kind: 'review' as const,
-      where,
-      detail: [
-        review.state === 'CHANGES_REQUESTED'
-          ? `${login(review.author.login)} requested changes:`
-          : `Review from ${login(review.author.login)}:`,
-        clean(review.body, maxBody) || '(no text)',
-        ...(review.url ? [clean(review.url, 500)] : []),
-      ].join('\n'),
-    }))
+    .map((review) => {
+      const key = `review:${where}:${review.id}`
+      if (!trusted(review.author)) return outside(key, review.state, where)
+      return {
+        key,
+        sig: review.state,
+        kind: 'review' as const,
+        where,
+        detail: [
+          review.state === 'CHANGES_REQUESTED'
+            ? `${login(review.author.login)} requested changes:`
+            : `Review from ${login(review.author.login)}:`,
+          clean(review.body, maxBody) || '(no text)',
+          ...(review.url ? [clean(review.url, 500)] : []),
+        ].join('\n'),
+      }
+    })
   return [...reviews, ...comments]
+}
+
+function outside(key: string, sig: string, where: string): GitHubNotice {
+  return { key, sig, kind: 'outside', where, detail: '' }
 }
 
 export function unseen(
@@ -155,7 +171,7 @@ export function summary(notices: readonly Pick<GitHubNotice, 'kind' | 'where'>[]
   for (const n of notices) byWhere.set(n.where, [...(byWhere.get(n.where) ?? []), n])
   return [...byWhere]
     .map(([where, list]) => {
-      const reviews = list.filter((n) => n.kind === 'review').length
+      const reviews = list.filter((n) => n.kind === 'review' || n.kind === 'outside').length
       const parts = [
         ...(list.some((n) => n.kind === 'ci') ? ['CI failed'] : []),
         ...(reviews > 0 ? [reviews === 1 ? '1 review comment' : `${reviews} review comments`] : []),
@@ -199,11 +215,21 @@ export function freshRunReason(what: string): string {
   return `GitHub reported new activity on this Task’s pull requests (${what}). TED sends you the details in its next message.`
 }
 
-export function jobLogPath(repo: string, url: string | undefined): string | undefined {
-  const job = /\/actions\/runs\/\d+\/job\/(\d+)(?:[/?#]|$)/.exec(url ?? '')?.[1]
-  if (job === undefined) return undefined
-  const [owner = '', name = ''] = repo.split('/').map(encodeURIComponent)
-  return `repos/${owner}/${name}/actions/jobs/${job}/logs`
+export function jobLogPath(repo: string, check: RemoteCheck): string | undefined {
+  if (check.kind !== 'check' || check.app !== 'github-actions' || check.url === undefined) {
+    return undefined
+  }
+  let pathname: string
+  try {
+    pathname = new URL(check.url).pathname
+  } catch {
+    return undefined
+  }
+  const [owner = '', name = ''] = repo.split('/')
+  const match = /^\/([^/]+)\/([^/]+)\/actions\/runs\/\d+\/job\/(\d+)\/?$/.exec(pathname)
+  if (!match || match[1]?.toLowerCase() !== owner.toLowerCase()) return undefined
+  if (match[2]?.toLowerCase() !== name.toLowerCase()) return undefined
+  return `repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/actions/jobs/${match[3]}/logs`
 }
 
 export function logTail(log: string, lines: number = tailLines): string {
@@ -231,7 +257,11 @@ export function previewOf(pr: RemotePullRequest): PullRequestPreview | undefined
     }
   }
   const status = pr.checks.find(
-    (c) => c.conclusion === 'SUCCESS' && /preview|deploy/i.test(c.name) && safeUrl(c.url),
+    (c) =>
+      c.kind === 'status' &&
+      c.conclusion === 'SUCCESS' &&
+      /preview|deploy/i.test(c.name) &&
+      safeUrl(c.url),
   )
   const statusUrl = safeUrl(status?.url)
   return status && statusUrl

@@ -914,7 +914,7 @@ export function createTasks(options: {
     const task = find(taskId)
     if (task.stage === 'backlog' || task.stage === 'done') return
     const run = liveLead(task)
-    if (!run && !canStartFresh(task)) return
+    const deliverable = run !== undefined || canStartFresh(task)
     const mode =
       task.stage === 'merge'
         ? mergeMode(task, (await resolveWorkflow(factoryOf(task), { fetch: false })).workflow)
@@ -937,15 +937,19 @@ export function createTasks(options: {
       }
       fresh.push(...notices)
     }
-    if (fresh.length === 0 || closed) return
+    if (closed) return
+    const held = fresh.filter((n) => n.kind === 'outside')
+    const forward = fresh.filter((n) => n.kind !== 'outside')
+    if (held.length > 0) store.gitHubActivityHeld(taskId, held)
+    if (!deliverable || forward.length === 0) return
     const now = find(taskId)
     const live = liveLead(now)
     if (live?.id !== run?.id) return
     if (live) {
-      await runs.send(live.id, activityMessage(fresh, now.stage))
-      store.gitHubActivitySent(taskId, live.id, fresh)
+      await runs.send(live.id, activityMessage(forward, now.stage))
+      store.gitHubActivitySent(taskId, live.id, forward)
     } else if (canStartFresh(now)) {
-      store.gitHubActivityQueued(taskId, fresh)
+      store.gitHubActivityQueued(taskId, forward)
       void pump()
     }
   }
@@ -959,7 +963,7 @@ export function createTasks(options: {
     const gh = options.gh
     if (!gh) return tails
     for (const check of failedChecks(pr).slice(0, 5)) {
-      const logPath = jobLogPath(repo, check.url)
+      const logPath = jobLogPath(repo, check)
       if (logPath === undefined) continue
       try {
         const log = await gh.run(['api', logPath], host === defaultHost ? {} : { host })

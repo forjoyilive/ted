@@ -20,11 +20,14 @@ export interface RemoteCheck {
   required: boolean
   conclusion?: string
   url?: string
+  kind?: 'check' | 'status'
+  app?: string
 }
 
 export interface RemoteAuthor {
   login: string
   bot: boolean
+  association?: string
 }
 
 export interface RemoteReviewThread {
@@ -301,6 +304,7 @@ function checkOf(node: ContextBody): RemoteCheck {
       state,
       required,
       conclusion: text(node.state),
+      kind: 'status',
       ...(typeof node.targetUrl === 'string' && { url: node.targetUrl }),
     }
   }
@@ -316,7 +320,9 @@ function checkOf(node: ContextBody): RemoteCheck {
     state,
     required,
     ...(typeof node.conclusion === 'string' && { conclusion: node.conclusion }),
+    kind: 'check',
     ...(typeof node.detailsUrl === 'string' && { url: node.detailsUrl }),
+    ...(typeof node.checkSuite?.app?.slug === 'string' && { app: node.checkSuite.app.slug }),
   }
 }
 
@@ -328,7 +334,14 @@ function threadOf(node: ThreadBody): RemoteReviewThread {
     line: typeof node.line === 'number' ? node.line : null,
     comments: (node.comments?.nodes ?? []).flatMap((c) =>
       c
-        ? [{ id: text(c.id), author: authorOf(c.author), body: text(c.body), url: text(c.url) }]
+        ? [
+            {
+              id: text(c.id),
+              author: authorOf(c.author, c.authorAssociation),
+              body: text(c.body),
+              url: text(c.url),
+            },
+          ]
         : [],
     ),
   }
@@ -338,7 +351,7 @@ function reviewOf(node: ReviewBody): RemoteReview {
   return {
     id: text(node.id),
     state: text(node.state),
-    author: authorOf(node.author),
+    author: authorOf(node.author, node.authorAssociation),
     body: text(node.body),
     url: text(node.url),
   }
@@ -353,8 +366,12 @@ function deploymentOf(node: DeploymentBody): RemoteDeployment {
   }
 }
 
-function authorOf(node: AuthorBody | null | undefined): RemoteAuthor {
-  return { login: text(node?.login), bot: node?.__typename === 'Bot' }
+function authorOf(node: AuthorBody | null | undefined, association: unknown): RemoteAuthor {
+  return {
+    login: text(node?.login),
+    bot: node?.__typename === 'Bot',
+    association: text(association),
+  }
 }
 
 function text(value: unknown): string {
@@ -367,15 +384,16 @@ function repositoryFields(i: number): string {
   pullRequest(number: $p${i}) {
     id title url baseRefName state isDraft headRefOid mergeable mergeStateStatus reviewDecision
     autoMergeRequest { enabledAt }
-    reviewThreads(last: 50) { nodes { id isResolved path line
-      comments(last: 20) { nodes { id body url author { __typename login } } }
+    reviewThreads(last: 100) { nodes { id isResolved path line
+      comments(last: 30) { nodes { id body url authorAssociation author { __typename login } } }
     } }
-    reviews(last: 30) { nodes { id state body url author { __typename login } } }
+    reviews(last: 50) { nodes { id state body url authorAssociation author { __typename login } } }
     commits(last: 1) { nodes { commit {
       deployments(last: 10) { nodes { environment state latestStatus { state environmentUrl } } }
       statusCheckRollup { contexts(first: 100) { nodes {
         __typename
-        ... on CheckRun { name status conclusion detailsUrl isRequired(pullRequestNumber: $p${i}) }
+        ... on CheckRun { name status conclusion detailsUrl checkSuite { app { slug } }
+          isRequired(pullRequestNumber: $p${i}) }
         ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: $p${i}) }
       } } }
     } } }
@@ -393,6 +411,7 @@ interface ContextBody {
   state?: unknown
   targetUrl?: unknown
   isRequired?: unknown
+  checkSuite?: { app?: { slug?: unknown } | null } | null
 }
 
 interface AuthorBody {
@@ -406,7 +425,13 @@ interface ThreadBody {
   path?: unknown
   line?: unknown
   comments?: {
-    nodes?: ({ id?: unknown; body?: unknown; url?: unknown; author?: AuthorBody | null } | null)[]
+    nodes?: ({
+      id?: unknown
+      body?: unknown
+      url?: unknown
+      authorAssociation?: unknown
+      author?: AuthorBody | null
+    } | null)[]
   }
 }
 
@@ -415,6 +440,7 @@ interface ReviewBody {
   state?: unknown
   body?: unknown
   url?: unknown
+  authorAssociation?: unknown
   author?: AuthorBody | null
 }
 

@@ -85,6 +85,7 @@ export interface GhMerge {
     conclusion?: string | null
     required?: boolean
     url?: string
+    app?: string
   }[]
   mergeable?: string
   closed?: boolean
@@ -93,9 +94,18 @@ export interface GhMerge {
     resolved?: boolean
     path?: string
     line?: number
-    comments: { id: string; author: { login: string; bot?: boolean }; body: string }[]
+    comments: {
+      id: string
+      author: { login: string; bot?: boolean; association?: string }
+      body: string
+    }[]
   }[]
-  reviews?: { id: string; state: string; author: { login: string; bot?: boolean }; body: string }[]
+  reviews?: {
+    id: string
+    state: string
+    author: { login: string; bot?: boolean; association?: string }
+    body: string
+  }[]
   deployments?: { environment: string; state: string; url?: string }[]
   allowed?: string[]
   autoMergeAllowed?: boolean

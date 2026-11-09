@@ -398,6 +398,7 @@ export interface TedStore {
   pullRequestPreviewFound(taskId: string, name: string, preview: PullRequestPreview): void
   gitHubActivitySent(taskId: string, runId: string, notices: readonly GitHubNoticeRecord[]): void
   gitHubActivityQueued(taskId: string, notices: readonly GitHubNoticeRecord[]): Task
+  gitHubActivityHeld(taskId: string, notices: readonly GitHubNoticeRecord[]): void
   gitHubSeen(taskId: string): Map<string, string>
   worktreeCreated(
     taskId: string,
@@ -1905,6 +1906,16 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
+    gitHubActivityHeld(taskId, notices) {
+      commit(
+        events.gitHubActivityHeld({
+          taskId,
+          notices: notices.map(({ key, sig, kind, where }) => ({ key, sig, kind, where })),
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
     gitHubActivityQueued(taskId, notices) {
       const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
       commit(
@@ -1921,9 +1932,11 @@ export async function openStore({
     },
     gitHubSeen(taskId) {
       const seen = new Map<string, string>()
-      const rows = store.query(
-        queryDb(taskLog.where({ taskId, name: 'v1.GitHubActivitySent' }).orderBy('at', 'asc')),
-      )
+      const rows = store
+        .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
+        .filter(
+          (row) => row.name === 'v1.GitHubActivitySent' || row.name === 'v1.GitHubActivityHeld',
+        )
       for (const row of rows) {
         const notices = (JSON.parse(row.data) as { notices?: unknown }).notices
         if (!Array.isArray(notices)) continue

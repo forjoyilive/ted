@@ -420,6 +420,13 @@ export function threadEvents(
       case 'v1.GitHubActivitySent':
         add(entry, 'run', `GitHub: ${gitHubSummary(data.notices)} · sent to the Task Lead`)
         break
+      case 'v1.GitHubActivityHeld':
+        add(
+          entry,
+          'quiet',
+          `GitHub: ${gitHubSummary(data.notices)} · not sent to the Task Lead (outside contributor)`,
+        )
+        break
       case 'v1.GitHubActivityQueued':
         add(
           entry,
@@ -447,7 +454,7 @@ function gitHubSummary(notices: unknown): string {
   const list = Array.isArray(notices) ? (notices as { kind?: unknown; where?: unknown }[]) : []
   return summary(
     list.flatMap((n) =>
-      (n.kind === 'ci' || n.kind === 'review' || n.kind === 'conflict') &&
+      (n.kind === 'ci' || n.kind === 'review' || n.kind === 'conflict' || n.kind === 'outside') &&
       typeof n.where === 'string'
         ? [{ kind: n.kind, where: n.where }]
         : [],

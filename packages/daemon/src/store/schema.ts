@@ -930,6 +930,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  gitHubActivityHeld: Events.synced({
+    name: 'v1.GitHubActivityHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      notices: Schema.Array(gitHubNotice),
+      at: Schema.String,
+    }),
+  }),
   gitHubActivityQueued: Events.synced({
     name: 'v1.GitHubActivityQueued',
     schema: Schema.Struct({
@@ -1557,6 +1565,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.PullRequestClosedOnGitHub': (args) => task(args, { name: args.name }),
   'v1.GitHubActivitySent': (args) => task(args, { runId: args.runId, notices: args.notices }),
   'v1.GitHubActivityQueued': (args) => task(args, { notices: args.notices }),
+  'v1.GitHubActivityHeld': (args) => task(args, { notices: args.notices }),
   'v1.MergeStarted': (args) => task(args),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
@@ -1679,6 +1688,7 @@ const materializers = counted(
         tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
       ],
       'v1.GitHubActivitySent': () => [],
+      'v1.GitHubActivityHeld': () => [],
       'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [

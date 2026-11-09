@@ -22,11 +22,13 @@ interface StubCheck {
   state?: string
   required?: boolean
   url?: string
+  app?: string
 }
 
 interface StubAuthor {
   login: string
   bot?: boolean
+  association?: string
 }
 
 interface StubMerge {
@@ -131,6 +133,7 @@ function checkNode(c: StubCheck) {
         status: c.status ?? 'COMPLETED',
         conclusion: c.conclusion ?? null,
         detailsUrl: c.url ?? null,
+        checkSuite: { app: { slug: c.app ?? 'github-actions' } },
         isRequired: !!c.required,
       }
 }
@@ -172,6 +175,7 @@ function pullRequests(variables: Record<string, unknown>) {
                 id: c.id,
                 body: c.body,
                 url: c.url ?? '',
+                authorAssociation: c.author.association ?? 'COLLABORATOR',
                 author: author(c.author),
               })),
             },
@@ -183,6 +187,7 @@ function pullRequests(variables: Record<string, unknown>) {
             state: r.state,
             body: r.body,
             url: r.url ?? '',
+            authorAssociation: r.author.association ?? 'COLLABORATOR',
             author: author(r.author),
           })),
         },
