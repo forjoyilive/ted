@@ -2343,10 +2343,9 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Sign-off', exact: true })
     const decisions = card.getByRole('region', { name: 'Decisions so far' })
-    expect(await decisions.getByRole('listitem').allTextContents()).toEqual([
-      'Notes save locally first.',
-      'Warn after 30 days offline.',
-    ])
+    await expect
+      .poll(() => decisions.getByRole('listitem').allTextContents())
+      .toEqual(['Notes save locally first.', 'Warn after 30 days offline.'])
     await card.getByText('Open questions: None.').waitFor()
     await card
       .getByText('Approve moves the Task on. Request changes starts another round.')
