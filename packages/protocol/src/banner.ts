@@ -11,6 +11,11 @@ export interface BannerAction {
   label: string
   opens?: BannerPlace
   section?: string
+  choose?: 'folder'
+}
+
+export interface BannerActionInput {
+  folder?: string
 }
 
 export interface Banner {

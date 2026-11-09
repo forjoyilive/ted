@@ -28,6 +28,7 @@ interface SidebarProps {
   onOpenRuns?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: () => void
+  onAddFactory: () => void
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
@@ -57,6 +58,7 @@ export function Sidebar({
   onOpenRuns,
   dispatch,
   onNewTask,
+  onAddFactory,
 }: SidebarProps) {
   const open = (screen: Screen) => dispatch({ type: 'open', screen })
   const current = (screen: Screen) =>
@@ -134,12 +136,7 @@ export function Sidebar({
           </div>
         )
       })}
-      <button
-        type="button"
-        className={`${styles.row} ${styles.addFactory}`}
-        onClick={() => open({ kind: 'add-factory' })}
-        {...current({ kind: 'add-factory' })}
-      >
+      <button type="button" className={`${styles.row} ${styles.addFactory}`} onClick={onAddFactory}>
         <span className={styles.plus}>+</span>
         <span className={styles.label}>Add Factory</span>
       </button>

@@ -15,6 +15,9 @@ import {
   type AnswerRequest,
   agentKinds,
   type Banner,
+  type BannerActionInput,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
@@ -85,18 +88,21 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  locateLocalFolder: async (client, key) => {
+  chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
-      title: 'Locate the local folder',
+      title: String(title),
       properties: ['openDirectory'],
     }
     const chosen = window
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     const [folder] = chosen.filePaths
-    if (chosen.canceled || folder === undefined) return undefined
-    return client.setLocalFolder(String(key), folder)
+    return chosen.canceled ? undefined : folder
   },
+  homeFolder: async () => homedir(),
+  checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
+  createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
+  retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
@@ -131,7 +137,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
-  actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  actOnBanner: (client, id, input) =>
+    client.actOnBanner(String(id), input as BannerActionInput | undefined),
   agentHealth: (client) => client.agentHealth(),
   checkAgentHealth: (client) => client.checkAgentHealth(),
   fixAgent: (client, agent) => {

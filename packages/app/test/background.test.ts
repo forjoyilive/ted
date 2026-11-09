@@ -221,6 +221,13 @@ describe('quitting', () => {
     )
   })
 
+  test('a Factory still cloning asks before quitting', () => {
+    expect(quitPlan(activity({ factoriesSettingUp: 1 }), 'ask')).toBe('ask')
+    expect(quitDialog(activity({ factoriesSettingUp: 1 })).message).toBe(
+      '1 Factory is still cloning. Keep TED running in the background so it finishes?',
+    )
+  })
+
   test('the dialog names both when Runs and Automations are going', () => {
     expect(quitDialog(activity({ active: 1, automationsOn: 2 })).message).toBe(
       '1 Run is still going and 2 Automations are on. Keep TED running in the background?',

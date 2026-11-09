@@ -1,5 +1,5 @@
 import type { Activity, OpenAppResult } from './activity.ts'
-import type { Banner } from './banner.ts'
+import type { Banner, BannerActionInput } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -9,7 +9,13 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
-import type { AddFactoryRequest, Factory } from './factory.ts'
+import type {
+  AddFactoryRequest,
+  CheckRepoRequest,
+  CreateFactoryRequest,
+  Factory,
+  RepoCheck,
+} from './factory.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
@@ -187,8 +193,8 @@ export class DaemonClient {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/dismiss`)
   }
 
-  actOnBanner(id: string): Promise<void> {
-    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
+  actOnBanner(id: string, input?: BannerActionInput): Promise<void> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`, input)
   }
 
   agentHealth(): Promise<AgentHealth[]> {
@@ -225,6 +231,18 @@ export class DaemonClient {
 
   openApp(): Promise<OpenAppResult> {
     return this.#request('POST', '/app/open')
+  }
+
+  checkRepo(input: CheckRepoRequest): Promise<RepoCheck> {
+    return this.#request('POST', '/factories/check-repo', input)
+  }
+
+  createFactory(input: CreateFactoryRequest): Promise<Factory> {
+    return this.#request('POST', '/factories', input)
+  }
+
+  retryClone(factoryId: string): Promise<Factory> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/retry-clone`)
   }
 
   addFactory(input: AddFactoryRequest): Promise<Factory> {

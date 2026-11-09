@@ -6,7 +6,10 @@ import type {
   Attachment,
   BackupsSummary,
   Banner,
+  BannerActionInput,
+  CheckRepoRequest,
   Comment,
+  CreateFactoryRequest,
   CreateTaskRequest,
   DaemonEvent,
   DataStatus,
@@ -17,6 +20,7 @@ import type {
   LogText,
   MachineSettings,
   Profile,
+  RepoCheck,
   RestoreBackupResult,
   Run,
   RunFixRequest,
@@ -71,8 +75,15 @@ export const ted = {
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
-  locateLocalFolder: (key: string) =>
-    window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
+  chooseFolder: (title: string) =>
+    window.ted.request('chooseFolder', title) as Promise<string | undefined>,
+  homeFolder: () => window.ted.request('homeFolder') as Promise<string>,
+  checkRepo: (request: CheckRepoRequest) =>
+    window.ted.request('checkRepo', request) as Promise<RepoCheck>,
+  createFactory: (request: CreateFactoryRequest) =>
+    window.ted.request('createFactory', request) as Promise<Factory>,
+  retryClone: (factoryId: string) =>
+    window.ted.request('retryClone', factoryId) as Promise<Factory>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
@@ -94,7 +105,8 @@ export const ted = {
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
-  actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  actOnBanner: (id: string, input?: BannerActionInput) =>
+    window.ted.request('actOnBanner', id, input) as Promise<void>,
   agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
   checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,

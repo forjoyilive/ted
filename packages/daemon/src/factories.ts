@@ -1,6 +1,5 @@
 import { mkdir, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { Factory } from '@ted/protocol'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import * as git from './git.ts'
@@ -14,7 +13,7 @@ const safeSegment = /^[A-Za-z0-9_.-]+$/
 export async function addFactory(
   { store, reposDir, workflows }: { store: TedStore; reposDir: string; workflows: Workflows },
   input: { repo: string; key: string; localFolder?: string },
-): Promise<Factory> {
+): Promise<StoredFactory> {
   if (!keyPattern.test(input.key)) {
     throw new RequestError(
       400,
@@ -45,22 +44,7 @@ export async function addFactory(
     console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
   })
   if (localFolder !== undefined) store.setLocalFolder(repo, localFolder)
-  return publicFactory(store, factory)
-}
-
-export function listFactories(store: TedStore): Promise<Factory[]> {
-  return Promise.all(store.listFactories().map((f) => publicFactory(store, f)))
-}
-
-export async function setLocalFolder(
-  store: TedStore,
-  key: string,
-  folder: string,
-): Promise<Factory> {
-  const factory = store.listFactories().find((f) => f.key === key)
-  if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
-  store.setLocalFolder(factory.repo, await checkLocalFolder(folder))
-  return publicFactory(store, factory)
+  return factory
 }
 
 async function checkLocalFolder(folder: string): Promise<string> {
@@ -121,18 +105,8 @@ function checkUnused(store: TedStore, key: string, repo: string): void {
   }
 }
 
-export function clonePath(reposDir: string, factory: Factory): string {
+export function clonePath(reposDir: string, factory: { repo: string }): string {
   return path.join(reposDir, ...factory.repo.split('/'))
-}
-
-async function publicFactory(
-  store: TedStore,
-  { cloneUrl: _, ...factory }: StoredFactory,
-): Promise<Factory> {
-  const folder = store.localFolder(factory.repo)
-  if (folder === undefined) return factory
-  const found = (await stat(folder).catch(() => undefined))?.isDirectory() ?? false
-  return { ...factory, localFolder: { path: folder, found } }
 }
 
 function parseRepo(given: string): { repo: string; cloneUrl: string } {

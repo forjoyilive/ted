@@ -53,6 +53,7 @@ import {
   conversationEntries,
   events,
   factories,
+  factoryRepos,
   heldRuns,
   localFolders,
   machineSettings,
@@ -87,8 +88,32 @@ export interface RunFlags {
   usesDefaultModel?: boolean
 }
 
-export interface StoredFactory extends Factory {
+export interface StoredFactoryRepo {
+  repo: string
+  name: string
   cloneUrl: string
+}
+
+export interface StoredFactory extends Omit<Factory, 'repos' | 'cloned' | 'setup' | 'localFolder'> {
+  cloneUrl: string
+  repos: StoredFactoryRepo[]
+  clonedAt?: string
+}
+
+export function basicFactory({ cloneUrl: _, clonedAt, repos, ...factory }: StoredFactory): Factory {
+  return {
+    ...factory,
+    repos: repos.map(({ repo, name }) => ({ repo, name })),
+    cloned: clonedAt !== undefined,
+  }
+}
+
+export interface NewFactory {
+  key: string
+  name: string
+  repos: StoredFactoryRepo[]
+  defaultBranch: string
+  showTutorial: boolean
 }
 
 export interface StoredTask extends Task {
@@ -159,7 +184,11 @@ export interface HeldRun {
 }
 
 export interface TedStore {
-  addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
+  addFactory(
+    input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
+  ): StoredFactory
+  createFactory(input: NewFactory): StoredFactory
+  factoryCloned(factoryId: string): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
   createTask(input: NewTask): Promise<Task>
@@ -284,7 +313,22 @@ export async function openStore({
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
-  const listFactories = (): StoredFactory[] => [...store.query(allFactories)]
+  const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
+  const listFactories = (): StoredFactory[] => {
+    const repos = store.query(allFactoryRepos)
+    return store.query(allFactories).map(({ clonedAt, ...row }) => ({
+      ...row,
+      repos: repos
+        .filter((r) => r.factoryId === row.id)
+        .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
+      ...(clonedAt !== null && { clonedAt }),
+    }))
+  }
+  const requireFactory = (id: string) => {
+    const found = listFactories().find((f) => f.id === id)
+    if (!found) throw new Error(`no Factory ${id}`)
+    return found
+  }
   const factoryKey = (factoryId: string) =>
     factoryId === placeholderFactory.id
       ? placeholderFactory.key
@@ -593,6 +637,7 @@ export async function openStore({
         queued: 0,
       },
       automationsOn: 0,
+      factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
     }
   }
   let lastActivity = activity()
@@ -628,9 +673,24 @@ export async function openStore({
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       store.commit(events.factoryAdded(row))
-      const { cloneUrl: _, ...factory } = row
-      emit({ type: 'factory-added', factory })
-      return row
+      const added = requireFactory(row.id)
+      emit({ type: 'factory-added', factory: basicFactory(added) })
+      return added
+    },
+    createFactory({ repos, ...input }) {
+      const id = randomUUID()
+      store.commit(
+        events.factoryAddedV2({ ...input, id, repos, createdAt: new Date().toISOString() }),
+      )
+      const added = requireFactory(id)
+      emit({ type: 'factory-added', factory: basicFactory(added) })
+      noteActivity()
+      return added
+    },
+    factoryCloned(factoryId) {
+      store.commit(events.factoryCloned({ factoryId, at: new Date().toISOString() }))
+      noteActivity()
+      return requireFactory(factoryId)
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),

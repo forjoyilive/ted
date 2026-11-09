@@ -85,6 +85,7 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  wake(factoryId?: string): void
   close(): Promise<void>
 }
 
@@ -101,6 +102,7 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
+  isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
 }): Tasks {
   const {
@@ -190,6 +192,10 @@ export function createTasks(options: {
     return { use, holders, all }
   }
 
+  const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
+  const ready = () =>
+    runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId))
+
   function heldReady(): QueueEntry[] {
     const paused = store.agentPauses()
     return store.heldRuns().flatMap((held) => {
@@ -202,11 +208,11 @@ export function createTasks(options: {
 
   async function fill(): Promise<void> {
     const held = heldReady()
-    const queued = runnable(store.queue())
+    const queued = ready()
     if (queued.length === 0 && held.length === 0) return
     const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...runnable(store.queue())], use)) {
+    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
       if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
@@ -788,7 +794,7 @@ export function createTasks(options: {
     }
     starting.add(task.id)
     try {
-      await ensureClone({ banners, reposDir }, factory)
+      if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       store.queueTask(task.id, resolution.workflow.next('backlog'))
@@ -954,7 +960,7 @@ export function createTasks(options: {
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
-        ? await resolveWorkflow(factory).catch((error: unknown) => {
+        ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
             failure = error
             return undefined
           })
@@ -1255,6 +1261,11 @@ export function createTasks(options: {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
+    },
+
+    wake(factoryId) {
+      if (factoryId !== undefined) caps.delete(factoryId)
+      void pump()
     },
 
     async close() {

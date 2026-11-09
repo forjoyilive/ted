@@ -10,7 +10,21 @@ export const factories = State.SQLite.table({
     repo: State.SQLite.text(),
     cloneUrl: State.SQLite.text(),
     defaultBranch: State.SQLite.text(),
+    showTutorial: State.SQLite.boolean({ default: false }),
+    clonedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const factoryRepos = State.SQLite.table({
+  name: 'factoryRepos',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    repo: State.SQLite.text(),
+    name: State.SQLite.text(),
+    cloneUrl: State.SQLite.text(),
   },
 })
 
@@ -288,6 +302,24 @@ export const events = {
       defaultBranch: Schema.String,
       createdAt: Schema.String,
     }),
+  }),
+  factoryAddedV2: Events.synced({
+    name: 'v2.FactoryAdded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      key: Schema.String,
+      name: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      defaultBranch: Schema.String,
+      showTutorial: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  factoryCloned: Events.synced({
+    name: 'v1.FactoryCloned',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
   }),
   taskCreated: Events.synced({
     name: 'v1.TaskCreated',
@@ -621,7 +653,35 @@ export const events = {
 
 const materializers = counted(
   State.SQLite.materializers(events, {
-    'v1.FactoryAdded': (factory) => factories.insert(factory),
+    'v1.FactoryAdded': (factory) => [
+      factories.insert({ ...factory, clonedAt: factory.createdAt }),
+      factoryRepos.insert({
+        id: `${factory.id}:0`,
+        factoryId: factory.id,
+        position: 0,
+        repo: factory.repo,
+        name: factory.repo.split('/').at(-1) ?? factory.repo,
+        cloneUrl: factory.cloneUrl,
+      }),
+    ],
+    'v2.FactoryAdded': ({ repos, ...factory }) => [
+      factories.insert({
+        ...factory,
+        repo: repos[0]?.repo ?? '',
+        cloneUrl: repos[0]?.cloneUrl ?? '',
+        clonedAt: null,
+      }),
+      ...repos.map((repo, position) =>
+        factoryRepos.insert({
+          ...repo,
+          id: `${factory.id}:${position}`,
+          factoryId: factory.id,
+          position,
+        }),
+      ),
+    ],
+    'v1.FactoryCloned': ({ factoryId, at }) =>
+      factories.update({ clonedAt: at }).where({ id: factoryId }),
     'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
@@ -747,6 +807,7 @@ const materializers = counted(
 const state = State.SQLite.makeState({
   tables: {
     factories,
+    factoryRepos,
     tasks,
     taskQueue,
     taskBlockers,

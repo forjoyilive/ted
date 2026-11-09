@@ -11,6 +11,9 @@ import {
   agentKinds,
   agentStageIds,
   appearances,
+  type BannerActionInput,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   clarifyDepths,
   type DaemonEvent,
@@ -18,10 +21,12 @@ import {
   efforts,
   integrationFixes,
   type MachineSettings,
+  type NewFactoryRepo,
   type PostCommentRequest,
   priorities,
   quitChoices,
   type ReportOutcomeRequest,
+  type RepoSource,
   type RestoreBackupRequest,
   type RunFixRequest,
   type SetActivityRequest,
@@ -37,7 +42,7 @@ import type { Attachments } from './attachments.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
-import { addFactory, listFactories, setLocalFolder } from './factories.ts'
+import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
 import { readProfile } from './profile.ts'
 import { redactSecrets } from './redact.ts'
@@ -212,16 +217,52 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories$/,
-    handle: async (_, { store }) => [200, await listFactories(store)],
+    handle: async (_, { factories }) => [200, await factories.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CreateFactoryRequest> | null
+      const repos = Array.isArray(body?.repos) ? body.repos.map(newRepo) : []
+      return [
+        201,
+        await factories.create({
+          name: typeof body?.name === 'string' ? body.name : '',
+          key: typeof body?.key === 'string' ? body.key.trim() : '',
+          repos,
+          showTutorial: body?.showTutorial === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/check-repo$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CheckRepoRequest> | null
+      return [
+        200,
+        await factories.checkRepo({
+          source: repoSource(body?.source),
+          primary: body?.primary === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/retry-clone$/,
+    handle: async ({ params: [id = ''] }, { factories }) => [200, await factories.retry(id)],
   },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/local-folder$/,
-    async handle({ req, params: [key = ''] }, { store }) {
+    async handle({ req, params: [key = ''] }, { factories }) {
       const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
       const folder = typeof body?.path === 'string' ? body.path : ''
       if (folder === '') throw new HttpError(400, 'path is required')
-      return [200, await setLocalFolder(store, key, folder)]
+      return [200, await factories.setLocalFolder(key, folder)]
     },
   },
   {
@@ -351,8 +392,10 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ params: [id = ''] }, { banners }) {
-      await banners.act(id)
+    async handle({ req, params: [id = ''] }, { banners }) {
+      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
+      const folder = typeof body?.folder === 'string' ? body.folder : undefined
+      await banners.act(id, folder === undefined ? {} : { folder })
       return [200, {}]
     },
   },
@@ -404,19 +447,18 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/dev\/factories$/,
-    async handle({ req }, { store, reposDir, workflows }) {
+    async handle({ req }, { store, reposDir, workflows, factories }) {
       const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
       const localFolder = typeof body?.localFolder === 'string' ? body.localFolder : undefined
-      return [
-        201,
-        await addFactory(
-          { store, reposDir, workflows },
-          { repo, key, ...(localFolder !== undefined && { localFolder }) },
-        ),
-      ]
+      const added = await addFactory(
+        { store, reposDir, workflows },
+        { repo, key, ...(localFolder !== undefined && { localFolder }) },
+      )
+      await factories.checkLocalFolders()
+      return [201, await factories.get(added.id)]
     },
   },
   {
@@ -807,6 +849,27 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
     return value
   },
+}
+
+function repoSource(given: unknown): RepoSource {
+  const source = (typeof given === 'object' && given !== null ? given : {}) as Record<
+    string,
+    unknown
+  >
+  if (typeof source.folder === 'string') return { folder: source.folder }
+  return { remote: typeof source.remote === 'string' ? source.remote : '' }
+}
+
+function newRepo(given: unknown): NewFactoryRepo {
+  const repo = (typeof given === 'object' && given !== null ? given : {}) as Record<string, unknown>
+  return { source: repoSource(repo.source), name: typeof repo.name === 'string' ? repo.name : '' }
+}
+
+async function readOptionalJson(req: http.IncomingMessage): Promise<unknown> {
+  if (req.headers['content-length'] === '0' || req.headers['content-type'] === undefined) {
+    return readJson(req).catch(() => null)
+  }
+  return readJson(req)
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

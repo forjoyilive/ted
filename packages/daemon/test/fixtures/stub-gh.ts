@@ -5,6 +5,7 @@ interface StubState {
   version?: string
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
+  paths?: Record<string, { status?: number; message?: string; body?: unknown }>
 }
 
 const readyHosts = {
@@ -49,6 +50,15 @@ if (args[0] === '--version') {
   )
 } else if (args[0] === 'auth' && args[1] === 'status') {
   process.stdout.write(`${JSON.stringify({ hosts: state.hosts ?? readyHosts })}\n`)
+} else if (args[0] === 'api' && state.paths) {
+  const route = args.find((arg, i) => i > 0 && !arg.startsWith('-') && args[i - 1] !== '--method')
+  const answer = route === undefined ? undefined : state.paths[route]
+  if (!answer || (answer.status ?? 200) >= 400) {
+    const status = answer?.status ?? 404
+    process.stderr.write(`gh: ${answer?.message ?? 'Not Found'} (HTTP ${status})\n`)
+    process.exit(1)
+  }
+  process.stdout.write(`${JSON.stringify(answer.body ?? {})}\n`)
 } else if (args[0] === 'api') {
   const result = state.api?.result ?? 'ok'
   if (result === 'rate-limit') {
