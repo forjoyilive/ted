@@ -1,5 +1,5 @@
 import type { Banner, Task } from '@ted/protocol'
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
 import {
@@ -8,10 +8,20 @@ import {
   factoryBanners,
   settingsStopsWork,
 } from './banners.ts'
+import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
+import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
-import { useBanners, useFactories, useInbox, useSettings, useSlots, useTasks } from './data.ts'
+import {
+  useBanners,
+  useConnection,
+  useFactories,
+  useInbox,
+  useSettings,
+  useSlots,
+  useTasks,
+} from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
@@ -57,6 +67,14 @@ function isTyping(target: EventTarget | null): boolean {
   )
 }
 
+function Offline({ when, children }: { when: boolean; children: ReactNode }) {
+  return (
+    <fieldset disabled={when} className={when ? styles.offline : styles.online}>
+      {children}
+    </fieldset>
+  )
+}
+
 export function App() {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
@@ -97,6 +115,24 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [settingsOpen, newTaskOpen])
   const banners = useBanners()
+  const { connection } = useConnection()
+  const offline = connection.state !== 'connected'
+
+  useEffect(() => {
+    if (offline) setNewTaskOpen(false)
+  }, [offline])
+
+  useEffect(() => {
+    if (!offline) return
+    const block = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('[role="menu"], [aria-label="Problems"]')) return
+      event.stopImmediatePropagation()
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', block, { capture: true })
+    return () => window.removeEventListener('keydown', block, { capture: true })
+  }, [offline])
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
@@ -159,6 +195,7 @@ export function App() {
   }
 
   onMenuCommand.current = (command) => {
+    if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'new-task') setNewTaskOpen(true)
     if (command.kind === 'settings') dispatch({ type: 'open-settings' })
@@ -174,6 +211,7 @@ export function App() {
       banners={shown}
       onAction={act}
       onDismiss={(banner) => void ted.dismissBanner(banner.id)}
+      menu={keepsStoppingMenu}
     />
   )
 
@@ -243,11 +281,25 @@ export function App() {
     }
   }
 
+  const problems =
+    connection.state === 'stopped' ? (
+      bannerStack('Problems', keepsStoppingBanner(connection))
+    ) : (
+      <Offline when={offline}>{bannerStack('Problems', appWideBanners(banners))}</Offline>
+    )
+
+  const frame = (content: ReactNode) => (
+    <div className={styles.window}>
+      {connection.state === 'reconnecting' && <ReconnectingBar />}
+      <div className={styles.app}>{content}</div>
+    </div>
+  )
+
   if (navigation.settings) {
-    return (
-      <div className={styles.app}>
-        <div className={styles.main}>
-          {bannerStack('Problems', appWideBanners(banners))}
+    return frame(
+      <div className={styles.main}>
+        {problems}
+        <Offline when={offline}>
           <div className={styles.panes}>
             <SettingsShell
               section={navigation.settings.section}
@@ -258,49 +310,55 @@ export function App() {
               dispatch={dispatch}
             />
           </div>
-        </div>
-      </div>
+        </Offline>
+      </div>,
     )
   }
 
-  return (
-    <div className={styles.app}>
-      <Sidebar
-        navigation={navigation}
-        factories={factories}
-        currentFactoryId={currentFactoryId(navigation, tasks)}
-        inboxCount={inboxCount}
-        badges={{
-          ...waiting,
-          ...Object.fromEntries(
-            [...factoriesStoppingWork(banners)].map((id) => [
-              id,
-              { ...waiting[id], stopsWork: true },
-            ]),
-          ),
-        }}
-        settingsProblem={settingsStopsWork(banners)}
-        footer={slots === undefined ? {} : { runs: runsLine(slots) }}
-        runsOpen={runsOpen}
-        onOpenRuns={() => setRunsOpen((open) => !open)}
-        dispatch={dispatch}
-        onNewTask={openNewTask}
-      />
-      {runsOpen && slots && (
-        <WorkingRunsPopover
-          slots={slots}
+  return frame(
+    <>
+      <Offline when={offline}>
+        <Sidebar
+          navigation={navigation}
           factories={factories}
-          onClose={closeRuns}
-          onOpenList={() => {
-            setRunsOpen(false)
-            dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
+          currentFactoryId={currentFactoryId(navigation, tasks)}
+          inboxCount={inboxCount}
+          badges={{
+            ...waiting,
+            ...Object.fromEntries(
+              [...factoriesStoppingWork(banners)].map((id) => [
+                id,
+                { ...waiting[id], stopsWork: true },
+              ]),
+            ),
           }}
+          settingsProblem={settingsStopsWork(banners)}
+          footer={slots === undefined ? {} : { runs: runsLine(slots) }}
+          runsOpen={runsOpen}
+          onOpenRuns={() => setRunsOpen((open) => !open)}
+          dispatch={dispatch}
+          onNewTask={openNewTask}
         />
-      )}
+        {runsOpen && slots && (
+          <WorkingRunsPopover
+            slots={slots}
+            factories={factories}
+            onClose={closeRuns}
+            onOpenList={() => {
+              setRunsOpen(false)
+              dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
+            }}
+          />
+        )}
+      </Offline>
       <main className={styles.main}>
-        <FactoryBanners />
-        {bannerStack('Problems', appWideBanners(banners))}
-        <div className={styles.panes}>{main()}</div>
+        <Offline when={offline}>
+          <FactoryBanners />
+        </Offline>
+        {problems}
+        <Offline when={offline}>
+          <div className={styles.panes}>{main()}</div>
+        </Offline>
       </main>
       {newTaskOpen && (
         <NewTaskDialog
@@ -310,6 +368,6 @@ export function App() {
           onClose={() => setNewTaskOpen(false)}
         />
       )}
-    </div>
+    </>,
   )
 }

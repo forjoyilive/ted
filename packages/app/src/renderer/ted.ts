@@ -1,3 +1,4 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AnswerRequest,
   Attachment,
@@ -26,7 +27,10 @@ import type {
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 
-export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
+export type TedEvent =
+  | DaemonEvent
+  | { type: 'menu-command'; command: MenuCommand }
+  | { type: 'connection'; connection: DaemonConnection }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -89,6 +93,9 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
+  restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
+  copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
   getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>
