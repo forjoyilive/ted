@@ -14,6 +14,7 @@ import { inheritedFdsEnv } from './inherited-fds.ts'
 import { rollLog, tedLogLimits } from './logs.ts'
 import { nodeEntry } from './node-entry.ts'
 
+export { watchExitWith } from './exit-with.ts'
 export { crashReport } from './logs.ts'
 
 const startTimeoutMs = 2 * 60_000

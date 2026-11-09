@@ -8,6 +8,7 @@ import {
   type DaemonSupervisor,
   daemonRestartDelaysMs,
   superviseDaemon,
+  watchExitWith,
 } from '@ted/daemon/launch'
 import {
   type Activity,
@@ -71,7 +72,7 @@ import {
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
-import { handleUncaught } from './uncaught.ts'
+import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
 
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
@@ -217,10 +218,20 @@ async function choosePicture(): Promise<string | undefined> {
 const platform = process.platform as Platform
 const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
 
+const testLaunch = hiddenWindow || process.env.TED_EXIT_WITH_PID !== undefined
+const logUncaught = fileLog(path.join(tedPaths(tedHome()).logs, 'app.log'))
+
+watchExitWith(() => app.exit(0))
+if (testLaunch) watchParent(() => app.exit(0))
+ignoreBrokenPipes([process.stdout, process.stderr], (error) => {
+  logUncaught('Lost stdout or stderr:', error)
+  if (testLaunch) app.exit(0)
+})
+
 process.on('uncaughtException', (error) => {
   handleUncaught(error, {
-    hidden: hiddenWindow,
-    log: console.error,
+    hidden: testLaunch,
+    log: logUncaught,
     show: (title, detail) => dialog.showErrorBox(title, detail),
   })
 })
