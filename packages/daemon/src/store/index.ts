@@ -689,7 +689,8 @@ export async function openStore({
     const repos = store.query(allFactoryRepos)
     const placed = new Map(store.query(allFactoryOrder).map((r) => [r.factoryId, r.position]))
     const rows = store.query(allFactories)
-    const rank = (id: string, index: number) => placed.get(id) ?? placed.size + index
+    const after = Math.max(-1, ...placed.values()) + 1
+    const rank = (id: string, index: number) => placed.get(id) ?? after + index
     return rows
       .map((row, index) => ({ row, rank: rank(row.id, index) }))
       .sort((a, b) => a.rank - b.rank)

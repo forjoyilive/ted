@@ -351,8 +351,19 @@ export function createCheckTries(options: {
       const current = running.get(factoryId)
       current?.abort.abort()
       await current?.done.catch(() => undefined)
-      states.delete(factoryId)
-      await sweep()
+      sweeping = sweeping
+        .then(async () => {
+          const state = await load(factoryId)
+          for (const worktree of state.worktrees) {
+            await removeWorktree(factoryId, worktree.name, worktree.repo)
+          }
+          states.delete(factoryId)
+          await removeInside(scratchDir, factoryId)
+        })
+        .catch((error: unknown) =>
+          console.error(`couldn’t remove the scratch worktrees of ${factoryId}:`, error),
+        )
+      await sweeping
     },
     async close() {
       clearInterval(sweepTimer)
