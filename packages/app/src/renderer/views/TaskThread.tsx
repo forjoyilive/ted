@@ -1,15 +1,19 @@
 import type {
   AgentStageId,
   CheckRun,
+  ClarifyDepth,
   Comment,
   ConversationTab,
+  DescriptionVersion,
   Factory,
+  Priority,
   RunState,
   Task,
   TaskEnding,
   ThreadEvent,
 } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
+import { useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
@@ -19,13 +23,14 @@ import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
   AnsweredCard,
   OpenRequestLine,
   RequestCard,
   WaitingRow,
 } from '../components/RequestCard.tsx'
-import { RunChat } from '../components/RunChat.tsx'
+import { Diff, RunChat } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
@@ -33,6 +38,7 @@ import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
   useCheckRuns,
   useComments,
+  useDescriptions,
   useStageEntries,
   useTaskRuns,
   useThreadEvents,
@@ -40,7 +46,13 @@ import {
 import { useNow } from '../requests.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
-import { clarifyDepthText, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
+import {
+  clarifyDepthLabels,
+  clarifyDepthText,
+  formatSize,
+  leadSummary,
+  priorityLabels,
+} from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
@@ -100,20 +112,37 @@ function EventRow({
   onOpenOutput: OpenOutput
   onOpenRun: (runId: string) => void
 }) {
-  const { runId } = event
+  const { runId, changes } = event
+  const [showChanges, setShowChanges] = useState(false)
   return (
     <EventLine
       tone={event.tone}
       text={event.text}
       at={event.at}
       action={
-        runId !== undefined && (
+        runId !== undefined ? (
           <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
             View message
           </button>
+        ) : (
+          changes !== undefined && (
+            <button
+              type="button"
+              className={styles.linkButton}
+              aria-expanded={showChanges}
+              onClick={() => setShowChanges((shown) => !shown)}
+            >
+              {showChanges ? 'Hide changes' : 'Show changes'}
+            </button>
+          )
         )
       }
     >
+      {changes !== undefined && showChanges && (
+        <div className={styles.changes}>
+          <Diff diff={changes} showPath={false} />
+        </div>
+      )}
       {(checkRun || event.judgments) && (
         <ChecksRow
           checks={checkRun?.checks ?? []}
@@ -486,6 +515,9 @@ export function TaskThread({
 function archivedFrom(ended: TaskEnding): string {
   if (ended.kind === 'never-started') return 'Archived before it started'
   if (ended.kind === 'merged') return 'Archived from Done'
+  if (ended.kind === 'pull-request-closed') {
+    return 'Archived after its pull request was closed on GitHub'
+  }
   return `Archived from ${stageName(ended.stage)}`
 }
 
@@ -534,16 +566,32 @@ export function TaskDetails({
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
 }) {
+  const [error, setError] = useState<string>()
+  const change = (request: Promise<unknown>) => {
+    setError(undefined)
+    request.catch((failure: unknown) => setError(readableError(failure)))
+  }
+  const editable = !task.archived
+  const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
+  const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
-        <dt>Factory</dt>
-        <dd>{factoryName(factories, task.factoryId)}</dd>
-        <dt>Stage</dt>
-        <dd>{stageName(task.stage)}</dd>
         <dt>Priority</dt>
-        <dd>{priorityLabels[task.priority]}</dd>
+        <dd>
+          {editable ? (
+            <FieldSelect
+              label="Priority"
+              text={priorityLabels[task.priority]}
+              value={task.priority}
+              options={[...priorities].reverse().map((p) => [p, priorityLabels[p]])}
+              onChange={(value) => change(ted.setPriority(task.id, value as Priority))}
+            />
+          ) : (
+            priorityLabels[task.priority]
+          )}
+        </dd>
         <dt>Task Lead</dt>
         <dd>
           {task.archived ? (
@@ -557,7 +605,26 @@ export function TaskDetails({
           )}
         </dd>
         <dt>Clarify depth</dt>
-        <dd>{clarifyDepthText(task)}</dd>
+        <dd>
+          {editable && !clarifyOver ? (
+            <FieldSelect
+              label="Clarify depth"
+              text={clarifyDepthText(task)}
+              value={task.clarifyDepth}
+              options={clarifyDepths.map((d) => [d, clarifyDepthLabels[d]])}
+              onChange={(value) => change(ted.setClarifyDepth(task.id, value as ClarifyDepth))}
+            />
+          ) : (
+            <>
+              {clarifyDepthText(task)}
+              {editable && task.stage !== 'done' && (
+                <span className={styles.fieldNote}>
+                  Clarify is over, so changing the depth would do nothing.
+                </span>
+              )}
+            </>
+          )}
+        </dd>
         {factory && showsRepos(factory) && (
           <>
             <dt>Repos</dt>
@@ -580,6 +647,25 @@ export function TaskDetails({
             </dd>
           </>
         )}
+        {blocks.length > 0 && (
+          <>
+            <dt>Blocks</dt>
+            <dd>
+              <ul className={styles.detailList}>
+                {blocks.map((t) => (
+                  <li key={t.id}>
+                    {t.displayId}
+                    <span className={styles.detailMeta}>{t.title}</span>
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </>
+        )}
+        <dt>Factory</dt>
+        <dd>{factoryName(factories, task.factoryId)}</dd>
+        <dt>Stage</dt>
+        <dd>{stageName(task.stage)}</dd>
         {task.attachments.length > 0 && (
           <>
             <dt>Attachments</dt>
@@ -602,9 +688,147 @@ export function TaskDetails({
           </>
         )}
       </dl>
+      {error !== undefined && (
+        <p className={styles.fieldError} role="alert">
+          {error}
+        </p>
+      )}
       <CodeSection task={task} />
       <TaskRuns task={task} onOpenRun={onOpenRun} />
+      <TaskBriefSection task={task} />
     </aside>
+  )
+}
+
+function FieldSelect({
+  label,
+  text,
+  value,
+  options,
+  onChange,
+}: {
+  label: string
+  text: string
+  value: string
+  options: readonly (readonly [string, string])[]
+  onChange: (value: string) => void
+}) {
+  return (
+    <span className={styles.fieldSelect}>
+      <span aria-hidden>{text}</span>
+      <ChevronIcon open className={styles.fieldChevron} />
+      <select
+        aria-label={label}
+        className={styles.fieldSelectControl}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map(([option, name]) => (
+          <option key={option} value={option}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </span>
+  )
+}
+
+function TaskBriefSection({ task }: { task: Task }) {
+  const [open, setOpen] = useState(false)
+  const [history, setHistory] = useState(false)
+  const versions = useDescriptions(task.id)
+  const original = versions?.[0]
+  const edits = (versions?.length ?? 1) - 1
+  return (
+    <section className={styles.briefSection} aria-label="Task brief">
+      <h2 className={styles.sectionHeading}>Task brief</h2>
+      <div className={styles.originalRow}>
+        <button
+          type="button"
+          className={styles.originalToggle}
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <ChevronIcon open={open} />
+          Original request
+        </button>
+        <button type="button" className={styles.linkButton} onClick={() => setHistory(true)}>
+          {edits === 0 ? 'History' : `History · ${edits} ${edits === 1 ? 'edit' : 'edits'}`}
+        </button>
+      </div>
+      {open && (
+        <p className={styles.originalText}>
+          {original === undefined
+            ? 'Loading…'
+            : original.text.trim() !== ''
+              ? original.text
+              : task.source
+                ? `Created from ${task.source.linear?.identifier ?? task.source.url} with no description.`
+                : 'No description.'}
+        </p>
+      )}
+      {history && versions !== undefined && (
+        <DescriptionHistory task={task} versions={versions} onClose={() => setHistory(false)} />
+      )}
+    </section>
+  )
+}
+
+const historyTime = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+
+function DescriptionHistory({
+  task,
+  versions,
+  onClose,
+}: {
+  task: Task
+  versions: readonly DescriptionVersion[]
+  onClose: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const headingId = useId()
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
+  return (
+    <dialog
+      ref={dialog}
+      className={styles.historyDialog}
+      aria-labelledby={headingId}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <header className={styles.historyHead}>
+        <h2 id={headingId} className={styles.historyHeading}>
+          {`${task.displayId} description history`}
+        </h2>
+        <button type="button" className={styles.historyClose} aria-label="Close" onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </header>
+      <ol className={styles.historyList}>
+        {[...versions].reverse().map((v) => (
+          <li key={v.version} className={styles.historyItem}>
+            <p className={styles.historyMeta}>
+              {v.version === 1
+                ? `Original request · ${historyTime.format(new Date(v.at))}`
+                : `Version ${v.version} · edited by you ${historyTime.format(new Date(v.at))}`}
+              {v.version === versions.length && versions.length > 1 ? ' · current' : ''}
+            </p>
+            <p className={styles.historyText}>
+              {v.text.trim() === '' ? 'No description.' : v.text}
+            </p>
+          </li>
+        ))}
+      </ol>
+    </dialog>
   )
 }
 

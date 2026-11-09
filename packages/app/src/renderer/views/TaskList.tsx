@@ -104,6 +104,7 @@ function ending(task: Task): string {
   if (!ended) return ''
   if (ended.kind === 'never-started') return 'Never started'
   if (ended.kind === 'merged') return `Merged ${shortDate(ended.at)}`
+  if (ended.kind === 'pull-request-closed') return 'Pull request closed on GitHub'
   return `Archived from ${stageName(ended.stage)}`
 }
 

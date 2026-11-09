@@ -1,4 +1,4 @@
-import type { ConversationTab } from './chat.ts'
+import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -24,6 +24,10 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
 export type ClarifyDepthChooser = 'human' | 'task-lead'
+
+export function clarifyIsOver(stage: StageId): boolean {
+  return stage !== 'backlog' && stage !== 'intake' && stage !== 'clarify'
+}
 
 export interface SetClarifyDepthRequest {
   depth: ClarifyDepth
@@ -79,6 +83,7 @@ export type CreatedBy = (typeof createdByKinds)[number]
 export type TaskEnding =
   | { kind: 'never-started' }
   | { kind: 'merged'; at: string }
+  | { kind: 'pull-request-closed'; at: string }
   | { kind: 'stopped'; stage: StageId }
 
 export interface TaskArchive {
@@ -231,6 +236,17 @@ export interface SetPriorityRequest {
   priority: Priority
 }
 
+export interface EditTaskRequest {
+  title?: string
+  description?: string
+}
+
+export interface DescriptionVersion {
+  version: number
+  text: string
+  at: string
+}
+
 export type WorktreeCommandOutcome = 'passed' | 'failed' | 'timed-out'
 
 export interface CopySkip {
@@ -283,6 +299,14 @@ export interface TaskPullRequest {
   autoMerge?: MergeMethod
   waiting?: GitHubWait
   signedOff?: string
+  closedOnGitHub?: string
+  preview?: PullRequestPreview
+}
+
+export interface PullRequestPreview {
+  url: string
+  source: 'deployment' | 'status'
+  label: string
 }
 
 export const blockedChoices = ['unblock', 'keep'] as const
@@ -446,6 +470,7 @@ export interface ThreadEvent {
   checkRunId?: string
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
+  changes?: ChatDiff
 }
 
 export interface Judgment {
