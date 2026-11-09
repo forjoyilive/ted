@@ -250,4 +250,55 @@ describe('usage, credentials and cost', () => {
     expect(claudeLaunch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
     expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
   })
+
+  test('under Subscription TED removes what Claude Code’s scrub would, keeping what Claude signs in with', () => {
+    const removed = {
+      ANTHROPIC_API_KEY: 'k',
+      ANTHROPIC_AUTH_TOKEN: 't',
+      AWS_ACCESS_KEY_ID: 'AKIAABCDEFGHIJKLMNOP',
+      AWS_SECRET_ACCESS_KEY: 's',
+      AWS_SESSION_TOKEN: 's',
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/g.json',
+      NPM_TOKEN: 'n',
+      DB_PASSWORD: 'p',
+      MY_PASSWD: 'p',
+      MY_PASS: 'p',
+      MY_SECRET: 's',
+      OPENAI_API_KEY: 'o',
+      MY_APIKEY: 'k',
+      deploy_key: 'k',
+      PRIVATE_KEY_PATH: '/tmp/k',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+      DATABASE_URL: 'postgres://user:pw@db.example.com/app',
+      SESSION: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
+    }
+    const kept = {
+      PATH: '/bin',
+      HOME: '/Users/me',
+      PWD: '/work',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
+      CLAUDE_CONFIG_DIR: '/Users/me/.claude-work',
+      GITHUB_TOKEN: 'g',
+      GH_TOKEN: 'g',
+      GH_ENTERPRISE_TOKEN: 'g',
+      GITHUB_ENTERPRISE_TOKEN: 'g',
+      HTTPS_PROXY: 'http://u:p@proxy:8080',
+      http_proxy: 'http://u:p@proxy:8080',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.file:///x/.insteadOf',
+      GIT_CONFIG_VALUE_0: 'https://github.com/',
+      TED_RUN_CAPABILITY: 'run-1.abc',
+      KEYCHAIN_PATH: '/tmp/kc',
+      TOKENIZERS_PARALLELISM: 'false',
+      AUTHOR_NAME: 'a',
+      AWS_PROFILE: 'dev',
+      SITE_URL: 'https://example.com/x',
+    }
+    const launched = claude.launch({ ...run, env: { ...removed, ...kept } }).env
+    for (const name of Object.keys(removed)) expect(launched[name], name).toBeUndefined()
+    expect(launched).toMatchObject(kept)
+    const apiKey = claude.launch({ ...run, env: { ...removed, ...kept }, billing: 'api-key' }).env
+    expect(apiKey.AWS_SECRET_ACCESS_KEY).toBe('s')
+    expect(apiKey.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+  })
 })

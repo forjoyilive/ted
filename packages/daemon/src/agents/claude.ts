@@ -26,6 +26,51 @@ const boundaryGate =
 
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
+const credentialWords = new Set([
+  'TOKEN',
+  'KEY',
+  'APIKEY',
+  'SECRET',
+  'PASSWORD',
+  'PASSWD',
+  'PASS',
+  'AUTH',
+  'CREDENTIALS',
+])
+
+const keptEnv = new Set([
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CONFIG_DIR',
+  'GITHUB_TOKEN',
+  'GH_TOKEN',
+  'GH_ENTERPRISE_TOKEN',
+  'GITHUB_ENTERPRISE_TOKEN',
+])
+
+const proxyName = /^(https?|all|no)_proxy$/i
+
+function looksLikeCredential(name: string, value: string | undefined): boolean {
+  if (keptEnv.has(name) || proxyName.test(name) || name.startsWith('GIT_CONFIG_')) return false
+  if (
+    name
+      .toUpperCase()
+      .split('_')
+      .some((word) => credentialWords.has(word))
+  )
+    return true
+  if (value === undefined) return false
+  return (
+    /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i.test(value) ||
+    /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/.test(value)
+  )
+}
+
+function withoutCredentials(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(env).filter(([name, value]) => !looksLikeCredential(name, value)),
+  )
+}
+
 const planWindowByType: Record<string, PlanWindowKind> = {
   five_hour: 'five-hour',
   seven_day: 'weekly',
@@ -224,8 +269,9 @@ export function claudeAgent(binary: string): Agent {
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
         env: {
-          ...withoutKeys(env, removedEnv, billing),
-          ...(billing === 'api-key' && { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }),
+          ...(billing === 'api-key'
+            ? { ...env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }
+            : withoutCredentials(env)),
         },
         input: prompt === '' ? '' : userMessage(prompt),
         files: {
