@@ -48,6 +48,7 @@ import type {
   Priority,
   ReportOutcomeRequest,
   ResumeTaskRequest,
+  SetClarifyDepthRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
@@ -115,6 +116,10 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/clarify-depth`, request)
   }
 
   useDefaultModel(ref: string): Promise<Task> {

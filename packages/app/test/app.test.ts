@@ -18,12 +18,13 @@ import { promisify } from 'node:util'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   commitToOrigin,
   hostRecords,
   isAlive,
   makeOriginRepo,
+  removeHome,
   stopDaemonIn,
   waitForExit,
 } from '../../daemon/test/helpers.ts'
@@ -36,6 +37,8 @@ const stubClaudePath = fileURLToPath(
 )
 const electronPath = createRequire(import.meta.url)('electron') as string
 const run = promisify(execFile)
+
+vi.setConfig({ testTimeout: 90_000 })
 
 let home: string
 let app: ElectronApplication | undefined
@@ -54,7 +57,7 @@ afterEach(async () => {
   await closeApp(app)
   app = undefined
   await stopDaemonIn(home)
-  await rm(home, { recursive: true, force: true })
+  await removeHome(home)
 }, 30_000)
 
 const env = () => ({
@@ -759,7 +762,9 @@ describe('TED app frame', () => {
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
-    expect(await appearance.getByRole('radio', { name: 'Light' }).isChecked()).toBe(true)
+    await expect
+      .poll(() => appearance.getByRole('radio', { name: 'Light' }).isChecked(), { timeout: 5_000 })
+      .toBe(true)
   })
 
   test('the Appearance setting applies when the app starts', async () => {
@@ -1382,7 +1387,8 @@ describe('Working Runs', () => {
     await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
 
     const popover = window.getByRole('dialog', { name: 'Working Runs' })
-    await popover.getByText('1 of 1 slots on this Mac').waitFor()
+    const machine = process.platform === 'darwin' ? 'this Mac' : 'this computer'
+    await popover.getByText(`1 of 1 slots on ${machine}`).waitFor()
     const working = popover.getByRole('region', { name: 'Working' })
     await working.getByText('NB-1', { exact: true }).waitFor()
     await working.getByText('widgets · Task Lead').waitFor()
@@ -1539,6 +1545,51 @@ describe('Stop and Resume', () => {
 
     await thread.getByText('You answered: Nudge again').waitFor()
   })
+})
+
+describe('Failed', () => {
+  test('a Task Lead that keeps dying shows Failed, the FAILED ask and the sidebar line; Retry starts again', async () => {
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ resumeFails: true }))
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--start',
+      JSON.stringify({ steps: [{ say: 'Starting.' }, { exit: 1 }] }),
+    )
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.status?.kind, { timeout: 30_000 })
+      .toBe('failed')
+
+    const window = await launchApp()
+    const sidebar = window.getByRole('navigation')
+    await sidebar.getByRole('button', { name: '1 failed' }).click()
+    await taskRow(window, 'NB-1').filter({ hasText: 'Failed' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('Waiting on you to retry').waitFor()
+    await thread.getByText('Resume failed · started a fresh Task Lead Run from the brief').waitFor()
+    const card = thread.getByRole('region', { name: 'FAILED' })
+    await card.getByText('The Task Lead stopped twice in 30 minutes').waitFor()
+    await card.getByText('claude exited with code 1').waitFor()
+
+    await card.getByRole('button', { name: 'Open last Run' }).click()
+    await window.getByRole('region', { name: 'Run chat' }).getByText('Starting.').first().waitFor()
+    await window.getByRole('tab', { name: 'Thread' }).click()
+
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Try a smaller change.')
+    await card.getByRole('button', { name: 'Retry' }).click()
+
+    await thread.getByText('You retried the Task').waitFor()
+    const comments = await client.listComments('NB-1')
+    expect(comments.some((c) => c.body === 'Try a smaller change.')).toBe(true)
+  }, 90_000)
 })
 
 describe('daemon crashes', () => {
@@ -1799,7 +1850,11 @@ describe('running in the background', () => {
           'Quit TED completely',
         ]),
       )
-    if (process.platform === 'linux') expect(await window.title()).toBe('TED (1)')
+    if (process.platform === 'linux') {
+      expect(
+        await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()),
+      ).toBe('TED (1)')
+    }
 
     await app?.evaluate(({ Menu }) => {
       const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
@@ -1862,27 +1917,30 @@ describe('running in the background', () => {
     await expect.poll(checked(startAtLogin)).toBe('false')
   })
 
-  test('when macOS asks for approval, the row says so and opens Login Items', async () => {
-    const window = await launchApp({
-      TED_LOGIN_ITEM_LOG: loginLog(),
-      TED_LOGIN_ITEM_STATUS: 'requires-approval',
-    })
-    await app?.evaluate(({ shell }) => {
-      const opened: string[] = []
-      Object.assign(globalThis, { opened })
-      shell.openExternal = async (url: string) => {
-        opened.push(url)
-      }
-    })
-    await openSettings(window)
+  test.skipIf(process.platform !== 'darwin')(
+    'when macOS asks for approval, the row says so and opens Login Items',
+    async () => {
+      const window = await launchApp({
+        TED_LOGIN_ITEM_LOG: loginLog(),
+        TED_LOGIN_ITEM_STATUS: 'requires-approval',
+      })
+      await app?.evaluate(({ shell }) => {
+        const opened: string[] = []
+        Object.assign(globalThis, { opened })
+        shell.openExternal = async (url: string) => {
+          opened.push(url)
+        }
+      })
+      await openSettings(window)
 
-    await window.getByText('Allow TED in System Settings → Login Items').waitFor()
-    await window.getByRole('button', { name: 'Open System Settings' }).click()
+      await window.getByText('Allow TED in System Settings → Login Items').waitFor()
+      await window.getByRole('button', { name: 'Open System Settings' }).click()
 
-    await expect
-      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
-      .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
-  })
+      await expect
+        .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+        .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
+    },
+  )
 
   test('started with --background, TED runs with no window', async () => {
     app = await electron.launch({
@@ -2001,6 +2059,137 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'Sign-off', exact: true })
       .getByRole('button', { name: 'Approve and merge' })
       .waitFor()
+  })
+
+  test('a Clarify round shows recommended answers, marks a changed one, and Submit answers sends them', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const roundFile = path.join(home, 'round.json')
+    await writeFile(
+      roundFile,
+      JSON.stringify({
+        title: 'Conflicts and sync · 2 questions',
+        summary: 'Each question has my recommended answer filled in.',
+        questions: [
+          {
+            question: 'When a note is edited on two devices offline, what happens?',
+            choices: ['Keep both and let me merge', 'Keep the latest edit'],
+            recommended: 'Keep both and let me merge',
+          },
+          {
+            question: 'If a note is deleted on one device and edited on the other, which wins?',
+            recommended: 'The edit wins.',
+          },
+        ],
+      }),
+    )
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          { run: ['ted', 'outcome', 'advance'] },
+          { run: ['ted', 'clarify', 'depth', 'few', 'two small questions'] },
+          { run: ['ted', 'ask', '--round', roundFile] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Clarify round' })
+    await row.waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
+    await card.getByText('Conflicts and sync · 2 questions').waitFor()
+    const first = card.getByRole('group', { name: /^1\./ })
+    expect(await first.getByRole('radio', { name: /Keep both and let me merge/ }).isChecked()).toBe(
+      true,
+    )
+    expect(await card.getByText('Recommended', { exact: true }).count()).toBe(2)
+    expect(await card.getByRole('button', { name: 'Talk it through' }).isDisabled()).toBe(true)
+    await first.getByText('Keep the latest edit').click()
+    await first.getByText('Changed ·').waitFor()
+    await first.getByRole('button', { name: 'Reset' }).click()
+    expect(await first.getByText('Changed ·').count()).toBe(0)
+    await first.getByText('Keep the latest edit').click()
+    await card.getByRole('textbox', { name: 'Add to answer 1' }).fill('Clashes are rare.')
+    await card.getByRole('button', { name: 'Submit answers' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
+    await answered.getByText('You answered · 1 recommended, 1 changed').waitFor()
+    expect(await answered.getByRole('listitem').allTextContents()).toEqual([
+      '1.Keep the latest edit · Clashes are rare.changed',
+      '2.The edit wins.recommended',
+    ])
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Few · by the Task Lead').waitFor()
+    await thread.getByText('Task Lead picked Clarify depth: Few · two small questions').waitFor()
+  })
+
+  test('the grilling sign-off lists Decisions so far, the open questions and what each button does', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nWhat we decided for offline editing',
+        '## Decisions so far\n\n- Notes save locally first.\n- Warn after 30 days offline.',
+        '## Current state\n\nNothing built.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nDesign the merge view.\n',
+      ].join('\n\n'),
+    )
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          { run: ['ted', 'outcome', 'advance'] },
+          { run: ['ted', 'clarify', 'depth', 'grilling', 'sync touches both repos'] },
+          { run: ['ted', 'brief', 'write', '--file', briefFile] },
+          { run: ['ted', 'outcome', 'advance'] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const row = window
+      .getByRole('region', { name: 'Inbox' })
+      .getByRole('button')
+      .filter({ hasText: 'Sign-off' })
+    await row.waitFor()
+    await row.click()
+    const card = window
+      .getByRole('region', { name: 'Task thread' })
+      .getByRole('region', { name: 'Sign-off', exact: true })
+    const decisions = card.getByRole('region', { name: 'Decisions so far' })
+    expect(await decisions.getByRole('listitem').allTextContents()).toEqual([
+      'Notes save locally first.',
+      'Warn after 30 days offline.',
+    ])
+    await card.getByText('Open questions: None.').waitFor()
+    await card
+      .getByText('Approve moves the Task on. Request changes starts another round.')
+      .waitFor()
+
+    await window.getByRole('button', { name: 'Task actions' }).click()
+    const menu = window.getByRole('menu', { name: 'Task actions' })
+    await menu.getByRole('menuitem', { name: /Clarify depth/ }).hover()
+    await menu.getByRole('menuitemradio', { name: 'Few' }).click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Few · set by you').waitFor()
   })
 
   test('two open requests show “2 waiting on you”; chips and the Inbox pick the pinned card', async () => {
@@ -2307,7 +2496,7 @@ describe('List and All Tasks', () => {
         .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
         .every((t) => t.archived !== undefined),
     )
-    expect(await rowIds(window)).toEqual(['MS-2'])
+    await expect.poll(() => rowIds(window)).toEqual(['MS-2'])
 
     await main.getByRole('button', { name: 'Filter' }).click()
     await main.getByRole('menuitemradio', { name: 'Only' }).click()

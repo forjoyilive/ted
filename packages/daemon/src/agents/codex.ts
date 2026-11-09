@@ -308,6 +308,7 @@ function grantFrom(wanted: unknown): Grant | undefined {
 interface CodexLine {
   id?: unknown
   method?: unknown
+  result?: { thread?: { id?: unknown } }
   params?: {
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
@@ -423,6 +424,13 @@ export function codexAgent(binary: string): Agent {
       if (message?.method !== 'item/completed') return undefined
       const item = message.params?.item
       return item?.type === 'agentMessage' && typeof item.text === 'string' ? item.text : undefined
+    },
+    sessionContinuedFrom(line) {
+      const message = parse(line)
+      return (
+        typeof message?.result?.thread?.id === 'string' ||
+        (message?.method === 'thread/started' && typeof message.params?.thread?.id === 'string')
+      )
     },
     sessionIdFrom(line) {
       const message = parse(line)

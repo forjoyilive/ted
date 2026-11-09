@@ -22,6 +22,7 @@ import {
   type CheckState,
   type CiSignal,
   type ClarifyDepth,
+  type ClarifyDepthChooser,
   type Comment,
   type CommentAnswer,
   type CommentAuthor,
@@ -38,7 +39,9 @@ import {
   type MachineSettings,
   type PermissionMode,
   type Priority,
+  type Round,
   type Run,
+  type RunEnding,
   type RunMessage,
   type RunProblem,
   type RunState,
@@ -115,6 +118,16 @@ export interface RunOutput {
   closedPermissions?: string[]
   autoModeUnavailable?: boolean
   agentRestarted?: boolean
+  ending?: RunEnding
+}
+
+export interface LeadFailure {
+  taskId: string
+  runId: string
+  reason: string
+  recovery: 'resume' | 'fresh' | 'failed'
+  resumeFailed: boolean
+  ask?: { title: string; body: string }
 }
 
 export interface NewPermissionPrompt {
@@ -256,6 +269,7 @@ export interface NewComment {
   kind?: CommentKind
   title?: string
   choices?: string[]
+  round?: Round
   gate?: NonNullable<Comment['gate']>
 }
 
@@ -347,11 +361,17 @@ export interface TedStore {
   stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
   resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
   leadNudged(taskId: string, runId: string): void
+  leadFailed(failure: LeadFailure): Task
+  retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
+  setClarifyDepth(
+    taskId: string,
+    input: { depth: ClarifyDepth; by: ClarifyDepthChooser; runId?: string; why?: string },
+  ): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
@@ -419,6 +439,8 @@ export interface TedStore {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   restartRun(runId: string, flags: RunFlags): Run
+  reviveRun(runId: string): Run
+  lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
@@ -685,6 +707,7 @@ export async function openStore({
   const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
 
   const toTask = ({
+    clarifyDepthBy,
     branch,
     worktree,
     activity,
@@ -699,6 +722,7 @@ export async function openStore({
     stoppedAt,
     stoppedRuns,
     stoppedWhy,
+    failedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -728,6 +752,7 @@ export async function openStore({
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
+      ...(failedAt !== null && { failed: true }),
       ...(stoppedAt !== null && {
         stopped: {
           at: stoppedAt,
@@ -791,6 +816,9 @@ export async function openStore({
       ...row,
       priority: row.priority as Priority,
       clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(clarifyDepthBy !== null
+        ? { clarifyDepthBy: clarifyDepthBy as ClarifyDepthChooser }
+        : row.clarifyDepth !== 'auto' && { clarifyDepthBy: 'human' as const }),
       ...(leadAgent !== null && {
         lead: {
           agent: leadAgent as AgentKind,
@@ -862,6 +890,8 @@ export async function openStore({
     failure,
     permissions,
     manualPermissions,
+    revivedAt,
+    ended,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
@@ -878,6 +908,8 @@ export async function openStore({
     ...(usesDefaultModel && { usesDefaultModel }),
     ...(problem !== null && { problem: problem as RunProblem }),
     ...(taskId !== null && { taskId }),
+    ...(revivedAt !== null && { revivedAt }),
+    ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
   })
 
   const toComment = ({
@@ -886,6 +918,7 @@ export async function openStore({
     stage,
     title,
     choices,
+    round,
     gate,
     answer,
     deliveredRunId,
@@ -893,6 +926,7 @@ export async function openStore({
     readAt,
     permission,
     answerHeld: _,
+    failedRunId,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -904,12 +938,14 @@ export async function openStore({
     ...(stage !== null && { stage: stage as StageId }),
     ...(title !== null && { title }),
     ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+    ...(round !== null && { round: JSON.parse(round) as Round }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(permission !== null && { permission: publicPermission(permission) }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
     ...(deliveredRunId !== null &&
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
     ...(readAt !== null && { readAt }),
+    ...(failedRunId !== null && { failed: { runId: failedRunId } }),
   })
 
   const openPermissionRows = (runId: string, requestId?: string) =>
@@ -1071,11 +1107,11 @@ export async function openStore({
     return comment
   }
   const commentPosted = (
-    { taskId, body, author, kind = 'note', title, choices, gate }: NewComment,
+    { taskId, body, author, kind = 'note', title, choices, round, gate }: NewComment,
     createdAt: string,
   ) => {
     const id = randomUUID()
-    const event = events.commentPostedV2({
+    const fields = {
       id,
       taskId,
       kind,
@@ -1087,7 +1123,11 @@ export async function openStore({
       choices: choices ?? null,
       gate: gate === undefined ? null : JSON.stringify(gate),
       createdAt,
-    })
+    }
+    const event =
+      round === undefined
+        ? events.commentPostedV2(fields)
+        : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
     return { id, event }
   }
   const repoAt = (taskId: string, cwd: string) => {
@@ -1421,6 +1461,37 @@ export async function openStore({
       commit(events.taskLeadNudged({ taskId, runId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask }) {
+      const at = new Date().toISOString()
+      const id = ask && randomUUID()
+      commit(
+        events.taskLeadFailed({
+          taskId,
+          runId,
+          reason,
+          recovery,
+          resumeFailed,
+          rank: recovery === 'fresh' ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null,
+          ask: ask && id ? { id, ...ask } : null,
+          at,
+        }),
+      )
+      if (id) emit({ type: 'comment-posted', comment: requireComment(id) })
+      const task = updatedTask(taskId)
+      if (recovery === 'fresh') updatedQueue(taskId)
+      return task
+    },
+    retryTask(taskId, { waitForBlockers }) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      const at = new Date().toISOString()
+      commit(
+        events.taskRetried({ taskId, rank, at }),
+        ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(
         events.taskWorktreeSetupStarted({
@@ -1513,7 +1584,7 @@ export async function openStore({
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
-        (row) => row.gate !== null && row.stage !== stage,
+        (row) => (row.gate !== null || row.kind === 'round') && row.stage !== stage,
       )
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       commit(
@@ -1563,6 +1634,19 @@ export async function openStore({
           agent,
           model: model ?? null,
           effort: effort ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    setClarifyDepth(taskId, { depth, by, runId, why }) {
+      commit(
+        events.clarifyDepthSet({
+          taskId,
+          depth,
+          by,
+          runId: runId ?? null,
+          why: why ?? null,
           at: new Date().toISOString(),
         }),
       )
@@ -1790,6 +1874,8 @@ export async function openStore({
         manualPermissions: false,
         state: 'working',
         readOffset: 0,
+        revivedAt: null,
+        ended: null,
       })
       emit({ type: 'run-updated', run })
       if (taskId !== undefined) updatedTask(taskId)
@@ -1854,6 +1940,7 @@ export async function openStore({
         closedPermissions = [],
         autoModeUnavailable,
         agentRestarted,
+        ending,
       },
     ) {
       const current = runRow(runId)
@@ -1905,6 +1992,7 @@ export async function openStore({
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
         ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
         ...(stateChanged && target !== undefined
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
@@ -1954,6 +2042,22 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
+    reviveRun(runId) {
+      const at = new Date().toISOString()
+      commit(events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }))
+      const row = runRow(runId)
+      if (!row) throw new Error(`no Run ${runId}`)
+      const run = toRun(row)
+      emit({ type: 'run-updated', run })
+      const taskId = taskIdOfRun(runId)
+      noteActivity()
+      if (taskId !== undefined) updatedTask(taskId)
+      return run
+    },
+    lastOutputAt: (runId) =>
+      store
+        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'desc').limit(1)))
+        .at(0)?.at ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)

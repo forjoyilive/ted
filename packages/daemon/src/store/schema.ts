@@ -38,6 +38,7 @@ export const tasks = State.SQLite.table({
     description: State.SQLite.text({ default: '' }),
     priority: State.SQLite.text({ default: 'none' }),
     clarifyDepth: State.SQLite.text({ default: 'auto' }),
+    clarifyDepthBy: State.SQLite.text({ nullable: true }),
     leadAgent: State.SQLite.text({ nullable: true }),
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
@@ -54,6 +55,7 @@ export const tasks = State.SQLite.table({
     stoppedAt: State.SQLite.text({ nullable: true }),
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
+    failedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -125,6 +127,8 @@ export const runs = State.SQLite.table({
     state: State.SQLite.text(),
     readOffset: State.SQLite.integer(),
     startedAt: State.SQLite.text(),
+    revivedAt: State.SQLite.text({ nullable: true }),
+    ended: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -199,6 +203,7 @@ export const comments = State.SQLite.table({
     stage: State.SQLite.text({ nullable: true }),
     title: State.SQLite.text({ nullable: true }),
     choices: State.SQLite.text({ nullable: true }),
+    round: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
     permission: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
@@ -206,6 +211,7 @@ export const comments = State.SQLite.table({
     deliveredAt: State.SQLite.text({ nullable: true }),
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
+    failedRunId: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -637,6 +643,34 @@ export const events = {
       choices: Schema.NullOr(Schema.Array(Schema.String)),
       gate: Schema.NullOr(Schema.String),
       createdAt: Schema.String,
+    }),
+  }),
+  commentPostedV3: Events.synced({
+    name: 'v3.CommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      authorKind: Schema.String,
+      authorRunId: Schema.NullOr(Schema.String),
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      round: Schema.NullOr(Schema.String),
+      gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  clarifyDepthSet: Events.synced({
+    name: 'v1.ClarifyDepthSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      depth: Schema.String,
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      why: Schema.NullOr(Schema.String),
+      at: Schema.String,
     }),
   }),
   commentAnswered: Events.synced({
@@ -1105,6 +1139,37 @@ export const events = {
     name: 'v1.RunFailed',
     schema: Schema.Struct({ runId: Schema.String, error: Schema.String, at: Schema.String }),
   }),
+  runEnded: Events.synced({
+    name: 'v1.RunEnded',
+    schema: Schema.Struct({ runId: Schema.String, ending: Schema.String, at: Schema.String }),
+  }),
+  runRevived: Events.synced({
+    name: 'v1.RunRevived',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadFailed: Events.synced({
+    name: 'v1.TaskLeadFailed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      reason: Schema.String,
+      recovery: Schema.String,
+      resumeFailed: Schema.Boolean,
+      rank: Schema.NullOr(Schema.Number),
+      ask: Schema.NullOr(
+        Schema.Struct({ id: Schema.String, title: Schema.String, body: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  taskRetried: Events.synced({
+    name: 'v1.TaskRetried',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -1141,7 +1206,11 @@ const runStarted = (args: Args): Logged => ({
 
 const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
-  'v2.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
+  'v2.TaskCreated': (args) => ({
+    taskId: str(args.id),
+    at: String(args.createdAt),
+    data: { clarifyDepth: args.clarifyDepth },
+  }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -1150,6 +1219,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
+  'v1.TaskLeadFailed': (args) =>
+    task(args, {
+      runId: args.runId,
+      reason: args.reason,
+      recovery: args.recovery,
+      resumeFailed: args.resumeFailed,
+    }),
+  'v1.TaskRetried': (args) => task(args),
+  'v1.RunRevived': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
@@ -1172,6 +1250,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     const logged = runStarted(args)
     return { ...logged, data: { ...logged.data, parentRunId: args.parentRunId, name: args.name } }
   },
+  'v1.ClarifyDepthSet': (args) =>
+    task(args, { depth: args.depth, by: args.by, runId: args.runId, why: args.why }),
   'v1.TaskLeadSet': (args) =>
     task(args, { agent: args.agent, model: args.model, effort: args.effort }),
   'v1.TaskWorktreeCreated': (args) =>
@@ -1339,6 +1419,12 @@ const materializers = counted(
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v3.CommentPosted': ({ choices, ...comment }) =>
+        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v1.ClarifyDepthSet': ({ taskId, depth, by, at }) =>
+        tasks
+          .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
+          .where({ id: taskId }),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
@@ -1389,6 +1475,47 @@ const materializers = counted(
         tasks
           .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
           .where({ id: taskId }),
+      'v1.RunEnded': ({ runId, ending }) => runs.update({ ended: ending }).where({ id: runId }),
+      'v1.RunRevived': ({ runId, at }) =>
+        runs
+          .update({ state: 'working', ended: null, problem: null, revivedAt: at })
+          .where({ id: runId }),
+      'v1.TaskLeadFailed': ({ taskId, runId, recovery, rank, ask, at }) => [
+        ...(recovery === 'fresh' && rank !== null
+          ? [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]
+          : []),
+        tasks
+          .update({ changedAt: at, ...(recovery === 'failed' && { failedAt: at }) })
+          .where({ id: taskId }),
+        ...(ask === null
+          ? []
+          : [
+              comments.insert({
+                id: ask.id,
+                taskId,
+                kind: 'question',
+                body: ask.body,
+                title: ask.title,
+                choices: JSON.stringify(['Retry']),
+                authorKind: 'ted',
+                authorRunId: null,
+                failedRunId: runId,
+                createdAt: at,
+              }),
+            ]),
+      ],
+      'v1.TaskRetried': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({
+            failedAt: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+      ],
       'v1.TedCommentPosted': (comment) =>
         comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
       'v1.RunOutputRead': ({ runId, toOffset, entries }) => [

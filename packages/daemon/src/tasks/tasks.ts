@@ -7,6 +7,7 @@ import type {
   CheckRun,
   CheckRunReport,
   CheckRunTrigger,
+  ClarifyDepth,
   Comment,
   CommentAnswer,
   DaemonEvent,
@@ -17,8 +18,10 @@ import type {
   OutcomeResult,
   Priority,
   ReportOutcomeRequest,
+  RoundInput,
   Run,
   RunSlots,
+  SetClarifyDepthRequest,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -73,6 +76,17 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import {
+  alreadyFailed,
+  asksForFreshRun,
+  endingReason,
+  failedAsk,
+  freshAfterFailure,
+  recentFailures,
+  retryChoice,
+  revivedMessage,
+  silentReason,
+} from './failures.ts'
 import { placeBetween } from './order.ts'
 import {
   createPullRequests,
@@ -80,6 +94,15 @@ import {
   type PullRequestTask,
 } from './pull-requests.ts'
 import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  clarifySignoffCaption,
+  depthNames,
+  depthOrder,
+  pickDepth,
+  roundAnswerMessage,
+  roundAnswerSummary,
+  roundAnswers,
+} from './rounds.ts'
 import { createSubAgents } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import {
@@ -120,8 +143,9 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[]; supersedes?: string },
+    input: { body: string; choices?: string[]; round?: RoundInput; supersedes?: string },
   ): Promise<Comment>
+  setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
   setActivity(ref: string, caller: Caller, text: string): Task
@@ -163,6 +187,7 @@ export function createTasks(options: {
   idle?: IdleTimer
   gh?: Gh
   nudgeAfterMs?: number
+  stallAfterMs?: number
 }): Tasks {
   const {
     store,
@@ -187,6 +212,11 @@ export function createTasks(options: {
   const stoppingByHand = new Set<string>()
   const nudgeTimers = new Map<string, NodeJS.Timeout>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
+  const stallAfterMs = options.stallAfterMs ?? 30 * 60_000
+  const silent = new Map<string, string>()
+  const pausedAt = new Map<string, number>()
+  const recovering = new Set<string>()
+  const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -291,15 +321,35 @@ export function createTasks(options: {
     })
   }
 
+  function revivesReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return [...awaitingRevive].flatMap((taskId) => {
+      const pending = pendingRevive(taskId)
+      if (!pending) {
+        awaitingRevive.delete(taskId)
+        return []
+      }
+      if (paused[pending.run.agent] !== undefined || holds.has(taskId)) return []
+      return [{ id: taskId, kind: 'task' as const, rank: -1, factoryId: pending.task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
     if (store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0) return
-    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    if (queued.length === 0 && held.length === 0 && revives.length === 0) return
+    const { use } = await slotUse(
+      [...revives, ...held, ...queued].flatMap((q) => q.factoryId ?? []),
+    )
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
-      if (heldIds.has(entry.id)) relaunch(entry.id)
+    const reviveIds = new Set(revives.map((r) => r.id))
+    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (reviveIds.has(entry.id)) {
+        awaitingRevive.delete(entry.id)
+        inBackground('resume a Task Lead session', () => reviveLead(entry.id))
+      } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
@@ -1015,6 +1065,93 @@ export function createTasks(options: {
     }
   }
 
+  function roundsThisVisit(task: Task): Comment[] {
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .filter((c) => c.kind === 'round' && c.stage === 'clarify' && c.createdAt >= since)
+  }
+
+  function openRound(task: Task): Comment | undefined {
+    return store.listComments(task.id).find((c) => c.kind === 'round' && c.answer === undefined)
+  }
+
+  function humanDepth(taskId: string): ClarifyDepth | undefined {
+    const set = store
+      .taskLog(taskId)
+      .findLast(
+        (e) =>
+          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
+      )
+    const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
+    return depth === 'auto' ? undefined : depth
+  }
+
+  async function postRound(
+    task: StoredTask,
+    runId: string,
+    input: RoundInput,
+    supersedes: string | undefined,
+  ): Promise<Comment> {
+    if (task.leadRunId !== runId) throw new RequestError(403, 'only the Task Lead posts a round')
+    if (task.stage !== 'clarify') {
+      throw new RequestError(
+        409,
+        `rounds are for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
+      )
+    }
+    if (task.clarifyDepth === 'auto') {
+      throw new RequestError(409, `pick a Clarify depth first with \`${pickDepth}\``)
+    }
+    if (task.clarifyDepth === 'none') {
+      throw new RequestError(
+        409,
+        `Clarify depth is None, which asks no questions; change it with \`${pickDepth}\` first`,
+      )
+    }
+    return holding(task, async () => {
+      const old = supersedes === undefined ? undefined : store.getComment(supersedes)
+      if (supersedes !== undefined) {
+        if (!old || old.taskId !== task.id) {
+          throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+        }
+        if (old.kind !== 'round') throw new RequestError(400, 'a round can replace only a round')
+        if (!postedBy(old, task, runId)) {
+          throw new RequestError(403, 'a Run can supersede only its own requests')
+        }
+        if (old.answer) throw new RequestError(409, 'that request has already been answered')
+      } else {
+        const open = openRound(task)
+        if (open) {
+          throw new RequestError(
+            409,
+            `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+          )
+        }
+        const answered = roundsThisVisit(task).some((c) => c.answer?.kind === 'answered')
+        if (task.clarifyDepth === 'few' && answered) {
+          throw new RequestError(
+            409,
+            'Clarify depth is Few, which asks one round; to ask more, switch to grilling with `ted clarify depth grilling "<why>"`',
+          )
+        }
+      }
+      const numbers = store.listComments(task.id).map((c) => c.round?.number ?? 0)
+      const comment = {
+        taskId: task.id,
+        kind: 'round' as const,
+        title: input.title,
+        body: input.summary ?? '',
+        author: { kind: 'run' as const, runId },
+        round: {
+          number: old?.round?.number ?? Math.max(0, ...numbers) + 1,
+          questions: input.questions,
+        },
+      }
+      return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
+    })
+  }
+
   async function humanComment(task: StoredTask, body: string): Promise<Comment> {
     const posted = store.postComment({ taskId: task.id, body, author: { kind: 'human' } })
     const run = liveLead(find(task.id))
@@ -1177,6 +1314,32 @@ export function createTasks(options: {
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
+  }
+
+  async function answerRound(task: Task, comment: Comment, request: AnswerRequest) {
+    if (!comment.round) throw new RequestError(409, 'this round has no questions')
+    const answers = roundAnswers(comment.round, request)
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer?.kind === 'superseded') {
+        throw new RequestError(409, 'this request was replaced by a newer one')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        answers,
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        roundAnswerMessage(comment, answers, find(task.id).clarifyDepth),
+      )
+      return answered
+    })
   }
 
   async function move(
@@ -1444,9 +1607,7 @@ export function createTasks(options: {
 
   function pendingPickUp(task: StoredTask): string | undefined {
     const log = store.taskLog(task.id)
-    const asked = log.findLastIndex(
-      (e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers',
-    )
+    const asked = log.findLastIndex(asksForFreshRun)
     const started = log.findLastIndex(
       (e) => e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted',
     )
@@ -1459,9 +1620,10 @@ export function createTasks(options: {
   }
 
   function freshRunNote(task: StoredTask): string {
-    const last = store
-      .taskLog(task.id)
-      .findLast((e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers')
+    const last = store.taskLog(task.id).findLast(asksForFreshRun)
+    if (last?.name === 'v1.TaskRetried' || last?.name === 'v1.TaskLeadFailed') {
+      return fromTheBrief(task, freshAfterFailure(last))
+    }
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
@@ -1581,12 +1743,21 @@ export function createTasks(options: {
 
   async function leadStopped(run: Run): Promise<void> {
     if (run.taskId === undefined) return
+    const silence = silent.get(run.id)
+    silent.delete(run.id)
+    pausedAt.delete(run.id)
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
       return
     }
     const [checked] = await health.check([run.agent])
-    if (checked?.state === 'ready') return
+    if (checked?.state === 'ready') {
+      const ended = store.getRun(run.id)?.ended
+      if (silence !== undefined || (ended !== undefined && ended.how !== 'stopped')) {
+        await leadFailed(run.id, silence)
+      }
+      return
+    }
     const now = store.getTask(task.id)
     if (!now || now.leadRunId !== run.id || now.stage === 'done') return
     if (now.waitsForBlockers || now.stopped) return
@@ -1595,6 +1766,125 @@ export function createTasks(options: {
       agent: run.agent,
       ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
     })
+  }
+
+  async function leadFailed(runId: string, silence?: string): Promise<void> {
+    if (recovering.has(runId)) return
+    recovering.add(runId)
+    try {
+      await recover(runId, silence)
+    } finally {
+      recovering.delete(runId)
+    }
+  }
+
+  async function recover(runId: string, silence?: string): Promise<void> {
+    const run = store.getRun(runId)
+    if (!run?.taskId || run.state !== 'finished') return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
+    if (task.stage === 'backlog' || task.stage === 'done' || task.waitsForBlockers) return
+    if (task.status?.kind === 'failed' || stoppingByHand.has(task.id)) return
+    if (stoppingForBlockers.has(task.id) || store.queue().some((q) => q.id === task.id)) return
+    if (store.heldRuns().some((h) => h.taskId === task.id)) return
+    const log = store.taskLog(task.id)
+    if (alreadyFailed(log, run.id, run.revivedAt ?? run.startedAt)) return
+    const ended = run.ended
+    const reason = silence ?? endingReason(ended)
+    const resumeFailed = silence === undefined && ended?.resumeFailed === true
+    const now = Date.now()
+    const earlier = recentFailures(log, now)
+    const canResume =
+      run.sessionId !== undefined &&
+      (task.lead?.agent ?? run.agent) === run.agent &&
+      store.newWorkHold() === undefined
+    const recovery = resumeFailed
+      ? 'fresh'
+      : earlier.length > 0
+        ? 'failed'
+        : canResume
+          ? 'resume'
+          : 'fresh'
+    const first = earlier[0]
+    store.leadFailed({
+      taskId: task.id,
+      runId: run.id,
+      reason,
+      recovery,
+      resumeFailed,
+      ...(recovery === 'failed' && {
+        ask: failedAsk(run.agent, first ? log.slice(log.indexOf(first)) : [], reason, ended, now),
+      }),
+    })
+    if (recovery === 'resume') awaitingRevive.add(task.id)
+    void pump()
+  }
+
+  function pendingRevive(
+    taskId: string,
+  ): { task: StoredTask; run: Run; reason: string } | undefined {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
+    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    const last = store.taskLog(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
+    if (last?.data.recovery !== 'resume') return undefined
+    const run = store.getRun(String(last.data.runId))
+    if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
+    if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
+    return { task, run, reason: String(last.data.reason) }
+  }
+
+  async function reviveLead(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    const pending = pendingRevive(taskId)
+    if (!pending) return release()
+    const { task, run, reason } = pending
+    try {
+      const repo = task.repos.find((r) => !r.removed)
+      const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
+      await runs.revive(run.id, {
+        prompt: revivedMessage(reason),
+        env: { ...env, TED_TASK: task.displayId },
+      })
+      await sendWaiting(task.id)
+    } catch (error) {
+      console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
+      const now = store.getTask(task.id)
+      if (now && !now.stopped && !now.archived && store.getRun(run.id)?.state === 'finished') {
+        store.leadFailed({
+          taskId: task.id,
+          runId: run.id,
+          reason,
+          recovery: 'fresh',
+          resumeFailed: true,
+        })
+      }
+    } finally {
+      release()
+    }
+  }
+
+  function checkSilence(): void {
+    if (closed) return
+    const paused = store.agentPauses()
+    const now = Date.now()
+    for (const run of store.listRuns()) {
+      if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
+        if (run.state !== 'working') pausedAt.delete(run.id)
+        continue
+      }
+      if (store.getTask(run.taskId)?.leadRunId !== run.id) continue
+      if (paused[run.agent] !== undefined) {
+        pausedAt.set(run.id, now)
+        continue
+      }
+      const heard = [store.lastOutputAt(run.id), run.revivedAt, run.startedAt]
+        .flatMap((at) => (at === undefined ? [] : [Date.parse(at)]))
+        .concat(pausedAt.get(run.id) ?? [], runs.lastHeard(run.id) ?? [])
+      if (now - Math.max(...heard) < stallAfterMs) continue
+      silent.set(run.id, silentReason(stallAfterMs))
+      inBackground('stop a silent Task Lead', () => runs.stop(run.id))
+    }
   }
 
   async function stopByHand(ref: string): Promise<Task> {
@@ -1636,7 +1926,16 @@ export function createTasks(options: {
     }
     const text = comment?.trim() ?? ''
     if (text !== '') store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
-    store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
+    const waitForBlockers = unmergedBlockers(task.id).length > 0
+    if (task.status?.kind === 'failed') {
+      const at = new Date().toISOString()
+      for (const ask of openRequests(task.id).filter((c) => c.failed !== undefined)) {
+        store.answerComment(ask.id, { kind: 'answered', at, choice: retryChoice })
+      }
+      store.retryTask(task.id, { waitForBlockers })
+    } else {
+      store.resumeTask(task.id, { waitForBlockers })
+    }
     await pump()
     return publicTask(task.id)
   }
@@ -1733,8 +2032,9 @@ export function createTasks(options: {
       if (timer) clearTimeout(timer)
       nudgeTimers.delete(run.id)
       setImmediate(() => {
+        if (closed) return
         const now = store.getRun(run.id)
-        if (now && !closed) watchIdle(now)
+        if (now) watchIdle(now)
       })
     },
     finished(run) {
@@ -1784,6 +2084,20 @@ export function createTasks(options: {
   for (const run of store.listRuns()) {
     if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
+
+  for (const task of store.listTasks()) {
+    if (pendingRevive(task.id)) {
+      awaitingRevive.add(task.id)
+      continue
+    }
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    }
+  }
+
+  const silenceTimer = setInterval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))
+  silenceTimer.unref()
 
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
     store.finishChecks(checkRun.id, 'interrupted')
@@ -2003,9 +2317,10 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [], supersedes }) {
+    async comment(ref, caller, { body, choices = [], round, supersedes }) {
       if (caller.kind === 'daemon') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
@@ -2013,13 +2328,14 @@ export function createTasks(options: {
       }
       const { task, runId } = ownTask(ref, caller)
       if (store.getRun(runId)?.parentRunId !== undefined) {
-        if (choices.length > 0 || supersedes !== undefined) {
+        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
             403,
             'a sub-agent can post only plain notes; tell the Task Lead what to ask in your final message',
           )
         }
       }
+      if (round !== undefined) return postRound(task, runId, round, supersedes)
       if (supersedes === undefined) {
         return store.postComment({
           taskId: task.id,
@@ -2033,6 +2349,7 @@ export function createTasks(options: {
         throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
       }
       if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
+      if (old.kind === 'round') throw new RequestError(400, 'replace a round with another round')
       if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
@@ -2048,6 +2365,49 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           ...(choices.length > 0 && { choices }),
         })
+      })
+    },
+
+    async setClarifyDepth(ref, caller, { depth, why }) {
+      if (caller.kind === 'daemon') {
+        const task = find(ref)
+        if (task.archived || task.stage === 'done') {
+          throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
+        }
+        const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
+        if (liveLead(find(task.id))) {
+          await deliver(
+            task,
+            depth === 'auto'
+              ? 'The human set Clarify depth back to Auto. Pick one yourself at Clarify.'
+              : `The human set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
+          )
+        }
+        return set
+      }
+      const { task, runId } = ownTask(ref, caller)
+      if (task.leadRunId !== runId) {
+        throw new RequestError(403, 'only the Task Lead picks the Clarify depth')
+      }
+      if (task.stage !== 'clarify') {
+        throw new RequestError(
+          409,
+          `pick the Clarify depth at Clarify; ${task.displayId} is in ${stageTitle(task.stage)}`,
+        )
+      }
+      if (depth === 'auto') throw new RequestError(400, 'pick none, few or grilling')
+      const floor = humanDepth(task.id)
+      if (floor !== undefined && depthOrder.indexOf(depth) < depthOrder.indexOf(floor)) {
+        throw new RequestError(
+          403,
+          `the human set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
+        )
+      }
+      return store.setClarifyDepth(task.id, {
+        depth,
+        by: 'task-lead',
+        runId,
+        ...(why !== undefined && { why }),
       })
     },
 
@@ -2110,6 +2470,10 @@ export function createTasks(options: {
       if (!comment) throw new RequestError(404, `no Comment ${id}`)
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
+      if (comment.kind === 'round') return answerRound(task, comment, request)
+      if (request.action === 'answer-round' || request.action === 'accept-recommended') {
+        throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
+      }
       const text = request.text?.trim() ?? ''
       if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
@@ -2126,6 +2490,14 @@ export function createTasks(options: {
         throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
+      }
+      if (comment.failed !== undefined && comment.answer === undefined) {
+        if (request.action === 'answer' && request.choice === retryChoice) {
+          await resumeByHand(task.id, { comment: text })
+        } else {
+          await humanComment(find(task.id), text)
+        }
+        return store.getComment(id) ?? comment
       }
       return holding(task, async () => {
         const current = store.getComment(id)
@@ -2145,7 +2517,9 @@ export function createTasks(options: {
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
-              `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+              comment.stage === 'clarify'
+                ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
+                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
             ].join('\n\n'),
           )
           return answered
@@ -2242,6 +2616,13 @@ export function createTasks(options: {
         const resolution = await resolveWorkflow(factoryOf(current))
         const { workflow } = resolution
         if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        const waiting = stage === 'clarify' ? openRound(current) : undefined
+        if (waiting) {
+          throw new RequestError(
+            409,
+            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+          )
+        }
         if (outcome.skip === true) {
           if (!skippableStages.includes(stage)) {
             throw new RequestError(
@@ -2264,7 +2645,10 @@ export function createTasks(options: {
             author: { kind: 'ted' },
           })
         }
-        const gate = workflow.settings.stages[stage]?.gate === true && outcome.skip !== true
+        const gate =
+          (workflow.settings.stages[stage]?.gate === true ||
+            (stage === 'clarify' && current.clarifyDepth === 'grilling')) &&
+          outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
           if (stage === 'validate') pullRequestWork(task.id, 'again')
@@ -2276,7 +2660,7 @@ export function createTasks(options: {
           )
           return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
         }
-        const name = `${stageTitle(stage)} Gate`
+        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} Gate`
         if (openGateRequest(current)) {
           throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
         }
@@ -2409,6 +2793,7 @@ export function createTasks(options: {
     async close() {
       closed = true
       subAgents.close()
+      clearInterval(silenceTimer)
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
       nudgeTimers.clear()
       unsubscribe()
@@ -2436,11 +2821,13 @@ function latest(a: string, b: string): string {
 }
 
 function gateName(comment: Comment): string {
+  if (comment.stage === 'clarify') return 'Clarify sign-off'
   return `${stageTitle(comment.stage ?? '')} Gate`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
   if (stage === 'merge') return { approveLabel: 'Merge' }
+  if (stage === 'clarify') return { approveLabel: 'Approve', caption: clarifySignoffCaption }
   if (stage !== 'review') return { approveLabel: 'Approve' }
   if (!workflow.stages.includes('merge')) {
     return {
@@ -2519,6 +2906,9 @@ function answerText(comment: Comment): string | undefined {
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
+  if (answer.kind === 'answered' && answer.answers) {
+    return roundAnswerSummary(comment, answer.answers)
+  }
   if (answer.kind === 'answered') {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
   }
