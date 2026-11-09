@@ -58,6 +58,24 @@ export function splitApprovedMessage(input: {
   ].join('\n\n')
 }
 
+export function splitApprovedSummary(
+  proposal: Proposal,
+  created: ProposalCreated,
+  text: string | undefined,
+): string {
+  const made = created.tasks.map((t) => `${t.displayId} (row ${t.row})`).join(', ')
+  const first = proposal.firstPiece ? proposal.rows[0] : undefined
+  return [
+    `approved the split; TED created ${made} in Backlog`,
+    ...(first
+      ? [
+          `this Task is now row 1, “${first.title}”: ${first.description ?? first.scope} Carry on with Clarify for it and leave the other pieces to their own Task Leads`,
+        ]
+      : []),
+    ...(text !== undefined && text !== '' ? [`adding: ${text}`] : []),
+  ].join('; ')
+}
+
 export function planOutsideNote(why: string, sizeCheck: SizeCheck): string {
   return [
     'This Task is too big for one pull request per repo, so the human is planning it outside TED.',

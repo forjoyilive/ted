@@ -1,5 +1,6 @@
 import { type Proposal, planProposal } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
+import { splitApprovedSummary } from '../src/tasks/split.ts'
 
 const row = (title: string, blockedBy: number[] = []) => ({
   title,
@@ -56,5 +57,25 @@ describe('planProposal', () => {
     const plan = planProposal({ rows: [row('A', [3]), row('B', [1]), row('C')] }, [])
     expect(plan.order).toEqual([3, 1, 2])
     expect(plan.creates).toBe(3)
+  })
+})
+
+describe('splitApprovedSummary', () => {
+  test('a held approval still tells the next Run which Tasks exist and what row 1 is', () => {
+    const summary = splitApprovedSummary(
+      split,
+      {
+        tasks: [
+          { row: 2, id: 'a', displayId: 'NB-42' },
+          { row: 5, id: 'b', displayId: 'NB-43' },
+        ],
+        skipped: [3, 4],
+        startUnblocked: false,
+      },
+      'Keep it small.',
+    )
+    expect(summary).toBe(
+      'approved the split; TED created NB-42 (row 2), NB-43 (row 5) in Backlog; this Task is now row 1, “Local note cache”: Local note cache scope Carry on with Clarify for it and leave the other pieces to their own Task Leads; adding: Keep it small.',
+    )
   })
 })

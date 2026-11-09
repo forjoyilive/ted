@@ -185,6 +185,7 @@ import {
   proposalChangesMessage,
   sizeCheckTitle,
   splitApprovedMessage,
+  splitApprovedSummary,
   splitChosenMessage,
 } from './split.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
@@ -4727,6 +4728,13 @@ export function createTasks(options: {
       inBackground(`finish archiving ${task.displayId}`, () => clearing(task.id))
       continue
     }
+    if (
+      task.markers.some((m) => m.kind === 'needs-planning') &&
+      (task.runs.length > 0 || task.repos.some((r) => !r.removed))
+    ) {
+      inBackground(`move ${task.displayId} to Backlog for planning`, () => clearing(task.id))
+      continue
+    }
     if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
@@ -5886,6 +5894,9 @@ function flat(text: string): string {
 function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
+  if (answer.kind === 'approved' && answer.created && comment.proposal) {
+    return splitApprovedSummary(comment.proposal, answer.created, answer.text)
+  }
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
