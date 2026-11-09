@@ -8,13 +8,14 @@ import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
-import { openInTerminal } from './health/terminal.ts'
 import { startIdleTimer } from './idle.ts'
+import { createIntegrations } from './integrations.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { createTasks } from './tasks/tasks.ts'
+import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
@@ -25,10 +26,21 @@ export interface DaemonOptions {
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
-  loginShell?: boolean
-  openTerminal?: (command: string, env: NodeJS.ProcessEnv) => Promise<void>
+  checkAgentsOnStart?: boolean
   healthIntervalMs?: number
   fixPollMs?: number
+  integrations?: DaemonIntegrationsOptions
+  onShutdown?: () => void
+}
+
+export interface DaemonIntegrationsOptions {
+  checkOnStart?: boolean
+  ghBin?: string
+  gitBin?: string
+  loginShell?: boolean
+  openTerminal?: OpenTerminal
+  checkEveryMs?: number
+  watchAfterFix?: { everyMs: number; forMs: number }
 }
 
 export interface RunningDaemon {
@@ -45,23 +57,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw error
   })
-  const environment = createEnvironment({ loginShell: options.loginShell ?? false })
+  const given = options.integrations ?? {}
+  const environment = createEnvironment({ loginShell: given.loginShell ?? false })
   const environmentRead = environment.reload()
   const agents = createAgents({
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
     env: environment.current,
   })
-  const openTerminal =
-    options.openTerminal ??
-    ((command: string, env: NodeJS.ProcessEnv) =>
-      openInTerminal({ command, env, scriptsDir: paths.fixScripts }))
+  const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
   const attachments = createAttachments(paths.attachments)
   const data = createData({
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
-    async startServices(store) {
+    async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
         home: paths.home,
@@ -80,9 +90,22 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         home: paths.home,
         runEnv: () => runs.environment(),
         openTerminal,
+        emit,
         ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
         ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
       })
+      const integrations = createIntegrations({
+        store,
+        banners,
+        emit,
+        openTerminal,
+        loginShell: given.loginShell ?? false,
+        ...(given.ghBin !== undefined && { ghBin: given.ghBin }),
+        ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
+        ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
+        ...(given.watchAfterFix !== undefined && { watchAfterFix: given.watchAfterFix }),
+      })
+      if (given.checkOnStart) integrations.start()
       const workflows = createWorkflows({
         store,
         banners,
@@ -103,22 +126,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         reposDir: paths.repos,
         worktreesDir: paths.worktrees,
-        defaultLead: () => agents.defaultLead(),
+        agents,
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         logsDir: paths.logs,
         ...(idle && { idle }),
       })
-      health.check().catch((error: unknown) => console.error('agent health check failed:', error))
+      if (options.checkAgentsOnStart) {
+        health.check().catch((error: unknown) => console.error('agent health check failed:', error))
+      }
       return {
         runs,
         tasks,
         banners,
         workflows,
         health,
-        subscribe: (listener) => health.subscribe(listener),
+        integrations,
         async close() {
           health.close()
+          integrations.close()
           await tasks.close()
           await runs.close()
         },
@@ -135,6 +161,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     runTokens,
     attachments,
     reposDir: paths.repos,
+    appStreams: new Set(),
+    onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
     ...(idle && { idle }),
   })

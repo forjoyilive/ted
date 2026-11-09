@@ -1,3 +1,4 @@
+import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
 import { tedHome, tedVersion } from '@ted/protocol'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
@@ -21,9 +22,19 @@ try {
   daemon = await startDaemon({
     home: tedHome(),
     version: tedVersion,
-    loginShell: true,
+    onShutdown: () => void shutdown(),
+    checkAgentsOnStart: true,
     ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
     ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
+    integrations: {
+      checkOnStart: true,
+      loginShell: process.env.TED_LOGIN_SHELL !== 'off',
+      ...(process.env.TED_GH_BIN && { ghBin: process.env.TED_GH_BIN }),
+      ...(process.env.TED_FIX_LOG && {
+        openTerminal: (command: string) =>
+          appendFile(process.env.TED_FIX_LOG as string, `${command}\n`),
+      }),
+    },
     ...(values['exit-when-idle'] && {
       idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
     }),

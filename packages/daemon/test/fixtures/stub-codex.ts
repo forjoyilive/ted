@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -59,6 +59,17 @@ const send = (message: Message) => process.stdout.write(`${JSON.stringify(messag
 const notify = (method: string, params: Record<string, unknown>) => send({ method, params })
 
 let threadId = ''
+let threadModel = ''
+
+const models = [
+  { model: 'gpt-6-astra', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true },
+  { model: 'gpt-6-mini', efforts: ['low', 'medium'], isDefault: false },
+].map(({ model, efforts, isDefault }) => ({
+  id: model,
+  model,
+  isDefault,
+  supportedReasoningEfforts: efforts.map((reasoningEffort) => ({ reasoningEffort })),
+}))
 let initialized = false
 let nextRequest = 1000
 const answers = new Map<number, (message: Message) => void>()
@@ -121,6 +132,7 @@ function openThread(id: number | string, thread: string): void {
 
 for await (const line of createInterface({ input: process.stdin })) {
   const message = JSON.parse(line) as Message
+  appendFileSync('stub-requests.jsonl', `${line}\n`)
   if (message.method === undefined && typeof message.id === 'number') {
     answers.get(message.id)?.(message)
     continue
@@ -132,10 +144,33 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (message.method === 'initialized') {
   } else if (!initialized) {
     send({ id, error: { code: -32600, message: 'Not initialized' } })
+  } else if (message.method === 'model/list') {
+    send({ id, result: { data: models, nextCursor: null } })
   } else if (message.method === 'thread/start') {
+    threadModel = String(message.params?.model ?? '')
     openThread(id, `0199a000-0000-7000-8000-${randomUUID().slice(-12)}`)
   } else if (message.method === 'thread/resume') {
+    threadModel = String(message.params?.model ?? '')
     openThread(id, String(message.params?.threadId))
+  } else if (
+    message.method === 'turn/start' &&
+    `${threadModel} ${message.params?.model ?? ''}`.includes('unavailable')
+  ) {
+    send({ id, result: { turn: { id: 'turn-1', status: 'inProgress', items: [] } } })
+    notify('turn/started', { threadId, turn: { id: 'turn-1', status: 'inProgress', items: [] } })
+    status({ type: 'active', activeFlags: [] })
+    status({ type: 'systemError' })
+    const error = {
+      message: JSON.stringify({
+        type: 'error',
+        status: 400,
+        error: { message: 'The model is not supported.', code: 'model_not_found' },
+      }),
+      codexErrorInfo: 'other',
+    }
+    notify('error', { error, willRetry: false, threadId, turnId: 'turn-1' })
+    notify('turn/completed', { threadId, turn: { id: 'turn-1', status: 'failed', error } })
+    status({ type: 'idle' })
   } else if (
     message.method === 'turn/start' &&
     JSON.stringify(message.params).includes('reject-turn')

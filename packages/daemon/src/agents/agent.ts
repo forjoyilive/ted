@@ -1,4 +1,4 @@
-import type { AgentKind, RunState } from '@ted/protocol'
+import type { AgentKind, Effort, RunProblem, RunState } from '@ted/protocol'
 
 export interface AgentLaunch {
   command: string
@@ -39,10 +39,13 @@ export interface Agent {
     runDir: string
     env: NodeJS.ProcessEnv
     resume?: string
+    model?: string
+    effort?: Effort
   }): AgentLaunch
   message(text: string): string
   stateFrom(line: string): RunState | undefined
   sessionIdFrom(line: string): string | undefined
+  problemFrom(line: string): RunProblem | undefined
   tokensFrom(line: string): TokenCount | undefined
   authErrorFrom(line: string): boolean
   environment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv

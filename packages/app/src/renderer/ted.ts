@@ -10,18 +10,26 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  IntegrationsHealth,
   LogText,
   MachineSettings,
   Profile,
   RestoreBackupResult,
+  Run,
+  RunFixRequest,
+  RunFixResult,
   StageEntry,
   Task,
   TaskDefaults,
+  TaskLead,
 } from '@ted/protocol'
+import type { MenuCommand } from '../background.ts'
+
+export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
-  onEvent(listener: (event: DaemonEvent) => void): () => void
+  onEvent(listener: (event: TedEvent) => void): () => void
 }
 
 declare global {
@@ -34,6 +42,11 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  setTaskLead: (taskId: string, lead: TaskLead) =>
+    window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  pickDefaultModel: (taskId: string) =>
+    window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
@@ -72,5 +85,9 @@ export const ted = {
   agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
   checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
-  onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
+  getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
+  checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
+  runFix: (request: RunFixRequest) =>
+    window.ted.request('runFix', request) as Promise<RunFixResult>,
+  onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }

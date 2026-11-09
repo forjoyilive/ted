@@ -5,6 +5,7 @@ import { AgentsPage } from './AgentsPage.tsx'
 import { SettingsPage } from './controls.tsx'
 import { DeveloperPage } from './DeveloperPage.tsx'
 import { GeneralPage } from './GeneralPage.tsx'
+import { IntegrationsPage } from './IntegrationsPage.tsx'
 import styles from './settings.module.css'
 
 export interface SettingsPageProps {
@@ -30,7 +31,7 @@ export const settingsSections: readonly SettingsSection[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'agents', label: 'Agents', Page: AgentsPage },
   { id: 'limits', label: 'Limits' },
-  { id: 'integrations', label: 'Integrations' },
+  { id: 'integrations', label: 'Integrations', Page: IntegrationsPage },
   { id: 'library', label: 'Library' },
   { id: 'storage', label: 'Storage' },
   { id: 'developer', label: 'Developer', Page: DeveloperPage },

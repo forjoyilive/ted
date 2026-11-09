@@ -11,10 +11,13 @@ import {
   runsPaused,
 } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
+import { compareVersions } from '../backups.ts'
 import type { Banners } from '../banners.ts'
+import { findBinSync } from '../cli-env.ts'
 import { RequestError } from '../errors.ts'
 import type { TedStore } from '../store/index.ts'
-import { findExecutable, isBelow, runCli, versionIn } from './cli.ts'
+import type { OpenTerminal } from '../terminal.ts'
+import { runCli, versionIn } from './cli.ts'
 import type { Environment } from './environment.ts'
 
 export const healthIntervalMs = 10 * 60 * 1000
@@ -29,7 +32,6 @@ export interface AgentHealthMonitor {
   authFailed(kind: AgentKind): void
   fix(kind: AgentKind): Promise<AgentHealth>
   onReady(listener: (kind: AgentKind) => void): void
-  subscribe(listener: (event: DaemonEvent) => void): () => void
   close(): void
 }
 
@@ -40,7 +42,8 @@ export interface AgentHealthOptions {
   banners: Banners
   home: string
   runEnv: () => NodeJS.ProcessEnv
-  openTerminal: (command: string, env: NodeJS.ProcessEnv) => Promise<void>
+  openTerminal: OpenTerminal
+  emit?: (event: DaemonEvent) => void
   intervalMs?: number
   fixPollMs?: number
 }
@@ -50,13 +53,10 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   const latest = new Map<AgentKind, AgentHealth>()
   const checking = new Map<AgentKind, Promise<AgentHealth>>()
   const readyListeners = new Set<(kind: AgentKind) => void>()
-  const listeners = new Set<(event: DaemonEvent) => void>()
   const watches = new Map<AgentKind, NodeJS.Timeout>()
   let closed = false
 
-  const emit = (event: DaemonEvent) => {
-    for (const listener of listeners) listener(event)
-  }
+  const emit = (event: DaemonEvent) => options.emit?.(event)
 
   function withCount(health: AgentHealth): AgentHealth {
     return { ...health, pausedRuns: store.pausedRunCount(health.agent) }
@@ -87,13 +87,13 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
         checkedAt: new Date().toISOString(),
       }
     }
-    const binary = findExecutable(agent.binary, env)
+    const binary = findBinSync(agent.binary, env)
     if (!binary) return done('not-installed')
     const cli = (args: string[]) => runCli(binary, args, { env, cwd: home })
     const versionRun = await cli(spec.versionArgs)
     const version = versionIn(versionRun.stdout) ?? versionIn(versionRun.stderr)
     const found = { path: binary, ...(version !== undefined && { version }) }
-    if (version !== undefined && isBelow(version, spec.minimumVersion))
+    if (version !== undefined && compareVersions(version, spec.minimumVersion) < 0)
       return done('too-old', found)
     const auth = spec.auth(await cli(spec.authArgs))
     if (!auth.signedIn) return done('signed-out', found)
@@ -114,7 +114,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
         health.pausedRuns > 0
           ? `${health.reason} · ${runsPaused(health.pausedRuns)}`
           : health.reason,
-      action: { label: 'Fix' },
+      action: { label: 'Fix', section: 'agents' },
     })
   }
 
@@ -165,7 +165,10 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const startedAt = Date.now()
     const timer = setInterval(() => {
       if (Date.now() - startedAt > fixWatchMs) return stopWatching(kind)
-      checkOne(kind).catch((error: unknown) => console.error('agent health check failed:', error))
+      const reload = latest.get(kind)?.state === 'not-installed' ? environment.reload() : undefined
+      Promise.resolve(reload)
+        .then(() => checkOne(kind))
+        .catch((error: unknown) => console.error('agent health check failed:', error))
     }, options.fixPollMs ?? fixPollMs)
     timer.unref()
     watches.set(kind, timer)
@@ -223,10 +226,6 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     fix,
     onReady(listener) {
       readyListeners.add(listener)
-    },
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
     },
     close() {
       closed = true

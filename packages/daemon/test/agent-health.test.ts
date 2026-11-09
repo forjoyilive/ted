@@ -1,10 +1,8 @@
-import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { type AgentHealth, type Banner, type Factory, type Task, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { fallbackBinDirs, readLoginShellEnv } from '../src/health/environment.ts'
-import { scriptText, terminalLaunch } from '../src/health/terminal.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -51,8 +49,11 @@ async function start(options: { codex?: boolean } = {}) {
     claudeBin: stubClaudePath,
     codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
     fixPollMs: 100,
-    openTerminal: async (command) => {
-      opened.push(command)
+    checkAgentsOnStart: true,
+    integrations: {
+      openTerminal: async (command) => {
+        opened.push(command)
+      },
     },
   })
   const client = api(daemon.port, await tokenFor(home))
@@ -224,72 +225,5 @@ describe('Agent health', () => {
     const res = await client.call('POST', '/agents/claude/fix')
     expect(res.status).toBe(409)
     expect(opened).toEqual([])
-  })
-})
-
-describe('Login-shell environment', () => {
-  test('reads the environment a login shell sets up', async () => {
-    const shell = path.join(scratch, 'fake-shell')
-    await writeFile(shell, '#!/bin/sh\nexport FROM_LOGIN=yes\nshift 3\nexec /bin/sh -c "$1"\n')
-    await chmod(shell, 0o755)
-    const env = await readLoginShellEnv({ shell, base: { ...process.env, KEPT: 'kept' } })
-    expect(env.FROM_LOGIN).toBe('yes')
-    expect(env.KEPT).toBe('kept')
-  })
-
-  test('gives up on a shell that takes too long', async () => {
-    const shell = path.join(scratch, 'slow-shell')
-    await writeFile(shell, '#!/bin/sh\nsleep 5\n')
-    await chmod(shell, 0o755)
-    await expect(readLoginShellEnv({ shell, timeoutMs: 200 })).rejects.toThrow()
-  })
-
-  test('the fallback bin folders include Homebrew, /usr/local, ~/.local and bun’s', () => {
-    expect(fallbackBinDirs({ HOME: '/home/n' })).toEqual(
-      expect.arrayContaining([
-        '/opt/homebrew/bin',
-        '/usr/local/bin',
-        '/home/n/.local/bin',
-        '/home/n/.bun/bin',
-      ]),
-    )
-  })
-})
-
-describe('Fix in the user’s terminal', () => {
-  test('macOS opens a .command file in Terminal', () => {
-    expect(terminalLaunch({ platform: 'darwin', script: '/t/x.command', env: {} })).toEqual({
-      file: '/usr/bin/open',
-      args: ['-a', 'Terminal', '/t/x.command'],
-    })
-  })
-
-  test('Linux uses $TERMINAL first, then the usual terminals', async () => {
-    const bin = path.join(scratch, 'bin')
-    const { mkdir } = await import('node:fs/promises')
-    await mkdir(bin)
-    for (const name of ['mine', 'gnome-terminal']) {
-      await writeFile(path.join(bin, name), '#!/bin/sh\n')
-      await chmod(path.join(bin, name), 0o755)
-    }
-    const mine = terminalLaunch({
-      platform: 'linux',
-      script: '/t/x.command',
-      env: { PATH: bin, TERMINAL: 'mine' },
-    })
-    expect(mine?.file).toBe(path.join(bin, 'mine'))
-    expect(mine?.args.slice(0, 3)).toEqual(['-e', 'sh', '-c'])
-
-    const gnome = terminalLaunch({ platform: 'linux', script: '/t/x.command', env: { PATH: bin } })
-    expect(gnome?.file).toBe(path.join(bin, 'gnome-terminal'))
-    expect(gnome?.args.slice(0, 3)).toEqual(['--', 'sh', '-c'])
-
-    expect(terminalLaunch({ platform: 'linux', script: '/t/x', env: { PATH: '' } })).toBeUndefined()
-  })
-
-  test('the script runs the command and says the window can close', () => {
-    const text = scriptText('claude auth login')
-    expect(text.startsWith('#!/bin/sh\n')).toBe(true)
-    expect(text.split('\n')).toContain('claude auth login')
   })
 })

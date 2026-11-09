@@ -105,7 +105,7 @@ describe('creating a Task from the New Task dialog', () => {
     })
 
     expect(plain).toMatchObject({ priority: 'none', clarifyDepth: 'auto', blockedBy: [] })
-    expect(plain.lead).toBeUndefined()
+    expect(plain.lead).toEqual({ agent: 'claude' })
     expect(set).toMatchObject({
       priority: 'high',
       clarifyDepth: 'grilling',

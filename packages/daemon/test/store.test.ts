@@ -236,7 +236,7 @@ describe('TedStore', () => {
       store.recordRunOutput('run-1', { toOffset: 1, entries: [], state: 'waiting' })
       store.recordRunOutput('run-1', { toOffset: 2, entries: [], state: 'finished' })
 
-      const statuses = seen.map((e) => (e.type === 'task-updated' ? e.task.status?.kind : e.type))
+      const statuses = seen.flatMap((e) => (e.type === 'task-updated' ? [e.task.status?.kind] : []))
       expect(statuses).toEqual(['working', 'waiting-on-you', undefined])
       expect(store.getTask(task.id)?.runs).toEqual([])
     } finally {

@@ -1,0 +1,105 @@
+.row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  box-sizing: border-box;
+  padding: 12px 16px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.status {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 9px;
+  color: var(--text-on-accent);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+}
+
+.ok {
+  background: var(--status-success-fg);
+}
+
+.warn {
+  background: var(--status-waiting-fg);
+}
+
+.stop {
+  background: var(--status-failed-fg);
+}
+
+.text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail,
+.warning,
+.danger,
+.note,
+.problem {
+  margin: 0;
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.detail {
+  color: var(--text-tertiary);
+}
+
+.warning {
+  color: var(--status-waiting-fg);
+}
+
+.danger,
+.problem {
+  color: var(--status-failed-fg);
+}
+
+.note {
+  color: var(--text-secondary);
+}
+
+.meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.command {
+  align-self: flex-start;
+  margin: 2px 0;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-neutral);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.nowrap {
+  white-space: nowrap;
+}

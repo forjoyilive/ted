@@ -1,3 +1,4 @@
+import type { FixCommand } from './integrations.ts'
 import type { AgentKind } from './run.ts'
 
 export const agentProblem = 'agent-unavailable'
@@ -11,11 +12,6 @@ export const agentHealthStates = [
 ] as const
 
 export type AgentHealthState = (typeof agentHealthStates)[number]
-
-export interface FixCommand {
-  label: string
-  command: string
-}
 
 export interface AgentHealth {
   agent: AgentKind

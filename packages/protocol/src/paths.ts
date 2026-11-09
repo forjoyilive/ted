@@ -19,6 +19,6 @@ export function tedPaths(home: string) {
     library: path.join(home, 'library'),
     backups: path.join(home, 'backups'),
     attachments: path.join(home, 'attachments'),
-    fixScripts: path.join(home, 'tmp', 'fix'),
+    tmp: path.join(home, 'tmp'),
   }
 }

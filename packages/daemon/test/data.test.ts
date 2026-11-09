@@ -5,6 +5,7 @@ import {
   type BackupsSummary,
   type Banner,
   type DataStatus,
+  readDaemonInfo,
   type Task,
   tedPaths,
 } from '@ted/protocol'
@@ -181,6 +182,62 @@ describe('store migrations', () => {
       kind: 'before-restore',
       dataFrom: '1.4.0',
     })
+  })
+
+  test('the app can still be opened and quit while the store stays closed', async () => {
+    const ted = await start('1.4.0')
+    await ted.call('PATCH', '/settings', { appearance: 'dark' })
+    await stop()
+    await editEventlog(
+      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name IN ('v1.AppearanceChanged', 'v1.MachineSettingsChanged')`,
+    )
+    let shutdowns = 0
+    daemon = await startDaemon({
+      home,
+      version: '1.3.2',
+      claudeBin: stubClaudePath,
+      onShutdown: () => shutdowns++,
+    })
+    const closed = api(daemon.port, await tokenFor(home))
+
+    expect((await closed.call('GET', '/data-status')).body).toMatchObject({ state: 'needs-newer' })
+    expect((await closed.call('POST', '/app/open')).body).toEqual({ opened: false })
+    expect((await closed.call('POST', '/shutdown')).status).toBe(200)
+    await waitUntil(() => shutdowns === 1 || undefined, 'the shutdown handover')
+  })
+
+  test('quitting while the store updates waits for it, then stops the Runs it recovered', async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), 'ted-run-cwd-'))
+    try {
+      let ted = await start('1.0.0')
+      const run = await ted.startRun([{ waitFor: path.join(cwd, 'never') }], cwd)
+      await waitUntil(async () => (await ted.getRun(run.id)).run.state === 'working', 'Run')
+      await stop()
+      await pretendTheStateSchemaChanged()
+
+      let shutdown: Promise<{ status: number }> | undefined
+      let shutdowns = 0
+      daemon = await startDaemon({
+        home,
+        version: '1.1.0',
+        claudeBin: stubClaudePath,
+        onShutdown: () => shutdowns++,
+        onDataStatus: (status) => {
+          if (status.state !== 'updating' || shutdown) return
+          shutdown = (async () => {
+            const info = await readDaemonInfo(home)
+            return api(info?.port ?? 0, await tokenFor(home)).call('POST', '/shutdown')
+          })()
+        },
+      })
+      ted = api(daemon.port, await tokenFor(home))
+
+      expect((await shutdown)?.status).toBe(200)
+      expect((await ted.getRun(run.id)).run.state).toBe('finished')
+      await waitUntil(() => shutdowns === 1 || undefined, 'the shutdown handover')
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 })
 

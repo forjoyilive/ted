@@ -12,6 +12,7 @@ import { type Backups, compareVersions, createBackups, displayPath } from './bac
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
+import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
@@ -26,17 +27,17 @@ export interface Services {
   banners: Banners
   workflows: Workflows
   health: AgentHealthMonitor
+  integrations: Integrations
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {
   close(): Promise<void>
-  subscribe?(listener: (event: DaemonEvent) => void): () => void
 }
 
 export interface DataOptions {
   home: string
   version: string
-  startServices: (store: TedStore) => Promise<StartedServices>
+  startServices: (store: TedStore, emit: (event: DaemonEvent) => void) => Promise<StartedServices>
   onStatus?: (status: DataStatus) => void
   now?: () => Date
   dailyCheckMs?: number
@@ -180,17 +181,8 @@ export function createData(options: DataOptions): Data {
 
     await writeStoreMeta(paths.store, { lastOpenedBy: version, lastOpenedAt: now().toISOString() })
     if (rebuilding) await removeStaleStateFiles(paths.store)
-    const started = await options.startServices(store)
-    const fromStore = store.subscribe(emit)
-    const fromServices = started.subscribe?.(emit)
-    services = {
-      store,
-      ...started,
-      unsubscribe: () => {
-        fromStore()
-        fromServices?.()
-      },
-    }
+    const started = await options.startServices(store, emit)
+    services = { store, ...started, unsubscribe: store.subscribe(emit) }
     setStatus({ state: 'ready' })
     await takeDaily()
   }

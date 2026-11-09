@@ -18,7 +18,7 @@ const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 const withoutRemoved = (env: NodeJS.ProcessEnv) =>
   Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k)))
 
-const authFailure = /\/login|not logged in|authentication|invalid api key|oauth token/i
+const authFailure = /\/login|not logged in|authentication|invalid api key|oauth/i
 
 function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): AuthCheck {
   let status: {
@@ -53,7 +53,7 @@ export function claudeAgent(binary: string): Agent {
   return {
     kind: 'claude',
     binary,
-    launch({ prompt, runDir, env, resume }) {
+    launch({ prompt, runDir, env, resume, model, effort }) {
       const sessionId = resume ?? randomUUID()
       const settingsPath = path.join(runDir, 'settings.json')
       const hooks = Object.fromEntries(
@@ -79,21 +79,19 @@ export function claudeAgent(binary: string): Agent {
           settingsPath,
           '--permission-mode',
           'auto',
+          ...(model !== undefined ? ['--model', model] : []),
+          ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
         env: withoutRemoved(env),
-        input: userMessage(prompt),
+        input: prompt === '' ? '' : userMessage(prompt),
         files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
         sessionId,
       }
     },
     message: userMessage,
     stateFrom(line) {
-      let message: { type?: unknown; subtype?: unknown; hook_event?: unknown }
-      try {
-        message = JSON.parse(line)
-      } catch {
-        return undefined
-      }
+      const message = parse(line)
+      if (message === undefined) return undefined
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
@@ -144,5 +142,27 @@ export function claudeAgent(binary: string): Agent {
         total: false,
       }
     },
+    problemFrom(line) {
+      const message = parse(line)
+      return message?.type === 'assistant' && message.error === 'model_not_found'
+        ? 'model-unavailable'
+        : undefined
+    },
+  }
+}
+
+interface ClaudeLine {
+  type?: unknown
+  subtype?: unknown
+  hook_event?: unknown
+  error?: unknown
+}
+
+function parse(line: string): ClaudeLine | undefined {
+  try {
+    const value: unknown = JSON.parse(line)
+    return typeof value === 'object' && value !== null ? (value as ClaudeLine) : undefined
+  } catch {
+    return undefined
   }
 }

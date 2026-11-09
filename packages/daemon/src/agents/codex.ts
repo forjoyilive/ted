@@ -62,7 +62,7 @@ interface CodexLine {
   params?: {
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
-    error?: unknown
+    error?: { message?: unknown; codexErrorInfo?: unknown }
     turn?: { error?: unknown }
     tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
@@ -81,7 +81,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume }) {
+    launch({ prompt, env, resume, model, effort }) {
       const plan: CodexPlan = {
         thread:
           resume === undefined
@@ -89,6 +89,8 @@ export function codexAgent(binary: string): Agent {
             : { method: 'thread/resume', params: { threadId: resume } },
         prompt,
         clientVersion: tedVersion,
+        ...(model !== undefined && { model }),
+        ...(effort !== undefined && { effort }),
       }
       return {
         command: binary,
@@ -134,6 +136,14 @@ export function codexAgent(binary: string): Agent {
       signIn: 'codex login',
       update: 'codex update',
       install: 'npm install -g @openai/codex',
+    },
+    problemFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'error') return undefined
+      const text = message.params?.error?.message
+      return typeof text === 'string' && text.includes('model_not_found')
+        ? 'model-unavailable'
+        : undefined
     },
     tokensFrom(line) {
       const message = parse(line)
