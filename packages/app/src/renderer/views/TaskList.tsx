@@ -479,6 +479,7 @@ export function TaskList({
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [closePullRequests, setClosePullRequests] = useState(true)
   const [priorityOpen, setPriorityOpen] = useState(false)
   const search = useRef<HTMLInputElement>(null)
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
@@ -747,6 +748,13 @@ export function TaskList({
 
   const startable = chosen.filter((t) => t.stage === 'backlog' && !t.statuses.includes('blocked'))
   const archivable = chosen.filter((t) => !t.archived)
+  const openPullRequests = archivable.flatMap((t) =>
+    t.repos.flatMap((r) =>
+      r.pullRequest && r.pullRequest.state !== 'closed'
+        ? [`${r.repo}#${r.pullRequest.number}`]
+        : [],
+    ),
+  )
 
   async function bulk(action: (task: Task) => Promise<unknown>, on: readonly Task[]) {
     await Promise.all(on.map((task) => action(task).catch(report)))
@@ -991,13 +999,24 @@ export function TaskList({
               </div>
             )}
           </div>
+          {confirmArchive && openPullRequests.length > 0 && (
+            <label className={styles.closePullRequests} title={openPullRequests.join(', ')}>
+              <input
+                type="checkbox"
+                checked={closePullRequests}
+                onChange={(event) => setClosePullRequests(event.target.checked)}
+              />
+              {`Close ${openPullRequests.length === 1 ? 'the pull request' : `${openPullRequests.length} pull requests`} on GitHub`}
+            </label>
+          )}
           {confirmArchive ? (
             <Button
               size="small"
               variant="primary"
               onClick={() => {
                 setConfirmArchive(false)
-                bulk((t) => ted.archiveTask(t.id), archivable)
+                const close = closePullRequests && openPullRequests.length > 0
+                bulk((t) => ted.archiveTask(t.id, { closePullRequests: close }), archivable)
                   .then(() => setSelected([]))
                   .catch(report)
               }}

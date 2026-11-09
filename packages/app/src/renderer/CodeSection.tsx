@@ -23,6 +23,35 @@ export function CodeSection({ task }: { task: Task }) {
   )
 }
 
+const pullRequestState = { draft: 'Draft', ready: 'Open', closed: 'Closed' } as const
+
+function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
+  const pr = repo.pullRequest
+  if (pr) {
+    return (
+      <p className={styles.pullRequest}>
+        <button
+          type="button"
+          className={styles.link}
+          title={pr.url}
+          onClick={() => void ted.openPullRequest(task.id, repo.name)}
+        >
+          {`Pull request #${pr.number}`}
+        </button>{' '}
+        <span className={styles.prState}>{pullRequestState[pr.state]}</span>
+      </p>
+    )
+  }
+  if (repo.pushFailed) {
+    return (
+      <p className={styles.setup} title={repo.pushFailed.message}>
+        Couldn’t push this branch. TED tries again when Validate passes.
+      </p>
+    )
+  }
+  return null
+}
+
 const setupLabel = {
   running: 'Setting up…',
   failed: 'Setup failed',
@@ -42,6 +71,7 @@ function RepoRow({ task, repo }: { task: Task; repo: TaskRepo }) {
   return (
     <li className={styles.repo}>
       <span className={styles.repoName}>{repo.name}</span>
+      <PullRequestLine task={task} repo={repo} />
       <code className={styles.branch}>{repo.branch}</code>
       <button
         type="button"

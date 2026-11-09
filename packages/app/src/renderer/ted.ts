@@ -108,7 +108,10 @@ export const ted = {
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>
     window.ted.request('setPriority', taskId, priority) as Promise<Task>,
-  archiveTask: (taskId: string) => window.ted.request('archiveTask', taskId) as Promise<Task>,
+  archiveTask: (taskId: string, options: { closePullRequests?: boolean } = {}) =>
+    window.ted.request('archiveTask', taskId, options) as Promise<Task>,
+  openPullRequest: (taskId: string, repoName: string) =>
+    window.ted.request('openPullRequest', taskId, repoName) as Promise<void>,
   blockTask: (taskId: string, by: string) =>
     window.ted.request('blockTask', taskId, by) as Promise<Task>,
   unblockTask: (taskId: string, by: string) =>

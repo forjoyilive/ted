@@ -195,3 +195,48 @@ export async function changedFiles(worktree: string, base: string): Promise<stri
   )
   return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
 }
+
+export async function commitsAhead(worktree: string, base: string): Promise<number> {
+  const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..HEAD`, '--')
+  return Number.parseInt(out, 10) || 0
+}
+
+export async function pushBranch(
+  worktree: string,
+  branch: string,
+  options: { expected?: string; timeoutMs?: number } = {},
+): Promise<string> {
+  const commit = await revParse(worktree, 'HEAD')
+  const ref = `refs/heads/${branch}`
+  const lease =
+    options.expected === undefined ? [] : [`--force-with-lease=${ref}:${options.expected}`]
+  const args = [
+    ...noHooks,
+    '-c',
+    'core.hooksPath=/dev/null',
+    'push',
+    '--no-verify',
+    '--porcelain',
+    ...lease,
+    'origin',
+    `${commit}:${ref}`,
+  ]
+  try {
+    await execFileAsync('git', args, {
+      cwd: worktree,
+      env: env(),
+      timeout: options.timeoutMs ?? 5 * 60_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+  } catch (error) {
+    const output = `${(error as { stdout?: string }).stdout ?? ''}\n${(error as { stderr?: string }).stderr ?? ''}`
+    const reason = output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:|!)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`git push failed${reason ? `: ${reason}` : ''}`))
+  }
+  return commit
+}

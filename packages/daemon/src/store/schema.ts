@@ -330,6 +330,25 @@ export const taskRepos = State.SQLite.table({
   },
 })
 
+export const pullRequests = State.SQLite.table({
+  name: 'pullRequests',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    number: State.SQLite.integer({ nullable: true }),
+    url: State.SQLite.text({ nullable: true }),
+    base: State.SQLite.text({ nullable: true }),
+    state: State.SQLite.text({ nullable: true }),
+    pushedCommit: State.SQLite.text({ nullable: true }),
+    pushedAt: State.SQLite.text({ nullable: true }),
+    hasCi: State.SQLite.boolean({ nullable: true }),
+    ciSignals: State.SQLite.text({ nullable: true }),
+    pushError: State.SQLite.text({ nullable: true }),
+    pushErrorAt: State.SQLite.text({ nullable: true }),
+  },
+})
+
 export const localFolders = State.SQLite.table({
   name: 'localFolders',
   columns: {
@@ -608,6 +627,45 @@ export const events = {
       checkRunId: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
+  }),
+  taskBranchPushed: Events.synced({
+    name: 'v1.TaskBranchPushed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      ci: Schema.Boolean,
+      ciSignals: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBranchPushFailed: Events.synced({
+    name: 'v1.TaskBranchPushFailed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      message: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestOpened: Events.synced({
+    name: 'v1.PullRequestOpened',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      number: Schema.Number,
+      url: Schema.String,
+      base: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestMarkedReady: Events.synced({
+    name: 'v1.PullRequestMarkedReady',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  pullRequestClosed: Events.synced({
+    name: 'v1.PullRequestClosed',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -1199,6 +1257,35 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
         tasks.update({ worktree: null }).where({ id: taskId }),
       ],
+      'v1.TaskBranchPushed': ({ taskId, name, commit, ci, ciSignals, at }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({
+            pushedCommit: commit,
+            pushedAt: at,
+            hasCi: ci,
+            ciSignals: JSON.stringify(ciSignals),
+            pushError: null,
+            pushErrorAt: null,
+          })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.TaskBranchPushFailed': ({ taskId, name, message, at }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({ pushError: message, pushErrorAt: at })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
+        pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
+        pullRequests
+          .update({ number, url, base, state: 'draft' })
+          .where({ id: `${taskId}:${name}` }),
+      ],
+      'v1.PullRequestMarkedReady': ({ taskId, name }) =>
+        pullRequests.update({ state: 'ready' }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestClosed': ({ taskId, name }) =>
+        pullRequests.update({ state: 'closed' }).where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
@@ -1263,6 +1350,7 @@ const state = State.SQLite.makeState({
     stageEntries,
     workflowLayers,
     taskRepos,
+    pullRequests,
     localFolders,
     machineSettings,
     machineSettingValues,
