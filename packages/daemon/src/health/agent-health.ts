@@ -21,11 +21,11 @@ import type { Agents } from '../agents/index.ts'
 import { compareVersions } from '../backups.ts'
 import type { Banners } from '../banners.ts'
 import { findBinSync } from '../cli-env.ts'
+import type { Environment } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import type { TedStore } from '../store/index.ts'
 import type { OpenTerminal } from '../terminal.ts'
 import { runCli, versionIn } from './cli.ts'
-import type { Environment } from './environment.ts'
 
 export const healthIntervalMs = 10 * 60 * 1000
 export const fixPollMs = 5_000

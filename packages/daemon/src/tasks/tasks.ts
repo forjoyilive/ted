@@ -263,6 +263,7 @@ export function createTasks(options: {
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
+  env?: () => NodeJS.ProcessEnv
   nudgeAfterMs?: number
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
@@ -623,7 +624,7 @@ export function createTasks(options: {
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
   const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv =>
-    worktreeCommandEnv(env, { TED_TASK: task.displayId })
+    worktreeCommandEnv(env, { TED_TASK: task.displayId }, options.env?.() ?? process.env)
 
   const checkDir = (task: Task, checkRunId: string) =>
     path.join(logsDir, 'checks', task.displayId, checkRunId)
