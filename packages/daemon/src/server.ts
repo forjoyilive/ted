@@ -262,6 +262,7 @@ const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: s
 
 async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
   const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
+  if (Number(req.headers['content-length']) > limit) throw new HttpError(413, 'body too large')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {

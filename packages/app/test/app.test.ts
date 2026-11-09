@@ -321,14 +321,7 @@ describe('TED app', () => {
   }, 90_000)
 
   test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
-    await ted(
-      'dev',
-      'factory',
-      'add',
-      await makeOriginRepo(path.join(home, 'origin')),
-      '--key',
-      'NB',
-    )
+    await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
     const steps = [
       { everyMessage: [{ say: 'Redirected.' }, { endTurn: true }] },
       { say: 'Working on the sync layer.' },
