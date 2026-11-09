@@ -1,5 +1,5 @@
 import type { BoardStage, Factory, ListFilters, QueuedForSlot, StageId, Task } from '@ted/protocol'
-import { type DragEvent, type ReactNode, useEffect, useState } from 'react'
+import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from 'react'
 import {
   type BoardColumn,
   type BoardDrop,
@@ -8,11 +8,13 @@ import {
   builtInStages,
   canStart,
   cardActivity,
+  doneCardLine,
   type Placement,
   placeCard,
   startPlace,
   startStage,
 } from '../board.ts'
+import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -23,7 +25,7 @@ import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
 import listStyles from './TaskList.module.css'
-import { FilterIcon, FilterMenu, MenuButton } from './TaskList.tsx'
+import { FilterIcon, FilterMenu, MenuButton, usePopover } from './TaskList.tsx'
 import { SetupPanel } from './TaskViews.tsx'
 import views from './views.module.css'
 
@@ -71,6 +73,52 @@ function RefusedIcon() {
   )
 }
 
+function MoreIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+      <circle cx="3" cy="7" r="1.2" fill="currentColor" />
+      <circle cx="7" cy="7" r="1.2" fill="currentColor" />
+      <circle cx="11" cy="7" r="1.2" fill="currentColor" />
+    </svg>
+  )
+}
+
+function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => void }) {
+  const [open, setOpen] = useState(false)
+  const close = useMemo(() => () => setOpen(false), [])
+  const ref = usePopover(open, close)
+  return (
+    <span ref={ref} className={`${listStyles.menuAnchor} ${styles.columnMenu}`}>
+      <button
+        type="button"
+        className={styles.columnMore}
+        aria-label="Done column actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <MoreIcon />
+      </button>
+      {open && (
+        <div className={listStyles.menu} role="menu" aria-label="Done column actions">
+          <button
+            type="button"
+            role="menuitem"
+            className={listStyles.menuItem}
+            disabled={count === 0}
+            onClick={() => {
+              close()
+              onArchiveAll()
+            }}
+          >
+            Archive all in Done
+          </button>
+        </div>
+      )}
+    </span>
+  )
+}
+
 function useBoardStages(factoryId: string, stagesInUse: string): readonly BoardStage[] {
   const [loaded, setLoaded] = useState<{ factoryId: string; stages: BoardStage[] }>()
   const { epoch } = useConnection()
@@ -106,6 +154,7 @@ export function Board({
   onOpenTask,
   onNewTask,
   onPlan,
+  onShowAllDone,
 }: {
   title: string
   factoryId: string
@@ -121,12 +170,15 @@ export function Board({
   onOpenTask: (ref: string) => void
   onNewTask: () => void
   onPlan: () => void
+  onShowAllDone: () => void
 }) {
   const now = useNow()
   const inUse = [...new Set(tasks.filter((t) => !t.archived).map((t) => t.stage))].sort().join()
   const stages = useBoardStages(factoryId, inUse)
   const start = startStage(stages)
-  const columns = boardColumns(stages, filterTasks(tasks, filters))
+  const columns = boardColumns(stages, filterTasks(tasks, filters), now)
+  const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
+  const [archivingDone, setArchivingDone] = useState(false)
   const [dragging, setDragging] = useState<Dragging>()
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
@@ -257,7 +309,44 @@ export function Board({
     )
   }
 
+  function doneCard(task: Task) {
+    return (
+      <article
+        key={task.id}
+        aria-label={`${task.displayId} ${task.title}`}
+        data-task={task.displayId}
+        className={`${styles.card} ${styles.doneCard}`}
+      >
+        <button
+          type="button"
+          className={`${styles.cardTitle} ${styles.doneTitle}`}
+          onClick={() => onOpen(task)}
+        >
+          {task.title}
+        </button>
+        <span className={styles.cardActivity}>{doneCardLine(task, now)}</span>
+      </article>
+    )
+  }
+
   function cards(column: BoardColumn) {
+    if (column.stage === 'done') {
+      return [
+        ...column.tasks.map(doneCard),
+        ...((column.allDone ?? 0) > 0
+          ? [
+              <button
+                key="show-all"
+                type="button"
+                className={styles.showAll}
+                onClick={onShowAllDone}
+              >
+                {`Show all ${column.allDone} →`}
+              </button>,
+            ]
+          : []),
+      ]
+    }
     const items: ReactNode[] = []
     let at = 0
     for (const task of column.tasks) {
@@ -352,12 +441,22 @@ export function Board({
                   </span>
                 )}
                 {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}
+                {column.stage === 'done' && (
+                  <DoneMenu count={allDone} onArchiveAll={() => setArchivingDone(true)} />
+                )}
               </h2>
               {cards(column)}
             </section>
           )
         })}
       </div>
+      {archivingDone && (
+        <ArchiveDoneDialog
+          factoryId={factoryId}
+          count={allDone}
+          onClose={() => setArchivingDone(false)}
+        />
+      )}
       {refused && (
         <span className={styles.refused} style={{ left: refused.x + 12, top: refused.y + 12 }}>
           <RefusedIcon />

@@ -139,6 +139,8 @@ describe('the token in daemon.json and the app’s token', () => {
     ['archive a Task', 'POST', '/tasks/DEV-1/archive', {}],
     ['unarchive a Task', 'POST', '/tasks/DEV-1/unarchive', {}],
     ['delete a Task', 'POST', '/tasks/DEV-1/delete', {}],
+    ['follow up a Task', 'POST', '/tasks/DEV-1/follow-up', { comment: 'Again' }],
+    ['archive all in Done', 'POST', '/factories/DEV/archive-done', {}],
     ['install the ted command', 'POST', '/command-line/install', {}],
     ['stop the daemon and its Runs', 'POST', '/shutdown', {}],
     ['post a Comment as the human', 'POST', '/tasks/DEV-1/comments', { body: 'Approved' }],

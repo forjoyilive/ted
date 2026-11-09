@@ -5,6 +5,8 @@ import {
   boardDrop,
   canStart,
   cardActivity,
+  doneCardLine,
+  mergedLine,
   placeCard,
   startPlace,
   startStage,
@@ -283,5 +285,45 @@ describe('the card’s activity line', () => {
     expect(cardActivity(blocked, now)).toBe('Starts when NB-41 merges')
     expect(cardActivity(queued('NB-3', 1), now)).toBe('Waiting for a free Run slot')
     expect(cardActivity(task({ displayId: 'NB-4', stage: 'work' }), now)).toBeUndefined()
+  })
+})
+
+describe('the Done column', () => {
+  const now = Date.parse('2026-11-09T12:00:00Z')
+  const done = (displayId: string, at: string, fields: Partial<Task> = {}) =>
+    task({ displayId, stage: 'done', merged: { at, pullRequests: [] }, ...fields })
+  const stages = [on('backlog'), on('work'), on('done')]
+
+  test('shows Tasks that reached Done in the last 7 days, newest first, and counts them all', () => {
+    const columns = boardColumns(
+      stages,
+      [
+        done('NB-24', '2026-11-03T12:00:00Z', { priority: 'urgent' }),
+        done('NB-28', '2026-11-09T10:00:00Z'),
+        done('NB-20', '2026-11-01T12:00:00Z'),
+        done('NB-27', '2026-11-08T12:00:00Z'),
+        done('NB-19', '2026-10-30T12:00:00Z', {
+          archived: { at: '2026-11-01T00:00:00Z', ended: { kind: 'merged', at: '' } },
+        }),
+      ],
+      now,
+    )
+
+    const column = columns.find((c) => c.stage === 'done')
+    expect(ids(column?.tasks ?? [])).toEqual(['NB-28', 'NB-27', 'NB-24'])
+    expect(column?.allDone).toBe(4)
+  })
+
+  test('cards read the ID and when it merged', () => {
+    expect(doneCardLine(done('NB-28', '2026-11-09T10:00:00Z'), now)).toBe('NB-28 · Merged 2h ago')
+  })
+
+  test('a Done Task’s activity line names its pull requests', () => {
+    const merged = done('NB-28', '2026-11-09T10:00:00Z', {
+      merged: { at: '2026-11-09T10:00:00Z', pullRequests: [470, 88] },
+    })
+    expect(mergedLine(merged, now)).toBe('Merged 2h ago · PR #470, #88')
+    expect(mergedLine(done('NB-27', '2026-11-08T12:00:00Z'), now)).toBe('Merged 1d ago')
+    expect(mergedLine(task({ displayId: 'NB-1', stage: 'work' }), now)).toBeUndefined()
   })
 })

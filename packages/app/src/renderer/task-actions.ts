@@ -1,7 +1,13 @@
 import type { Task } from '@ted/protocol'
 import { ted } from './ted.ts'
 
-export type StatusActionKind = 'start' | 'move-to-backlog' | 'resume' | 'retry' | 'stop'
+export type StatusActionKind =
+  | 'start'
+  | 'move-to-backlog'
+  | 'resume'
+  | 'retry'
+  | 'stop'
+  | 'follow-up'
 
 export interface StatusAction {
   kind: StatusActionKind
@@ -10,7 +16,14 @@ export interface StatusAction {
 }
 
 export function statusAction(task: Task): StatusAction | undefined {
-  if (task.archived || task.stage === 'done') return undefined
+  if (task.archived) return undefined
+  if (task.stage === 'done') {
+    return {
+      kind: 'follow-up',
+      label: 'Follow up…',
+      help: 'Creates a new Task linked to this one, starting from its brief. This Task stays Done.',
+    }
+  }
   if (task.statuses.includes('failed')) {
     return {
       kind: 'retry',
@@ -70,5 +83,7 @@ export function runStatusAction(kind: StatusActionKind, task: Task): Promise<Tas
       return ted.resumeTask(task.id)
     case 'stop':
       return ted.stopTask(task.id)
+    case 'follow-up':
+      return ted.followUpTask(task.id)
   }
 }

@@ -3,6 +3,7 @@ import type {
   AgentHealth,
   AgentKind,
   AnswerRequest,
+  ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
   BackupsSummary,
@@ -148,6 +149,10 @@ export const ted = {
   archiveTask: (taskId: string, options: ArchiveTaskRequest = {}) =>
     window.ted.request('archiveTask', taskId, options) as Promise<Task>,
   unarchiveTask: (taskId: string) => window.ted.request('unarchiveTask', taskId) as Promise<Task>,
+  followUpTask: (taskId: string, comment?: string) =>
+    window.ted.request('followUpTask', taskId, comment) as Promise<Task>,
+  archiveDone: (factoryId: string) =>
+    window.ted.request('archiveDone', factoryId) as Promise<ArchiveDoneResult>,
   deleteTask: (taskId: string, options: DeleteTaskRequest = {}) =>
     window.ted.request('deleteTask', taskId, options) as Promise<void>,
   openPullRequest: (taskId: string, repoName: string) =>
