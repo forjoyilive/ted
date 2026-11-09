@@ -174,8 +174,8 @@ describe('Codex Runs', () => {
     )
     const done = await waitUntil(async () => {
       const r = await client.getRun(run.id)
-      return r.run.state === 'idle' ? r : undefined
-    }, 'the Run to go idle')
+      return r.run.state === 'idle' && assistantTexts(r.conversation).length > 0 ? r : undefined
+    }, 'the Run to answer and go idle')
     const [list] = assistantTexts(done.conversation).map((t) => JSON.parse(t))
     expect(list).toMatchObject({ code: 0, stdout: 'No Tasks yet.\n' })
   })

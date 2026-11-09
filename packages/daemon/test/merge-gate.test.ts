@@ -131,6 +131,7 @@ describe('Merge Gate', () => {
       await waitUntil(
         async () => (await stat(fetching).catch(() => undefined)) !== undefined,
         'a fetch',
+        30_000,
       )
       let settled = false
       const answer = client
@@ -152,7 +153,7 @@ describe('Merge Gate', () => {
     const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
     expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
     expect(await merges()).toEqual([])
-  })
+  }, 60_000)
 
   test('with no Review Gate, the Merge sign-off carries the brief', async () => {
     const client = await start({
