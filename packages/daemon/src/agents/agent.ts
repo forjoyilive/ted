@@ -117,6 +117,7 @@ export interface Agent {
   permissionReply(reply: PermissionReply): string[]
   chat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[]
   acceptedTextFrom(line: string): string | undefined
+  agentTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined
   problemFrom(line: string): RunProblem | undefined
   tokensFrom(line: string): TokenCount | undefined

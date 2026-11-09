@@ -1318,7 +1318,10 @@ describe('Working Runs', () => {
     await window.keyboard.press('s')
     await header.getByText('Queued · 1st', { exact: true }).waitFor()
 
-    await header.getByRole('button', { name: 'Move to Backlog' }).click()
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    const menu = header.getByRole('menu', { name: 'Task actions' })
+    expect(await menu.getByRole('menuitem').first().textContent()).toContain('Move to Backlog')
+    await menu.getByRole('menuitem', { name: /^Move to Backlog/ }).click()
     await header.getByText('· Not started').waitFor()
     expect((await (await daemonClient()).getSlots()).queued).toBe(0)
   })
@@ -1372,6 +1375,70 @@ describe('Working Runs', () => {
 
     await window.getByText('Now: 2 of 2 Runs working').waitFor()
     expect((await (await daemonClient()).getSettings()).maxWorkingRuns).toBe(2)
+  })
+})
+
+describe('Stop and Resume', () => {
+  async function workingTask(steps: unknown[], daemonEnv: Record<string, string> = {}) {
+    extraEnv = daemonEnv
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', '--start', JSON.stringify({ steps }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    return { thread, header: thread.locator('header') }
+  }
+
+  test('the Task actions menu stops the Task, and Send and resume starts a fresh Run', async () => {
+    const { thread, header } = await workingTask([{ waitFor: path.join(home, 'never') }])
+    await header.getByText('Working', { exact: true }).waitFor()
+
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    const menu = header.getByRole('menu', { name: 'Task actions' })
+    const first = menu.getByRole('menuitem').first()
+    expect(await first.textContent()).toContain('Stop Task')
+    expect(await first.getAttribute('aria-describedby')).toBeTruthy()
+    await first.click()
+
+    await header.getByText(/^Stopped by you · /).waitFor()
+    await header.getByText('· Worktree and Apps kept. 1 Run stopped.').waitFor()
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    expect(await menu.getByRole('menuitem').first().textContent()).toContain('Resume')
+    await header.page().keyboard.press('Escape')
+    await header.getByRole('button', { name: 'Resume' }).waitFor()
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    await box.fill('Use the swipe actions.')
+    await thread.getByRole('button', { name: 'Send and resume' }).click()
+
+    await header.getByText('Working', { exact: true }).waitFor()
+    const client = await daemonClient()
+    const comments = await client.listComments('NB-1')
+    expect(comments.at(-1)?.delivered).toBeDefined()
+  })
+
+  test('an idle Task Lead is nudged, then TED asks with Nudge again', async () => {
+    const { thread } = await workingTask(
+      [
+        { say: 'Templates are wired into New Note.' },
+        { endTurn: true },
+        { everyMessage: [{ say: 'I’ll check the empty template next.' }, { endTurn: true }] },
+      ],
+      { TED_NUDGE_AFTER_MS: '200' },
+    )
+    const card = thread.getByRole('region', { name: 'Question' })
+    await card.getByText('The Task Lead stopped without saying why').waitFor()
+    await card.getByText('“I’ll check the empty template next.”').waitFor()
+    await thread
+      .getByText('TED nudged the Task Lead: “Continue, or post a Comment if you need the human.”')
+      .first()
+      .waitFor()
+
+    await card.getByRole('button', { name: 'Nudge again' }).click()
+
+    await thread.getByText('You answered: Nudge again').waitFor()
   })
 })
 

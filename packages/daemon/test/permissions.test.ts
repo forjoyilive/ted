@@ -509,4 +509,16 @@ describe('who can answer, and what an answer covers', () => {
     expect(request.permission?.command).toBe('npm test')
     expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
   })
+
+  test('Stop Task withdraws the Task Lead’s open permission request', async () => {
+    const client = await start()
+    const task = await startTask(client, [bash('npm publish', 'Publish the package')])
+    const request = await permissionOf(client, task)
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    const withdrawn = await waitUntil(async () => {
+      const c = (await comments(client, task)).find((x) => x.id === request.id)
+      return c?.answer ? c : undefined
+    }, 'the request to be withdrawn')
+    expect(withdrawn.answer).toMatchObject({ kind: 'withdrawn', runStopped: true })
+  })
 })

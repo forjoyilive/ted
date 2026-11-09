@@ -169,7 +169,10 @@ export interface StoredTask extends Task {
   worktree?: string
   startRequested: boolean
   waitsForBlockers: boolean
+  stopped: boolean
 }
+
+export type StopReason = 'human' | 'blockers-removed'
 
 export interface BlockerLink {
   blockerId: string
@@ -303,6 +306,9 @@ export interface TedStore {
   setStartRequested(taskId: string, startRequested: boolean): Task
   waitForBlockers(taskId: string): Task
   requeueAfterBlockers(taskId: string): Task
+  stopTask(taskId: string, input: { runs: number; why: StopReason }): Task
+  resumeTask(taskId: string, options: { waitForBlockers: boolean }): Task
+  leadNudged(taskId: string, runId: string): void
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
@@ -592,6 +598,9 @@ export async function openStore({
     changedAt,
     archivedAt,
     waitsForBlockers,
+    stoppedAt,
+    stoppedRuns,
+    stoppedWhy,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -621,6 +630,13 @@ export async function openStore({
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
+      ...(stoppedAt !== null && {
+        stopped: {
+          at: stoppedAt,
+          runs: stoppedRuns ?? 0,
+          why: stoppedWhy === 'blockers-removed' ? 'blockers-removed' : 'human',
+        },
+      }),
       stage,
       ...(leadLive && { leadLive }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
@@ -629,7 +645,9 @@ export async function openStore({
       ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
-      ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
+      ...(stoppedAt === null &&
+        place === 0 &&
+        repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(checking && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
@@ -684,6 +702,7 @@ export async function openStore({
       }),
       blockedBy,
       waitsForBlockers,
+      stopped: stoppedAt !== null,
       repos,
       attachments: attachmentsOf(row.id),
       ...(source && { source }),
@@ -721,6 +740,7 @@ export async function openStore({
     worktree: _,
     startRequested: __,
     waitsForBlockers: ___,
+    stopped: ____,
     ...task
   }: StoredTask): Task => task
 
@@ -1268,6 +1288,27 @@ export async function openStore({
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
+    },
+    stopTask(taskId, { runs, why }) {
+      commit(events.taskStopped({ taskId, runs, why, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    resumeTask(taskId, { waitForBlockers }) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      const at = new Date().toISOString()
+      commit(
+        events.taskResumed({ taskId, rank, at }),
+        ...(waitForBlockers ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    leadNudged(taskId, runId) {
+      commit(events.taskLeadNudged({ taskId, runId, at: new Date().toISOString() }))
+      updatedTask(taskId)
     },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(

@@ -10,8 +10,10 @@ export function BlockerPicker({
   onAdd,
   onRemove,
   menuAlign = 'start',
+  searchRequest = 0,
 }: {
   menuAlign?: 'start' | 'end'
+  searchRequest?: number
   tasks: readonly Task[]
   blockers: readonly Task[]
   onAdd: (id: string) => void
@@ -24,6 +26,12 @@ export function BlockerPicker({
   useEffect(() => {
     if (searching) searchField.current?.focus()
   }, [searching])
+  useEffect(() => {
+    if (searchRequest > 0) {
+      setSearching(true)
+      searchField.current?.focus()
+    }
+  }, [searchRequest])
   const listId = useId()
   const needle = query.trim().toLowerCase()
   const matches = tasks

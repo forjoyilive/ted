@@ -1,4 +1,5 @@
 import type { GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
+import { ago, useNow } from '../requests.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
 import styles from './TaskStatus.module.css'
@@ -85,13 +86,23 @@ function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: 
   return <span className={styles.marker}>Needs planning</span>
 }
 
+function detailedLabel(status: TaskStatus, now: number): string {
+  if (status.kind === 'stopped' && status.at !== undefined) {
+    return `Stopped by you · ${ago(status.at, now)}`
+  }
+  return statusLabel(status)
+}
+
 export function TaskStatusChips({
   task,
   onOpenTask,
+  detailed = false,
 }: {
   task: Pick<Task, 'status' | 'markers'>
   onOpenTask: (ref: string) => void
+  detailed?: boolean
 }) {
+  const now = useNow()
   const { status, markers } = task
   if (!status && markers.length === 0) return null
   return (
@@ -102,7 +113,11 @@ export function TaskStatusChips({
       {status?.kind === 'blocked' ? (
         <BlockedBy by={status.by} onOpenTask={onOpenTask} />
       ) : (
-        status && <StatusChip {...look(status)}>{statusLabel(status)}</StatusChip>
+        status && (
+          <StatusChip {...look(status)}>
+            {detailed ? detailedLabel(status, now) : statusLabel(status)}
+          </StatusChip>
+        )
       )}
     </span>
   )

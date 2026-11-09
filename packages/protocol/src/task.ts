@@ -81,7 +81,7 @@ export type TaskStatus =
   | { kind: 'waiting-on-you' }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
-  | { kind: 'stopped' }
+  | { kind: 'stopped'; at?: string }
   | { kind: 'blocked'; by: string }
   | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string }
@@ -192,6 +192,10 @@ export interface CreateTaskRequest {
   attachments?: Pick<Attachment, 'hash' | 'name' | 'mediaType'>[]
   source?: string
   start?: boolean
+}
+
+export interface ResumeTaskRequest {
+  comment?: string
 }
 
 export interface BlockTaskRequest {

@@ -36,6 +36,7 @@ import {
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { factoryCapLine, runsLine } from './slots.ts'
+import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { Board } from './views/Board.tsx'
@@ -169,9 +170,10 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (dialogOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
       if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
-      if (task?.stage !== 'backlog' || task.markers.some((m) => m.kind === 'blocked-by')) return
+      const action = task && shortcutAction(task)
+      if (!task || !action) return
       event.preventDefault()
-      ted.startTask(task.id).catch((error: unknown) => console.error(error))
+      runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

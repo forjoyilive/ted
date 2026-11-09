@@ -29,6 +29,7 @@ import {
   type MoveTaskRequest,
   noActivity,
   type Priority,
+  parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
@@ -108,6 +109,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  stopTask: (client, taskId) => client.stopTask(String(taskId)),
+  resumeTask: (client, taskId, comment) =>
+    client.resumeTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  openTaskSource: async (client, taskId) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const link = task?.source && parseLinearUrl(task.source.url)
+    if (!link) throw new Error('This Task has no Linear issue to open')
+    await shell.openExternal(link.url)
+  },
   moveTask: (client, taskId, request) =>
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
