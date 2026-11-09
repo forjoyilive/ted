@@ -36,6 +36,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     repo?.pullRequest !== undefined && repo.pullRequest.state !== 'closed'
 
   async function pushOne(task: PullRequestTask, target: PullRequestTarget): Promise<boolean> {
+    if (repoOf(task.id, target.name)?.pullRequest?.state === 'merged') return false
     try {
       const ahead = await git.commitsAhead(target.worktree, `origin/${target.base}`)
       if (ahead === 0) return false
@@ -116,7 +117,9 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
   async function linkAll(task: PullRequestTask, targets: PullRequestTarget[]): Promise<void> {
     const open = targets.flatMap((target) => {
       const pr = repoOf(task.id, target.name)?.pullRequest
-      return pr && pr.state !== 'closed' ? [{ target, number: pr.number }] : []
+      return pr && pr.state !== 'closed' && pr.state !== 'merged'
+        ? [{ target, number: pr.number }]
+        : []
     })
     if (open.length < 2) return
     for (const { target, number } of open) {
@@ -176,7 +179,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     async close(taskId) {
       for (const repo of store.getTask(taskId)?.repos ?? []) {
         const pr = repo.pullRequest
-        if (!pr || pr.state === 'closed') continue
+        if (!pr || pr.state === 'closed' || pr.state === 'merged') continue
         try {
           await gh.run(['pr', 'close', String(pr.number), '--repo', repo.repo])
           store.pullRequestClosed(taskId, repo.name)

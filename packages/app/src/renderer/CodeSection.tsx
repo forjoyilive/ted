@@ -9,9 +9,16 @@ export function CodeSection({ task }: { task: Task }) {
     <section className={styles.code} aria-label="Code">
       <h2 className={styles.heading}>Code</h2>
       {repos.length === 0 ? (
-        <p className={styles.empty}>
-          {task.repos.length === 0 ? 'No worktree yet' : 'Worktree removed'}
-        </p>
+        <>
+          <p className={styles.empty}>
+            {task.repos.length === 0 ? 'No worktree yet' : 'Worktree removed'}
+          </p>
+          {task.repos
+            .filter((repo) => repo.pullRequest !== undefined)
+            .map((repo) => (
+              <PullRequestLine key={repo.name} task={task} repo={repo} />
+            ))}
+        </>
       ) : (
         <ul className={styles.repos}>
           {repos.map((repo) => (
@@ -23,7 +30,12 @@ export function CodeSection({ task }: { task: Task }) {
   )
 }
 
-const pullRequestState = { draft: 'Draft', ready: 'Open', closed: 'Closed' } as const
+const pullRequestState = {
+  draft: 'Draft',
+  ready: 'Open',
+  merged: 'Merged',
+  closed: 'Closed',
+} as const
 
 function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
   const pr = repo.pullRequest

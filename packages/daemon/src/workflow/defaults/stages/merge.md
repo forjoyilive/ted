@@ -2,18 +2,18 @@
 
 ## Goal
 
-Leave the Task’s branch ready for TED to merge.
+Let TED merge the Task’s pull requests.
 
 ## Steps
 
-1. Make sure everything is committed and nothing is left uncommitted in the worktree.
-2. Run the repo’s checks one last time.
-3. Post a one-line note saying the branch is ready to merge.
+1. Don’t merge, push or report an outcome. TED waits for CI, merges each pull request with `gh pr merge` under the human’s login, deletes the branch and moves the Task to Done.
+2. If the base branch moves, TED rebases the pull request on GitHub, runs the Checks again and merges, with no new sign-off.
+3. If CI fails, the branch conflicts with its base, or the branch changes after sign-off, TED sends the Task back to Work with Findings. Fix it there; the Task comes back through Validate for a short re-sign-off.
 
 ## Done when
 
-The branch is clean, the checks pass, and the note is posted. Then report the outcome.
+TED has merged every pull request. You have nothing to do until then.
 
 ## Ask the human when
 
-The branch conflicts with its base in a way you can’t resolve without changing what the Task delivers.
+Only if the human asks you something here.

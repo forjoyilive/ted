@@ -1,5 +1,5 @@
 import type { AnswerRequest, Comment, CommentAnswer, Task } from '@ted/protocol'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCheckRuns, useThreadEvents } from '../data.ts'
 import {
   age,
@@ -454,18 +454,28 @@ export function AnsweredCard({
   request,
   task,
   newer,
+  expanded = false,
 }: {
   request: Comment
   task: Task
   newer?: Comment | undefined
+  expanded?: boolean
 }) {
   const now = useNow()
-  const [showing, setShowing] = useState(false)
+  const [showing, setShowing] = useState(expanded)
+  const card = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (expanded) card.current?.scrollIntoView({ block: 'nearest' })
+  }, [expanded])
   const line = answerLine(request, newer, task)
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
   const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
   return (
-    <section className={styles.answered} aria-label={`${requestLabel(request)}, ${outcome}`}>
+    <section
+      ref={card}
+      className={styles.answered}
+      aria-label={`${requestLabel(request)}, ${outcome}`}
+    >
       <div className={styles.answeredHead}>
         <CardHead request={request} task={task} now={now} />
         <button

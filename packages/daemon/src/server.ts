@@ -148,7 +148,8 @@ const drainTimeoutMs = 10_000
 
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
-    options.idle?.reset()
+    const release = options.idle?.hold()
+    if (release) res.on('close', release)
     handle(req, res, options).catch(async (error: unknown) => {
       await drain(req)
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })

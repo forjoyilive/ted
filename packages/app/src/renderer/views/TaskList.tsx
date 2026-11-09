@@ -758,7 +758,7 @@ export function TaskList({
   const archivable = chosen.filter((t) => !t.archived)
   const openPullRequests = archivable.flatMap((t) =>
     t.repos.flatMap((r) =>
-      r.pullRequest && r.pullRequest.state !== 'closed'
+      r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
         ? [`${r.repo}#${r.pullRequest.number}`]
         : [],
     ),

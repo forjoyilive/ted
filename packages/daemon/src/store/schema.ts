@@ -431,6 +431,12 @@ export const pullRequests = State.SQLite.table({
     ciSignals: State.SQLite.text({ nullable: true }),
     pushError: State.SQLite.text({ nullable: true }),
     pushErrorAt: State.SQLite.text({ nullable: true }),
+    mergedAt: State.SQLite.text({ nullable: true }),
+    mergeMethod: State.SQLite.text({ nullable: true }),
+    mergedWithoutCi: State.SQLite.boolean({ nullable: true }),
+    autoMerge: State.SQLite.text({ nullable: true }),
+    waitingOn: State.SQLite.text({ nullable: true }),
+    signedOffCommit: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -796,6 +802,56 @@ export const events = {
   pullRequestClosed: Events.synced({
     name: 'v1.PullRequestClosed',
     schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  pullRequestWaitChanged: Events.synced({
+    name: 'v1.PullRequestWaitChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      on: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  pullRequestAutoMergeEnabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeEnabled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      method: Schema.String,
+      requested: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestMerged: Events.synced({
+    name: 'v1.PullRequestMerged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      method: Schema.NullOr(Schema.String),
+      requested: Schema.NullOr(Schema.String),
+      noCi: Schema.Boolean,
+      byTed: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestSignedOff: Events.synced({
+    name: 'v1.PullRequestSignedOff',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBranchRebased: Events.synced({
+    name: 'v1.TaskBranchRebased',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      onto: Schema.String,
+      at: Schema.String,
+    }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -1366,6 +1422,17 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskWorktreeCreated': (args) =>
     task(args, { name: args.name, copied: args.copied, skipped: args.skipped }),
   'v1.TaskWorktreeSetupStarted': (args) => task(args, { name: args.name, command: args.command }),
+  'v1.PullRequestMerged': (args) =>
+    task(args, {
+      name: args.name,
+      method: args.method,
+      requested: args.requested,
+      noCi: args.noCi,
+      byTed: args.byTed,
+    }),
+  'v1.PullRequestAutoMergeEnabled': (args) =>
+    task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1750,25 +1817,46 @@ const materializers = counted(
             ciSignals: JSON.stringify(ciSignals),
             pushError: null,
             pushErrorAt: null,
+            signedOffCommit: null,
           })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.TaskBranchPushFailed': ({ taskId, name, message, at }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests
-          .update({ pushError: message, pushErrorAt: at })
+          .update({ pushError: message, pushErrorAt: at, signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests
-          .update({ number, url, base, state: 'draft' })
+          .update({ number, url, base, state: 'draft', signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.PullRequestMarkedReady': ({ taskId, name }) =>
         pullRequests.update({ state: 'ready' }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestClosed': ({ taskId, name }) =>
         pullRequests.update({ state: 'closed' }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestWaitChanged': ({ taskId, name, on }) =>
+        pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
+        pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
+        pullRequests
+          .update({
+            state: 'merged',
+            mergedAt: at,
+            mergeMethod: method,
+            mergedWithoutCi: noCi,
+            waitingOn: null,
+          })
+          .where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestSignedOff': ({ taskId, name, commit }) =>
+        pullRequests.update({ signedOffCommit: commit }).where({ id: `${taskId}:${name}` }),
+      'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
+        pullRequests
+          .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })
+          .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
