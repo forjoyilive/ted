@@ -1,0 +1,40 @@
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.box {
+  box-sizing: border-box;
+  min-height: 60px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  resize: vertical;
+}
+
+.box::placeholder {
+  color: var(--text-muted);
+}
+
+.box:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-fg);
+  font-size: var(--text-13);
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}

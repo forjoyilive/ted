@@ -38,6 +38,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   let nextId = 0
   let threadId: string | undefined
   const pending: string[] = []
+  const queued: string[] = []
+  let turnActive = false
   let effort: Effort | undefined
   let model = plan.model
 
@@ -71,16 +73,33 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       const turn = await startTurn(plan.prompt)
       if (turn.error !== undefined) return stop()
     }
-    for (const text of pending.splice(0)) void startTurn(text)
+    for (const text of pending.splice(0)) queueTurn(text)
   })()
 
-  function startTurn(text: string) {
-    return request('turn/start', {
+  async function startTurn(text: string) {
+    turnActive = true
+    const started = await request('turn/start', {
       threadId,
       input: [{ type: 'text', text, text_elements: [] }],
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
     })
+    if (started.error !== undefined) {
+      turnActive = false
+      nextTurn()
+    }
+    return started
+  }
+
+  function queueTurn(text: string) {
+    queued.push(text)
+    nextTurn()
+  }
+
+  function nextTurn() {
+    if (turnActive || threadId === undefined) return
+    const text = queued.shift()
+    if (text !== undefined) void startTurn(text)
   }
 
   return {
@@ -93,7 +112,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       }
       if (typeof text !== 'string') return
       if (threadId === undefined) pending.push(text)
-      else void startTurn(text)
+      else queueTurn(text)
     },
     onLine(line) {
       let message: RpcMessage
@@ -101,6 +120,10 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
         message = JSON.parse(line)
       } catch {
         return
+      }
+      if (message.method === 'turn/completed') {
+        turnActive = false
+        nextTurn()
       }
       if (message.id === undefined) return
       if (message.method === undefined) {

@@ -1,4 +1,11 @@
-import type { GitHubWait, RunState, StageId, TaskMarker, TaskStatus } from '@ted/protocol'
+import type {
+  CommentBox,
+  GitHubWait,
+  RunState,
+  StageId,
+  TaskMarker,
+  TaskStatus,
+} from '@ted/protocol'
 
 export interface TaskFacts {
   stage: StageId
@@ -15,6 +22,7 @@ export interface TaskFacts {
   github?: GitHubWait
   needsPlanning?: boolean
   agentActivity?: string
+  leadLive?: boolean
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
@@ -35,6 +43,14 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.queue) return { kind: 'queued', ...facts.queue }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
+}
+
+export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): CommentBox {
+  if (facts.stage === 'done') return 'done'
+  if (status?.kind === 'failed') return 'failed'
+  if (status?.kind === 'stopped') return 'stopped'
+  if (status?.kind === 'paused') return 'paused'
+  return facts.leadLive ? 'live' : 'no-run'
 }
 
 export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): TaskMarker[] {

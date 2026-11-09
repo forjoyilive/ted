@@ -32,6 +32,7 @@ export interface RunManagerOptions {
 export interface RunObserver {
   finished?(run: Run): void
   authFailed?(run: Run): void
+  accepted?(run: Run, texts: string[]): void
 }
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
@@ -81,12 +82,24 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
-  function tell(what: keyof RunObserver, runId: string): void {
+  function tell(what: 'finished' | 'authFailed', runId: string): void {
     const run = store.getRun(runId)
     if (!run) return
     for (const observer of observers) {
       try {
         observer[what]?.(run)
+      } catch (error) {
+        console.error(`a Run observer failed:`, error)
+      }
+    }
+  }
+
+  function tellAccepted(runId: string, texts: string[]): void {
+    const run = store.getRun(runId)
+    if (!run) return
+    for (const observer of observers) {
+      try {
+        observer.accepted?.(run, texts)
       } catch (error) {
         console.error(`a Run observer failed:`, error)
       }
@@ -126,9 +139,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let sessionId: string | undefined
     let authFailed = false
     let problem: RunProblem | undefined
+    const accepted: string[] = []
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({ offset, line: record.line })
+        const text = agent.acceptedTextFrom(record.line)
+        if (text !== undefined) accepted.push(text)
         state = agent.stateFrom(record.line) ?? state
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
         problem = agent.problemFrom(record.line) ?? problem
@@ -143,6 +159,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
     })
+    if (accepted.length > 0) tellAccepted(runId, accepted)
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') tell('finished', runId)
     return state === 'finished'

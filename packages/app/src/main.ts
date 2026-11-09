@@ -67,6 +67,9 @@ import { dotPng, trayIconPng } from './tray-icon.ts'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
+  markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
+  listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
