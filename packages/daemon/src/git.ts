@@ -697,6 +697,7 @@ export async function commitAndPush(
       maxBuffer: 16 * 1024 * 1024,
       ...(timeout !== undefined && { timeout }),
     })
+    running.child.stdin?.on('error', () => {})
     running.child.stdin?.end(input ?? '')
     return (await running).stdout.trim()
   }
