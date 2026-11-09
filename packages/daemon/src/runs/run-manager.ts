@@ -148,11 +148,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   async function followHostLog(runId: string, revived: boolean): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
     let offset = store.runReadOffset(runId)
-    const generation: Generation = {
-      count: await startsBefore(files.log, offset),
-      sessionSeen: true,
-      errors: [],
-    }
+    const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
+    const generation = await generationBefore(files.log, offset, (line) =>
+      agent.sessionContinuedFrom(line),
+    )
     let awaitingStart = revived ? Date.now() + stopGraceMs : undefined
     while (!closed) {
       const hostGone = offset > 0 && awaitingStart === undefined && !isLockHeld(files.lock)
@@ -537,20 +536,37 @@ async function startRecords(runDir: string): Promise<Extract<HostRecord, { t: 's
     .map((line) => JSON.parse(line) as Extract<HostRecord, { t: 'start' }>)
 }
 
-async function startsBefore(log: string, offset: number): Promise<number> {
-  if (offset === 0) return 0
+async function generationBefore(
+  log: string,
+  offset: number,
+  sessionContinuedFrom: (line: string) => boolean,
+): Promise<Generation> {
+  const generation: Generation = { count: 0, sessionSeen: true, errors: [] }
+  if (offset === 0) return generation
   const handle = await open(log, 'r').catch(() => undefined)
-  if (!handle) return 0
+  if (!handle) return generation
+  let text: string
   try {
     const buffer = Buffer.alloc(offset)
     const { bytesRead } = await handle.read(buffer, 0, offset, 0)
-    return buffer
-      .toString('utf8', 0, bytesRead)
-      .split('\n')
-      .filter((line) => line.startsWith('{"t":"start"')).length
+    text = buffer.toString('utf8', 0, bytesRead)
   } finally {
     await handle.close()
   }
+  for (const line of text.split('\n')) {
+    if (line === '') continue
+    const record = JSON.parse(line) as HostRecord
+    if (record.t === 'start') {
+      generation.count += 1
+      generation.sessionSeen = false
+      generation.errors = []
+    } else if (record.t === 'out') {
+      generation.sessionSeen ||= sessionContinuedFrom(record.line)
+    } else if (record.t === 'err') {
+      generation.errors = [...generation.errors, record.line].slice(-errorLinesKept)
+    }
+  }
+  return generation
 }
 
 async function hostPid(

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,7 +11,13 @@ import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { readStubKeyring, stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
-import { appClient, daemonAsApp, makeOriginRepo, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  appClient,
+  daemonAsApp,
+  makeOriginRepo,
+  removeHome,
+  stopDaemonIn,
+} from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -54,7 +60,7 @@ afterEach(async () => {
   app = undefined
   await stopDaemonIn(home)
   await linear.close()
-  await rm(home, { recursive: true, force: true })
+  await removeHome(home)
 }, 30_000)
 
 const env = () => ({

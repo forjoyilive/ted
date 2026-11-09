@@ -180,7 +180,10 @@ describe('Agent health', () => {
     await setStub('claude', { signedIn: false })
     await writeFile(goA, '')
     await waitUntil(async () => (await getTask(client, b.id))?.leadRunId, 'B to take the free slot')
-    expect((await getTask(client, a.id))?.status?.kind).toBe('paused')
+    await waitUntil(
+      async () => (await getTask(client, a.id))?.status?.kind === 'paused' || undefined,
+      'A to be paused',
+    )
 
     await setStub('claude', { signedIn: true })
     await client.ok('POST', '/agents/health/check')

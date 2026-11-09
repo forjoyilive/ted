@@ -16,6 +16,7 @@ import {
   readDaemonInfo,
   signRequest,
 } from '@ted/protocol'
+import { killMarked } from './support/processes.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -105,6 +106,7 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
   const log = await readFile(path.join(home, 'runs', runId, 'host.log'), 'utf8').catch(() => '')
   return log
     .split('\n')
+    .slice(0, -1)
     .filter((l) => l !== '')
     .map((l) => JSON.parse(l) as Record<string, unknown>)
 }
@@ -136,6 +138,12 @@ export async function waitForExit(pid: number, timeoutMs = 10_000): Promise<void
     if (Date.now() > deadline) throw new Error(`pid ${pid} still running`)
     await sleep(50)
   }
+}
+
+export async function removeHome(home: string): Promise<void> {
+  const file = process.env.TED_TEST_FILE
+  if (file) await killMarked('TED_HOME', home, [['TED_TEST_FILE', file]])
+  await rm(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 }
 
 export async function stopDaemonIn(home: string): Promise<void> {

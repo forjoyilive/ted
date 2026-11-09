@@ -191,6 +191,44 @@ describe('when TED can’t resume', () => {
       ]),
     )
   })
+
+  test('a resume that fails after a daemon restart still gets a fresh Run', async () => {
+    const client = await startTed()
+    const task = await startTask(client, steps({ endTurn: true }))
+    const gate = path.join(scratch, 'resume-gate')
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeFails: true, resumeWaitsFor: gate }),
+    )
+
+    const count = await killAgent()
+    await startsAfter(count)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await daemon?.stop()
+    await writeFile(gate, '')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      nudgeAfterMs: 600_000,
+    })
+    const restarted = { ...client, ...api(daemon.port, { appKey: daemon.appToken }) }
+    const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+      const res = await restarted.call(method, route, body)
+      if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+      return res.body as T
+    }
+    const fresh = await waitFor(
+      { ...restarted, ok },
+      task,
+      (t) => t.status?.kind === 'failed' || (t.leadRunId !== task.leadRunId && t.runs.length === 1),
+      'to get a fresh Run',
+    )
+    expect(fresh.status?.kind).not.toBe('failed')
+    expect(fresh.leadRunId).not.toBe(task.leadRunId)
+  })
 })
 
 describe('Failed', () => {

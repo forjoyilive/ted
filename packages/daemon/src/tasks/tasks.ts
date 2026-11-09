@@ -2032,8 +2032,9 @@ export function createTasks(options: {
       if (timer) clearTimeout(timer)
       nudgeTimers.delete(run.id)
       setImmediate(() => {
+        if (closed) return
         const now = store.getRun(run.id)
-        if (now && !closed) watchIdle(now)
+        if (now) watchIdle(now)
       })
     },
     finished(run) {
