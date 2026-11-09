@@ -351,6 +351,32 @@ describe('sub-agents', () => {
     expect(result?.stderr).toMatch(/sub-agent “Forever” was stopped/)
   })
 
+  test('two sub-agents with the same name each get their own worktree', async () => {
+    const client = await startTed()
+    const prompt = await promptFile('twin.md', 'Twin', { run: ['pwd'] }, { endTurn: true })
+    const start = `ted run start --own-worktree --prompt-file ${prompt} | ${runIdOf}`
+    const task = await startTask(
+      client,
+      steps(
+        {
+          run: ['sh', '-c', `a=$(${start}); b=$(${start}); ted run wait "$a"; ted run wait "$b"`],
+        },
+        { endTurn: true },
+      ),
+    )
+    const [result] = await waitForResults(client, task, 1)
+    expect(result?.code).toBe(0)
+    const dirs = (await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`))
+      .filter((r) => r.role === 'sub-agent')
+      .map((r) => r.state)
+    expect(dirs).toEqual(['idle', 'idle'])
+    const cwds = result?.stdout
+      .split('\n')
+      .filter((l) => l !== '')
+      .map((l) => (JSON.parse(l) as { stdout: string }).stdout.trim())
+    expect(new Set(cwds).size).toBe(2)
+  })
+
   test('when the Task Lead Run ends, its sub-agents stop', async () => {
     const client = await startTed()
     const prompt = await promptFile(

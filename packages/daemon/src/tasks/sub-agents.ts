@@ -57,7 +57,15 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   const wakers = new Map<string, Set<() => void>>()
   const awaitingTurn = new Map<string, number>()
   const ended = new Set<string>()
+  const cancelled = new Set<string>()
+  let allocating: Promise<unknown> = Promise.resolve()
   let closed = false
+
+  function drop(id: string): void {
+    if (startingNow.has(id)) cancelled.add(id)
+    store.dropSubAgentRequest(id)
+    wake(id)
+  }
 
   function lead(ref: string, caller: Caller): { task: StoredTask; leadRun: Run } {
     if (caller.kind !== 'run') {
@@ -84,6 +92,11 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     if (!run && !request) throw new RequestError(404, `no sub-agent ${runId}`)
     if (parent !== caller.runId) {
       throw new RequestError(403, `sub-agent ${runId} wasn’t started by this Run`)
+    }
+    const callerRun = store.getRun(caller.runId)
+    const task = callerRun?.taskId === undefined ? undefined : store.getTask(callerRun.taskId)
+    if (task?.leadRunId !== caller.runId) {
+      throw new RequestError(403, 'only the Task Lead can start and steer sub-agents')
     }
     return { ...(run && { run }), ...(request && { request }) }
   }
@@ -121,7 +134,13 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     return entries.findLast((e) => e.kind === 'agent')?.text
   }
 
-  async function ownWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
+  function ownWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
+    const next = allocating.then(() => addOwnWorktree(task, repo, name))
+    allocating = next.catch(() => undefined)
+    return next
+  }
+
+  async function addOwnWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
     const clone = deps.clonePathFor(task)
     const base = `${task.branch ?? `ted/${task.displayId.toLowerCase()}`}-${slug(name)}`
     let branch = base
@@ -143,22 +162,31 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const parent = store.getRun(request.parentRunId)
     const repo = task.repos.find((r) => !r.removed)
     if (!parent || parent.state === 'finished' || !repo || task.archived) {
-      store.dropSubAgentRequest(request.id)
+      drop(request.id)
       return
     }
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : repo.worktree
+    const prompt = await subAgentPrompt(task.displayId, request.prompt)
+    const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
+    if (cancelled.has(request.id)) {
+      if (cwd !== repo.worktree) {
+        await git.removeWorktree(deps.clonePathFor(task), cwd).catch(() => undefined)
+      }
+      return
+    }
     await runs.start({
       id: request.id,
       agent: request.agent,
-      prompt: await subAgentPrompt(task.displayId, request.prompt),
+      prompt,
       cwd,
       taskId: task.id,
       parentRunId: request.parentRunId,
       name: request.name,
-      env: { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId },
+      env,
       ...(request.model !== undefined && { model: request.model }),
       ...(request.effort !== undefined && { effort: request.effort }),
     })
+    if (cancelled.has(request.id)) await runs.stop(request.id)
   }
 
   function setWaiting(leadRunId: string, delta: 1 | -1): void {
@@ -189,7 +217,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       setImmediate(() => {
         if (closed) return
         for (const request of store.subAgentRequests()) {
-          if (request.parentRunId === parentId) store.dropSubAgentRequest(request.id)
+          if (request.parentRunId === parentId) drop(request.id)
         }
         for (const child of store.listRuns()) {
           if (child.parentRunId === parentId && child.state !== 'finished') {
@@ -288,6 +316,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           throw error
         } finally {
           startingNow.delete(id)
+          cancelled.delete(id)
           wake(id)
           deps.pump()
         }
@@ -380,8 +409,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     async stop(runId, caller) {
       const { run, request } = ownSubAgent(runId, caller)
       if (request) {
-        store.dropSubAgentRequest(request.id)
-        wake(request.id)
+        drop(request.id)
         return { ...describeRequest(request), state: 'stopped' }
       }
       if (!run) throw new RequestError(404, `no sub-agent ${runId}`)
@@ -389,10 +417,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return describe(store.getRun(run.id) ?? run)
     },
     dropFor(taskId) {
-      for (const request of store.subAgentRequests(taskId)) {
-        store.dropSubAgentRequest(request.id)
-        wake(request.id)
-      }
+      for (const request of store.subAgentRequests(taskId)) drop(request.id)
     },
     ownWorktrees(task) {
       const shared = new Set(task.repos.map((r) => r.worktree))
