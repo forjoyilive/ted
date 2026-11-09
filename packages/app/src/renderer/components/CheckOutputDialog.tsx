@@ -1,4 +1,4 @@
-import { type CheckRun, checkLabel } from '@ted/protocol'
+import { type CheckRun, checkLabel } from '@ted/protocol/checks'
 import { useEffect, useId, useRef, useState } from 'react'
 import { readableError, ted } from '../ted.ts'
 import styles from './CheckOutputDialog.module.css'

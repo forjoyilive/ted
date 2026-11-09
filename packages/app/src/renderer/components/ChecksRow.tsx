@@ -1,4 +1,4 @@
-import { type CheckResult, checkFailed, checkLabel } from '@ted/protocol'
+import { type CheckResult, checkFailed, checkLabel } from '@ted/protocol/checks'
 import styles from './ChecksRow.module.css'
 
 const glyphs: Record<CheckResult['state'], string> = {

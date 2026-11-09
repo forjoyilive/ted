@@ -1,4 +1,4 @@
-import { type CheckRun, checkFailed, checkLabel, type SendBack } from '@ted/protocol'
+import { type CheckRun, checkFailed, checkLabel, type SendBack } from '@ted/protocol/checks'
 import type { ReactNode } from 'react'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import styles from './CheckEvents.module.css'
