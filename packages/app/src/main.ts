@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
-import { type DaemonClient, type DaemonEvent, tedHome } from '@ted/protocol'
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
+import { type DaemonClient, type DaemonEvent, type MachineSettings, tedHome } from '@ted/protocol'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, type OpenDialogOptions } from 'electron'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
@@ -20,16 +20,26 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     if (chosen.canceled || folder === undefined) return undefined
     return client.setLocalFolder(String(key), folder)
   },
+  getSettings: (client) => client.getSettings(),
+  updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
 }
 
 let window: BrowserWindow | undefined
-const forward = (event: DaemonEvent) => window?.webContents.send('ted:event', event)
+const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
+const applySettings = ({ appearance }: MachineSettings) => {
+  nativeTheme.themeSource = appearance
+}
+const forward = (event: DaemonEvent) => {
+  if (event.type === 'settings-changed') applySettings(event.settings)
+  window?.webContents.send('ted:event', event)
+}
 
 async function start(): Promise<void> {
   const client = await withDaemon(tedHome(), async (client) => {
     await client.subscribe(forward)
     return client
   })
+  applySettings(await client.getSettings())
 
   ipcMain.handle('ted:request', (_event, name: string, ...args: unknown[]) => {
     const request = Object.hasOwn(requests, name) ? requests[name] : undefined
@@ -37,11 +47,16 @@ async function start(): Promise<void> {
     return request(client, ...args)
   })
 
+  if (hiddenWindow) app.dock?.hide()
   window = new BrowserWindow({
-    width: 900,
-    height: 600,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 560,
     title: 'TED',
+    show: !hiddenWindow,
     webPreferences: {
+      backgroundThrottling: !hiddenWindow,
       preload: path.join(import.meta.dirname, 'preload.cjs'),
       sandbox: true,
       contextIsolation: true,

@@ -1,16 +1,19 @@
 import type { Task, TaskRepo } from '@ted/protocol'
 import { useState } from 'react'
 import { ted } from './ted.ts'
+import styles from './worktree.module.css'
 
 export function CodeSection({ task }: { task: Task }) {
   const repos = task.repos.filter((repo) => !repo.removed)
   return (
-    <section aria-label="Code">
-      <h3>Code</h3>
+    <section className={styles.code} aria-label="Code">
+      <h2 className={styles.heading}>Code</h2>
       {repos.length === 0 ? (
-        <p>{task.repos.length === 0 ? 'No worktree yet' : 'Worktree removed'}</p>
+        <p className={styles.empty}>
+          {task.repos.length === 0 ? 'No worktree yet' : 'Worktree removed'}
+        </p>
       ) : (
-        <ul>
+        <ul className={styles.repos}>
           {repos.map((repo) => (
             <RepoRow key={repo.name} task={task} repo={repo} />
           ))}
@@ -37,21 +40,30 @@ function RepoRow({ task, repo }: { task: Task; repo: TaskRepo }) {
   }
 
   return (
-    <li>
-      <span>{repo.name}</span> <code>{repo.branch}</code>{' '}
-      <button type="button" title="Copy path" onClick={() => void copyPath()}>
+    <li className={styles.repo}>
+      <span className={styles.repoName}>{repo.name}</span>
+      <code className={styles.branch}>{repo.branch}</code>
+      <button
+        type="button"
+        className={styles.path}
+        title={copied ? 'Copied' : 'Click to copy'}
+        onClick={() => void copyPath()}
+      >
         {repo.worktree}
       </button>
-      {copied && <span> Copied</span>}
       {repo.setup && repo.setup.state !== 'passed' && (
-        <p>
+        <p className={styles.setup}>
           {setupLabel[repo.setup.state]}{' '}
-          <button type="button" onClick={() => void ted.setupLog(task.id, repo.name).then(setLog)}>
+          <button
+            type="button"
+            className={styles.link}
+            onClick={() => void ted.setupLog(task.id, repo.name).then(setLog)}
+          >
             Setup log
           </button>
         </p>
       )}
-      {log !== undefined && <pre>{log}</pre>}
+      {log !== undefined && <pre className={styles.log}>{log}</pre>}
     </li>
   )
 }

@@ -64,6 +64,14 @@ export const comments = State.SQLite.table({
   },
 })
 
+export const machineSettings = State.SQLite.table({
+  name: 'machineSettings',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    appearance: State.SQLite.text(),
+  },
+})
+
 export const stageEntries = State.SQLite.table({
   name: 'stageEntries',
   columns: {
@@ -265,6 +273,10 @@ export const events = {
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
   }),
+  appearanceChanged: Events.synced({
+    name: 'v1.AppearanceChanged',
+    schema: Schema.Struct({ appearance: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -326,6 +338,8 @@ const materializers = State.SQLite.materializers(events, {
     localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
   'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
+  'v1.AppearanceChanged': ({ appearance }) =>
+    machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
 })
 
 const state = State.SQLite.makeState({
@@ -339,6 +353,7 @@ const state = State.SQLite.makeState({
     workflowLayers,
     taskRepos,
     localFolders,
+    machineSettings,
   },
   materializers,
 })

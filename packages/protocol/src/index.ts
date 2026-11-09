@@ -17,6 +17,7 @@ export {
   type RunWithConversation,
   type StartDevRunRequest,
 } from './run.ts'
+export { type Appearance, appearances, type MachineSettings } from './settings.ts'
 export {
   type AgentStageId,
   agentStageIds,

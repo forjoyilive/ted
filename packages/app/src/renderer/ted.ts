@@ -1,4 +1,4 @@
-import type { Comment, DaemonEvent, Factory, Task } from '@ted/protocol'
+import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -20,5 +20,8 @@ export const ted = {
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
   locateLocalFolder: (key: string) =>
     window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
+  getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
+  updateSettings: (changes: Partial<MachineSettings>) =>
+    window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

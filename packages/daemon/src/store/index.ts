@@ -3,6 +3,7 @@ import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb } from '@livestore/livestore'
 import type {
   AgentKind,
+  Appearance,
   Comment,
   ConversationEntry,
   CopySkip,
@@ -10,6 +11,7 @@ import type {
   Factory,
   LayerKind,
   LayerUse,
+  MachineSettings,
   Run,
   RunState,
   StageEntry,
@@ -24,6 +26,7 @@ import {
   events,
   factories,
   localFolders,
+  machineSettings,
   runs,
   schema,
   stageEntries,
@@ -119,8 +122,12 @@ export interface TedStore {
   listRuns(): Run[]
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
+  settings(): MachineSettings
+  updateSettings(changes: Partial<MachineSettings>): MachineSettings
   close(): Promise<void>
 }
+
+const defaultSettings: MachineSettings = { appearance: 'system' }
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
   const store = await createStorePromise({
@@ -243,10 +250,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     return task
   }
 
+  const settings = (): MachineSettings => {
+    const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
+    return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+  }
+
   return {
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       store.commit(events.factoryAdded(row))
+      const { cloneUrl: _, ...factory } = row
+      emit({ type: 'factory-added', factory })
       return row
     },
     listFactories,
@@ -414,6 +428,14 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       store
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
+    settings,
+    updateSettings({ appearance }) {
+      if (appearance !== undefined && appearance !== settings().appearance) {
+        store.commit(events.appearanceChanged({ appearance, at: new Date().toISOString() }))
+        emit({ type: 'settings-changed', settings: settings() })
+      }
+      return settings()
+    },
     close: () => store.shutdownPromise(),
   }
 }

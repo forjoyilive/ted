@@ -6,7 +6,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
@@ -52,8 +52,31 @@ const env = () => ({
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  return app.firstWindow()
+  const window = await app.firstWindow()
+  await window.emulateMedia({ colorScheme: null })
+  await sidebar(window).waitFor()
+  return window
 }
+
+const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
+
+async function openAllTasks(window: Page): Promise<void> {
+  await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
+}
+
+const taskRow = (window: Page, text: string) => window.getByRole('button').filter({ hasText: text })
+
+async function daemonClient(): Promise<DaemonClient> {
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('no daemon.json')
+  return new DaemonClient(info)
+}
+
+const background = (window: Page) =>
+  window.evaluate(() => getComputedStyle(document.body).backgroundColor)
+
+const lightApp = 'rgb(250, 250, 248)'
+const darkApp = 'rgb(22, 22, 21)'
 
 function ted(...args: string[]) {
   return run(process.execPath, [cliPath, ...args], { env: env() })
@@ -89,19 +112,19 @@ async function waitForExit(pid: number): Promise<void> {
 
 describe('TED app', () => {
   test('launching the app starts the daemon through Electron when none is running', async () => {
-    const window = await launchApp()
+    await launchApp()
 
-    await window.getByText('No Tasks yet.').waitFor()
     expect(await commandOf(await daemonPid())).toContain(electronPath)
   })
 
   test('a Task created from the CLI appears in the window within a second', async () => {
     const window = await launchApp()
+    await openAllTasks(window)
     await window.getByText('No Tasks yet.').waitFor()
 
     await ted('task', 'create', 'Fix login')
 
-    await window.getByText('DEV-1 Fix login').waitFor({ timeout: 1_000 })
+    await taskRow(window, 'DEV-1').filter({ hasText: 'Fix login' }).waitFor({ timeout: 1_000 })
   })
 
   test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
@@ -117,15 +140,17 @@ describe('TED app', () => {
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp()
-    const task = window.getByRole('listitem').filter({ hasText: 'NB-1' })
-    await task.getByText('Backlog').waitFor()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Backlog').waitFor()
 
     await ted('task', 'start', 'NB-1')
 
-    await task.getByText('Intake', { exact: true }).waitFor()
-    await task.getByText('Halfway there').waitFor()
+    await details.getByText('Intake', { exact: true }).waitFor()
+    await window.getByRole('region', { name: 'Task thread' }).getByText('Halfway there').waitFor()
     await writeFile(path.join(home, 'go'), '')
-    await task.getByText('Done', { exact: true }).waitFor()
+    await details.getByText('Done', { exact: true }).waitFor()
   })
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
@@ -133,13 +158,17 @@ describe('TED app', () => {
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
     await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
     const window = await launchApp()
-    const task = window.getByRole('listitem').filter({ hasText: 'NB-1' })
-    await task.getByText('No worktree yet').waitFor()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const code = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+    await code.getByText('No worktree yet').waitFor()
 
     await ted('task', 'start', 'NB-1')
 
-    await task.getByText(/^ted\/nb-1/).waitFor()
-    await task.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
+    await code.getByText(/^ted\/nb-1/).waitFor()
+    await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
   })
 
   test('a missing local folder raises a Factory banner with Locate', async () => {
@@ -158,7 +187,6 @@ describe('TED app', () => {
 
   test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {
     await launchApp()
-    await app?.firstWindow().then((w) => w.getByText('No Tasks yet.').waitFor())
     const pid = await daemonPid()
 
     await app?.close()
@@ -167,7 +195,8 @@ describe('TED app', () => {
 
     await ted('task', 'create', 'Fix login')
     const window = await launchApp()
-    await window.getByText('DEV-1 Fix login').waitFor()
+    await openAllTasks(window)
+    await taskRow(window, 'DEV-1').waitFor()
     expect(await daemonPid()).toBe(pid)
   })
 
@@ -177,13 +206,13 @@ describe('TED app', () => {
 
     const window = await launchApp()
 
-    await window.getByText('DEV-1 Fix login').waitFor()
+    await openAllTasks(window)
+    await taskRow(window, 'DEV-1').waitFor()
     expect(await daemonPid()).toBe(pid)
   })
 
   test('the renderer has no Node, filesystem or store access, only the bridge', async () => {
     const window = await launchApp()
-    await window.getByText('No Tasks yet.').waitFor()
 
     const globals = await window.evaluate(() => ({
       require: typeof (globalThis as { require?: unknown }).require,
@@ -201,7 +230,7 @@ describe('TED app', () => {
   test.runIf(process.platform === 'linux')(
     'the daemon the app starts shares no pipes or sockets with Electron',
     async () => {
-      await (await launchApp()).getByText('No Tasks yet.').waitFor()
+      await launchApp()
       const electronPid = app?.process().pid
       if (electronPid === undefined) throw new Error('no Electron pid')
 
@@ -211,6 +240,130 @@ describe('TED app', () => {
       expect(shared).toEqual([])
     },
   )
+})
+
+describe('TED app frame', () => {
+  test('the sidebar lists Factories; the current one opens its Board, List and other Views', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    const nav = sidebar(window)
+    const factory = nav.getByRole('button', { name: 'widgets' })
+    await factory.waitFor()
+    expect(await factory.getAttribute('aria-expanded')).toBe('false')
+
+    await factory.click()
+
+    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+    const board = nav.getByRole('button', { name: 'Board', exact: true })
+    expect(await board.getAttribute('aria-current')).toBe('page')
+    await window.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+    for (const view of ['List', 'Plans', 'Automations']) {
+      await nav.getByRole('button', { name: view, exact: true }).waitFor()
+    }
+
+    await nav.getByRole('button', { name: 'All Tasks' }).click()
+    expect(await factory.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  test('a Factory added while the app is open appears in the sidebar', async () => {
+    const window = await launchApp()
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+
+    await sidebar(window).getByRole('button', { name: 'widgets' }).waitFor()
+  })
+
+  test('opening a Task shows a back link to where it came from', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+
+    for (const [view, back] of [
+      ['Board', '← Board'],
+      ['List', '← List'],
+      ['All Tasks', '← All Tasks'],
+    ] as const) {
+      await nav.getByRole('button', { name: view, exact: true }).click()
+      await window.getByRole('main').getByText('Offline editing').click()
+      await window.getByRole('heading', { name: 'Offline editing' }).waitFor()
+
+      await window.getByRole('button', { name: back }).click()
+
+      await window.getByRole('heading', { name: 'Offline editing' }).waitFor({ state: 'detached' })
+    }
+  })
+
+  test('the theme follows the system appearance', async () => {
+    const window = await launchApp()
+
+    await window.emulateMedia({ colorScheme: 'dark' })
+    await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
+    await window.emulateMedia({ colorScheme: 'light' })
+    await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
+  })
+
+  test('the Appearance setting switches the theme at once, from the app or the daemon', async () => {
+    const window = await launchApp()
+    await sidebar(window)
+      .getByRole('button', { name: /^Settings/ })
+      .last()
+      .click()
+    const appearance = window.getByRole('radiogroup', { name: 'Appearance' })
+
+    await appearance.getByText('Dark').click()
+    await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
+    expect(await (await daemonClient()).getSettings()).toEqual({ appearance: 'dark' })
+
+    await (await daemonClient()).updateSettings({ appearance: 'light' })
+    await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
+    expect(await appearance.getByRole('radio', { name: 'Light' }).isChecked()).toBe(true)
+  })
+
+  test('the Appearance setting applies when the app starts', async () => {
+    await ted('task', 'list')
+    await (await daemonClient()).updateSettings({ appearance: 'dark' })
+
+    const window = await launchApp()
+
+    await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
+  })
+
+  test('a Help (?) shows its note in a tooltip on hover', async () => {
+    const window = await launchApp()
+
+    await window.getByRole('button', { name: 'Help' }).hover()
+
+    await window
+      .getByRole('tooltip')
+      .getByText(/need your answer/)
+      .waitFor()
+  })
+
+  test('fonts and styles load under the renderer’s content security policy', async () => {
+    const violations: string[] = []
+    app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
+    const window = await app.firstWindow()
+    window.on('console', (message) => {
+      if (/Content Security Policy/i.test(message.text())) violations.push(message.text())
+    })
+    await sidebar(window).waitFor()
+
+    const loaded = await window.evaluate(async () => {
+      const faces = [
+        ...(await document.fonts.load('14px "Geist Variable"')),
+        ...(await document.fonts.load('12px "Geist Mono Variable"')),
+      ]
+      return faces.map((face) => `${face.family} ${face.status}`)
+    })
+    expect(loaded).toEqual(['Geist Variable loaded', 'Geist Mono Variable loaded'])
+    expect(violations).toEqual([])
+  })
 })
 
 async function channelsOf(pid: number): Promise<string[]> {

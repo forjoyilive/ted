@@ -1,0 +1,20 @@
+.app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+}
