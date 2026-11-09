@@ -13,8 +13,8 @@ const cacheDir = path.join(root, 'node_modules', '.cache')
 export const timesFile = path.join(cacheDir, 'ted-test-times.json')
 
 const testGroups = [
-  { project: 'electron', maxWorkers: 4 },
-  { project: 'node', maxWorkers: 8 },
+  { project: 'electron', maxWorkers: 3 },
+  { project: 'node', maxWorkers: 6 },
 ]
 
 function git(...args: string[]): string {
