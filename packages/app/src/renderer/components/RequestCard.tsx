@@ -180,6 +180,13 @@ function answerLine(
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }
         : { mark: '✓', tone: 'good', text: 'You answered in your own words' }
     case 'withdrawn':
+      if ('archived' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · the Task was archived before you answered',
+        }
+      }
       return {
         mark: '–',
         tone: 'neutral',

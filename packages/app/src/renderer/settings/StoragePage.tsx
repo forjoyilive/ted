@@ -1,4 +1,5 @@
-import { formatBytes, type StorageSummary, type StoredBackup } from '@ted/protocol'
+import type { StorageSummary, StoredBackup } from '@ted/protocol'
+import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
