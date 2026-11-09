@@ -180,7 +180,7 @@ const routes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/brief$/,
     runToken: true,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.brief(ref)],
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [200, tasks.brief(ref, caller)],
   },
   {
     method: 'POST',

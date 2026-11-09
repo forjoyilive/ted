@@ -87,13 +87,13 @@ const getTask = async (client: Client, id: string) =>
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 
 const advanceEveryStage = [
-  { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
-  { run: ['ted', 'outcome', 'advance', '--skip'] },
+  { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+  { run: ['ted', 'outcome', 'advance'] },
 ]
 
 const workflow = (worktree: string) =>
   commitToOrigin(scratch, {
-    '.ted/workflow.yaml': `version: 1\nrepos:\n  - name: widgets\n    worktree:\n${worktree}`,
+    '.ted/workflow.yaml': `version: 1\norder: [intake, work, merge]\nrepos:\n  - name: widgets\n    worktree:\n${worktree}`,
   })
 
 const worktreeOf = (id = 'NB-1') => path.join(home, 'worktrees', id, 'widgets')

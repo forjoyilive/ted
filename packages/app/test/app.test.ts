@@ -10,7 +10,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import { commitToOrigin, killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -141,12 +141,15 @@ describe('TED app', () => {
 
   test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'Halfway there'] },
         { waitFor: path.join(home, 'go') },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
-        { run: ['ted', 'outcome', 'advance', '--skip'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+        { run: ['ted', 'outcome', 'advance'] },
       ],
     })
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')

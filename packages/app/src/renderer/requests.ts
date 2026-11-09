@@ -49,6 +49,19 @@ export function useNow(): number {
   return now
 }
 
+export function briefSections(text: string): { heading: string; body: string }[] {
+  const sections: { heading: string; lines: string[] }[] = []
+  for (const line of text.split('\n')) {
+    const heading = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line.trim())?.[1]
+    if (heading) sections.push({ heading, lines: [] })
+    else if (sections.length === 0) sections.push({ heading: '', lines: [line] })
+    else sections.at(-1)?.lines.push(line)
+  }
+  return sections
+    .map(({ heading, lines }) => ({ heading, body: lines.join('\n').trim() }))
+    .filter(({ heading, body }) => heading !== '' || body !== '')
+}
+
 function firstLine(text: string): string {
   return (
     text

@@ -12,6 +12,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   assistantTexts,
+  commitToOrigin,
   hostRecords,
   killRunHosts,
   makeOriginRepo,
@@ -210,6 +211,9 @@ describe('Codex as the Task Lead', () => {
 
   test('with Claude Code not installed, the Task Lead is Codex and carries the Task to Done', async () => {
     const origin = await makeOriginRepo(scratch)
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     daemon = await startDaemon({
       home,
       version: '9.9.9',
@@ -223,7 +227,7 @@ describe('Codex as the Task Lead', () => {
       return res.body as T
     }
     await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-    const advance = { run: ['ted', 'outcome', 'advance', '--skip'] }
+    const advance = { run: ['ted', 'outcome', 'advance'] }
     const task = await ok<Task>('POST', '/tasks', {
       title: JSON.stringify({
         steps: [

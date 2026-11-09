@@ -93,10 +93,24 @@ const waitForStage = (client: Client, task: Task, stage: string) =>
     return t?.stage === stage ? t : undefined
   }, `${task.displayId} to reach ${stage}`)
 
-const advanceEveryStage = [
-  { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
-  { run: ['ted', 'outcome', 'advance', '--skip'] },
-]
+const briefText = [
+  '## Goal\n\nShip it.',
+  '## Decisions so far\n\nNone.',
+  '## Current state\n\nDone.',
+  '## Open questions\n\nNone.',
+  '## Next step\n\nMove on.\n',
+].join('\n\n')
+
+const passEveryStage = (briefFile: string) => {
+  const step = {
+    run: [
+      'sh',
+      '-c',
+      `ted outcome advance --skip 2>/dev/null || { ted brief write --file '${briefFile}' && ted outcome advance; }`,
+    ],
+  }
+  return [{ everyMessage: [step] }, step]
+}
 
 const leadRun = async (client: Client, task: Task): Promise<Run> => {
   const current = await getTask(client, task.id)
@@ -215,14 +229,17 @@ describe('Tasks', () => {
   })
 
   test('create, start, comment, advance: the Task lands in Done and its worktree is gone', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const client = await startWithStub()
     await addFactory(client)
     const task = await createTask(
       client,
       steps(
         { run: ['ted', 'comment', 'Halfway there'] },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
-        { run: ['ted', 'outcome', 'advance', '--skip'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+        { run: ['ted', 'outcome', 'advance'] },
       ),
     )
 
@@ -346,9 +363,16 @@ describe('the Workflow', () => {
   test('a Task with no .ted/ runs every default Stage in order to Done', async () => {
     const client = await startWithStub()
     await addFactory(client)
-    const task = await createTask(client, steps(...advanceEveryStage))
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(briefFile, briefText)
+    const task = await createTask(client, steps(...passEveryStage(briefFile)))
 
     await client.ok('POST', `/tasks/${task.id}/start`)
+    const signoff = await waitUntil(async () => {
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+      return comments.find((c) => c.kind === 'signoff')
+    }, 'the Review sign-off')
+    await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
     await waitForStage(client, task, 'done')
 
     const entries = await stageEntries(client, task)

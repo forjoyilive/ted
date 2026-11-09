@@ -1,6 +1,6 @@
 import type { AnswerRequest, Comment, Task } from '@ted/protocol'
 import { useState } from 'react'
-import { ago, headline, kindLabels, poster, summary, useNow } from '../requests.ts'
+import { ago, briefSections, headline, kindLabels, poster, summary, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
@@ -11,6 +11,20 @@ function CardHead({ request, task, now }: { request: Comment; task: Task; now: n
     <div className={styles.head}>
       <span className={styles.kind}>{kindLabels[request.kind]}</span>
       <span>{` · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}</span>
+    </div>
+  )
+}
+
+function BriefSections({ text }: { text: string }) {
+  const sections = briefSections(text).filter((s) => s.heading.toLowerCase() !== 'goal')
+  return (
+    <div className={styles.content}>
+      {sections.map(({ heading, body }) => (
+        <section key={heading} className={styles.section} aria-label={heading}>
+          <h3 className={styles.sectionHeading}>{heading}</h3>
+          <p className={styles.sectionBody}>{body}</p>
+        </section>
+      ))}
     </div>
   )
 }
@@ -42,7 +56,11 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
     <section className={styles.card} aria-label={kindLabels[request.kind]}>
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
-      {shown !== undefined && <div className={styles.content}>{shown}</div>}
+      {request.gate ? (
+        <BriefSections text={request.body} />
+      ) : (
+        shown !== undefined && <p className={styles.summary}>{shown}</p>
+      )}
       {request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
           {request.choices.map((choice) => (

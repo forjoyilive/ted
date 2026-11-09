@@ -62,7 +62,7 @@ export interface Tasks {
   reportOutcome(ref: string, caller: Caller, outcome: ReportOutcomeRequest): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
-  brief(ref: string): TaskBrief
+  brief(ref: string, caller: Caller): TaskBrief
   inbox(): InboxItem[]
   setupLog(ref: string, repo: string): Promise<string>
   close(): Promise<void>
@@ -537,8 +537,8 @@ export function createTasks(options: {
       return store.writeBrief({ taskId: task.id, text, runId })
     },
 
-    brief(ref) {
-      const task = find(ref)
+    brief(ref, caller) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
       const brief = store.latestBrief(task.id)
       if (!brief) throw new RequestError(404, `${task.displayId} has no Task brief yet`)
       return brief
@@ -670,6 +670,28 @@ export function createTasks(options: {
         const resolution = await workflows.resolve(factoryOf(current))
         const { workflow } = resolution
         if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        if (outcome.skip === true) {
+          if (!skippableStages.includes(stage)) {
+            throw new RequestError(
+              409,
+              `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
+            )
+          }
+          const since = visitStart(current)
+          if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
+            throw new RequestError(
+              409,
+              `${stageTitle(stage)} has already posted its Gate request, so it can’t skip itself`,
+            )
+          }
+          store.postComment({
+            taskId: task.id,
+            body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
+              workflow.settings.stages[stage]?.gate === true ? ' Its Gate was skipped too.' : ''
+            }`,
+            author: { kind: 'ted' },
+          })
+        }
         const gate = workflow.settings.stages[stage]?.gate === true && outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
@@ -723,6 +745,8 @@ export function createTasks(options: {
     },
   }
 }
+
+const skippableStages: readonly StageId[] = ['clarify', 'design']
 
 function latest(a: string, b: string): string {
   return a > b ? a : b

@@ -10,7 +10,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
-import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
+import {
+  commitToOrigin,
+  killRunHosts,
+  makeOriginRepo,
+  stubCodexPath,
+} from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
@@ -283,11 +288,14 @@ describe('ted help', () => {
 describe('ted dev factory and ted task start', () => {
   test('adds a Factory, creates a Task in it, starts it, and the Task Lead takes it to Done', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'On it'] },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
-        { run: ['ted', 'outcome', 'advance', '--skip'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+        { run: ['ted', 'outcome', 'advance'] },
       ],
     })
 

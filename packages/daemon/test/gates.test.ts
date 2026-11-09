@@ -197,6 +197,69 @@ describe('Gates', () => {
     expect((await getTask(client, task.id)).stage).toBe('review')
   })
 
+  test('--skip passes a Gate only at Clarify or Design, before any Gate request, and says so in the thread', async () => {
+    const client = await start(
+      'version: 1\norder: [intake, design, work, review, merge]\nstages:\n  review: { gate: false }\n',
+    )
+    const skip = ['ted', 'outcome', 'advance', '--skip']
+    const task = await startTask(
+      client,
+      { everyMessage: [{ endTurn: true }] },
+      { run: skip },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: skip },
+      { run: skip },
+      { endTurn: true },
+    )
+    await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
+
+    expect(await commandResults(client, task)).toEqual([
+      {
+        code: 1,
+        stdout: '',
+        stderr: 'ted: only Clarify and Design can skip themselves; Intake can’t\n',
+      },
+      { code: 0, stdout: 'NB-1 moved to Design\n', stderr: '' },
+      { code: 0, stdout: 'NB-1 moved to Work\n', stderr: '' },
+      {
+        code: 1,
+        stdout: '',
+        stderr: 'ted: only Clarify and Design can skip themselves; Work can’t\n',
+      },
+    ])
+    expect(await inbox(client)).toEqual([])
+    expect(await comments(client, task)).toMatchObject([
+      {
+        kind: 'note',
+        author: { kind: 'ted' },
+        stage: 'design',
+        body: 'The Task Lead skipped Design: it had nothing to do. Its Gate was skipped too.',
+      },
+    ])
+  })
+
+  test('a Stage that has posted its Gate request can’t skip itself afterwards', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      { everyMessage: [{ endTurn: true }] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'outcome', 'advance', '--skip'] },
+      { endTurn: true },
+    )
+    await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
+
+    expect((await commandResults(client, task)).at(-1)).toEqual({
+      code: 1,
+      stdout: '',
+      stderr: 'ted: Design has already posted its Gate request, so it can’t skip itself\n',
+    })
+    expect((await getTask(client, task.id)).stage).toBe('design')
+    expect(await inbox(client)).toHaveLength(1)
+  })
+
   test('the Task Lead can’t pass a Gate without writing the Task brief in that Stage', async () => {
     const client = await start()
     const task = await startTask(
@@ -436,6 +499,35 @@ describe('outcomes', () => {
 })
 
 describe('the Task brief', () => {
+  test('a Run reads only its own Task’s brief', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'brief', 'show'] },
+      { endTurn: true },
+    )
+    await waitForIdle(client, task)
+    expect((await commandResults(client, task)).at(-1)).toEqual({
+      code: 0,
+      stdout: brief,
+      stderr: '',
+    })
+    const cwd = await mkdtemp(path.join(scratch, 'dev-run-'))
+
+    const other = await client.startRun(
+      [{ run: ['ted', 'brief', 'show', '--task', 'NB-1'] }, { endTurn: true }],
+      cwd,
+    )
+
+    await waitUntil(async () => (await client.getRun(other.id)).run.state === 'idle', 'idle')
+    const [result] = assistantTexts((await client.getRun(other.id)).conversation).map(
+      (text) => JSON.parse(text) as { code: number; stderr: string },
+    )
+    expect(result).toMatchObject({ code: 1, stderr: 'ted: this Run doesn’t belong to NB-1\n' })
+    expect((await client.ok<TaskBrief>('GET', `/tasks/${task.id}/brief`)).version).toBe(1)
+  })
+
   test('ted brief write stores a new version each time and needs the fixed headings', async () => {
     const client = await start()
     const task = await startTask(
