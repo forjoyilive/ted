@@ -1,18 +1,21 @@
 import type { Factory } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { useConnection } from './data.ts'
 import { ted } from './ted.ts'
 import styles from './worktree.module.css'
 
 export function FactoryBanners() {
   const [factories, setFactories] = useState<Factory[]>([])
+  const { epoch } = useConnection()
 
   useEffect(() => {
-    const refresh = () => void ted.listFactories().then(setFactories)
+    void epoch
+    const refresh = () => void ted.listFactories().then(setFactories, () => undefined)
     refresh()
     return ted.onEvent((event) => {
       if (event.type === 'task-updated' || event.type === 'factory-added') refresh()
     })
-  }, [])
+  }, [epoch])
 
   const locate = async (key: string) => {
     const updated = await ted.locateLocalFolder(key)

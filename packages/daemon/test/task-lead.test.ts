@@ -293,7 +293,13 @@ describe('Model unavailable', () => {
     expect(await claudeStarts()).toHaveLength(1)
     expect((await leadRun(client, task)).state).toBe('waiting')
 
-    await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
+    expect(question).toMatchObject({ choices: ['Use the default model', 'Change setting'] })
+    expect(question?.answer).toBeUndefined()
+
+    await client.ok('POST', `/comments/${question?.id}/answer`, {
+      action: 'answer',
+      choice: 'Use the default model',
+    })
 
     const starts = await waitUntil(async () => {
       const all = await claudeStarts()
@@ -312,7 +318,9 @@ describe('Model unavailable', () => {
     )
     await sleep(500)
     expect(await claudeStarts()).toHaveLength(2)
-    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toHaveLength(1)
+    expect(await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).toMatchObject([
+      { answer: { kind: 'answered', choice: 'Use the default model' } },
+    ])
   })
 
   test('changing the setting while the model is unavailable resumes with the new model', async () => {

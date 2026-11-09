@@ -1,23 +1,5 @@
 import type { ReactNode } from 'react'
-import { Help } from '../components/Help.tsx'
 import styles from './views.module.css'
-
-export function Inbox() {
-  return (
-    <>
-      <section className={`${styles.pane} ${styles.listPane}`} aria-label="Inbox">
-        <header className={`${styles.header} ${styles.listHeader}`}>
-          <h1 className={styles.listTitle}>Inbox</h1>
-          <Help>
-            Questions and sign-offs from agents that need your answer, from every Factory.
-          </Help>
-        </header>
-        <p className={styles.empty}>Nothing is waiting on you.</p>
-      </section>
-      <section className={styles.pane} aria-label="Nothing open" />
-    </>
-  )
-}
 
 export function Stub({ title, banners }: { title: string; banners?: ReactNode }) {
   return (

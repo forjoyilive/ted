@@ -56,8 +56,12 @@ const env = () => ({
   TED_HIDDEN_WINDOW: '1',
 })
 
-async function launchApp(): Promise<Page> {
-  app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
+async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
+  app = await electron.launch({
+    executablePath: electronPath,
+    args: [appDir],
+    env: { ...env(), ...extraEnv },
+  })
   const window = await app.firstWindow()
   await window.emulateMedia({ colorScheme: null })
   await sidebar(window).waitFor()
@@ -147,6 +151,9 @@ describe('TED app', () => {
 
   test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'Halfway there'] },
@@ -1003,6 +1010,148 @@ describe('Working Runs', () => {
   })
 })
 
+describe('daemon crashes', () => {
+  const reconnecting = (window: Page) =>
+    window.getByRole('status', { name: 'Reconnecting to TED…' })
+
+  async function killDaemon(): Promise<number> {
+    const pid = await daemonPid()
+    process.kill(pid, 'SIGKILL')
+    await waitForExit(pid)
+    return pid
+  }
+
+  async function waitForNewDaemon(old: number): Promise<number> {
+    await expect
+      .poll(
+        async () => {
+          const info = await readDaemonInfo(home)
+          return info !== undefined && info.pid !== old && isAlive(info.pid)
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(true)
+    return daemonPid()
+  }
+
+  test('killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    const steps = JSON.stringify({
+      steps: [
+        { waitFor: path.join(home, 'go') },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+        { run: ['ted', 'outcome', 'advance'] },
+      ],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '1500,0,0' })
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await ted('task', 'start', 'NB-1')
+    await details.getByText('Intake', { exact: true }).waitFor()
+    await expect.poll(async () => (await runHostPids()).length).toBe(2)
+    const hosts = await runHostPids()
+
+    const old = await killDaemon()
+
+    await reconnecting(window).waitFor()
+    await reconnecting(window)
+      .getByText('Runs keep going. Actions are off until TED is back.')
+      .waitFor()
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
+    expect(hosts.every(isAlive)).toBe(true)
+
+    await waitForNewDaemon(old)
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(
+      false,
+    )
+    await writeFile(path.join(home, 'go'), '')
+    await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
+  })
+
+  test('after reconnecting, the sidebar shows slots that changed while the app was away', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] }),
+    )
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '6000,0,0' })
+    await ted('task', 'start', 'NB-1')
+    const footer = sidebar(window).locator('footer')
+    await footer.getByRole('button', { name: /^1 of \d+ Runs working$/ }).waitFor()
+
+    await killDaemon()
+    await reconnecting(window).waitFor()
+    await ted('task', 'list')
+    await (await daemonClient()).updateSettings({ maxWorkingRuns: 7 })
+
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await footer.getByRole('button', { name: '1 of 7 Runs working' }).waitFor()
+  })
+
+  test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
+    await app?.evaluate(({ clipboard }) => {
+      const record = globalThis as unknown as { copied: string[] }
+      record.copied = []
+      clipboard.writeText = async (text: string) => {
+        record.copied.push(text)
+      }
+    })
+    const recorded = () => app?.evaluate(() => globalThis as unknown as { copied: string[] })
+
+    await waitForNewDaemon(await killDaemon())
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await waitForNewDaemon(await killDaemon())
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    const last = await killDaemon()
+
+    const banner = window.getByRole('region', { name: 'Problems' }).getByRole('alert')
+    await banner.getByText('TED’s background process keeps stopping').waitFor()
+    expect(await reconnecting(window).count()).toBe(0)
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
+    await sleep(500)
+    expect(await daemonPid()).toBe(last)
+
+    await banner.getByRole('button', { name: 'Restart' }).click()
+    await window.getByRole('menuitem', { name: 'Copy report' }).click()
+    await expect.poll(async () => (await recorded())?.copied.length).toBe(1)
+    const [report] = (await recorded())?.copied ?? []
+    expect(report).toContain('crash report')
+    expect(report).toMatch(/TED daemon .* listening on/)
+    expect(report).toContain('starting TED’s daemon')
+
+    await banner.getByRole('button', { name: 'Restart' }).click()
+    await window.getByRole('menuitem', { name: 'Restart TED in the background' }).click()
+
+    await banner.waitFor({ state: 'detached', timeout: 20_000 })
+    await waitForNewDaemon(last)
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(
+      false,
+    )
+  })
+})
+
+async function runHostPids(): Promise<number[]> {
+  const pids: number[] = []
+  for (const id of await readdir(path.join(home, 'runs')).catch(() => [])) {
+    const start = (await hostRecords(home, id)).find((r) => r.t === 'start')
+    for (const pid of [start?.agentPid, start?.hostPid]) if (typeof pid === 'number') pids.push(pid)
+  }
+  return pids
+}
+
 describe('running in the background', () => {
   async function startRun(steps: unknown[]): Promise<string> {
     const client = await daemonClient()
@@ -1124,3 +1273,68 @@ async function channelsOf(pid: number): Promise<string[]> {
   )
   return targets.filter((target) => /^(pipe|socket):/.test(target))
 }
+
+describe('Inbox and Gates', () => {
+  test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nLet notes be edited offline.',
+        '## Decisions so far\n\n- Keep both edits on a clash.',
+        '## Current state\n\nThe approach is written up.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nBuild it.\n',
+      ].join('\n\n'),
+    )
+    const gate = [
+      { run: ['ted', 'brief', 'write', '--file', briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ]
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Design review' })
+    await row.waitFor()
+    expect(await row.textContent()).toContain('Let notes be edited offline.')
+    await sidebar(window)
+      .getByRole('button', { name: /^Inbox/ })
+      .getByText('1')
+      .waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Design review', exact: true })
+    await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
+    await thread.getByText('Waiting on you', { exact: true }).waitFor()
+    expect(await card.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Split the sync step in two.')
+    await card.getByRole('button', { name: 'Request changes' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
+    await answered.getByText('You requested changes').waitFor()
+    await answered.getByText('“Split the sync step in two.”').waitFor()
+    await card.getByRole('button', { name: 'Approve' }).click()
+
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Review', { exact: true }).waitFor()
+    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
+    await signoff.waitFor()
+    await signoff.click()
+    await thread
+      .getByRole('region', { name: 'Sign-off', exact: true })
+      .getByRole('button', { name: 'Approve and merge' })
+      .waitFor()
+  })
+})

@@ -6,7 +6,10 @@ import { stripVTControlCharacters } from 'node:util'
 import {
   type AddFactoryRequest,
   type AgentKind,
+  type AgentStageId,
+  type AnswerRequest,
   agentKinds,
+  agentStageIds,
   appearances,
   type BlockTaskRequest,
   type CreateTaskRequest,
@@ -27,6 +30,7 @@ import {
   type StartDevRunRequest,
   type TaskLead,
   terminalFontSizes,
+  type WriteBriefRequest,
   workingRunLimits,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
@@ -248,7 +252,37 @@ const routes: Route[] = [
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
-      return [201, tasks.comment(ref, caller, text)]
+      const choices = choiceList(body?.choices)
+      return [201, tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/brief$/,
+    runToken: true,
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [200, tasks.brief(ref, caller)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/brief$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<WriteBriefRequest> | null
+      const text = typeof body?.text === 'string' ? body.text.trim() : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      return [201, tasks.writeBrief(ref, caller, `${text}\n`)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/inbox$/,
+    handle: async (_, { tasks }) => [200, tasks.inbox()],
+  },
+  {
+    method: 'POST',
+    path: /^\/comments\/([^/]+)\/answer$/,
+    async handle({ req, params: [id = ''] }, { tasks }) {
+      return [200, await tasks.answer(id, answerRequest(await readJson(req)))]
     },
   },
   {
@@ -270,9 +304,8 @@ const routes: Route[] = [
     path: /^\/tasks\/([^/]+)\/outcome$/,
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
-      const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
-      if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
-      return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
+      const outcome = outcomeRequest(await readJson(req))
+      return [200, await tasks.reportOutcome(ref, caller, outcome)]
     },
   },
   {
@@ -648,6 +681,72 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
       ...(level !== undefined && { effort: level }),
     }
   }
+}
+
+const maxChoices = 6
+const maxChoiceLength = 200
+
+function choiceList(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) {
+    throw new HttpError(400, 'choices must be a list of strings')
+  }
+  const choices = (value as string[]).map(oneLine).filter((c) => c !== '')
+  if (choices.length > maxChoices) {
+    throw new HttpError(400, `a question has at most ${maxChoices} choices`)
+  }
+  if (choices.some((c) => [...c].length > maxChoiceLength)) {
+    throw new HttpError(400, `a choice is limited to ${maxChoiceLength} characters`)
+  }
+  return choices.length > 0 ? choices : undefined
+}
+
+function outcomeRequest(body: unknown): ReportOutcomeRequest {
+  const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  if (request.outcome === 'advance') {
+    return { outcome: 'advance', ...(request.skip === true && { skip: true }) }
+  }
+  if (request.outcome === 'back') {
+    const to = request.to
+    if (typeof to !== 'string' || !agentStageIds.includes(to as AgentStageId)) {
+      throw new HttpError(400, `to must be one of ${agentStageIds.join(', ')}`)
+    }
+    const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
+    if (findings === '') throw new HttpError(400, '`back` needs Findings')
+    return { outcome: 'back', to: to as AgentStageId, findings }
+  }
+  if (request.outcome === 'ask') {
+    const question = typeof request.question === 'string' ? request.question.trim() : ''
+    if (question === '') throw new HttpError(400, 'question is required')
+    const choices = choiceList(request.choices)
+    return { outcome: 'ask', question, ...(choices && { choices }) }
+  }
+  throw new HttpError(400, 'outcome must be advance, back or ask')
+}
+
+function answerRequest(body: unknown): AnswerRequest {
+  const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  const text = typeof request.text === 'string' ? request.text : undefined
+  if (request.text !== undefined && text === undefined) {
+    throw new HttpError(400, 'text must be a string')
+  }
+  if (request.action === 'approve') {
+    return { action: 'approve', ...(text !== undefined && { text }) }
+  }
+  if (request.action === 'request-changes') {
+    return { action: 'request-changes', text: text ?? '' }
+  }
+  if (request.action === 'answer') {
+    if (request.choice !== undefined && typeof request.choice !== 'string') {
+      throw new HttpError(400, 'choice must be a string')
+    }
+    return {
+      action: 'answer',
+      ...(typeof request.choice === 'string' && { choice: request.choice }),
+      ...(text !== undefined && { text }),
+    }
+  }
+  throw new HttpError(400, 'action must be approve, request-changes or answer')
 }
 
 function oneLine(text: string): string {

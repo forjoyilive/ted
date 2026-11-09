@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -39,6 +40,9 @@ afterEach(async () => {
 })
 
 async function startTed() {
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+  })
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, await tokenFor(home))
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -140,6 +144,11 @@ describe('adding a blocker', () => {
   test('a running Task’s Task Lead is told, and can stop to wait', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(
+      briefFile,
+      '## Goal\n\nParse dates.\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nParser half done.\n\n## Open questions\n\nNone.\n\n## Next step\n\nWait for NB-1.\n',
+    )
     const blocker = await create(client, doneWhen(gate))
     const running = await create(
       client,
@@ -149,6 +158,7 @@ describe('adding a blocker', () => {
         {
           everyMessage: [
             { run: ['ted', 'task', 'block', '--by', 'NB-1'] },
+            { run: ['ted', 'brief', 'write', '--file', briefFile] },
             { run: ['ted', 'comment', 'Waiting for NB-1; the parser is half done'] },
             { endTurn: true },
           ],
@@ -186,6 +196,8 @@ describe('adding a blocker', () => {
     expect(fresh.stage).toBe('intake')
     const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
     expect(prompt).toContain('# Picking up after a blocker')
+    expect(prompt).toContain('## Task brief (version 1)')
+    expect(prompt).toContain('Parser half done.')
     expect(prompt).toContain('Waiting for NB-1; the parser is half done')
     expect((await stat(worktree)).isDirectory()).toBe(true)
   })
