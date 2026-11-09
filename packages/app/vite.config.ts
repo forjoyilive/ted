@@ -7,5 +7,6 @@ export default defineConfig({
   build: {
     outDir: fileURLToPath(new URL('dist/renderer', import.meta.url)),
     emptyOutDir: true,
+    assetsInlineLimit: 0,
   },
 })

@@ -6,7 +6,9 @@ import {
   type AddFactoryRequest,
   type AgentKind,
   agentKinds,
+  appearances,
   type CreateTaskRequest,
+  type MachineSettings,
   type PostCommentRequest,
   type ReportOutcomeRequest,
   type StartDevRunRequest,
@@ -117,6 +119,26 @@ const routes: Route[] = [
       const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
       if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
       return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories$/,
+    handle: async (_, { store }) => [
+      200,
+      store.listFactories().map(({ cloneUrl: _, ...factory }) => factory),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/settings$/,
+    handle: async (_, { store }) => [200, store.settings()],
+  },
+  {
+    method: 'PATCH',
+    path: /^\/settings$/,
+    async handle({ req }, { store }) {
+      return [200, store.updateSettings(settingsChanges(await readJson(req)))]
     },
   },
   {
@@ -248,6 +270,22 @@ function equalSecrets(given: string, expected: string): boolean {
   const a = Buffer.from(given)
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
+}
+
+function settingsChanges(body: unknown): Partial<MachineSettings> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'settings must be an object')
+  }
+  const entries = Object.entries(body)
+  if (entries.length === 0) throw new HttpError(400, 'no settings to change')
+  const changes: Partial<MachineSettings> = {}
+  for (const [name, value] of entries) {
+    if (name !== 'appearance') throw new HttpError(400, `unknown setting ${name}`)
+    const appearance = appearances.find((a) => a === value)
+    if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
+    changes.appearance = appearance
+  }
+  return changes
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

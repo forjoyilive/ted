@@ -1,21 +1,31 @@
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
-import { type DaemonClient, type DaemonEvent, tedHome } from '@ted/protocol'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { type DaemonClient, type DaemonEvent, type MachineSettings, tedHome } from '@ted/protocol'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listFactories: (client) => client.listFactories(),
+  getSettings: (client) => client.getSettings(),
+  updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
 }
 
 let window: BrowserWindow | undefined
-const forward = (event: DaemonEvent) => window?.webContents.send('ted:event', event)
+const applySettings = ({ appearance }: MachineSettings) => {
+  nativeTheme.themeSource = appearance
+}
+const forward = (event: DaemonEvent) => {
+  if (event.type === 'settings-changed') applySettings(event.settings)
+  window?.webContents.send('ted:event', event)
+}
 
 async function start(): Promise<void> {
   const client = await withDaemon(tedHome(), async (client) => {
     await client.subscribe(forward)
     return client
   })
+  applySettings(await client.getSettings())
 
   ipcMain.handle('ted:request', (_event, name: string, ...args: unknown[]) => {
     const request = Object.hasOwn(requests, name) ? requests[name] : undefined
@@ -24,8 +34,10 @@ async function start(): Promise<void> {
   })
 
   window = new BrowserWindow({
-    width: 900,
-    height: 600,
+    width: 1280,
+    height: 800,
+    minWidth: 900,
+    minHeight: 560,
     title: 'TED',
     webPreferences: {
       preload: path.join(import.meta.dirname, 'preload.cjs'),

@@ -1,0 +1,45 @@
+.chip {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.glyph {
+  flex-shrink: 0;
+}
+
+.onFill {
+  fill: var(--text-on-accent);
+}
+
+.working {
+  background: var(--status-working-bg);
+  color: var(--status-working-fg);
+}
+
+.waiting {
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
+}
+
+.failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed-fg);
+}
+
+.neutral {
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-fg);
+}
+
+.success {
+  background: var(--status-success-bg);
+  color: var(--status-success-fg);
+}

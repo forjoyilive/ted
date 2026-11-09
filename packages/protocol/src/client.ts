@@ -2,6 +2,7 @@ import type { DaemonInfo } from './daemon-info.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
+import type { MachineSettings } from './settings.ts'
 import type { Comment, CreateTaskRequest, Outcome, Task } from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
@@ -54,6 +55,18 @@ export class DaemonClient {
 
   reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
+  }
+
+  listFactories(): Promise<Factory[]> {
+    return this.#request('GET', '/factories')
+  }
+
+  getSettings(): Promise<MachineSettings> {
+    return this.#request('GET', '/settings')
+  }
+
+  updateSettings(changes: Partial<MachineSettings>): Promise<MachineSettings> {
+    return this.#request('PATCH', '/settings', changes)
   }
 
   addFactory(input: AddFactoryRequest): Promise<Factory> {

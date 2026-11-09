@@ -1,0 +1,30 @@
+.agent,
+.initials,
+.photo {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+}
+
+.agent {
+  background: var(--agent-avatar-bg);
+  color: var(--agent-mark-strong);
+}
+
+.initials {
+  background: var(--avatar-initials-bg);
+  color: var(--avatar-initials-fg);
+  font-size: 9px;
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+}
+
+.photo {
+  object-fit: cover;
+  border: 1px solid var(--avatar-photo-border);
+}

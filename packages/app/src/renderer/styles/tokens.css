@@ -1,0 +1,139 @@
+:root {
+  color-scheme: light dark;
+
+  --surface-app: light-dark(#fafaf8, #161615);
+  --surface-sidebar: light-dark(#fafaf8, #161615);
+  --surface-pane: light-dark(#ffffff, #1c1c1b);
+  --surface-card: light-dark(#ffffff, #232322);
+  --surface-raised: light-dark(#ffffff, #2a2a28);
+  --surface-column: light-dark(#f5f5f2, #171716);
+  --surface-inset: light-dark(#f1f1ed, #262624);
+  --surface-hover: light-dark(#fbfbf9, #20201f);
+  --surface-selected: light-dark(#f3f3f0, #2a2a28);
+  --surface-neutral: light-dark(#efeee9, #2c2c2a);
+  --surface-inverse: light-dark(#1c1c1a, #3a3a37);
+  --surface-scrim: light-dark(#1c1c1a52, #0000008f);
+
+  --control-selected-bg: light-dark(#1c1c1a, #ecebe6);
+  --control-selected-fg: light-dark(#ffffff, #1c1c1a);
+  --control-segment-selected: light-dark(#ffffff, #454540);
+
+  --border-subtle: light-dark(#e6e5e1, #2a2a28);
+  --border-default: light-dark(#dcdbd6, #33332f);
+  --border-strong: light-dark(#d6d5d0, #3e3e3a);
+  --border-control: light-dark(#c4c3bd, #55544f);
+
+  --text-primary: light-dark(#1c1c1a, #ecebe6);
+  --text-secondary: light-dark(#53524d, #c2c0b9);
+  --text-tertiary: light-dark(#6c6b66, #adaba4);
+  --text-caption: light-dark(#77756f, #a3a19a);
+  --text-muted: light-dark(#a19f99, #8f8d86);
+  --text-faint: light-dark(#c9c8c3, #5e5d58);
+  --text-on-accent: light-dark(#ffffff, #ffffff);
+  --text-on-accent-muted: light-dark(#c9cdf3, #d4d8fa);
+  --text-on-inverse: light-dark(#ffffff, #ecebe6);
+  --text-on-inverse-muted: light-dark(#c8c7c2, #b5b3ac);
+
+  --accent-default: light-dark(#4d59cf, #5a66dc);
+  --accent-text: light-dark(#3a45b0, #9aa4f5);
+  --accent-link: light-dark(#4d59cf, #9aa4f5);
+  --accent-subtle: light-dark(#eef0fb, #232845);
+  --accent-border: light-dark(#d9ddf5, #333a68);
+
+  --focus-ring: light-dark(#4d59cf, #8a95f2);
+  --focus-halo: light-dark(#4d59cf33, #8a95f252);
+
+  --status-working-fg: light-dark(#3a45b0, #9aa4f5);
+  --status-working-bg: light-dark(#eef0fb, #232845);
+  --status-waiting-fg: light-dark(#b86e12, #e3a04a);
+  --status-waiting-bg: light-dark(#fbf2e4, #3a2b16);
+  --status-warning-border: light-dark(#efd9b5, #5e4520);
+  --status-warning-text: light-dark(#7a4a0c, #f0c27a);
+  --status-failed-fg: light-dark(#c0392b, #f0705f);
+  --status-failed-bg: light-dark(#fbeae8, #3d1f1b);
+  --status-failed-border: light-dark(#f0c9c4, #6a2e27);
+  --status-destructive: light-dark(#b4372a, #c9483a);
+  --status-neutral-fg: light-dark(#6c6b66, #adaba4);
+  --status-neutral-bg: light-dark(#efeee9, #2c2c2a);
+  --status-success-fg: light-dark(#2d8456, #5cc38a);
+  --status-success-bg: light-dark(#e6f2eb, #1c3326);
+
+  --event-created: light-dark(#2d8456, #4fb57f);
+  --event-run: light-dark(#4d59cf, #6e7aea);
+  --event-failed: light-dark(#c0392b, #e5604f);
+  --event-waiting: light-dark(#b86e12, #d9953f);
+  --event-neutral: light-dark(#a19f99, #7e7c76);
+  --event-hollow: light-dark(#c4c3bd, #6b6a64);
+
+  --diff-added-line: light-dark(#e9f5ee, #17301f);
+  --diff-added-count: light-dark(#2d8456, #5cc38a);
+  --diff-removed-line: light-dark(#fbeae8, #3a1d1a);
+  --diff-removed-count: light-dark(#c0392b, #f07a6a);
+  --diff-hunk: light-dark(#f1f2f8, #20222e);
+
+  --priority-bar: light-dark(#6c6b66, #adaba4);
+  --priority-bar-dim: light-dark(#d6d5d0, #4a4945);
+  --priority-none: light-dark(#a19f99, #7e7c76);
+  --priority-urgent: light-dark(#d9622b, #dd6a3d);
+  --priority-urgent-glyph: light-dark(#ffffff, #ffffff);
+
+  --agent-ring-bg: light-dark(#ffffff, #1c1c1b);
+  --agent-ring-working: light-dark(#4d59cf, #7682f0);
+  --agent-ring-waiting: light-dark(#b86e12, #e3a04a);
+  --agent-ring-idle: light-dark(#d6d5d0, #55544f);
+  --agent-ring-paused: light-dark(#a19f99, #6e6d67);
+  --agent-ring-failed: light-dark(#c0392b, #f0705f);
+  --agent-mark: light-dark(#53524d, #d4d2cb);
+  --agent-mark-strong: light-dark(#1c1c1a, #ecebe6);
+  --agent-avatar-bg: light-dark(#efeee9, #2e2e2b);
+
+  --avatar-photo-border: light-dark(#ffffff00, #ffffff24);
+  --avatar-initials-bg: light-dark(#7a6a5d, #7a6a5d);
+  --avatar-initials-fg: light-dark(#ffffff, #ffffff);
+
+  --shadow-popover: light-dark(#0000001f, #00000080);
+  --shadow-dialog: light-dark(#0000002e, #00000099);
+
+  --terminal-bg: light-dark(#1b1c19, #0f0f0e);
+  --terminal-fg: light-dark(#d8d7d1, #d8d7d1);
+  --terminal-muted: light-dark(#85847d, #85847d);
+  --terminal-green: light-dark(#7fcf9e, #7fcf9e);
+
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Geist Variable', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Geist Mono Variable', monospace;
+
+  --text-8: 8px;
+  --text-10: 10px;
+  --text-10-5: 10.5px;
+  --text-11: 11px;
+  --text-11-5: 11.5px;
+  --text-12: 12px;
+  --text-12-5: 12.5px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-15: 15px;
+  --text-16: 16px;
+  --text-17: 17px;
+  --text-21: 21px;
+  --text-22: 22px;
+  --text-28: 28px;
+
+  --leading-tight: 1.42;
+  --leading-body: 1.5;
+  --leading-snug: 1.55;
+  --leading-relaxed: 1.6;
+  --leading-loose: 1.7;
+  --leading-row: 20px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  --radius-control: 7px;
+  --radius-tooltip: 6px;
+  --radius-pill: 999px;
+
+  --sidebar-width: 210px;
+  --list-pane-width: 330px;
+  --details-pane-width: 260px;
+}
