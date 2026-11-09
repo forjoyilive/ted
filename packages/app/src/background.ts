@@ -4,6 +4,7 @@ import {
   type BannerSeverity,
   bannerOrder,
   type CommentKind,
+  identity,
   isShowing,
   type QuitChoice,
   type RunCounts,
@@ -11,6 +12,8 @@ import {
   type WaitingRequest,
   workRunning,
 } from '@ted/protocol'
+
+export const appName = identity().name
 
 export type MenuCommand =
   | { kind: 'open-inbox' }
@@ -123,12 +126,12 @@ const role = (name: MenuRole): MenuEntry => ({ type: 'role', role: name })
 export function appMenu(platform: Platform, state: MenuState, now: Date = new Date()): MenuEntry[] {
   const edit: MenuEntry = { type: 'submenu', label: 'Edit', role: 'editMenu', submenu: [] }
   if (platform !== 'darwin') {
-    return [{ type: 'submenu', label: 'TED', submenu: statusMenu(state, now) }, edit]
+    return [{ type: 'submenu', label: appName, submenu: statusMenu(state, now) }, edit]
   }
   return [
     {
       type: 'submenu',
-      label: 'TED',
+      label: appName,
       submenu: [
         role('about'),
         separator,
@@ -167,7 +170,11 @@ export function trayWarning(banners: readonly Banner[], now: Date = new Date()):
 }
 
 export function windowTitle(platform: Platform, waiting: number): string {
-  return platform === 'linux' && waiting > 0 ? `TED (${waiting})` : 'TED'
+  return platform === 'linux' && waiting > 0 ? `${appName} (${waiting})` : appName
+}
+
+export function trayToolTip(waiting: number): string {
+  return waiting > 0 ? `${appName} · ${waiting} waiting on you` : appName
 }
 
 export function dockBadge(waiting: number): string {
@@ -241,8 +248,8 @@ export function closeNotice(
 ): { title: string; body: string } | undefined {
   if (platform !== 'linux' || alreadyShown) return undefined
   return {
-    title: 'TED',
-    body: 'TED is still running in the background. Open it again from your app launcher.',
+    title: appName,
+    body: `${appName} is still running in the background. Open it again from your app launcher.`,
   }
 }
 
@@ -257,7 +264,7 @@ export function problemNotice(banner: Banner): ProblemNotice | undefined {
   const place = banner.action?.opens
   const section = place?.kind === 'settings' ? place.section : banner.action?.section
   return {
-    title: 'TED',
+    title: appName,
     body: banner.text,
     opens: section !== undefined ? { kind: 'settings', section } : { kind: 'open-ted' },
   }
@@ -313,5 +320,5 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
 }
 
 export function foldedNotice(count: number): ProblemNotice {
-  return { title: 'TED', body: `${count} new items in your Inbox`, opens: { kind: 'open-inbox' } }
+  return { title: appName, body: `${count} new items in your Inbox`, opens: { kind: 'open-inbox' } }
 }

@@ -189,3 +189,7 @@ _Avoid_: Main pane, content area
 **Banner**:
 A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×). Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
+
+**TED Dev**:
+TED run from source (`pnpm app`, `pnpm ted`), as opposed to the installed release. It has its own home folder (`~/.ted-dev`), app name, keyring entry and Factories, and never installs a command, a login item or an update, so it can run beside the release on one machine.
+_Avoid_: Debug build, local TED

@@ -36,6 +36,7 @@ import {
   downloadUrl,
   type EditAutomationRequest,
   type EditTaskRequest,
+  edition,
   type FactorySettingsChanges,
   isLoopbackUrl,
   type LibraryChanges,
@@ -73,6 +74,7 @@ import {
 } from 'electron'
 import {
   appMenu,
+  appName,
   closeNotice,
   dockBadge,
   type MenuCommand,
@@ -84,6 +86,7 @@ import {
   quitPlan,
   statusMenu,
   trayLabel,
+  trayToolTip,
   trayWarning,
   windowTitle,
 } from './background.ts'
@@ -602,7 +605,7 @@ function makeLoginItem(): LoginItem {
   if (log) return recordLoginItem(log, process.env.TED_LOGIN_ITEM_STATUS)
   return createLoginItem({
     platform: process.platform,
-    packaged: app.isPackaged,
+    packaged: app.isPackaged && edition === 'release',
     macVersion: Number.parseInt(process.getSystemVersion(), 10),
     executable: process.env.APPIMAGE || process.execPath,
     autostartDir: path.join(
@@ -780,7 +783,7 @@ function refresh(): void {
     tray ??= new Tray(icon)
     tray.setImage(icon)
     if (platform === 'darwin') tray.setTitle(trayLabel(waiting))
-    tray.setToolTip(waiting > 0 ? `TED · ${waiting} waiting on you` : 'TED')
+    tray.setToolTip(trayToolTip(waiting))
     tray.setContextMenu(Menu.buildFromTemplate(toElectron(statusMenu(state, now))))
   }
 
@@ -847,7 +850,7 @@ async function updateSource(asksPassword: boolean): Promise<MakeSource | undefin
       exit: () => app.exit(0),
     })
   }
-  if (!app.isPackaged) return undefined
+  if (!app.isPackaged || edition !== 'release') return undefined
   session
     .fromPartition('electron-updater', { cache: false })
     .webRequest.onBeforeRequest((details, callback) => {
@@ -1008,7 +1011,7 @@ function onConnection(connection: DaemonConnection): void {
     client = supervisor?.client
     loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
   } else if (connection.state === 'stopped' && !hiddenWindow) {
-    new Notification({ title: 'TED', body: keepsStopping }).show()
+    new Notification({ title: appName, body: keepsStopping }).show()
   }
 }
 
@@ -1087,10 +1090,12 @@ async function start(): Promise<void> {
   await createWindow()
 }
 
-app.setName('TED')
+app.setName(appName)
 registerPrototypeScheme()
 if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
-if (process.env.TED_HOME) app.setPath('userData', path.join(tedHome(), 'electron'))
+if (process.env.TED_HOME || edition !== 'release') {
+  app.setPath('userData', path.join(tedHome(), 'electron'))
+}
 
 if (!app.requestSingleInstanceLock()) {
   app.exit(0)
@@ -1101,7 +1106,7 @@ if (!app.requestSingleInstanceLock()) {
     .then(start)
     .catch((error: unknown) => {
       dialog.showErrorBox(
-        'TED couldn’t start',
+        `${appName} couldn’t start`,
         error instanceof Error ? error.message : String(error),
       )
       app.exit(1)

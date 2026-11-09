@@ -2216,7 +2216,7 @@ describe('running in the background', () => {
     if (process.platform === 'linux') {
       expect(
         await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()),
-      ).toBe('TED (1)')
+      ).toBe('TED Dev (1)')
     }
 
     await app?.evaluate(({ Menu }) => {

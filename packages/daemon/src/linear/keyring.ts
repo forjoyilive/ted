@@ -1,5 +1,6 @@
 import { pathToFileURL } from 'node:url'
 import { AsyncEntry } from '@napi-rs/keyring'
+import { identity } from '@ted/protocol'
 
 export type KeyringKind = 'macos-keychain' | 'secret-service'
 
@@ -18,7 +19,7 @@ export class KeyringUnavailableError extends Error {
   }
 }
 
-export const keyringService = 'TED'
+export const keyringService = identity().keyringService
 export const linearKeyAccount = 'linear-api-key'
 
 export function osKeyring(platform: NodeJS.Platform = process.platform): Keyring {

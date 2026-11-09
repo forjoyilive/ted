@@ -12,6 +12,7 @@ import {
   quitPlan,
   statusMenu,
   trayLabel,
+  trayToolTip,
   trayWarning,
   windowTitle,
 } from '../src/background.ts'
@@ -160,10 +161,15 @@ describe('menu-bar icon and window title', () => {
     expect(trayWarning([banner({})], now)).toBe(true)
   })
 
-  test('the window title carries the count only on Linux', () => {
-    expect(windowTitle('linux', 3)).toBe('TED (3)')
-    expect(windowTitle('linux', 0)).toBe('TED')
-    expect(windowTitle('darwin', 3)).toBe('TED')
+  test('the window title names TED Dev and carries the count only on Linux', () => {
+    expect(windowTitle('linux', 3)).toBe('TED Dev (3)')
+    expect(windowTitle('linux', 0)).toBe('TED Dev')
+    expect(windowTitle('darwin', 3)).toBe('TED Dev')
+  })
+
+  test('the menu-bar icon’s tooltip names TED Dev', () => {
+    expect(trayToolTip(0)).toBe('TED Dev')
+    expect(trayToolTip(2)).toBe('TED Dev · 2 waiting on you')
   })
 
   test('the Dock badge shows the waiting count, and nothing at zero', () => {
@@ -192,7 +198,7 @@ describe('the app menu holds every menu-bar item', () => {
   test('on Linux, a TED menu holds the menu-bar items in the same order', () => {
     const [ted] = appMenu('linux', state, now)
 
-    expect(ted).toMatchObject({ type: 'submenu', label: 'TED' })
+    expect(ted).toMatchObject({ type: 'submenu', label: 'TED Dev' })
     if (ted?.type !== 'submenu') throw new Error('no TED menu')
     expect(labels(ted.submenu)).toEqual(labels(statusMenu(state, now)))
   })
@@ -269,8 +275,8 @@ describe('quitting', () => {
 describe('closing the window on Linux', () => {
   test('the first close says TED is still running, once', () => {
     expect(closeNotice('linux', false)).toEqual({
-      title: 'TED',
-      body: 'TED is still running in the background. Open it again from your app launcher.',
+      title: 'TED Dev',
+      body: 'TED Dev is still running in the background. Open it again from your app launcher.',
     })
     expect(closeNotice('linux', true)).toBeUndefined()
     expect(closeNotice('darwin', false)).toBeUndefined()
@@ -288,7 +294,7 @@ describe('problem notifications', () => {
         }),
       ),
     ).toEqual({
-      title: 'TED',
+      title: 'TED Dev',
       body: 'Claude usage limit · resets 14:20 · 3 Runs paused',
       opens: { kind: 'settings', section: 'agents' },
     })
