@@ -91,6 +91,12 @@ import {
   recordLoginItem,
   startsInBackground,
 } from './login-item.ts'
+import {
+  isFigmaLink,
+  keepFramesInPlace,
+  registerPrototypeScheme,
+  servePrototypes,
+} from './prototype.ts'
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
@@ -220,6 +226,14 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     if (url === undefined || !/^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
       throw new Error('That pull request has no GitHub link')
     }
+    await shell.openExternal(url)
+  },
+  openFigmaLink: async (client, taskId, commentId) => {
+    const comment = (await client.listComments(String(taskId))).find(
+      (c) => c.id === String(commentId),
+    )
+    const url = comment?.design?.figma?.url
+    if (url === undefined || !isFigmaLink(url)) throw new Error('That design has no Figma link')
     await shell.openExternal(url)
   },
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
@@ -831,6 +845,7 @@ async function createWindow(): Promise<void> {
   })
   created.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   created.webContents.on('will-navigate', (event) => event.preventDefault())
+  keepFramesInPlace(created.webContents)
   await created.loadFile(path.join(import.meta.dirname, '../dist/renderer/index.html'))
 }
 
@@ -878,6 +893,7 @@ async function start(): Promise<void> {
   })
   supervisor = supervised
   client = supervised.client
+  servePrototypes((file) => supervised.client.readAttachment(file))
   await loadStateWhenReady()
 
   const appRequests: Record<string, () => Promise<unknown>> = {
@@ -935,6 +951,7 @@ async function start(): Promise<void> {
 }
 
 app.setName('TED')
+registerPrototypeScheme()
 if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
 if (process.env.TED_HOME) app.setPath('userData', path.join(tedHome(), 'electron'))
 
