@@ -5,7 +5,7 @@ import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
 
-const removedEnv = ['CODEX_API_KEY']
+const removedEnv = ['CODEX_API_KEY', 'OPENAI_API_KEY']
 
 const config = [
   'sandbox_mode="workspace-write"',

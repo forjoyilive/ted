@@ -126,6 +126,7 @@ describe('Codex Runs', () => {
     process.env.HOME = fakeHome
     delete process.env.CODEX_HOME
     process.env.CODEX_API_KEY = 'sk-stray'
+    process.env.OPENAI_API_KEY = 'sk-openai'
     try {
       const client = await startWithStubs()
       const run = await client.startRun([{ endTurn: true }], cwd, 'codex')
@@ -149,6 +150,7 @@ describe('Codex Runs', () => {
         'shell_environment_policy.ignore_default_excludes=true',
       ])
       expect(env.CODEX_API_KEY).toBeUndefined()
+      expect(env.OPENAI_API_KEY).toBeUndefined()
       expect(env.TED_RUN).toBe(run.id)
       expect(env.TED_RUN_TOKEN).toMatch(new RegExp(`^${run.id}\\.[0-9a-f]{64}$`))
       expect(env.PATH?.split(':')[0]).toBe(path.join(home, 'bin'))
