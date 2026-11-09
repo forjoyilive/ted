@@ -9,7 +9,7 @@ const notes: Partial<Record<BoxState, string>> = {
   paused: 'The Task Lead reads this when it continues.',
   'no-run': 'The Task Lead gets this with the brief when the Task starts.',
   stopped: 'Send keeps the Task stopped; the next Task Lead Run gets your Comment with the brief.',
-  done: 'The Task is done, so no Run reads this. It stays in the thread.',
+  done: 'This Task is done and nothing runs on it. Comment only keeps this in the thread; Follow up creates a new Task from its brief with this text.',
 }
 
 const placeholders: Partial<Record<BoxState, string>> = {
@@ -17,7 +17,13 @@ const placeholders: Partial<Record<BoxState, string>> = {
   done: 'Comment…',
 }
 
-export function CommentBox({ task }: { task: Task }) {
+export function CommentBox({
+  task,
+  onFollowedUp,
+}: {
+  task: Task
+  onFollowedUp?: (followUp: Task) => void
+}) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
@@ -26,6 +32,7 @@ export function CommentBox({ task }: { task: Task }) {
   const note = notes[state]
 
   const resumes = state === 'stopped'
+  const done = state === 'done'
   const cancels = state === 'merge-pending'
 
   if (state === 'archived') {
@@ -36,13 +43,16 @@ export function CommentBox({ task }: { task: Task }) {
     )
   }
 
-  async function send(andResume = false) {
+  async function send(then?: 'resume' | 'follow-up') {
     if (!typed || sending) return
     setSending(true)
     setError(undefined)
     try {
-      if (andResume) await ted.resumeTask(task.id, text)
-      else if (cancels) await ted.cancelMerge(task.id, text)
+      if (then === 'resume') await ted.resumeTask(task.id, text)
+      else if (then === 'follow-up') {
+        const created = await ted.followUpTask(task.id, text)
+        onFollowedUp?.(created)
+      } else if (cancels) await ted.cancelMerge(task.id, text)
       else await ted.postComment(task.id, text)
       setText('')
     } catch (failed) {
@@ -68,7 +78,7 @@ export function CommentBox({ task }: { task: Task }) {
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
           event.preventDefault()
-          void send(resumes)
+          void send(resumes ? 'resume' : done ? 'follow-up' : undefined)
         }}
       />
       {error !== undefined && (
@@ -79,15 +89,28 @@ export function CommentBox({ task }: { task: Task }) {
       <div className={styles.buttons}>
         {note !== undefined && <Help>{note}</Help>}
         <Button
-          variant={cancels ? 'danger' : resumes ? 'secondary' : 'primary'}
+          variant={cancels ? 'danger' : resumes || done ? 'secondary' : 'primary'}
           disabled={sending || !typed}
           onClick={() => void send()}
         >
-          {state === 'done' ? 'Comment only' : cancels ? 'Send and cancel merge' : 'Send'}
+          {done ? 'Comment only' : cancels ? 'Send and cancel merge' : 'Send'}
         </Button>
         {resumes && (
-          <Button variant="primary" disabled={sending || !typed} onClick={() => void send(true)}>
+          <Button
+            variant="primary"
+            disabled={sending || !typed}
+            onClick={() => void send('resume')}
+          >
             Send and resume
+          </Button>
+        )}
+        {done && (
+          <Button
+            variant="primary"
+            disabled={sending || !typed}
+            onClick={() => void send('follow-up')}
+          >
+            Follow up
           </Button>
         )}
       </div>
