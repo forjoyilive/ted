@@ -194,7 +194,7 @@ try {
     const ref = taskRef()
     const files = options.attach ?? []
     const text = [command, ...rest].filter((s) => s !== undefined).join(' ')
-    const body = text || (files.length > 0 ? '' : await readStdin())
+    const body = text || (await readStdin())
     if (body.trim() === '' && files.length === 0) {
       throw new UsageError('give the Comment as text or on stdin')
     }
