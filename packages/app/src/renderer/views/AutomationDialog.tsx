@@ -202,7 +202,11 @@ export function AutomationDialog({
     try {
       let saved: Automation
       if (editing) {
-        saved = await ted.editAutomation(editing.id, fields)
+        saved = await ted.editAutomation(editing.id, {
+          ...fields,
+          ...(lead && lead.model === undefined && { model: null }),
+          ...(lead && lead.effort === undefined && { effort: null }),
+        })
         if (runNow) await ted.runAutomation(saved.id)
       } else {
         saved = await ted.createAutomation({

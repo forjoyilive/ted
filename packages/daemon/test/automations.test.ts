@@ -154,6 +154,22 @@ describe('Automations', () => {
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
   })
 
+  test('an edit sending null for model or effort clears it back to the default', async () => {
+    const client = await startTed()
+    const automation = await create(client, { model: 'sonnet', effort: 'high', on: false })
+    const cleared = await client.ok<Automation>('PATCH', `/automations/${automation.id}`, {
+      model: null,
+      effort: null,
+    })
+    expect(cleared.model).toBeUndefined()
+    expect(cleared.effort).toBeUndefined()
+    const kept = await client.ok<Automation>('PATCH', `/automations/${automation.id}`, {
+      effort: 'low',
+    })
+    expect(kept).toMatchObject({ effort: 'low' })
+    expect(kept.model).toBeUndefined()
+  })
+
   test('the shortest interval is 15 minutes and bad schedules are refused', async () => {
     const client = await startTed()
     const tooOften = await client.call('POST', '/automations', {

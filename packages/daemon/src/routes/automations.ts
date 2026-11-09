@@ -1,6 +1,7 @@
 import {
   type AgentKind,
   type AnswerAutomationRequest,
+  type AutomationInput,
   type AutomationSchedule,
   type AutomationTemplateId,
   agentKinds,
@@ -212,8 +213,8 @@ function scheduleInput(value: unknown): AutomationSchedule {
   }
 }
 
-function fields(body: Record<string, unknown>): EditAutomationRequest {
-  const out: EditAutomationRequest = {}
+function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 'template'>> {
+  const out: Partial<Omit<AutomationInput, 'template'>> = {}
   const name = optionalString(body.name, 'name')
   const prompt = optionalString(body.prompt, 'prompt')
   const timeZone = optionalString(body.timeZone, 'timeZone')
@@ -272,5 +273,13 @@ function createInput(value: unknown): CreateAutomationRequest {
 function editInput(value: unknown): EditAutomationRequest {
   const body = record(value)
   if (body.template !== undefined) throw new HttpError(400, 'the template is chosen at creation')
-  return fields(body)
+  const { model, effort, ...rest } = body
+  const out: EditAutomationRequest = fields({
+    ...rest,
+    ...(model !== null && { model }),
+    ...(effort !== null && { effort }),
+  })
+  if (model === null) out.model = null
+  if (effort === null) out.effort = null
+  return out
 }

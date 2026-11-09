@@ -829,8 +829,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
       const agent = input.agent ?? automation.agent
       const keep = agent === automation.agent
-      const model = input.model ?? (keep ? automation.model : undefined)
-      const effort = input.effort ?? (keep ? automation.effort : undefined)
+      const model =
+        input.model === null ? undefined : (input.model ?? (keep ? automation.model : undefined))
+      const effort =
+        input.effort === null ? undefined : (input.effort ?? (keep ? automation.effort : undefined))
       saved.edit(
         automation.id,
         {

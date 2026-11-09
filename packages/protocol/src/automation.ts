@@ -114,7 +114,12 @@ export interface CreateAutomationRequest extends AutomationInput {
   runNow?: boolean
 }
 
-export type EditAutomationRequest = Partial<Omit<AutomationInput, 'template'>>
+export type EditAutomationRequest = Partial<
+  Omit<AutomationInput, 'template' | 'model' | 'effort'>
+> & {
+  model?: string | null
+  effort?: Effort | null
+}
 
 export interface SchedulePreview {
   text: string
