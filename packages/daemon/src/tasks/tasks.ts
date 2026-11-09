@@ -600,21 +600,25 @@ export function createTasks(options: {
           return answered
         }
         if (request.action === 'approve') {
+          const now = find(task.id)
+          const resolution = await workflows.resolve(factoryOf(now))
+          const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
           const answered = answerRequest(task, comment, {
             kind: 'approved',
             at,
             ...(text !== '' && { text }),
           })
-          const now = find(task.id)
-          const resolution = await workflows.resolve(factoryOf(now))
-          const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+          const approved =
+            text === ''
+              ? `The human approved the ${gateName(comment)}.`
+              : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
           await move(
             now,
             resolution,
             next,
             next === 'done'
               ? undefined
-              : `The human approved the ${gateName(comment)}. ${nextStageMessage(resolution.workflow, next)}`,
+              : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
           )
           return answered
         }

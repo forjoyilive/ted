@@ -15,8 +15,14 @@ function CardHead({ request, task, now }: { request: Comment; task: Task; now: n
   )
 }
 
-function BriefSections({ text }: { text: string }) {
-  const sections = briefSections(text).filter((s) => s.heading.toLowerCase() !== 'goal')
+function BriefSections({ text, title }: { text: string; title: string }) {
+  const sections = briefSections(text)
+    .map((section) =>
+      section.heading.toLowerCase() === 'goal' && section.body.startsWith(title)
+        ? { ...section, body: section.body.slice(title.length).trim() }
+        : section,
+    )
+    .filter((section) => section.body !== '')
   return (
     <div className={styles.content}>
       {sections.map(({ heading, body }) => (
@@ -57,7 +63,7 @@ export function RequestCard({ request, task }: { request: Comment; task: Task })
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
       {request.gate ? (
-        <BriefSections text={request.body} />
+        <BriefSections text={request.body} title={headline(request)} />
       ) : (
         shown !== undefined && <p className={styles.summary}>{shown}</p>
       )}

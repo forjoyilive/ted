@@ -299,6 +299,7 @@ describe('Gates', () => {
 
     const answered = await client.ok<Comment>('POST', `/comments/${request.id}/answer`, {
       action: 'approve',
+      text: 'Use the existing sync queue.',
     })
 
     expect(answered.answer).toMatchObject({ kind: 'approved' })
@@ -309,7 +310,9 @@ describe('Gates', () => {
         (await userMessages(client, task)).find((m) => m.startsWith('The human approved')),
       'the Work instructions to reach the Task Lead',
     )
-    expect(work).toMatch(/^The human approved the Design Gate\. TED moved this Task to Work\./)
+    expect(work).toMatch(
+      /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
+    )
     expect(work).toContain('# Work')
   })
 
