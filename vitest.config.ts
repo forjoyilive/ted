@@ -10,6 +10,7 @@ export default defineConfig({
         new URL('./packages/daemon/test/fixtures/stub-gh.ts', import.meta.url),
       ),
       TED_LOGIN_SHELL: 'off',
+      TED_STAY_AWAKE: 'off',
     },
   },
 })

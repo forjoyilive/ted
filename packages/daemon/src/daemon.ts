@@ -14,6 +14,7 @@ import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
+import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createTasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
@@ -31,6 +32,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   onShutdown?: () => void
+  holdAwake?: HoldAwake
 }
 
 export interface DaemonIntegrationsOptions {
@@ -132,6 +134,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         logsDir: paths.logs,
         ...(idle && { idle }),
       })
+      const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
@@ -143,6 +146,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         integrations,
         async close() {
+          stayAwake?.close()
           health.close()
           integrations.close()
           await tasks.close()

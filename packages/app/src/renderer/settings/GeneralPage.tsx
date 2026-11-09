@@ -1,5 +1,6 @@
 import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protocol/settings'
 import { useEffect, useState } from 'react'
+import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
 import { ted } from '../ted.ts'
 import {
@@ -43,8 +44,33 @@ function useProfileName(): string {
   return name
 }
 
+function useLoginItem(): LoginItemState | undefined {
+  const [state, setState] = useState<LoginItemState>()
+  useEffect(() => {
+    const load = () => void ted.loginItem().then(setState)
+    load()
+    window.addEventListener('focus', load)
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'login-item') setState(event.state)
+    })
+    return () => {
+      window.removeEventListener('focus', load)
+      unsubscribe()
+    }
+  }, [])
+  return state
+}
+
+function loginItemNote(state: LoginItemState | undefined): string | undefined {
+  if (state === 'requires-approval') return 'Allow TED in System Settings → Login Items'
+  if (state === 'unavailable') return 'Works only in an installed copy of TED.'
+  return undefined
+}
+
 export function GeneralPage({ settings }: SettingsPageProps) {
   const name = useProfileName()
+  const loginItem = useLoginItem()
+  const loginNote = settings.startAtLogin ? loginItemNote(loginItem) : undefined
   const [problem, setProblem] = useState<string>()
   const picture = settings.profilePicture ?? undefined
 
@@ -101,6 +127,20 @@ export function GeneralPage({ settings }: SettingsPageProps) {
 
       <SettingsGroup label="Startup and quitting">
         <SettingRow
+          title="Start TED in the background when you log in"
+          help="TED starts with no window, so notifications and Automations work. It keeps running until you choose Quit TED completely."
+          {...(loginNote !== undefined && { detail: loginNote })}
+        >
+          {loginItem === 'requires-approval' && settings.startAtLogin && (
+            <Button onClick={() => void ted.openLoginItemsSettings()}>Open System Settings</Button>
+          )}
+          <Switch
+            label="Start TED in the background when you log in"
+            checked={settings.startAtLogin}
+            onChange={(startAtLogin) => void ted.updateSettings({ startAtLogin })}
+          />
+        </SettingRow>
+        <SettingRow
           title="When you quit with work running"
           labelFor="quit-with-work-running"
           help="Work running means Runs going or Automations on. Keeping TED running in the background lets them carry on with no window open."
@@ -125,6 +165,16 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title="Stay Awake while Runs are working"
+          help="Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake."
+        >
+          <Switch
+            label="Stay Awake while Runs are working"
+            checked={settings.stayAwake}
+            onChange={(stayAwake) => void ted.updateSettings({ stayAwake })}
+          />
+        </SettingRow>
       </SettingsGroup>
     </SettingsPage>
   )

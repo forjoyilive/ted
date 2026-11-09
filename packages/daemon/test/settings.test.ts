@@ -52,6 +52,8 @@ describe('machine settings in the store', () => {
       maxWorkingRuns: 6,
       quitWithWorkRunning: 'ask',
       showTrayIcon: true,
+      startAtLogin: true,
+      stayAwake: true,
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -175,6 +177,8 @@ describe('settings and Factories over the daemon API', () => {
       'a profile picture over 512 KB',
       { profilePicture: `data:image/png;base64,${'A'.repeat(600_000)}` },
     ],
+    ['Start at login that is not true or false', { startAtLogin: 'on' }],
+    ['Stay Awake that is not true or false', { stayAwake: 1 }],
     ['one bad setting among good ones', { developerMode: true, terminalFontSize: 30 }],
     ['no settings', {}],
     ['a body that is not an object', ['dark']],
@@ -207,6 +211,16 @@ describe('settings and Factories over the daemon API', () => {
     })
     await ted.updateSettings({ terminalFontSize: 10, profilePicture: null })
     expect(await ted.getSettings()).toMatchObject({ terminalFontSize: 10, profilePicture: null })
+  })
+
+  test('a client turns Start at login and Stay Awake off and on', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+
+    await ted.updateSettings({ startAtLogin: false, stayAwake: false })
+    expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: false })
+    await ted.updateSettings({ stayAwake: true })
+    expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: true })
   })
 
   test('the profile gives a name for the human’s initials', async () => {

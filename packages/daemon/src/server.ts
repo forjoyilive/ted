@@ -803,10 +803,16 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
-  showTrayIcon(value) {
-    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
+  showTrayIcon: onOff('showTrayIcon'),
+  startAtLogin: onOff('startAtLogin'),
+  stayAwake: onOff('stayAwake'),
+}
+
+function onOff(name: keyof MachineSettings): (value: unknown) => boolean {
+  return (value) => {
+    if (typeof value !== 'boolean') throw new HttpError(400, `${name} must be true or false`)
     return value
-  },
+  }
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

@@ -5,6 +5,7 @@ import { tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
+import { holdAwakeWithOs } from './stay-awake.ts'
 
 closeInheritedFds()
 
@@ -30,6 +31,7 @@ try {
     version: tedVersion,
     onShutdown: () => void shutdown(),
     checkAgentsOnStart: true,
+    ...(process.env.TED_STAY_AWAKE !== 'off' && { holdAwake: holdAwakeWithOs() }),
     ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
     ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
     integrations: {
