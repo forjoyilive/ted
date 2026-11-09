@@ -90,7 +90,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   getRunChat: (client, runId) => client.getRunChat(String(runId)),
-  sendRunMessage: (client, runId, text) => client.sendRunMessage(String(runId), String(text)),
+  sendRunMessage: (client, runId, text, interrupt) =>
+    client.sendRunMessage(String(runId), String(text), { interrupt: interrupt === true }),
+  interruptRun: (client, runId) => client.interruptRun(String(runId)),
+  sendQueuedMessageNow: (client, runId, messageId) =>
+    client.sendQueuedMessageNow(String(runId), String(messageId)),
+  deleteQueuedMessage: (client, runId, messageId) =>
+    client.deleteQueuedMessage(String(runId), String(messageId)),
   restartRun: (client, runId) => client.restartRun(String(runId)),
   stopRun: (client, runId) => client.stopRun(String(runId)),
   listTaskRuns: (client, taskId) => client.listTaskRuns(String(taskId)),

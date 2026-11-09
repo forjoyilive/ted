@@ -250,6 +250,7 @@ export function threadEvents(
         )
         break
       case 'v1.RunMessageSent':
+      case 'v1.RunMessageDelivered':
         lines.push({
           id: entry.id,
           taskId,

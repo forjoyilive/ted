@@ -9,7 +9,8 @@ import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
-import { ChevronIcon } from './icons.tsx'
+import { Help } from './Help.tsx'
+import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
 
@@ -183,6 +184,8 @@ function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now
       <span className={styles.running}>
         running{item.at !== undefined && ` · ${elapsed(item.at, now)}`}
       </span>
+    ) : item.status === 'stopped' ? (
+      <span className={styles.stopped}>stopped</span>
     ) : diffs.length > 0 ? (
       <Counts additions={additions} deletions={deletions} />
     ) : item.status === 'failed' ? (
@@ -244,20 +247,91 @@ function AgentMessage({
   )
 }
 
-function HumanMessage({ item, now }: { item: Extract<ChatItem, { kind: 'human' }>; now: number }) {
+function QueuedActions({ runId, messageId }: { runId: string; messageId: string }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const act = (request: () => Promise<unknown>) => {
+    setBusy(true)
+    setError(undefined)
+    request()
+      .catch((failed: unknown) => setError(readableError(failed)))
+      .finally(() => setBusy(false))
+  }
+  return (
+    <span className={styles.queuedActions}>
+      {error !== undefined && (
+        <span className={styles.error} role="alert">
+          {error}
+        </span>
+      )}
+      <button
+        type="button"
+        className={styles.link}
+        disabled={busy}
+        onClick={() => act(() => ted.sendQueuedMessageNow(runId, messageId))}
+      >
+        Send now
+      </button>
+      <button
+        type="button"
+        className={styles.quietLink}
+        disabled={busy}
+        onClick={() => act(() => ted.deleteQueuedMessage(runId, messageId))}
+      >
+        Delete
+      </button>
+      <Help>Only until the agent has read it.</Help>
+    </span>
+  )
+}
+
+function HumanMessage({
+  item,
+  run,
+  now,
+}: {
+  item: Extract<ChatItem, { kind: 'human' }>
+  run: RunSummary
+  now: number
+}) {
+  const queued = item.queued === true
+  const live = run.state !== 'finished'
   return (
     <div className={styles.human}>
-      <div className={styles.bubble}>
+      <div className={styles.bubble} data-queued={queued}>
         <div className={styles.messageHead}>
           <span className={styles.author}>You</span>
           <span className={styles.when}>
-            {` · to this Run only · ${ago(item.at, now)}`}
-            {!item.sent && ' · sending'}
+            {' · to this Run only'}
+            {!queued && ` · ${ago(item.at, now)}`}
+            {!item.sent && !queued && ' · sending'}
           </span>
+          {queued && (
+            <span className={styles.queuedChip}>
+              <ClockIcon />
+              {live ? 'Queued' : 'Not sent'}
+            </span>
+          )}
+          {queued && live && <QueuedActions runId={run.id} messageId={item.id} />}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
     </div>
+  )
+}
+
+function InterruptedLine({
+  item,
+  now,
+}: {
+  item: Extract<ChatItem, { kind: 'interrupted' }>
+  now: number
+}) {
+  return (
+    <p className={styles.interrupted}>
+      <span className={styles.interruptedMark} aria-hidden />
+      {`Interrupted by you · ${ago(item.at, now)}`}
+    </p>
   )
 }
 
@@ -369,7 +443,9 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
     case 'agent':
       return <AgentMessage item={item} run={run} now={now} />
     case 'human':
-      return <HumanMessage item={item} now={now} />
+      return <HumanMessage item={item} run={run} now={now} />
+    case 'interrupted':
+      return <InterruptedLine item={item} now={now} />
     case 'tool':
       return <ToolRow item={item} now={now} />
     case 'permission':
@@ -380,16 +456,18 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
 function Composer({ run }: { run: RunSummary }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const typed = text.trim() !== ''
   const live = run.state !== 'finished'
+  const working = run.state === 'working'
 
-  async function send() {
+  async function send(interrupt: boolean) {
     if (!typed || sending || !live) return
     setSending(true)
     setError(undefined)
     try {
-      await ted.sendRunMessage(run.id, text)
+      await ted.sendRunMessage(run.id, text, interrupt && working)
       setText('')
     } catch (failed) {
       setError(readableError(failed))
@@ -398,36 +476,80 @@ function Composer({ run }: { run: RunSummary }) {
     }
   }
 
+  async function stopTurn() {
+    setStopping(true)
+    setError(undefined)
+    try {
+      await ted.interruptRun(run.id)
+    } catch (failed) {
+      setError(readableError(failed))
+    } finally {
+      setStopping(false)
+    }
+  }
+
   return (
     <div className={styles.composer}>
-      <textarea
-        className={styles.box}
-        aria-label="Message to this Run"
-        placeholder={
-          live ? `Message the ${run.name}’s Run…` : 'This Run has finished. Its chat is read-only.'
-        }
-        disabled={!live}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-          event.preventDefault()
-          void send()
-        }}
-      />
+      <div className={styles.boxWrap}>
+        <textarea
+          className={styles.box}
+          aria-label="Message to this Run"
+          placeholder={
+            live
+              ? `Message the ${run.name}’s Run…`
+              : 'This Run has finished. Its chat is read-only.'
+          }
+          disabled={!live}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
+            event.preventDefault()
+            void send(event.metaKey || event.ctrlKey)
+          }}
+        />
+        <span className={styles.boxHelp}>
+          <Help>
+            Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To
+            leave a Comment on the Task, use the Thread tab.
+          </Help>
+        </span>
+      </div>
       {error !== undefined && (
         <p className={styles.error} role="alert">
           {error}
         </p>
       )}
       <div className={styles.buttons}>
-        <span className={styles.hint}>Goes only to this Run. It isn’t a Comment.</span>
+        {live && (
+          <Button
+            size="small"
+            className={styles.stopTurn}
+            aria-label="Stop the turn"
+            title="Stop the turn without sending"
+            disabled={stopping || !working}
+            onClick={() => void stopTurn()}
+          >
+            <StopIcon />
+          </Button>
+        )}
+        {live && (
+          <Button
+            size="small"
+            shortcut="⌘↵"
+            disabled={sending || !typed || !working}
+            onClick={() => void send(true)}
+          >
+            Interrupt and send
+          </Button>
+        )}
         <Button
           variant="primary"
           size="small"
           shortcut="↵"
+          title={working ? 'Queues the message for the agent’s next step' : undefined}
           disabled={sending || !typed || !live}
-          onClick={() => void send()}
+          onClick={() => void send(false)}
         >
           Send
         </Button>

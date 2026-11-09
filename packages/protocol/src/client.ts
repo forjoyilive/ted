@@ -383,8 +383,37 @@ export class DaemonClient {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}/chat`)
   }
 
-  sendRunMessage(id: string, text: string): Promise<RunMessage> {
-    return this.#request('POST', `/runs/${encodeURIComponent(id)}/messages`, { text })
+  sendRunMessage(
+    id: string,
+    text: string,
+    { interrupt = false }: { interrupt?: boolean } = {},
+  ): Promise<RunMessage> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/messages`, {
+      text,
+      ...(interrupt && { interrupt }),
+    })
+  }
+
+  interruptRun(id: string): Promise<RunSummary> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/interrupt`)
+  }
+
+  sendQueuedMessageNow(runId: string, messageId: string): Promise<RunMessage> {
+    return this.#request(
+      'POST',
+      `/runs/${encodeURIComponent(runId)}/messages/${encodeURIComponent(messageId)}/send-now`,
+    )
+  }
+
+  deleteQueuedMessage(runId: string, messageId: string): Promise<RunMessage> {
+    return this.#request(
+      'DELETE',
+      `/runs/${encodeURIComponent(runId)}/messages/${encodeURIComponent(messageId)}`,
+    )
+  }
+
+  reachedBoundary(runId: string): Promise<{ delivered: number }> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/boundary`)
   }
 
   restartRun(id: string): Promise<RunSummary> {

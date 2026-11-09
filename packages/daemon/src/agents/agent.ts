@@ -110,6 +110,9 @@ export interface Agent {
     permissions: PermissionMode
   }): AgentLaunch
   message(text: string): string
+  steer(text: string): string
+  interrupt(): string[]
+  boundaryFrom(line: string): boolean
   stateFrom(line: string): RunState | undefined
   permissionPromptFrom(line: string, earlier: EarlierLine): PermissionPrompt | undefined
   permissionClosedFrom(line: string): string | undefined

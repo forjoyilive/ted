@@ -318,6 +318,16 @@ interface CodexLine {
   }
 }
 
+const toolItems = new Set([
+  'commandExecution',
+  'fileChange',
+  'mcpToolCall',
+  'dynamicToolCall',
+  'collabAgentToolCall',
+  'webSearch',
+  'imageView',
+])
+
 function parse(line: string): CodexLine | undefined {
   try {
     const value: unknown = JSON.parse(line)
@@ -356,6 +366,14 @@ export function codexAgent(binary: string): Agent {
       }
     },
     message: (text) => JSON.stringify({ text }),
+    steer: (text) => JSON.stringify({ text, steer: true }),
+    interrupt: () => [JSON.stringify({ interrupt: true })],
+    boundaryFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'item/completed') return false
+      const type = message.params?.item?.type
+      return typeof type === 'string' && toolItems.has(type)
+    },
     permissionPromptFrom(line, earlier) {
       const message = parse(line)
       return message && promptFrom(message, earlier)

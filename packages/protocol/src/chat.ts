@@ -1,7 +1,7 @@
 import type { AgentKind, RunState } from './run.ts'
 import type { Comment, Effort } from './task.ts'
 
-export type ChatToolStatus = 'running' | 'done' | 'failed'
+export type ChatToolStatus = 'running' | 'done' | 'failed' | 'stopped'
 
 export interface ChatDiffLine {
   kind: 'context' | 'added' | 'removed'
@@ -32,7 +32,8 @@ export type ChatItem =
       at?: string
       endedAt?: string
     }
-  | { kind: 'human'; id: string; text: string; at: string; sent: boolean }
+  | { kind: 'human'; id: string; text: string; at: string; sent: boolean; queued?: true }
+  | { kind: 'interrupted'; id: string; at: string }
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
   | { kind: 'permission'; id: string; request: Comment; at: string }
 
@@ -71,6 +72,7 @@ export interface ConversationTab {
 
 export interface SendRunMessageRequest {
   text: string
+  interrupt?: boolean
 }
 
 export interface RunMessage {
@@ -78,4 +80,5 @@ export interface RunMessage {
   runId: string
   text: string
   at: string
+  queued?: true
 }

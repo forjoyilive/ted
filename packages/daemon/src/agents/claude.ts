@@ -14,6 +14,9 @@ const stateByHook: Record<string, RunState> = {
   StopFailure: 'idle',
 }
 
+const boundaryGate =
+  '[ -e "$TED_HOME/runs/$TED_RUN/queued" ] && ted run boundary >/dev/null 2>&1; exit 0'
+
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
 const withoutRemoved = (env: NodeJS.ProcessEnv) =>
@@ -106,7 +109,16 @@ export function claudeAgent(binary: string): Agent {
       const hooks = Object.fromEntries(
         Object.keys(stateByHook).map((event) => [
           event,
-          [{ matcher: '*', hooks: [{ type: 'command', command: 'true' }] }],
+          [
+            {
+              matcher: '*',
+              hooks: [
+                event === 'PostToolUse'
+                  ? { type: 'command', command: boundaryGate, timeout: 60 }
+                  : { type: 'command', command: 'true' },
+              ],
+            },
+          ],
         ]),
       )
       return {
@@ -138,6 +150,15 @@ export function claudeAgent(binary: string): Agent {
       }
     },
     message: userMessage,
+    steer: userMessage,
+    interrupt: () => [
+      JSON.stringify({
+        type: 'control_request',
+        request_id: `interrupt-${randomUUID()}`,
+        request: { subtype: 'interrupt' },
+      }),
+    ],
+    boundaryFrom: () => false,
     permissionPromptFrom(line) {
       const message = parse(line)
       return message && promptFrom(message)
@@ -174,6 +195,7 @@ export function claudeAgent(binary: string): Agent {
       const message = parse(line)
       if (message === undefined) return undefined
       if (promptFrom(message)) return 'waiting'
+      if (message.type === 'result') return 'idle'
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
