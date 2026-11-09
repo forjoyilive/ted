@@ -44,6 +44,21 @@ export type {
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type FixCommand,
+  type GitHealth,
+  type GitHubCli,
+  type GitHubCliState,
+  type GitHubHost,
+  type GitHubHostState,
+  type GitState,
+  type IntegrationFix,
+  type IntegrationsHealth,
+  integrationFixes,
+  minGhVersion,
+  type RunFixRequest,
+  type RunFixResult,
+} from './integrations.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,
