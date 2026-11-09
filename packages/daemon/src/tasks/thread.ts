@@ -79,6 +79,9 @@ export function threadEvents(
       case 'v1.TaskMovedToBacklog':
         add(entry, 'edit', 'Task moved back to Backlog')
         break
+      case 'v1.TaskArchived':
+        add(entry, 'edit', 'You archived this Task')
+        break
       case 'v1.TaskBlockerAdded':
       case 'v2.TaskBlockerAdded':
         add(
