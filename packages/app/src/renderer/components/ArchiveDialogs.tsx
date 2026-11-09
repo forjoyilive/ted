@@ -8,6 +8,8 @@ import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 
 export const archiveTaskEvent = 'ted:archive-task'
+export const deleteTaskEvent = 'ted:delete-task'
+export const followUpTaskEvent = 'ted:follow-up-task'
 
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')

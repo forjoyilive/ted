@@ -793,7 +793,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted status "…"` | Set the activity line. | KRI-11 |
 | `ted run start --agent <kind> [--model] [--effort] --prompt-file <file> [--name] [--own-worktree]` | Start a sub-agent. | KRI-11, KRI-53, KRI-63 |
 | `ted run wait <id>` / `ted run send <id>` | Wait for a sub-agent’s final message / send it a follow-up. | KRI-11 |
-| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
+| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>] [--description "<text>"]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
 | `ted task start <id>` | Start a Task from Backlog. | KRI-15 |
 | `ted task block <id> --by <id>` / `ted task unblock` | Add or remove a blocker. | KRI-55 |
 | `ted task repos set`, `add`, `remove <name>` | Set the Task’s Repos. | KRI-58 |
