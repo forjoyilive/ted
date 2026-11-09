@@ -1066,6 +1066,9 @@ export function createTasks(options: {
           throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
         }
         if (old.kind !== 'round') throw new RequestError(400, 'a round can replace only a round')
+        if (!postedBy(old, task, runId)) {
+          throw new RequestError(403, 'a Run can supersede only its own requests')
+        }
         if (old.answer) throw new RequestError(409, 'that request has already been answered')
       } else {
         const open = openRound(task)
@@ -2124,7 +2127,7 @@ export function createTasks(options: {
       }
       const { task, runId } = ownTask(ref, caller)
       if (store.getRun(runId)?.parentRunId !== undefined) {
-        if (choices.length > 0 || supersedes !== undefined) {
+        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
             403,
             'a sub-agent can post only plain notes; tell the Task Lead what to ask in your final message',
