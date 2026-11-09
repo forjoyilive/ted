@@ -16,6 +16,7 @@ import type {
 } from '@ted/protocol'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
+import type { Factories } from './factory-setup.ts'
 import * as git from './git.ts'
 import type { Gh } from './github/gh.ts'
 import { redactSecrets } from './redact.ts'
@@ -29,12 +30,18 @@ import {
   readPullRequests,
 } from './tasks/merge.ts'
 import { parsePullRequestUrl } from './tasks/pull-requests.ts'
-import { checkLayer, githubRepoOf, type WorkflowSettings } from './workflow/check.ts'
+import {
+  checkLayer,
+  githubRepoOf,
+  maxFactoryRepos,
+  type WorkflowSettings,
+} from './workflow/check.ts'
 import { fileChange } from './workflow/diff.ts'
 import {
   applyChanges,
   defaultName,
   inputProblems,
+  isRepo,
   repoSettingsFrom,
   workflowFile,
 } from './workflow/edit.ts'
@@ -53,6 +60,7 @@ export interface FactorySettingsOptions {
   workflows: Workflows
   reposDir: string
   health: () => Promise<IntegrationsHealth | undefined>
+  factories: Pick<Factories, 'checkRepo' | 'approveRepos'>
   mergeTries?: number
   mergeWaitMs?: number
 }
@@ -336,6 +344,14 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           throw new RequestError(400, `${first.message}${at}`)
         }
         if (text === (base.text ?? '')) throw new RequestError(400, 'There’s nothing to save.')
+        const added = changes.repos.filter((r) => r.was === undefined).map((r) => r.repo)
+        for (const repo of added) {
+          const check = await options.factories.checkRepo({
+            source: { remote: repo },
+            primary: false,
+          })
+          if (!check.ok) throw new RequestError(409, check.problem?.text ?? `TED can’t add ${repo}`)
+        }
         const clone = clonePath(reposDir, factory)
         const branch = `ted/settings-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`
         const commit = await git.commitAndPush(clone, {
@@ -364,6 +380,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         )
         const pullRequest = parsePullRequestUrl(out)
         if (!pullRequest) throw new RequestError(502, 'GitHub didn’t return the pull request.')
+        options.factories.approveRepos(factory.id, added)
         if (mode !== 'merge') return { pullRequest, merged: false }
         const method = base.settings?.repos?.[0]?.merge_method
         const result = await mergeNow(factory, {
@@ -395,11 +412,12 @@ export function storedRepos(
   settings: WorkflowSettings | undefined,
 ): StoredFactoryRepo[] | undefined {
   if (!settings?.repos || settings.repos.length === 0) return undefined
+  if (settings.repos.length > maxFactoryRepos) return undefined
   const wanted: StoredFactoryRepo[] = []
   settings.repos.forEach((entry, i) => {
     const repo =
       i === 0 ? factory.repo : entry.remote === undefined ? undefined : githubRepoOf(entry.remote)
-    if (repo === undefined) return
+    if (repo === undefined || !isRepo(repo)) return
     if (wanted.some((w) => same(w.repo, repo))) return
     const known = factory.repos.find((r) => same(r.repo, repo))
     const ssh =

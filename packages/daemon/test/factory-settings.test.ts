@@ -89,6 +89,13 @@ async function start(options: { workflow?: string | null; gh?: Record<string, un
   return { ...client, ok, factory, settings }
 }
 
+const apiPaths = {
+  'repos/acme/api': {
+    body: { full_name: 'acme/api', default_branch: 'main', permissions: { push: true } },
+  },
+  'repos/acme/api/commits?per_page=1': { body: [] },
+}
+
 async function originFile(file: string, ref = 'main'): Promise<string> {
   const { stdout } = await run('git', ['show', `${ref}:${file}`], { cwd: origin })
   return stdout
@@ -332,7 +339,7 @@ describe('Factory settings', () => {
     expect(await originBranches()).toEqual(['main'])
   })
 
-  test('adding a repo and Apps writes them, and the Factory gains the repo once it merges', async () => {
+  test('a repo added to .ted/workflow.yaml outside TED waits for the human to add it', async () => {
     const second = path.join(scratch, 'acme', 'api.git')
     await run('git', ['init', '--bare', '--initial-branch=main', second])
     await run('git', ['push', second, 'main'], { cwd: path.join(scratch, 'seed') })
@@ -340,7 +347,98 @@ describe('Factory settings', () => {
     process.env.GIT_CONFIG_KEY_0 = `url.file://${scratch}/.insteadOf`
     process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/'
     try {
-      const client = await start()
+      const client = await start({ gh: { paths: apiPaths } })
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': workflowYaml.replace(
+          'stages:',
+          '  - name: api\n    remote: https://github.com/acme/api.git\nstages:',
+        ),
+      })
+      await client.settings()
+      const factories = await client.ok<Factory[]>('GET', '/factories')
+      expect(factories[0]?.repos.map((r) => r.name)).toEqual(['widgets'])
+      const banners = await client.ok<Banner[]>('GET', '/banners')
+      const ask = banners.find((b) => b.problem === 'repo-in-workflow')
+      expect(ask?.text).toBe(
+        '.ted/workflow.yaml adds acme/api · TED clones it only once you add it here',
+      )
+      expect(
+        await stat(path.join(home, 'repos', 'acme', 'api')).then(
+          () => true,
+          () => false,
+        ),
+      ).toBe(false)
+
+      await client.ok('POST', `/banners/${encodeURIComponent(ask?.id ?? '')}/action`, {})
+      const after = await client.ok<Factory[]>('GET', '/factories')
+      expect(after[0]?.repos.map((r) => r.name)).toEqual(['widgets', 'api'])
+      await waitUntil(
+        () =>
+          stat(path.join(home, 'repos', 'acme', 'api', '.git')).then(
+            () => true,
+            () => false,
+          ),
+        'the added repo to be cloned',
+      )
+      const left = await client.ok<Banner[]>('GET', '/banners')
+      expect(left.some((b) => b.problem === 'repo-in-workflow')).toBe(false)
+    } finally {
+      delete process.env.GIT_CONFIG_COUNT
+      delete process.env.GIT_CONFIG_KEY_0
+      delete process.env.GIT_CONFIG_VALUE_0
+    }
+  })
+
+  test('repos that would leave TED’s repos folder, or more than 10, are refused', async () => {
+    const client = await start()
+    const view = await client.settings()
+    const changes = edit(view, (repos) => {
+      repos.push({
+        repo: 'acme/..',
+        remote: 'https://github.com/acme/..',
+        name: 'up',
+        env: [],
+        copy: [],
+        apps: [],
+      })
+    })
+    const preview = await client.ok<SettingsPreview>(
+      'POST',
+      `/factories/${client.factory.id}/settings/preview`,
+      changes,
+    )
+    expect(preview.valid).toBe(false)
+    expect(preview.problems.map((p) => p.message)).toContain('up needs a GitHub remote.')
+
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': workflowYaml.replace(
+        'stages:',
+        '  - name: up\n    remote: ../..\nstages:',
+      ),
+    })
+    const traversal = await client.settings()
+    expect(traversal.source).toBe('last-valid')
+    expect(traversal.problems.map((p) => p.message)).toContain('`remote` must be a GitHub repo')
+
+    const many = Array.from(
+      { length: 10 },
+      (_, i) => `  - name: r${i}\n    remote: acme/r${i}\n`,
+    ).join('')
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': workflowYaml.replace('stages:', `${many}stages:`),
+    })
+    const tooMany = await client.settings()
+    expect(tooMany.problems.map((p) => p.message)).toContain('a Factory has at most 10 repos')
+    expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.repos).toHaveLength(1)
+  })
+
+  test('adding a repo and Apps writes them, and the Factory gains the repo once it merges', async () => {
+    const second = path.join(scratch, 'acme', 'api.git')
+    process.env.GIT_CONFIG_COUNT = '1'
+    process.env.GIT_CONFIG_KEY_0 = `url.file://${scratch}/.insteadOf`
+    process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/'
+    try {
+      const client = await start({ gh: { paths: apiPaths } })
       const view = await client.settings()
       const changes = edit(view, (repos) => {
         repos[0]?.apps.push({
@@ -387,6 +485,13 @@ describe('Factory settings', () => {
       )
       const factories = await client.ok<Factory[]>('GET', '/factories')
       expect(factories[0]?.repos.map((r) => r.name)).toEqual(['widgets', 'api'])
+      const failed = await waitUntil(async () => {
+        const shown = await client.ok<Banner[]>('GET', '/banners')
+        return shown.find((b) => b.problem === 'clone-failed')
+      }, 'the failed clone of the new repo')
+      await run('git', ['init', '--bare', '--initial-branch=main', second])
+      await run('git', ['push', second, 'main'], { cwd: path.join(scratch, 'seed') })
+      await client.ok('POST', `/banners/${encodeURIComponent(failed.id)}/action`, {})
       await waitUntil(
         () =>
           stat(path.join(home, 'repos', 'acme', 'api', '.git')).then(
@@ -399,6 +504,7 @@ describe('Factory settings', () => {
       expect(banners.map((b) => b.text)).toContain(
         'acme/api was added · a New setup Task can set up its Checks and Apps',
       )
+      expect(banners.some((b) => b.problem === 'clone-failed')).toBe(false)
     } finally {
       delete process.env.GIT_CONFIG_COUNT
       delete process.env.GIT_CONFIG_KEY_0

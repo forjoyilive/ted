@@ -193,13 +193,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(given.watchAfterFix !== undefined && { watchAfterFix: given.watchAfterFix }),
       })
       if (given.checkOnStart) integrations.start()
-      let syncRepos: ((factory: StoredFactory, settings?: WorkflowSettings) => void) | undefined
+      let syncRepos:
+        | ((factory: StoredFactory, settings?: WorkflowSettings) => Promise<void>)
+        | undefined
       const workflows = createWorkflows({
         store,
         banners,
         libraryDir: paths.library,
         reposDir: paths.repos,
-        onFactorySettings: (factory, settings) => syncRepos?.(factory, settings),
+        onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
       const factories = createFactories({
@@ -214,10 +216,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         onCloned: (factory) => started?.wake(factory.id),
         ...(idle && { idle }),
       })
-      syncRepos = (factory, settings) => {
+      syncRepos = async (factory, settings) => {
         const wanted = storedRepos(store, factory, settings)
         if (!wanted) return
-        factories.syncRepos(factory.id, wanted).catch((error: unknown) => {
+        await factories.syncRepos(factory.id, wanted).catch((error: unknown) => {
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
@@ -227,6 +229,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         workflows,
         reposDir: paths.repos,
         health: async () => integrations.current() ?? (await integrations.check()),
+        factories,
         ...(options.settingsMergeWaitMs !== undefined && {
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
@@ -234,8 +237,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
         if (!factory) return
-        if (factory.clonedAt === undefined) await factories.retry(factory.id)
-        else await ensureClone({ banners, reposDir: paths.repos }, factory)
+        if (factory.clonedAt !== undefined) {
+          await ensureClone({ banners, reposDir: paths.repos }, factory)
+        }
+        await factories.retry(factory.id)
       })
       for (const factory of store.listFactories()) {
         if (factory.clonedAt === undefined) continue

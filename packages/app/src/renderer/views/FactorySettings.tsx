@@ -57,6 +57,7 @@ export function FactorySettings({
   const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
   const [draft, setDraft] = useState<RepoSettingsInput[]>([])
+  const [base, setBase] = useState<{ repos: RepoSettingsInput[]; version: string }>()
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
   const [home, setHome] = useState<string>()
@@ -77,18 +78,23 @@ export function FactorySettings({
     }
   }, [factory.id])
 
+  const restart = useCallback((from: FactorySettingsView) => {
+    setBase({ repos: draftFrom(from.repos), version: from.version })
+    setDraft(draftFrom(from.repos))
+  }, [])
+
   useEffect(() => {
     void epoch
     void load().then((loaded) => {
       if (!loaded || started.current) return
       started.current = true
-      setDraft(draftFrom(loaded.repos))
+      restart(loaded)
     })
     void ted.homeFolder().then(setHome, () => undefined)
-  }, [load, epoch])
+  }, [load, epoch, restart])
 
-  const loaded = view ? draftFrom(view.repos) : []
-  const count = view ? changeCount(draft, loaded) : 0
+  const loaded = base?.repos ?? []
+  const count = base ? changeCount(draft, loaded) : 0
 
   const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
     setDraft((current) => current.map((repo, i) => (i === index ? change(repo) : repo)))
@@ -98,7 +104,7 @@ export function FactorySettings({
     const next = await load()
     if (!next) return
     if (!result.merged) {
-      setDraft(draftFrom(next.repos))
+      restart(next)
       return
     }
     for (const [name, folder] of pendingFolders.current) {
@@ -107,8 +113,7 @@ export function FactorySettings({
       }
     }
     pendingFolders.current.clear()
-    const reloaded = (await load()) ?? next
-    setDraft(draftFrom(reloaded.repos))
+    restart((await load()) ?? next)
   }
 
   const scrollTo = (id: string) =>
@@ -172,7 +177,7 @@ export function FactorySettings({
           <span className={styles.unsavedDot} aria-hidden />
           <span>{unsavedLine(count)}</span>
           <span className={views.headerSpacer} />
-          <Button size="small" onClick={() => setDraft(draftFrom(view.repos))}>
+          <Button size="small" onClick={() => restart(view)}>
             Discard
           </Button>
           <Button size="small" variant="primary" onClick={() => setReviewing(true)}>
@@ -180,10 +185,10 @@ export function FactorySettings({
           </Button>
         </footer>
       )}
-      {reviewing && view && (
+      {reviewing && view && base && (
         <SaveSettingsDialog
           factoryId={factory.id}
-          view={view}
+          view={{ ...view, version: base.version }}
           changes={{ repos: draft }}
           onClose={() => setReviewing(false)}
           onSaved={(result) => {

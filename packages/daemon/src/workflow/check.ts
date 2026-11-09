@@ -90,8 +90,12 @@ export function displayPath(kind: LayerKind, file: string): string {
 
 export function githubRepoOf(remote: string): string | undefined {
   const match = githubRemote.exec(remote.trim())
-  return match ? `${match[1]}/${match[2]}` : undefined
+  if (!match?.[1] || !match[2]) return undefined
+  if ([match[1], match[2]].some((part) => /^\.+$/.test(part))) return undefined
+  return `${match[1]}/${match[2]}`
 }
+
+export const maxFactoryRepos = 10
 
 export function checkLayer(input: {
   kind: LayerKind
@@ -404,6 +408,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
 
   function checkRepos(value: Node | null): RepoSettings[] | undefined {
     if (!isSeq(value)) return void error(value, '`repos` must be a list')
+    if (value.items.length > maxFactoryRepos) {
+      return void error(value, `a Factory has at most ${maxFactoryRepos} repos`)
+    }
     const repos: RepoSettings[] = []
     const seenNames = new Set<string>()
     const seenRepos = new Set<string>()

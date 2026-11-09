@@ -11,6 +11,7 @@ import { Document, isMap, isScalar, isSeq, parseDocument, type YAMLMap, YAMLSeq 
 import {
   githubRepoOf,
   isReservedEnvName,
+  maxFactoryRepos,
   type RepoSettings,
   type WorkflowSettings,
 } from './check.ts'
@@ -93,6 +94,12 @@ function remoteFor(stored: StoredRepo): string {
 }
 
 const envName = /^[A-Za-z_][A-Za-z0-9_]*$/
+const repoPart = /^[A-Za-z0-9_.-]+$/
+
+export function isRepo(repo: string): boolean {
+  const parts = repo.split('/')
+  return parts.length === 2 && parts.every((p) => repoPart.test(p) && !/^\.+$/.test(p))
+}
 
 export function inputProblems(
   changes: FactorySettingsChanges,
@@ -101,6 +108,9 @@ export function inputProblems(
   const problems: WorkflowProblem[] = []
   const add = (message: string) =>
     problems.push({ severity: 'error', file: workflowFile, line: 0, column: 0, message })
+  if (changes.repos.length > maxFactoryRepos) {
+    add(`A Factory has at most ${maxFactoryRepos} repos.`)
+  }
   const primary = current[0]
   if (changes.repos[0]?.repo.toLowerCase() !== primary?.repo.toLowerCase()) {
     add('The primary repo can’t be removed or moved.')
@@ -110,8 +120,12 @@ export function inputProblems(
     if (repo.was !== undefined && !current.some((r) => r.was === repo.was)) {
       add(`${label} isn’t one of this Factory’s repos.`)
     }
-    if (repo.was === undefined && githubRepoOf(repo.remote ?? '') === undefined) {
-      add(`${label} needs a GitHub remote.`)
+    if (repo.was === undefined) {
+      const remote = githubRepoOf(repo.remote ?? '')
+      if (remote === undefined || !isRepo(repo.repo)) add(`${label} needs a GitHub remote.`)
+      else if (remote.toLowerCase() !== repo.repo.toLowerCase()) {
+        add(`${label}’s remote names another repo.`)
+      }
     }
     const env = repo.env.filter((v) => v.name !== '' || v.value !== '')
     for (const variable of env) {

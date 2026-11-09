@@ -22,7 +22,10 @@ export function createWorkflows(options: {
   banners: Banners
   libraryDir: string
   reposDir: string
-  onFactorySettings?: (factory: StoredFactory, settings: WorkflowSettings | undefined) => void
+  onFactorySettings?: (
+    factory: StoredFactory,
+    settings: WorkflowSettings | undefined,
+  ) => Promise<void>
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
 
@@ -94,7 +97,7 @@ export function createWorkflows(options: {
           : undefined,
         factory.repo,
       )
-      options.onFactorySettings?.(factory, factoryLayer.layer?.settings)
+      await options.onFactorySettings?.(factory, factoryLayer.layer?.settings)
       const chosen = [library, factoryLayer]
       const workflow = resolveWorkflow([
         defaults,
