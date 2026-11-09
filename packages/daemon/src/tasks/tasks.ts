@@ -263,6 +263,7 @@ export interface Tasks {
   sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   addQueueSource(source: QueueSource): () => void
+  mergesInFlight(): number
   close(): Promise<void>
 }
 
@@ -4919,6 +4920,7 @@ export function createTasks(options: {
     },
 
     slots,
+    mergesInFlight: () => mergeInFlight.size,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

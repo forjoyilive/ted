@@ -12,6 +12,7 @@ import {
   readDaemonInfo,
   type Subscription,
   tedPaths,
+  type UpdateWork,
 } from '@ted/protocol'
 import { inheritedFdsEnv } from './inherited-fds.ts'
 import { rollLog, tedLogLimits } from './logs.ts'
@@ -62,6 +63,15 @@ export async function withDaemon<T>(
       )
     }
     await sleep(retryDelayMs)
+  }
+}
+
+function running(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 
@@ -169,11 +179,43 @@ export type DaemonConnection =
   | { state: 'reconnecting' }
   | { state: 'stopped'; crashes: string[] }
 
+export interface HandOverOptions {
+  onWork?: (work: UpdateWork) => void
+  maxWaitMs?: number
+  pollMs?: number
+}
+
 export interface DaemonSupervisor {
   readonly client: DaemonClient
   readonly connection: DaemonConnection
   restart(): Promise<void>
+  handOver(options?: HandOverOptions): Promise<void>
+  resume(): Promise<void>
   close(): void
+}
+
+export const updateWaitMs = 10 * 60_000
+const handOverExitMs = 30_000
+
+export async function finishWork({
+  read,
+  onWork,
+  maxWaitMs = updateWaitMs,
+  pollMs = 1_000,
+}: {
+  read: () => Promise<UpdateWork>
+  onWork: (work: UpdateWork) => void
+  maxWaitMs?: number
+  pollMs?: number
+}): Promise<'finished' | 'timed-out'> {
+  const deadline = Date.now() + maxWaitMs
+  for (;;) {
+    const work = await read()
+    onWork(work)
+    if (work.checks === 0 && work.merges === 0) return 'finished'
+    if (Date.now() + pollMs > deadline) return 'timed-out'
+    await sleep(pollMs)
+  }
 }
 
 export interface SuperviseOptions {
@@ -267,6 +309,35 @@ export async function superviseDaemon(
     },
     async restart() {
       if (connection.state !== 'stopped') return
+      crashes = []
+      await reconnect()
+    },
+    async handOver({ onWork = () => undefined, maxWaitMs, pollMs } = {}) {
+      if (connection.state === 'connected') {
+        await finishWork({
+          read: () => client.updateWork(),
+          onWork,
+          ...(maxWaitMs !== undefined && { maxWaitMs }),
+          ...(pollMs !== undefined && { pollMs }),
+        })
+      }
+      closed = true
+      subscription.close()
+      const info = await readDaemonInfo(home)
+      if (!info) return
+      await client.shutdown({ keepRuns: true }).catch((error: unknown) => {
+        if (!(error instanceof DaemonUnreachableError)) throw error
+      })
+      const deadline = Date.now() + handOverExitMs
+      while ((await anotherDaemonStarting(home)) || running(info.pid)) {
+        if (Date.now() > deadline) throw new Error('TED’s daemon didn’t stop for the update')
+        await sleep(retryDelayMs)
+      }
+      await removeIfUnchanged(home, info)
+    },
+    async resume() {
+      if (!closed) return
+      closed = false
       crashes = []
       await reconnect()
     },

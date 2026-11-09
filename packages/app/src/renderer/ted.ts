@@ -91,12 +91,14 @@ import type {
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import type { LoginItemState } from '../login-item.ts'
+import type { UpdateStatus } from '../updates.ts'
 
 export type TedEvent =
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
   | { type: 'login-item'; state: LoginItemState }
+  | { type: 'update'; status: UpdateStatus }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -305,6 +307,9 @@ export const ted = {
   openLoginItemsSettings: () => window.ted.request('openLoginItemsSettings') as Promise<void>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
+  updateStatus: () => window.ted.request('updateStatus') as Promise<UpdateStatus>,
+  checkForUpdates: () => window.ted.request('checkForUpdates') as Promise<UpdateStatus>,
+  restartToUpdate: () => window.ted.request('restartToUpdate') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
   getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,

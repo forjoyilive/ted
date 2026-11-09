@@ -11,6 +11,7 @@ import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
+import { updateBanner, updateChip, updateFailedProblem } from '../updates.ts'
 import styles from './App.module.css'
 import { type ArmAction, ArmedContext } from './armed.ts'
 import {
@@ -51,6 +52,7 @@ import {
   useSettings,
   useSlots,
   useTasks,
+  useUpdateStatus,
 } from './data.ts'
 import { waitingByFactory } from './inbox.ts'
 import {
@@ -258,6 +260,13 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }, [settings])
 
   const banners = useBanners()
+  const updateStatus = useUpdateStatus()
+  const [updateFailureShownAt] = useState(() => new Date().toISOString())
+  const [updateFailureDismissed, setUpdateFailureDismissed] = useState(false)
+  const shownUpdateBanner = updateFailureDismissed
+    ? []
+    : updateBanner(updateStatus, updateFailureShownAt)
+  const chip = updateChip(updateStatus)
   const agentHealth = useAgentHealth()
   const { connection } = useConnection()
   const offline = connection.state !== 'connected'
@@ -474,7 +483,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   async function act(banner: Banner) {
     const place = banner.action?.opens
-    if (banner.action?.choose === 'folder') {
+    if (banner.problem === updateFailedProblem) {
+      await ted.downloadTed().catch((error: unknown) => console.error(error))
+    } else if (banner.action?.choose === 'folder') {
       const folder = await ted.chooseFolder(banner.action.label)
       if (folder === undefined) return
       await ted.actOnBanner(banner.id, { folder }).catch((error: unknown) => console.error(error))
@@ -521,7 +532,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       label={label}
       banners={shown}
       onAction={act}
-      onDismiss={(banner) => void ted.dismissBanner(banner.id)}
+      onDismiss={(banner) =>
+        banner.problem === updateFailedProblem
+          ? setUpdateFailureDismissed(true)
+          : void ted.dismissBanner(banner.id)
+      }
       menu={keepsStoppingMenu}
     />
   )
@@ -758,7 +773,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     connection.state === 'stopped' ? (
       bannerStack('Problems', keepsStoppingBanner(connection))
     ) : (
-      <Offline when={offline}>{bannerStack('Problems', appWideBanners(banners))}</Offline>
+      <Offline when={offline}>
+        {bannerStack('Problems', [...appWideBanners(banners), ...shownUpdateBanner])}
+      </Offline>
     )
 
   const palette = paletteOpen && (
@@ -907,7 +924,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...planFooter(agentHealth),
+            ...(chip !== undefined && { update: chip }),
           }}
+          onUpdate={() =>
+            void ted.restartToUpdate().catch((error: unknown) => console.error(error))
+          }
           onOpenFailed={() => {
             saveListView(
               settings,

@@ -21,6 +21,8 @@
     "./diff": "./src/diff.ts",
     "./search": "./src/search.ts",
     "./shell": "./src/shell.ts",
-    "./schedule": "./src/schedule.ts"
+    "./schedule": "./src/schedule.ts",
+    "./release": "./src/release.ts",
+    "./update": "./src/update.ts"
   }
 }

@@ -425,6 +425,7 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export type { UpdateWork } from './update.ts'
 export { tedVersion } from './version.ts'
 export type {
   BoardStage,

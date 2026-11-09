@@ -301,9 +301,11 @@ describe('Checks at Validate', () => {
     expect(await client.ok<{ checksRunning: number }>('GET', '/activity')).toMatchObject({
       checksRunning: 1,
     })
+    expect(await client.ok('GET', '/update/work')).toEqual({ checks: 1, merges: 0 })
 
     await writeFile(go, '')
     await finishedRuns(client, task, 1)
+    expect(await client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
   test('a Task whose changes touch .ted/ gets the TED settings Check', async () => {

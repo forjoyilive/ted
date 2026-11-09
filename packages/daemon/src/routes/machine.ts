@@ -45,6 +45,14 @@ export const machineRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/update\/work$/,
+    handle: async (_, { store, tasks }) => [
+      200,
+      { checks: store.activity().checksRunning, merges: tasks.mergesInFlight() },
+    ],
+  },
+  {
+    method: 'GET',
     path: /^\/profile$/,
     handle: async () => [200, await readProfile()],
   },

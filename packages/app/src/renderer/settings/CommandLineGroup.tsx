@@ -1,6 +1,8 @@
 import type { CommandLineStatus } from '@ted/protocol'
 import { tedVersion } from '@ted/protocol/version'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { aboutLine, updateChip } from '../../updates.ts'
+import { useUpdateStatus } from '../data.ts'
 import { ted } from '../ted.ts'
 import styles from './command-line.module.css'
 import { Button, SettingRow, SettingsGroup } from './controls.tsx'
@@ -81,6 +83,48 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   )
 }
 
+function UpdateRow() {
+  const status = useUpdateStatus()
+  const [checking, setChecking] = useState(false)
+  const [problem, setProblem] = useState<string>()
+  const detail = problem ?? aboutLine(status)
+  const busy = updateChip(status)?.busy === true
+
+  const check = () => {
+    setChecking(true)
+    setProblem(undefined)
+    ted
+      .checkForUpdates()
+      .catch((error: unknown) => setProblem(errorText(error)))
+      .finally(() => setChecking(false))
+  }
+
+  return (
+    <SettingRow
+      title={`TED ${tedVersion}`}
+      {...(status.state === 'ready' && { help: 'Restarting doesn’t stop Runs.' })}
+      {...(detail !== undefined && { detail })}
+    >
+      {status.state !== 'unavailable' && (
+        <Button onClick={check} disabled={checking || busy || status.state === 'checking'}>
+          Check for updates
+        </Button>
+      )}
+      {(status.state === 'ready' || busy) && (
+        <Button
+          primary
+          disabled={busy}
+          onClick={() =>
+            void ted.restartToUpdate().catch((error: unknown) => setProblem(errorText(error)))
+          }
+        >
+          Restart to update
+        </Button>
+      )}
+    </SettingRow>
+  )
+}
+
 export function AboutGroup() {
   const [licenses, setLicenses] = useState<string>()
   const [problem, setProblem] = useState<string>()
@@ -92,7 +136,7 @@ export function AboutGroup() {
 
   return (
     <SettingsGroup label="About and updates">
-      <SettingRow title={`TED ${tedVersion}`} />
+      <UpdateRow />
       <SettingRow
         title="Third-party licenses"
         help="The open-source code TED is built from, and the license for each part."

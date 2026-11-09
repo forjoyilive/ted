@@ -9,6 +9,7 @@ import {
   type DriveAgent,
   type HostDriver,
   type HostRecord,
+  hostProtocol,
   type LaunchFile,
   readGenerationLine,
   runFiles,
@@ -59,7 +60,7 @@ async function startAgent(): Promise<Started> {
     cwd: launch.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  write({ t: 'start', v: 1, hostPid: process.pid, agentPid: agent.pid ?? null })
+  write({ t: 'start', v: hostProtocol, hostPid: process.pid, agentPid: agent.pid ?? null })
   generation += 1
 
   let spawnError: string | undefined

@@ -12,6 +12,7 @@ import {
   api,
   assistantTexts,
   hostRecords,
+  isAlive,
   killRunHosts,
   makeTempHome,
   spawnDaemonProcess,
@@ -309,5 +310,53 @@ describe('Runs across daemon restarts', () => {
     expect(records.filter((r) => r.t === 'start')).toHaveLength(1)
     expect(records.find((r) => r.t === 'start')?.agentPid).toBe(agentPid)
     expect(records.some((r) => r.t === 'exit')).toBe(false)
+  })
+
+  test('a host too old for the new daemon is replaced at its next idle point, resuming the same Run', async () => {
+    const before = await startDaemonProcess()
+    const run = await before.startRun([{ say: 'before the update' }, { endTurn: true }], cwd)
+    await waitUntil(
+      async () => ((await before.getRun(run.id)).run.state === 'idle' ? true : undefined),
+      'the Run to go idle',
+    )
+    const killed = child
+    killed?.kill('SIGKILL')
+    if (killed) await once(killed, 'exit')
+    child = undefined
+    const oldHost = Number((await hostRecords(home, run.id)).find((r) => r.t === 'start')?.hostPid)
+
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      oldestHost: 2,
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+
+    const starts = await waitUntil(async () => {
+      const found = (await hostRecords(home, run.id)).filter((r) => r.t === 'start')
+      return found.length === 2 ? found : undefined
+    }, 'a new host')
+    expect(starts[1]?.hostPid).not.toBe(oldHost)
+    await waitUntil(() => !isAlive(oldHost) || undefined, 'the old host to exit')
+    const resumed = await waitUntil(async () => {
+      const lines = (await readFile(path.join(cwd, 'stub-starts.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as { argv: string[] })
+      return lines.length === 2 ? lines : undefined
+    }, 'the resumed agent to start')
+    expect(resumed[1]?.argv).toContain('--resume')
+
+    const res = await client.call('POST', `/runs/${run.id}/messages`, {
+      text: JSON.stringify({ steps: [{ say: 'got it' }, { endTurn: true }] }),
+    })
+    expect(res.status).toBeLessThan(300)
+    const done = await waitUntil(async () => {
+      const r = await client.getRun(run.id)
+      return assistantTexts(r.conversation).includes('got it') ? r : undefined
+    }, 'the replaced agent to answer')
+    expect(done.run.state).not.toBe('finished')
+    expect(assistantTexts(done.conversation)).toEqual(['before the update', 'got it'])
   })
 })
