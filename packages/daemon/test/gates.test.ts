@@ -62,7 +62,8 @@ async function start(
 ) {
   if (workflow !== null) await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-  const client = api(daemon.port, await tokenFor(home))
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const fileToken = api(daemon.port, await tokenFor(home))
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
@@ -73,7 +74,7 @@ async function start(
   await writeFile(briefFile, brief)
   const findingsFile = path.join(scratch, 'findings.md')
   await writeFile(findingsFile, '- The sync test fails on a clash.\n')
-  return { ...client, ok, briefFile, findingsFile }
+  return { ...client, ok, fileToken, briefFile, findingsFile }
 }
 
 type Client = Awaited<ReturnType<typeof start>>
@@ -314,6 +315,32 @@ describe('Gates', () => {
       /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
     )
     expect(work).toContain('# Work')
+  })
+
+  test('the token in daemon.json can’t approve a Gate; the app’s token can', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      {
+        everyMessage: [
+          { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+          { run: ['ted', 'outcome', 'advance'] },
+          { endTurn: true },
+        ],
+      },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    )
+    const { request } = await waitForRequest(client)
+
+    for (const action of [{ action: 'approve' }, { action: 'request-changes', text: 'No.' }]) {
+      const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, action)
+      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+    }
+    expect((await inbox(client)).map((i) => i.request.id)).toEqual([request.id])
+
+    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'work')
   })
 
   test('an approval while the Task Lead is paused reaches the resumed Run', async () => {

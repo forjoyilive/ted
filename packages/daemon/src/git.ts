@@ -199,6 +199,11 @@ export async function changedFiles(worktree: string, base: string): Promise<stri
   return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
 }
 
+export async function commitAt(worktree: string, at: string): Promise<string | undefined> {
+  const out = await git(worktree, ...noHooks, 'rev-list', '-1', `--before=${at}`, 'HEAD', '--')
+  return out === '' ? undefined : out
+}
+
 export async function commitsAhead(worktree: string, base: string): Promise<number> {
   const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..HEAD`, '--')
   return Number.parseInt(out, 10) || 0

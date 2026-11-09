@@ -1,4 +1,5 @@
 import { type CheckResult, checkFailed, checkLabel } from '@ted/protocol/checks'
+import type { Judgment } from '@ted/protocol/task'
 import styles from './ChecksRow.module.css'
 
 const glyphs: Record<CheckResult['state'], string> = {
@@ -46,11 +47,18 @@ export function outputCheck(checks: readonly CheckResult[]): number {
   return ran
 }
 
+export function judgmentNotes(judgment: Judgment): string | undefined {
+  if (judgment.notes === undefined || judgment.notes === 0) return undefined
+  return `${judgment.notes} ${judgment.notes === 1 ? 'note' : 'notes'}`
+}
+
 export function ChecksRow({
   checks,
+  judgments = [],
   onOpen,
 }: {
   checks: readonly CheckResult[]
+  judgments?: readonly Judgment[]
   onOpen: (position: number) => void
 }) {
   const output = outputCheck(checks)
@@ -84,6 +92,19 @@ export function ChecksRow({
             ) : (
               text
             )}
+          </li>
+        )
+      })}
+      {judgments.map((judgment) => {
+        const notes = judgmentNotes(judgment)
+        return (
+          <li
+            key={judgment.name}
+            className={`${styles.check} ${judgment.passed ? styles.passed : styles.failed}`}
+          >
+            <span className={styles.glyph}>{judgment.passed ? '✓' : '✗'}</span>
+            {judgment.name}
+            {notes !== undefined && <span className={styles.detail}> · {notes}</span>}
           </li>
         )
       })}

@@ -20,6 +20,7 @@ import {
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type TaskLead,
+  type ValidateJudgments,
   type WriteBriefRequest,
 } from '@ted/protocol'
 import type { Attachments } from '../attachments.ts'
@@ -39,6 +40,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks$/,
+    fileToken: true,
     async handle({ req }, { tasks, attachments }) {
       return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
     },
@@ -51,6 +53,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
+    fileToken: true,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
   },
   {
@@ -122,6 +125,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/blockers$/,
+    fileToken: true,
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<BlockTaskRequest> | null
@@ -133,6 +137,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'DELETE',
     path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
+    fileToken: true,
     runToken: true,
     async handle({ params: [ref = '', by], caller }, { tasks }) {
       return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
@@ -146,6 +151,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'PUT',
     path: /^\/tasks\/([^/]+)\/lead$/,
+    fileToken: true,
     async handle({ req, params: [ref = ''] }, { tasks }) {
       return [200, tasks.setLead(ref, agentChoice(await readJson(req)))]
     },
@@ -174,6 +180,7 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/lead\/use-default-model$/,
+    fileToken: true,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.useDefaultModel(ref)],
   },
   {
@@ -542,8 +549,13 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
 
 function outcomeRequest(body: unknown): ReportOutcomeRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  const judged = judgments(request.judged)
   if (request.outcome === 'advance') {
-    return { outcome: 'advance', ...(request.skip === true && { skip: true }) }
+    return {
+      outcome: 'advance',
+      ...(request.skip === true && { skip: true }),
+      ...(judged && { judged }),
+    }
   }
   if (request.outcome === 'back') {
     const to = request.to
@@ -552,7 +564,7 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
     }
     const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
     if (findings === '') throw new HttpError(400, '`back` needs Findings')
-    return { outcome: 'back', to: to as AgentStageId, findings }
+    return { outcome: 'back', to: to as AgentStageId, findings, ...(judged && { judged }) }
   }
   if (request.outcome === 'ask') {
     const question = typeof request.question === 'string' ? request.question.trim() : ''
@@ -561,6 +573,32 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
     return { outcome: 'ask', question, ...(choices && { choices }) }
   }
   throw new HttpError(400, 'outcome must be advance, back or ask')
+}
+
+function judgments(value: unknown): ValidateJudgments | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'object' || value === null) {
+    throw new HttpError(400, 'judged must be an object')
+  }
+  const input = value as Record<string, unknown>
+  const one = (name: 'review' | 'visual') => {
+    const item = input[name]
+    if (item === undefined) return undefined
+    const { passed, notes } = (typeof item === 'object' && item !== null ? item : {}) as Record<
+      string,
+      unknown
+    >
+    if (typeof passed !== 'boolean')
+      throw new HttpError(400, `${name}.passed must be true or false`)
+    if (notes !== undefined && !(Number.isInteger(notes) && (notes as number) >= 0)) {
+      throw new HttpError(400, `${name}.notes must be a whole number`)
+    }
+    return { passed, ...(typeof notes === 'number' && { notes }) }
+  }
+  const review = one('review')
+  const visual = one('visual')
+  if (!review && !visual) return undefined
+  return { ...(review && { review }), ...(visual && { visual }) }
 }
 
 function answerRequest(body: unknown): AnswerRequest {

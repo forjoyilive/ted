@@ -1,8 +1,8 @@
 import http from 'node:http'
-import { DaemonClient, type DaemonEvent, readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, type DaemonEvent, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { makeTempHome, tokenFor } from './helpers.ts'
+import { appClient, makeTempHome, tokenFor } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -21,7 +21,7 @@ afterEach(async () => {
 async function client(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return appClient(info, daemon?.appToken)
 }
 
 function nextEvent(events: DaemonEvent[], count: number): Promise<void> {

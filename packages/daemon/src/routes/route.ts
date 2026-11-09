@@ -12,6 +12,8 @@ import type { Caller } from '../tasks/tasks.ts'
 export interface BaseOptions {
   version: string
   token: string
+  appToken: string
+  appNonces: Map<string, number>
   data: Data
   idle?: IdleTimer
   keepaliveMs: number
@@ -39,10 +41,11 @@ export interface Route<O = ServerOptions> {
   method: string
   path: RegExp
   runToken?: true
+  fileToken?: true
   handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
 }
 
-const maxBodyBytes = 1024 * 1024
+export const maxBodyBytes = 1024 * 1024
 
 export async function readOptionalJson(req: http.IncomingMessage): Promise<unknown> {
   if (req.headers['content-length'] === '0' || req.headers['content-type'] === undefined) {

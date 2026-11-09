@@ -1,8 +1,10 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { agentStageIds, type DaemonEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { eventlogFile } from '../src/store/files.ts'
 import { openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
@@ -32,6 +34,30 @@ describe('TedStore', () => {
         ['DEV-1', 'Fix login'],
         ['DEV-2', 'Add dark mode'],
       ])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('a write is in the event log on disk once persisted() resolves', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const file = (await eventlogFile(dir)) as string
+      const savedEvents = () => {
+        const db = new DatabaseSync(file, { readOnly: true })
+        try {
+          return (db.prepare('SELECT COUNT(*) AS count FROM eventlog').get() as { count: number })
+            .count
+        } finally {
+          db.close()
+        }
+      }
+      const before = savedEvents()
+
+      await store.createTask({ title: 'Fix login' })
+      await store.persisted()
+
+      expect(savedEvents()).toBeGreaterThan(before)
     } finally {
       await store.close()
     }

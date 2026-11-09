@@ -27,6 +27,7 @@ import {
   type TaskLead,
   tedHome,
   tedPaths,
+  type ValidateJudgments,
 } from '@ted/protocol'
 
 const usage = `Usage:
@@ -34,7 +35,7 @@ const usage = `Usage:
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
   ted open                                   Open TED, or bring its window to the front
-  ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
+  ted comment "<text>"                       Post a note on the Run’s Task (reads stdin if no text)
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
@@ -49,6 +50,8 @@ const usage = `Usage:
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
                                              Send the Task back to an earlier Stage
+                At Validate, both take [--review pass|fail] [--review-notes <n>]
+                [--visual pass|fail] [--visual-notes <n>] for the confirmation row
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
   ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
@@ -61,6 +64,9 @@ const usage = `Usage:
                 [--name <name>] [--own-worktree]
                                              Start a sub-agent on this Task (Task Lead only);
                                              prints its Run ID
+  ted run start --reviewer --prompt-file <file>
+                                             Start the reviewer: TED picks its agent, model and
+                                             effort from the reviewer setting
   ted run wait <id>                          Wait for a sub-agent's final message and print it
   ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
   ted run stop <id>                          Stop a sub-agent
@@ -78,11 +84,6 @@ const usage = `Usage:
   ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
                                              when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
-  ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
-                                             Add a one-repo Factory (development only)
-  ted dev factory local-folder <key> <dir>   Set the folder new worktrees copy files from
-  ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
-                                             Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
@@ -96,9 +97,8 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
-        agent: { type: 'string' },
         choice: { type: 'string', multiple: true },
-        cwd: { type: 'string' },
+        agent: { type: 'string' },
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
@@ -106,10 +106,13 @@ function parse() {
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
-        key: { type: 'string' },
-        'local-folder': { type: 'string' },
         'own-worktree': { type: 'boolean' },
         'prompt-file': { type: 'string' },
+        review: { type: 'string' },
+        'review-notes': { type: 'string' },
+        reviewer: { type: 'boolean' },
+        visual: { type: 'string' },
+        'visual-notes': { type: 'string' },
         round: { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
@@ -212,8 +215,13 @@ try {
   } else if (group === 'outcome' && command === 'advance' && rest.length === 0) {
     const ref = taskRef()
     const skip = options.skip === true
+    const judged = judgments()
     const result = await withDaemon(home, (client) =>
-      client.reportOutcome(ref, { outcome: 'advance', ...(skip && { skip }) }),
+      client.reportOutcome(ref, {
+        outcome: 'advance',
+        ...(skip && { skip }),
+        ...(judged && { judged }),
+      }),
     )
     console.log(result.message)
   } else if (group === 'outcome' && command === 'back' && rest.length === 0) {
@@ -225,8 +233,14 @@ try {
     }
     const findings = await readFile(path.resolve(options.findings), 'utf8')
     if (findings.trim() === '') throw new UsageError('the Findings file is empty')
+    const judged = judgments()
     const result = await withDaemon(home, (client) =>
-      client.reportOutcome(ref, { outcome: 'back', to: to as AgentStageId, findings }),
+      client.reportOutcome(ref, {
+        outcome: 'back',
+        to: to as AgentStageId,
+        findings,
+        ...(judged && { judged }),
+      }),
     )
     console.log(result.message)
   } else if (group === 'outcome' && command === 'ask') {
@@ -378,41 +392,6 @@ try {
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
-  } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
-    const repo = rest[1] ?? ''
-    const key = options.key
-    if (key === undefined) throw new UsageError('give the Factory key with --key')
-    const folder = options['local-folder']
-    const localFolder = folder === undefined ? undefined : path.resolve(folder)
-    const factory = await withDaemon(home, (client) =>
-      client.addFactory({ repo, key, ...(localFolder !== undefined && { localFolder }) }),
-    )
-    console.log(`Added Factory ${factory.key}  ${factory.repo}`)
-  } else if (
-    group === 'dev' &&
-    command === 'factory' &&
-    rest[0] === 'local-folder' &&
-    rest.length === 3
-  ) {
-    const key = rest[1] ?? ''
-    const folder = path.resolve(rest[2] ?? '')
-    const factory = await withDaemon(home, (client) => client.setLocalFolder(key, folder))
-    console.log(`${factory.key} copies files from ${factory.localFolder?.path ?? folder}`)
-  } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
-    const cwd = path.resolve(options.cwd ?? process.cwd())
-    const prompt = rest.slice(1).join(' ')
-    const agent = options.agent
-    if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude or codex')
-    }
-    const run = await withDaemon(home, (client) =>
-      client.startDevRun({
-        prompt,
-        cwd,
-        ...(agent !== undefined && { agent: agent as AgentKind }),
-      }),
-    )
-    console.log(`Started Run ${run.id}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'show' && rest.length === 2) {
     const id = rest[1] ?? ''
     console.log(formatRun(await withDaemon(home, (client) => client.getRun(id))))
@@ -430,6 +409,26 @@ try {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   }
+}
+
+function judgments(): ValidateJudgments | undefined {
+  const one = (name: 'review' | 'visual') => {
+    const result = options[name]
+    const notes = options[`${name}-notes`]
+    if (result === undefined && notes === undefined) return undefined
+    if (result !== undefined && result !== 'pass' && result !== 'fail') {
+      throw new UsageError(`--${name} must be pass or fail`)
+    }
+    const count = notes === undefined ? undefined : Number(notes)
+    if (count !== undefined && !(Number.isInteger(count) && count >= 0)) {
+      throw new UsageError(`--${name}-notes must be a whole number`)
+    }
+    return { passed: result !== 'fail', ...(count !== undefined && { notes: count }) }
+  }
+  const review = one('review')
+  const visual = one('visual')
+  if (!review && !visual) return undefined
+  return { ...(review && { review }), ...(visual && { visual }) }
 }
 
 async function startSubAgent(): Promise<void> {
@@ -454,6 +453,7 @@ async function startSubAgent(): Promise<void> {
       ...(effort !== undefined && { effort: effort as Effort }),
       ...(name !== undefined && { name }),
       ...(options['own-worktree'] && { ownWorktree: true }),
+      ...(options.reviewer && { reviewer: true }),
     }),
   )
   const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'

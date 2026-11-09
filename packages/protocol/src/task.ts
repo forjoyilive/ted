@@ -327,6 +327,19 @@ export interface ThreadEvent {
   findings?: string
   runId?: string
   checkRunId?: string
+  judgments?: Judgment[]
+  validate?: 'passed' | 'sent-back'
+}
+
+export interface Judgment {
+  name: 'Review' | 'Visual'
+  passed: boolean
+  notes?: number
+}
+
+export interface ValidateJudgments {
+  review?: { passed: boolean; notes?: number }
+  visual?: { passed: boolean; notes?: number }
 }
 
 export interface InboxItem {
@@ -354,8 +367,8 @@ export interface SetActivityRequest {
 }
 
 export type ReportOutcomeRequest =
-  | { outcome: 'advance'; skip?: boolean }
-  | { outcome: 'back'; to: AgentStageId; findings: string }
+  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments }
+  | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
   | { outcome: 'ask'; question: string; choices?: string[] }
 
 export type Outcome = ReportOutcomeRequest['outcome']

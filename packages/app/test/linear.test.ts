@@ -5,19 +5,25 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { readStubKeyring, stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
-import { makeOriginRepo, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  appClient,
+  daemonAsApp,
+  makeOriginRepo,
+  removeHome,
+  stopDaemonIn,
+} from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
+const _cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
-const run = promisify(execFile)
+const _run = promisify(execFile)
 
 const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
 const issueUrl = 'https://linear.app/kriyadesign/issue/NOTE-212/search-ignores-accents'
@@ -80,7 +86,7 @@ const linearGroup = (window: Page) => window.getByRole('group', { name: 'Linear'
 async function client(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
-  return new DaemonClient(info)
+  return appClient(info, process.env.TED_APP_TOKEN)
 }
 
 async function openIntegrations(window: Page): Promise<void> {
@@ -97,9 +103,7 @@ async function openIntegrations(window: Page): Promise<void> {
 
 async function openNewTask(): Promise<Page> {
   const origin = await makeOriginRepo(path.join(home, 'origin'))
-  await run(process.execPath, [cliPath, 'dev', 'factory', 'add', origin, '--key', 'NB'], {
-    env: env(),
-  })
+  await (await daemonAsApp(home, env())).addFactory({ repo: origin, key: 'NB' })
   const window = await launchApp()
   await sidebar(window).getByRole('button', { name: 'widgets' }).click()
   await window.keyboard.press('Meta+N')

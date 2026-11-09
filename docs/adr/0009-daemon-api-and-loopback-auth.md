@@ -1,5 +1,7 @@
 # The daemon serves plain JSON over HTTP behind one loopback guard
 
+Changed by ADR 0054-the-app-holds-the-human-token-in-memory: the token in `daemon.json` may no longer call every route; the app holds its own token in memory.
+
 The daemon’s API is plain JSON over `node:http`, with no web framework, listening on `127.0.0.1` on a port the OS picks. Every request passes one guard, in this order: a `Host` other than `127.0.0.1` or `localhost` gets 403, any `Origin` header gets 403, and a missing or wrong `Authorization: Bearer <token>` gets 401. Only `/healthz` skips the token check; it still gets the `Host` and `Origin` checks, which block DNS rebinding. The CLI, and later the app and MCP server, reach the daemon only through `DaemonClient` in `packages/protocol`.
 
 At each start the daemon takes the lock, opens the store, starts listening, and then writes `daemon.json` (`port`, `token`, `pid`, `version`) to a temp file with mode 0600 and renames it into place. The lock stops two `ted` commands that both start a daemon from running two daemons on one store.

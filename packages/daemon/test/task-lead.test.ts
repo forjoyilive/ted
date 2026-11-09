@@ -13,7 +13,6 @@ import {
   makeTempHome,
   stubClaudePath,
   stubCodexPath,
-  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -43,7 +42,7 @@ async function startTed() {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
   })
-  const client = api(daemon.port, await tokenFor(home))
+  const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)

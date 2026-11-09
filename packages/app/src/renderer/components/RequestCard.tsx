@@ -1,5 +1,6 @@
 import type { AnswerRequest, Comment, CommentAnswer, Task } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
+import { useCheckRuns, useThreadEvents } from '../data.ts'
 import {
   age,
   ago,
@@ -14,6 +15,8 @@ import {
 import { ted } from '../ted.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
+import { CheckOutputDialog } from './CheckOutputDialog.tsx'
+import { ChecksRow } from './ChecksRow.tsx'
 import { Help } from './Help.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -47,6 +50,28 @@ function BriefSections({ text, title }: { text: string; title: string }) {
           <p className={styles.sectionBody}>{body}</p>
         </section>
       ))}
+    </div>
+  )
+}
+
+function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
+  const events = useThreadEvents(task.id)
+  const checkRuns = useCheckRuns(task.id)
+  const [open, setOpen] = useState<number>()
+  const validated = events.findLast((e) => e.validate === 'passed' && e.at <= request.createdAt)
+  if (!validated) return null
+  const checkRun = checkRuns.find((r) => r.id === validated.checkRunId)
+  if (!checkRun && !validated.judgments) return null
+  return (
+    <div className={styles.confirmation}>
+      <ChecksRow
+        checks={checkRun?.checks ?? []}
+        {...(validated.judgments && { judgments: validated.judgments })}
+        onOpen={setOpen}
+      />
+      {checkRun && open !== undefined && (
+        <CheckOutputDialog checkRun={checkRun} position={open} onClose={() => setOpen(undefined)} />
+      )}
     </div>
   )
 }
@@ -173,6 +198,9 @@ export function RequestCard({
     >
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
+      {request.kind === 'signoff' && request.stage === 'review' && (
+        <ConfirmationRow request={request} task={task} />
+      )}
       {request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (

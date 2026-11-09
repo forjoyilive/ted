@@ -352,6 +352,10 @@
   color: var(--status-waiting-fg);
 }
 
+.confirmation {
+  display: flex;
+}
+
 .decisions {
   display: flex;
   flex-direction: column;

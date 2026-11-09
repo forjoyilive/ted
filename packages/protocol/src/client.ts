@@ -1,15 +1,25 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
+import {
+  bodyHash,
+  daemonProof,
+  equalHex,
+  newNonce,
+  responseMac,
+  responseMacHeader,
+  signRequest,
+} from './app-auth.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { DaemonInfo } from './daemon-info.ts'
+import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
   DataStatus,
   RestoreBackupRequest,
   RestoreBackupResult,
+  ShutdownRequest,
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
@@ -81,16 +91,30 @@ export interface Subscription {
 export class DaemonClient {
   readonly #info: DaemonInfo
   readonly #token: string
+  readonly #appKey: string | undefined
   readonly #idleTimeoutMs: number
 
   constructor(
     info: DaemonInfo,
     token: string = info.token,
-    { idleTimeoutMs = 300_000 }: { idleTimeoutMs?: number } = {},
+    { idleTimeoutMs = 300_000, appKey }: { idleTimeoutMs?: number; appKey?: string } = {},
   ) {
     this.#info = info
     this.#token = token
+    this.#appKey = appKey
     this.#idleTimeoutMs = idleTimeoutMs
+  }
+
+  async provesAppKey(): Promise<boolean> {
+    if (this.#appKey === undefined) return false
+    const nonce = newNonce()
+    const res = await this.#send('GET', '/caller', undefined, undefined, undefined, nonce)
+    const { kind, proof } = (await this.#json(res)) as CallerInfo
+    return (
+      kind === 'app' &&
+      proof !== undefined &&
+      equalHex(proof, daemonProof(this.#appKey, nonce, this.#info.port))
+    )
   }
 
   listTasks(): Promise<Task[]> {
@@ -348,8 +372,12 @@ export class DaemonClient {
     return this.#request('GET', '/activity')
   }
 
-  shutdown(): Promise<void> {
-    return this.#request('POST', '/shutdown')
+  shutdown(request: ShutdownRequest = {}): Promise<void> {
+    return this.#request('POST', '/shutdown', request)
+  }
+
+  caller(): Promise<CallerInfo> {
+    return this.#request('GET', '/caller')
   }
 
   getCommandLine(): Promise<CommandLineStatus> {
@@ -527,8 +555,20 @@ export class DaemonClient {
   }
 
   async #json(res: IncomingMessage): Promise<unknown> {
-    if (!isOk(res)) throw await requestError(res, this.#info.port)
-    return JSON.parse(await readText(res, this.#info.port))
+    const text = await readText(res, this.#info.port)
+    const nonce = sentNonces.get(res)
+    if (this.#appKey !== undefined) {
+      const given = res.headers[responseMacHeader]
+      const expected = responseMac(this.#appKey, nonce ?? '', res.statusCode ?? 0, bodyHash(text))
+      if (typeof given !== 'string' || !equalHex(given, expected)) {
+        throw new DaemonRequestError(
+          res.statusCode ?? 0,
+          `the server on port ${this.#info.port} didn't prove it is TED's daemon`,
+        )
+      }
+    }
+    if (!isOk(res)) throw errorFrom(res.statusCode ?? 0, text)
+    return JSON.parse(text)
   }
 
   #send(
@@ -537,8 +577,10 @@ export class DaemonClient {
     body?: unknown,
     signal?: AbortSignal,
     rawHeaders?: Record<string, string>,
+    nonce?: string,
   ): Promise<IncomingMessage> {
     const port = this.#info.port
+    const sent = nonce ?? newNonce()
     const raw = body instanceof Uint8Array
     const payload =
       body === undefined ? undefined : raw ? (body as Uint8Array) : JSON.stringify(body)
@@ -551,14 +593,19 @@ export class DaemonClient {
         agent: agent(),
         timeout: this.#idleTimeoutMs,
         headers: {
-          authorization: `Bearer ${this.#token}`,
+          ...(this.#appKey === undefined
+            ? { authorization: `Bearer ${this.#token}` }
+            : signRequest(this.#appKey, method, route, payload, sent)),
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
           ...(payload !== undefined && { 'content-length': Buffer.byteLength(payload) }),
           ...rawHeaders,
         },
         ...(signal && { signal }),
       })
-      req.on('response', resolve)
+      req.on('response', (res) => {
+        sentNonces.set(res, sent)
+        resolve(res)
+      })
       req.on('timeout', () => {
         req.destroy(new Error(`TED's daemon sent nothing for ${this.#idleTimeoutMs} ms`))
       })
@@ -587,6 +634,16 @@ async function readText(res: IncomingMessage, port: number): Promise<string> {
   }
   return text
 }
+
+function errorFrom(status: number, text: string): DaemonRequestError {
+  let error: string | undefined
+  try {
+    error = (JSON.parse(text) as { error?: string }).error
+  } catch {}
+  return new DaemonRequestError(status, error ?? `HTTP ${status}`)
+}
+
+const sentNonces = new WeakMap<IncomingMessage, string>()
 
 async function requestError(res: IncomingMessage, port: number): Promise<DaemonRequestError> {
   const status = res.statusCode ?? 0
