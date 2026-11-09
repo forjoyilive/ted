@@ -104,6 +104,7 @@ const dataRoutes: Route<BaseOptions>[] = [
     method: 'POST',
     path: /^\/shutdown$/,
     async handle({ res }, { data, onShutdown }) {
+      await settled(data)
       if (data.status().state === 'ready') await (await data.services()).runs.stopAll()
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
@@ -118,6 +119,17 @@ const dataRoutes: Route<BaseOptions>[] = [
     },
   },
 ]
+
+async function settled(data: Data): Promise<void> {
+  const busy = () => data.status().state === 'opening' || data.status().state === 'updating'
+  if (!busy()) return
+  const { promise, resolve } = Promise.withResolvers<void>()
+  const unsubscribe = data.subscribe(() => {
+    if (!busy()) resolve()
+  })
+  if (!busy()) resolve()
+  await promise.finally(unsubscribe)
+}
 
 const routes: Route[] = [
   {
