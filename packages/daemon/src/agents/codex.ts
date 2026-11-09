@@ -69,6 +69,7 @@ export function codexAgent(binary: string): Agent {
         ...(resume !== undefined && { sessionId: resume }),
       }
     },
+    message: (text) => JSON.stringify({ text }),
     stateFrom(line) {
       const message = parse(line)
       if (typeof message?.method !== 'string') return undefined

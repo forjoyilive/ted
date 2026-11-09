@@ -15,6 +15,9 @@ const stateByHook: Record<string, RunState> = {
 
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
+const userMessage = (text: string) =>
+  JSON.stringify({ type: 'user', message: { role: 'user', content: text } })
+
 export function claudeAgent(binary: string): Agent {
   return {
     kind: 'claude',
@@ -47,11 +50,12 @@ export function claudeAgent(binary: string): Agent {
           'auto',
         ],
         env: Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k))),
-        input: JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }),
+        input: userMessage(prompt),
         files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
         sessionId,
       }
     },
+    message: userMessage,
     stateFrom(line) {
       let message: { type?: unknown; subtype?: unknown; hook_event?: unknown }
       try {

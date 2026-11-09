@@ -12,6 +12,7 @@ type Step =
   | { run: string[] }
   | { endTurn: true }
   | { exit: number }
+  | { everyMessage: Step[] }
 
 const argv = process.argv.slice(2)
 const flag = (name: string) => {
@@ -40,8 +41,11 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
+let everyMessage: Step[] = []
+
 async function runStep(step: Step): Promise<void> {
-  if ('say' in step) say(step.say)
+  if ('everyMessage' in step) everyMessage = step.everyMessage
+  else if ('say' in step) say(step.say)
   else if ('hook' in step) hook(step.hook)
   else if ('lines' in step) {
     for (let i = 1; i <= step.lines; i++) {
@@ -65,7 +69,8 @@ for await (const line of createInterface({ input: process.stdin })) {
   emit({ type: 'user', message: message.message })
   hook('UserPromptSubmit')
   emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
-  for (const step of stepsIn(message.message.content)) await runStep(step)
+  const own = stepsIn(message.message.content)
+  for (const step of own.length > 0 ? own : everyMessage) await runStep(step)
 }
 
 function stepsIn(content: string): Step[] {

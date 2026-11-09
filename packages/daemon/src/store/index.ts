@@ -7,12 +7,25 @@ import type {
   ConversationEntry,
   DaemonEvent,
   Factory,
+  LayerKind,
+  LayerUse,
   Run,
   RunState,
+  StageEntry,
   StageId,
   Task,
 } from '@ted/protocol'
-import { comments, conversationEntries, events, factories, runs, schema, tasks } from './schema.ts'
+import {
+  comments,
+  conversationEntries,
+  events,
+  factories,
+  runs,
+  schema,
+  stageEntries,
+  tasks,
+  workflowLayers,
+} from './schema.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -31,6 +44,14 @@ export interface StoredTask extends Task {
   worktree?: string
 }
 
+export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
+
+export interface AcceptedLayer {
+  files: Record<string, string | null>
+  version: string
+  acceptedAt: string
+}
+
 export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
@@ -38,8 +59,17 @@ export interface TedStore {
   createTask(input: { title: string; factoryId?: string }): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
-  startTask(input: { taskId: string; stage: StageId; branch: string; worktree: string }): Task
-  changeStage(taskId: string, stage: StageId): Task
+  startTask(input: {
+    taskId: string
+    stage: StageId
+    branch: string
+    worktree: string
+    entry: NewStageEntry
+  }): Task
+  changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
+  listStageEntries(taskId: string): StageEntry[]
+  acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
+  lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -108,6 +138,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     author: { kind: 'run', runId: authorRunId },
   })
 
+  const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
+    events.taskStageEntered({
+      id: randomUUID(),
+      taskId,
+      stage,
+      stageFileLayer: entry.stageFile?.layer ?? null,
+      stageFilePath: entry.stageFile?.path ?? null,
+      layers: JSON.stringify(entry.layers),
+      at,
+    })
+
+  const toStageEntry = (row: typeof stageEntries.Type): StageEntry => ({
+    taskId: row.taskId,
+    stage: row.stage as StageId,
+    ...(row.stageFileLayer !== null &&
+      row.stageFilePath !== null && {
+        stageFile: { layer: row.stageFileLayer as LayerKind, path: row.stageFilePath },
+      }),
+    layers: JSON.parse(row.layers) as LayerUse[],
+    at: row.at,
+  })
+
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
@@ -153,15 +205,43 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       const row = taskRow(ref)
       return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
     },
-    startTask({ taskId, stage, branch, worktree }) {
+    startTask({ taskId, stage, branch, worktree, entry }) {
+      const at = new Date().toISOString()
       store.commit(
-        events.taskStarted({ taskId, stage, branch, worktree, at: new Date().toISOString() }),
+        events.taskStarted({ taskId, stage, branch, worktree, at }),
+        stageEntered(taskId, stage, entry, at),
       )
       return updatedTask(taskId)
     },
-    changeStage(taskId, stage) {
-      store.commit(events.taskStageChanged({ taskId, stage, at: new Date().toISOString() }))
+    changeStage(taskId, stage, entry) {
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskStageChanged({ taskId, stage, at }),
+        ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
+      )
       return updatedTask(taskId)
+    },
+    listStageEntries: (taskId) =>
+      store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
+    acceptWorkflowLayer(layer, { files, version }) {
+      store.commit(
+        events.workflowLayerAccepted({
+          layer,
+          files: JSON.stringify(files),
+          version,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    lastValidWorkflowLayer(layer) {
+      const row = store.query(queryDb(workflowLayers.where({ layer }))).at(0)
+      return (
+        row && {
+          files: JSON.parse(row.files) as AcceptedLayer['files'],
+          version: row.version,
+          acceptedAt: row.acceptedAt,
+        }
+      )
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {

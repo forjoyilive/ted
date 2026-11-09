@@ -9,6 +9,7 @@ import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { openStore } from './store/index.ts'
 import { createTasks } from './tasks/tasks.ts'
+import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
   home: string
@@ -48,6 +49,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   const tasks = createTasks({
     store,
     runs,
+    workflows: createWorkflows({ store, libraryDir: paths.library, reposDir: paths.repos }),
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
     leadAgent: () => agents.defaultLead(),

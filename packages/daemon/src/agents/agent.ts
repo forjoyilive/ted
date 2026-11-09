@@ -19,6 +19,7 @@ export interface Agent {
     env: NodeJS.ProcessEnv
     resume?: string
   }): AgentLaunch
+  message(text: string): string
   stateFrom(line: string): RunState | undefined
   sessionIdFrom(line: string): string | undefined
 }

@@ -90,6 +90,15 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/stage-entries$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.listStageEntries(task.id)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,
@@ -107,7 +116,7 @@ const routes: Route[] = [
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
       if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
-      return [200, tasks.reportOutcome(ref, caller, body.outcome)]
+      return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
     },
   },
   {

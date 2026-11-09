@@ -1,12 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentKind, Comment, Outcome, Task } from '@ted/protocol'
+import type { AgentKind, AgentStageId, Comment, Outcome, Task } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
-import { firstStage, nextStage, taskLeadPrompt } from '../workflow/workflow.ts'
+import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
+import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 
 export type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
 
@@ -14,7 +15,7 @@ export interface Tasks {
   create(input: { title: string; factory?: string }): Promise<Task>
   start(ref: string): Promise<Task>
   comment(ref: string, caller: Caller, body: string): Comment
-  reportOutcome(ref: string, caller: Caller, outcome: Outcome): Task
+  reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
   close(): Promise<void>
 }
 
@@ -23,12 +24,14 @@ const slugLength = 40
 export function createTasks(options: {
   store: TedStore
   runs: RunManager
+  workflows: Workflows
   reposDir: string
   worktreesDir: string
   leadAgent: (task: Task) => AgentKind
 }): Tasks {
-  const { store, runs, reposDir, worktreesDir, leadAgent } = options
+  const { store, runs, workflows, reposDir, worktreesDir, leadAgent } = options
   const starting = new Set<string>()
+  const advancing = new Set<string>()
   const finishing = new Set<Promise<void>>()
 
   function find(ref: string): StoredTask {
@@ -70,71 +73,101 @@ export function createTasks(options: {
     }
   }
 
+  function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
+    const file = stage === 'done' ? undefined : workflow.stageFile(stage)
+    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers }
+  }
+
+  async function start(ref: string): Promise<Task> {
+    const task = find(ref)
+    const factory = factoryOf(task)
+    if (task.stage !== 'backlog' || starting.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} has already started`)
+    }
+    starting.add(task.id)
+    try {
+      const clone = clonePath(reposDir, factory)
+      await git.fetch(clone)
+      const resolution = await workflows.resolve(factory, { fetch: false })
+      const stage = resolution.workflow.next('backlog') as AgentStageId
+      const branch = await branchFor(clone, task)
+      const worktree = path.join(worktreesDir, task.displayId, factory.name)
+      const prompt = await taskLeadPrompt(task, resolution.workflow, stage)
+      await mkdir(path.dirname(worktree), { recursive: true })
+      await git.addWorktree(clone, {
+        path: worktree,
+        branch,
+        from: `origin/${factory.defaultBranch}`,
+      })
+      store.startTask({
+        taskId: task.id,
+        stage,
+        branch,
+        worktree,
+        entry: entryFor(resolution, stage),
+      })
+      await runs.start({
+        agent: leadAgent(task),
+        prompt,
+        cwd: worktree,
+        taskId: task.id,
+        env: { TED_TASK: task.displayId },
+      })
+      const { worktree: _, ...current } = find(task.id)
+      return current
+    } finally {
+      starting.delete(task.id)
+    }
+  }
+
   return {
     async create({ title, factory: key }) {
       if (key === undefined) return store.createTask({ title })
       const factory = store.listFactories().find((f) => f.key === key)
       if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
-      return store.createTask({ title, factoryId: factory.id })
+      const task = await store.createTask({ title, factoryId: factory.id })
+      const resolution = await workflows.resolve(factory).catch((error: unknown) => {
+        console.error(
+          `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
+          error,
+        )
+        return undefined
+      })
+      return !resolution || resolution.workflow.stages.includes('backlog') ? task : start(task.id)
     },
 
-    async start(ref) {
-      const task = find(ref)
-      const factory = factoryOf(task)
-      if (task.stage !== 'backlog' || starting.has(task.id)) {
-        throw new RequestError(409, `${task.displayId} has already started`)
-      }
-      starting.add(task.id)
-      try {
-        const clone = clonePath(reposDir, factory)
-        await git.fetch(clone)
-        const branch = await branchFor(clone, task)
-        const worktree = path.join(worktreesDir, task.displayId, factory.name)
-        const stage = firstStage()
-        const prompt = await taskLeadPrompt(task, stage)
-        await mkdir(path.dirname(worktree), { recursive: true })
-        await git.addWorktree(clone, {
-          path: worktree,
-          branch,
-          from: `origin/${factory.defaultBranch}`,
-        })
-        store.startTask({ taskId: task.id, stage, branch, worktree })
-        await runs.start({
-          agent: leadAgent(task),
-          prompt,
-          cwd: worktree,
-          taskId: task.id,
-          env: { TED_TASK: task.displayId },
-        })
-        const { worktree: _, ...current } = find(task.id)
-        return current
-      } finally {
-        starting.delete(task.id)
-      }
-    },
+    start,
 
     comment(ref, caller, body) {
       const { task, runId } = ownTask(ref, caller)
       return store.postComment({ taskId: task.id, body, authorRunId: runId })
     },
 
-    reportOutcome(ref, caller, _outcome) {
+    async reportOutcome(ref, caller, _outcome) {
       const { task, runId } = ownTask(ref, caller)
       if (task.leadRunId !== runId) {
         throw new RequestError(403, 'only the Task Lead reports outcomes')
       }
-      if (task.stage === 'backlog' || task.stage === 'done') {
+      if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }
-      const next = nextStage(task.stage)
-      const moved = store.changeStage(task.id, next)
-      if (next === 'done') {
-        const done = finish(task)
-          .catch((error: unknown) => console.error(`couldn’t finish ${task.displayId}:`, error))
-          .finally(() => finishing.delete(done))
-        finishing.add(done)
+      advancing.add(task.id)
+      try {
+        const resolution = await workflows.resolve(factoryOf(task))
+        const next = resolution.workflow.next(task.stage) as AgentStageId | 'done'
+        const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+        if (next === 'done') {
+          const done = finish(task)
+            .catch((error: unknown) => console.error(`couldn’t finish ${task.displayId}:`, error))
+            .finally(() => finishing.delete(done))
+          finishing.add(done)
+        } else {
+          await runs.send(runId, nextStageMessage(resolution.workflow, next))
+        }
+        return moved
+      } finally {
+        advancing.delete(task.id)
       }
-      return moved
     },
 
     async close() {

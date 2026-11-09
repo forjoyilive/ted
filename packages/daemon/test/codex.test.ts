@@ -253,6 +253,54 @@ describe('Codex as the Task Lead', () => {
   })
 })
 
+describe('Codex and the Workflow', () => {
+  let scratch: string
+
+  beforeEach(async () => {
+    scratch = await mkdtemp(path.join(tmpdir(), 'ted-origin-'))
+  })
+
+  afterEach(async () => {
+    await rm(scratch, { recursive: true, force: true })
+  })
+
+  test('a Codex Task Lead gets the next Stage file as a new turn', async () => {
+    const origin = await makeOriginRepo(scratch)
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: path.join(scratch, 'no-claude-here'),
+      codexBin: stubCodexPath,
+    })
+    const client = api(daemon.port, await tokenFor(home))
+    const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+      const res = await client.call(method, route, body)
+      if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+      return res.body as T
+    }
+    await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    const task = await ok<Task>('POST', '/tasks', {
+      title: JSON.stringify({
+        steps: [{ run: ['ted', 'outcome', 'advance'] }, { endTurn: true }],
+      }),
+      factory: 'NB',
+    })
+
+    await ok('POST', `/tasks/${task.displayId}/start`)
+
+    const lead = await waitUntil(async () => {
+      const t = (await ok<Task[]>('GET', '/tasks')).find((x) => x.id === task.id)
+      return t?.stage === 'clarify' ? t.leadRunId : undefined
+    }, 'the Task to reach Clarify')
+    await waitUntil(async () => {
+      const { conversation } = await client.getRun(lead)
+      return conversation.some(
+        (e) => e.line.includes('userMessage') && e.line.includes('TED moved this Task to Clarify'),
+      )
+    }, 'the Clarify Stage file to reach the Codex Task Lead')
+  })
+})
+
 describe('Codex Runs across daemon restarts', () => {
   const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
   let child: ChildProcess | undefined

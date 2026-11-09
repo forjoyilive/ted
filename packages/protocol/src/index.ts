@@ -17,13 +17,16 @@ export {
   type RunWithConversation,
   type StartDevRunRequest,
 } from './run.ts'
-export type {
-  Comment,
-  CreateTaskRequest,
-  Outcome,
-  PostCommentRequest,
-  ReportOutcomeRequest,
-  StageId,
-  Task,
+export {
+  type AgentStageId,
+  agentStageIds,
+  type Comment,
+  type CreateTaskRequest,
+  type Outcome,
+  type PostCommentRequest,
+  type ReportOutcomeRequest,
+  type StageId,
+  type Task,
 } from './task.ts'
 export { tedVersion } from './version.ts'
+export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -36,6 +36,7 @@ export interface StartRunInput {
 
 export interface RunManager {
   start(input: StartRunInput): Promise<Run>
+  send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
   close(): Promise<void>
 }
@@ -148,6 +149,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }).unref()
       follow(id)
       return run
+    },
+    async send(runId, text) {
+      const input = runFiles(path.join(runsDir, runId)).input
+      const run = store.getRun(runId)
+      if (!run) throw new Error(`no Run ${runId}`)
+      await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
     },
     async stop(runId) {
       const done = following.get(runId)

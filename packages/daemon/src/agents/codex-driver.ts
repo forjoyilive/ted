@@ -26,6 +26,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   const plan = JSON.parse(input) as CodexPlan
   const waiting = new Map<number, (message: RpcMessage) => void>()
   let nextId = 0
+  let threadId: string | undefined
+  const pending: string[] = []
 
   const request = (method: string, params: unknown) => {
     const id = ++nextId
@@ -41,16 +43,33 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     if (init.error !== undefined) return stop()
     send(JSON.stringify({ method: 'initialized' }))
     const opened = await request(plan.thread.method, plan.thread.params)
-    const threadId = opened.result?.thread?.id
-    if (opened.error !== undefined || typeof threadId !== 'string') return stop()
-    const turn = await request('turn/start', {
-      threadId,
-      input: [{ type: 'text', text: plan.prompt, text_elements: [] }],
-    })
-    if (turn.error !== undefined) stop()
+    const openedId = opened.result?.thread?.id
+    if (opened.error !== undefined || typeof openedId !== 'string') return stop()
+    threadId = openedId
+    const turn = await startTurn(plan.prompt)
+    if (turn.error !== undefined) return stop()
+    for (const text of pending.splice(0)) void startTurn(text)
   })()
 
+  function startTurn(text: string) {
+    return request('turn/start', {
+      threadId,
+      input: [{ type: 'text', text, text_elements: [] }],
+    })
+  }
+
   return {
+    onInput(line) {
+      let text: unknown
+      try {
+        text = (JSON.parse(line) as { text?: unknown }).text
+      } catch {
+        return
+      }
+      if (typeof text !== 'string') return
+      if (threadId === undefined) pending.push(text)
+      else void startTurn(text)
+    },
     onLine(line) {
       let message: RpcMessage
       try {

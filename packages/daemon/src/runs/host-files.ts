@@ -10,6 +10,7 @@ export interface LaunchFile {
 
 export interface HostDriver {
   onLine(line: string): void
+  onInput?(line: string): void
 }
 
 export type DriveAgent = (io: {
@@ -29,5 +30,6 @@ export function runFiles(runDir: string) {
     launch: path.join(runDir, 'launch.json'),
     log: path.join(runDir, 'host.log'),
     lock: path.join(runDir, 'host.lock'),
+    input: path.join(runDir, 'input.jsonl'),
   }
 }

@@ -166,6 +166,25 @@ export async function makeOriginRepo(parent: string): Promise<string> {
   return origin
 }
 
+export async function commitToOrigin(parent: string, files: Record<string, string>): Promise<void> {
+  const work = path.join(parent, 'seed')
+  const origin = path.join(parent, 'acme', 'widgets.git')
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  }
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(work, file)), { recursive: true })
+    await writeFile(path.join(work, file), content)
+  }
+  await execFileAsync('git', ['add', '-A'], { cwd: work, env })
+  await execFileAsync('git', ['commit', '-m', 'change'], { cwd: work, env })
+  await execFileAsync('git', ['push', origin, 'main'], { cwd: work, env })
+}
+
 export async function refsOf(repo: string): Promise<string> {
   const { stdout } = await execFileAsync('git', ['for-each-ref'], { cwd: repo })
   return stdout
