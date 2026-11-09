@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { readStubKeyring, stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
@@ -18,6 +17,7 @@ import {
   removeHome,
   stopDaemonIn,
 } from '../../daemon/test/helpers.ts'
+import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -33,7 +33,7 @@ let linear: StubLinear
 let app: ElectronApplication | undefined
 
 beforeAll(async () => {
-  await build({ configFile: path.join(appDir, 'vite.config.ts'), logLevel: 'warn' })
+  await buildRenderer()
 })
 
 beforeEach(async () => {

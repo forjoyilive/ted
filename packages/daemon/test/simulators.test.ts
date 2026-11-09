@@ -264,7 +264,10 @@ describe('iOS simulator Apps', () => {
       async () => !(await stubDevices()).some((d) => d.udid === clone?.udid),
       'the device to be deleted',
     )
-    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).booted).toEqual([])
+    await waitUntil(
+      async () => (await client.ok<SimulatorSlots>('GET', '/simulators')).booted.length === 0,
+      'the simulator slot to be freed',
+    )
   })
 
   test('with every slot booted the human must pick one to shut down', async () => {

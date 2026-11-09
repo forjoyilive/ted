@@ -5,7 +5,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Comment, RunSummary, Task, TaskBrief, TaskPullRequest, TaskRepo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   daemonAsApp,
@@ -22,6 +21,7 @@ import {
   codeSummary,
   runsCollapsedSummary,
 } from '../src/renderer/details.ts'
+import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 
 const now = Date.parse('2026-11-09T12:00:00Z')
@@ -149,7 +149,7 @@ describe('Task details in the app', () => {
   let app: ElectronApplication | undefined
 
   beforeAll(async () => {
-    await build({ configFile: path.join(appDir, 'vite.config.ts'), logLevel: 'warn' })
+    await buildRenderer()
   })
 
   beforeEach(async () => {
