@@ -718,11 +718,13 @@ export function createTasks(options: {
       .findLast(
         (c) => c.gate && c.stage === 'design' && c.answer?.kind === 'approved' && c.design?.setup,
       )?.design?.setup
+    const key = (name: string, command: string, repo: string | undefined) =>
+      [name, command, repo ?? primary.name].join('\0')
     const approved = new Set(
-      (proposal?.checks ?? []).filter((c) => c.passed).map((c) => `${c.name}\0${c.command}`),
+      (proposal?.checks ?? []).filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
     )
     return (layer.settings.stages.validate?.checks ?? []).filter((c) =>
-      approved.has(`${c.name}\0${c.run}`),
+      approved.has(key(c.name, c.run, c.repo)),
     )
   }
 
@@ -3727,6 +3729,8 @@ export function createTasks(options: {
     await finish(find(taskId), resolution)
   }
 
+  const creatingSetup = new Set<string>()
+
   function openSetupTask(factoryId: string): Task | undefined {
     return store
       .listTasks()
@@ -3737,6 +3741,18 @@ export function createTasks(options: {
     if (removingFactories.has(factory.id)) {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
+    if (creatingSetup.has(factory.id)) {
+      throw new RequestError(409, `TED is already creating ${factory.name}’s setup Task`)
+    }
+    creatingSetup.add(factory.id)
+    try {
+      return await createSetupTask(factory, byHand)
+    } finally {
+      creatingSetup.delete(factory.id)
+    }
+  }
+
+  async function createSetupTask(factory: StoredFactory, byHand: boolean): Promise<Task> {
     const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
       (error: unknown) => {
         console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
@@ -5484,7 +5500,9 @@ export function createTasks(options: {
       checking.add(task.id)
       try {
         const resolution = await resolveFor(task, { fetch: false })
-        const listed = resolution.workflow.settings.stages.validate?.checks ?? []
+        const listed = task.setup
+          ? await approvedSetupChecks(task)
+          : (resolution.workflow.settings.stages.validate?.checks ?? [])
         if (
           only !== undefined &&
           only !== tedSettingsCheck &&
