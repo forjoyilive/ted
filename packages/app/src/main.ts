@@ -29,6 +29,7 @@ import {
   downloadUrl,
   type EditTaskRequest,
   type FactorySettingsChanges,
+  type LibraryChanges,
   linearKeyPage,
   type MachineSettings,
   type MoveTaskRequest,
@@ -37,6 +38,7 @@ import {
   parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SaveLibraryRequest,
   type SaveSettingsRequest,
   tedHome,
   tedPaths,
@@ -199,6 +201,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
   saveFactorySettings: (client, factoryId, request) =>
     client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
+  library: (client) => client.library(),
+  previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
+  saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
   tryCheck: (client, factoryId, request) =>
     client.tryCheck(String(factoryId), request as CheckTryRequest),

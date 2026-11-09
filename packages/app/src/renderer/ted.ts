@@ -31,6 +31,9 @@ import type {
   FactorySettingsView,
   InboxItem,
   IntegrationsHealth,
+  LibraryChanges,
+  LibraryPreview,
+  LibraryView,
   LinearLookup,
   LinearStatus,
   LogText,
@@ -48,6 +51,7 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
   SetTaskReposRequest,
@@ -177,6 +181,11 @@ export const ted = {
     window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
   saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
     window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  library: () => window.ted.request('library') as Promise<LibraryView>,
+  previewLibrary: (changes: LibraryChanges) =>
+    window.ted.request('previewLibrary', changes) as Promise<LibraryPreview>,
+  saveLibrary: (request: SaveLibraryRequest) =>
+    window.ted.request('saveLibrary', request) as Promise<LibraryView>,
   tryCheck: (factoryId: string, request: CheckTryRequest) =>
     window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
   stopCheckTry: (factoryId: string, name: string) =>

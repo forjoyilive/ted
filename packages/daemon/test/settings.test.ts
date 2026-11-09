@@ -54,6 +54,7 @@ describe('machine settings in the store', () => {
       showTrayIcon: true,
       startAtLogin: true,
       stayAwake: true,
+      restartIdleRuns: true,
       listViews: {},
       billing: { claude: 'subscription', codex: 'subscription' },
       firstLaunchDone: false,

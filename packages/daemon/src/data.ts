@@ -17,6 +17,7 @@ import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
+import type { LibrarySettings } from './library-settings.ts'
 import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
@@ -39,6 +40,7 @@ export interface Services {
   factories: Factories
   factorySettings: FactorySettings
   checkTries: CheckTries
+  library: LibrarySettings
   conversations: Conversations
 }
 
