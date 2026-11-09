@@ -16,6 +16,7 @@ import {
   priorities,
   quitChoices,
   type StatusFilter,
+  simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
   workingRunLimits,
@@ -207,6 +208,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const { min, max } = workingRunLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
       throw new HttpError(400, `maxWorkingRuns must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  maxBootedSimulators(value) {
+    const { min, max } = simulatorSlotLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxBootedSimulators must be a whole number from ${min} to ${max}`)
     }
     return value
   },

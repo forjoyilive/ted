@@ -1,3 +1,4 @@
+import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
@@ -463,7 +464,7 @@ export interface RoundAnswerInput {
 }
 
 export type CommentAnswer =
-  | { kind: 'approved'; at: string; text?: string; created?: ProposalCreated }
+  | { kind: 'approved'; at: string; text?: string; created?: ProposalCreated; shutDown?: string }
   | { kind: 'changes-requested'; at: string; text: string }
   | {
       kind: 'answered'
@@ -478,6 +479,8 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
   | { kind: 'withdrawn'; at: string; ciReported: true }
+  | { kind: 'withdrawn'; at: string; slotFreed: true }
+  | { kind: 'withdrawn'; at: string; appGone: true }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
@@ -497,6 +500,7 @@ export interface Comment {
   sizeCheck?: SizeCheck
   gate?: CommentGate
   permission?: PermissionAsk
+  simulator?: SimulatorAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
@@ -608,7 +612,7 @@ export interface InboxItem {
 }
 
 export type AnswerRequest =
-  | { action: 'approve'; text?: string; proposal?: ProposalChoice }
+  | { action: 'approve'; text?: string; proposal?: ProposalChoice; simulator?: string }
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
   | { action: 'answer'; choice?: string; text?: string }

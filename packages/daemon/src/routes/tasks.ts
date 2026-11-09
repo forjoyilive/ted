@@ -1128,10 +1128,14 @@ export function answerRequest(body: unknown): AnswerRequest {
     throw new HttpError(400, 'text must be a string')
   }
   if (request.action === 'approve') {
+    if (request.simulator !== undefined && typeof request.simulator !== 'string') {
+      throw new HttpError(400, 'simulator must name a simulator')
+    }
     return {
       action: 'approve',
       ...(text !== undefined && { text }),
       ...(request.proposal !== undefined && { proposal: proposalChoice(request.proposal) }),
+      ...(typeof request.simulator === 'string' && { simulator: request.simulator }),
     }
   }
   if (request.action === 'request-changes') {

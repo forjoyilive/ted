@@ -1,4 +1,4 @@
-import type { PullRequestPreview, Task, TaskApp } from '@ted/protocol'
+import type { PullRequestPreview, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
 import { age, ago } from './requests.ts'
 
 export interface HostedPreview {
@@ -31,7 +31,17 @@ export function previewChoice(task: Task, apps: readonly TaskApp[]): PreviewChoi
   return { kind: 'run', app: first, again: first.startedAt !== undefined }
 }
 
-export const isLive = (app: TaskApp) => app.state === 'running' || app.state === 'starting'
+export const isLive = (app: TaskApp) =>
+  app.state === 'running' || app.state === 'starting' || app.state === 'waiting'
+
+export function needsSlot(app: TaskApp, slots: SimulatorSlots | undefined): boolean {
+  return (
+    app.kind === 'ios-simulator' &&
+    slots !== undefined &&
+    app.simulator?.booted !== true &&
+    slots.booted.length >= slots.limit
+  )
+}
 
 export function hostOf(url: string): string {
   return url.replace(/^https?:\/\//, '').replace(/\/$/, '')
@@ -42,8 +52,26 @@ export function appStatusLine(app: TaskApp, now: number): string {
   return app.removed ? `Removed from settings · ${line}` : line
 }
 
+function simulatorLine(app: TaskApp, now: number): string | undefined {
+  const simulator = app.simulator
+  if (!simulator) return undefined
+  if (app.state === 'waiting') return `Waiting for a simulator · ${simulator.device}`
+  if (simulator.booted) {
+    return `${simulator.device} · ${simulator.recording ? 'recording' : 'booted'}`
+  }
+  const shutDown = simulator.shutDown
+  if (!shutDown || app.state === 'failed') return undefined
+  return shutDown.for !== undefined
+    ? `Shut down ${ago(shutDown.at, now)} to free a slot for ${shutDown.for}`
+    : `${simulator.device} · shut down ${ago(shutDown.at, now)}`
+}
+
 function stateLine(app: TaskApp, now: number): string {
+  const simulator = simulatorLine(app, now)
+  if (simulator !== undefined) return simulator
   switch (app.state) {
+    case 'waiting':
+      return 'Waiting for a simulator'
     case 'running':
       return app.url !== undefined
         ? hostOf(app.url)
@@ -63,7 +91,7 @@ function stateLine(app: TaskApp, now: number): string {
 }
 
 export function appsSummary(apps: readonly TaskApp[], hosted: number): string | undefined {
-  const running = apps.filter(isLive).length
+  const running = apps.filter((a) => a.state === 'running' || a.state === 'starting').length
   if (running > 0) return `${running} running`
   if (hosted > 0) return hosted === 1 ? '1 hosted preview' : `${hosted} hosted previews`
   return undefined

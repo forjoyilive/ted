@@ -58,7 +58,11 @@ function LogHeader({ task, app }: { task: Task; app: TaskApp }) {
             Stop
           </Button>
         ) : (
-          <Button size="small" disabled={actions.busy || !actions.runnable} onClick={actions.start}>
+          <Button
+            size="small"
+            disabled={actions.busy || !actions.runnable}
+            onClick={() => actions.start()}
+          >
             Run
           </Button>
         )}

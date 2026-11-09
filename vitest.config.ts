@@ -12,6 +12,8 @@ export function tedTestConfig(include: string[]) {
       setupFiles: [here('./packages/daemon/test/support/setup.ts')],
       env: {
         TED_GH_BIN: here('./packages/daemon/test/fixtures/stub-gh.ts'),
+        TED_XCRUN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
+        TED_OPEN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
         TED_LOGIN_SHELL: 'off',
         TED_FREE_BYTES_FILE: here('./packages/daemon/test/fixtures/free-bytes.txt'),
         TED_ONLINE_FILE: here('./packages/daemon/test/fixtures/online.txt'),

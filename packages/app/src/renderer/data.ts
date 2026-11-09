@@ -20,6 +20,7 @@ import type {
   RunChat,
   RunSlots,
   RunSummary,
+  SimulatorSlots,
   StageEntry,
   StageId,
   Task,
@@ -587,6 +588,14 @@ export function useTaskRuns(taskId: string): RunSummary[] {
         (event.type === 'task-updated' && event.task.id === taskId),
       taskId,
     ) ?? []
+  )
+}
+
+export function useSimulators(): SimulatorSlots | undefined {
+  return useReloading(
+    () => ted.simulators(),
+    (event) => event.type === 'simulators-changed' || event.type === 'settings-changed',
+    'simulators',
   )
 }
 

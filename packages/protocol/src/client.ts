@@ -1,6 +1,14 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
-import type { AppLog, AppRef, TaskApp } from './app.ts'
+import type {
+  AppCapture,
+  AppLog,
+  AppRef,
+  RecordAppRequest,
+  SimulatorSlots,
+  StartAppRequest,
+  TaskApp,
+} from './app.ts'
 import {
   bodyHash,
   daemonProof,
@@ -615,7 +623,7 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/apps`)
   }
 
-  startApp(ref: string, app: AppRef): Promise<TaskApp> {
+  startApp(ref: string, app: StartAppRequest): Promise<TaskApp> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/start`, app)
   }
 
@@ -625,6 +633,22 @@ export class DaemonClient {
 
   restartApp(ref: string, app: AppRef): Promise<TaskApp> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/restart`, app)
+  }
+
+  showApp(ref: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/show`, app)
+  }
+
+  screenshotApp(ref: string, app: AppRef): Promise<AppCapture> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/screenshot`, app)
+  }
+
+  recordApp(ref: string, request: RecordAppRequest): Promise<AppCapture> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/record`, request)
+  }
+
+  simulators(): Promise<SimulatorSlots> {
+    return this.#request('GET', '/simulators')
   }
 
   appLog(ref: string, app: { repo: string; name: string }): Promise<AppLog> {

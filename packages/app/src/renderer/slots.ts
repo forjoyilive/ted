@@ -1,4 +1,4 @@
-import type { RunSlots } from '@ted/protocol'
+import type { RunSlots, SimulatorSlots } from '@ted/protocol'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -11,8 +11,12 @@ export function runsLine(slots: RunSlots): string {
   return slots.working === 0 && slots.queued === 0 ? 'Nothing running' : counts(slots)
 }
 
-export function nowLine(slots: RunSlots): string {
-  return `Now: ${counts(slots)}`
+export function nowLine(slots: RunSlots, simulators?: SimulatorSlots): string {
+  const booted =
+    simulators?.supported === true
+      ? ` · ${simulators.booted.length} of ${simulators.limit} simulator${simulators.limit === 1 ? '' : 's'} booted`
+      : ''
+  return `Now: ${counts(slots)}${booted}`
 }
 
 export function factoryCapLine(slots: RunSlots | undefined, factoryId: string): string | undefined {

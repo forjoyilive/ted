@@ -76,7 +76,12 @@ const usage = `Usage:
   ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
                                              stopping at the first failure
   ted run-app [<App>] [--repo <name>]        Start one of the Task's Apps, or reuse the running
-                                             one, and wait until it answers; prints its URL
+             [--reason <text>]               one, and wait until it answers; prints its URL.
+                                             An iOS simulator App waits for a free simulator;
+                                             --reason tells the human why you need one
+  ted app screenshot <App> [--repo <name>]   Save a screenshot of an iOS simulator App to the Task
+  ted app record <App> --start|--stop        Record an iOS simulator App's screen; --stop saves
+                                             the video to the Task
   ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
                                              without --file)
   ted brief show                             Show the latest Task brief
@@ -160,6 +165,8 @@ function parse() {
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
+        stop: { type: 'boolean' },
+        reason: { type: 'string' },
         supersedes: { type: 'string' },
         skip: { type: 'boolean' },
         changes: { type: 'string' },
@@ -463,6 +470,22 @@ try {
     console.log(`Stopped sub-agent “${printable(sub.name)}”`)
   } else if (group === 'run-app' && rest.length === 0) {
     await runApp(command)
+  } else if (group === 'app' && command === 'screenshot' && rest.length === 1) {
+    const ref = taskRef()
+    const app = { name: rest[0] ?? '', ...(options.repo && { repo: options.repo }) }
+    const shot = await withDaemon(home, (client) => client.screenshotApp(ref, app))
+    console.log(`Saved ${printable(shot.attachment?.name ?? 'the screenshot')} to the Task`)
+  } else if (group === 'app' && command === 'record' && rest.length === 1) {
+    if (options.start === options.stop) throw new UsageError('say --start or --stop')
+    const ref = taskRef()
+    const app = { name: rest[0] ?? '', ...(options.repo && { repo: options.repo }) }
+    const action = options.start ? 'start' : 'stop'
+    const capture = await withDaemon(home, (client) => client.recordApp(ref, { ...app, action }))
+    console.log(
+      action === 'start'
+        ? `Recording ${printable(app.name)}. Stop with ted app record ${printable(app.name)} --stop.`
+        : `Saved ${printable(capture.attachment?.name ?? 'the recording')} to the Task`,
+    )
   } else if (group === 'checks' && command === undefined) {
     const ref = taskRef()
     const name = options.name
@@ -1050,7 +1073,7 @@ async function readJsonFile<T>(file: string, what: string): Promise<T> {
 async function runApp(given: string | undefined): Promise<void> {
   const ref = taskRef()
   const { app, log } = await withDaemon(home, async (client) => {
-    let wanted =
+    let wanted: { name: string; repo?: string } | undefined =
       given === undefined ? undefined : { name: given, ...(options.repo && { repo: options.repo }) }
     if (wanted === undefined) {
       const apps = (await client.listApps(ref)).filter(
@@ -1066,8 +1089,16 @@ async function runApp(given: string | undefined): Promise<void> {
       }
       wanted = { name: only.name, repo: only.repo }
     }
-    let app = await client.startApp(ref, wanted)
-    while (app.state === 'starting') {
+    let app = await client.startApp(ref, {
+      ...wanted,
+      ...(options.reason !== undefined && { reason: options.reason }),
+    })
+    if (app.state === 'waiting') {
+      console.error(
+        `Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…`,
+      )
+    }
+    while (app.state === 'starting' || app.state === 'waiting') {
       await sleep(500)
       const current = app
       const found = (await client.listApps(ref)).find(
@@ -1087,12 +1118,23 @@ async function runApp(given: string | undefined): Promise<void> {
     return { app, log }
   })
   const name = printable(app.name)
+  if (app.state === 'running' && app.simulator !== undefined) {
+    console.log(
+      `${name} is running on ${printable(app.simulator.device)}. It keeps running until the human stops it or the Task ends.`,
+    )
+    return
+  }
   if (app.state === 'running') {
     console.log(
       app.url !== undefined
         ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until the human stops it or the Task ends.`
         : `${name} is running on port ${app.port}. It keeps running until the human stops it or the Task ends.`,
     )
+    return
+  }
+  if (app.state === 'failed' && app.problem?.startsWith('No simulator slot') === true) {
+    console.error(printable(app.problem))
+    process.exitCode = 1
     return
   }
   const why =

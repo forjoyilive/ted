@@ -5,6 +5,7 @@ import type {
   AgentKind,
   AgentStageId,
   AnswerRequest,
+  AppCapture,
   AppLog,
   AppRef,
   AppStarter,
@@ -38,6 +39,7 @@ import type {
   OutcomeResult,
   Priority,
   ProposalInput,
+  RecordAppRequest,
   ReportOutcomeRequest,
   RepoSetupReport,
   RoundInput,
@@ -46,9 +48,11 @@ import type {
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
+  SimulatorSlots,
   SizeCheckInput,
   SlotHolder,
   StageId,
+  StartAppRequest,
   StartSubAgentRequest,
   SubAgent,
   SubAgentWait,
@@ -75,7 +79,7 @@ import {
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
-import { type AppsOptions, type AppTask, createApps } from '../apps/apps.ts'
+import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -333,10 +337,14 @@ export interface Tasks {
   addQueueSource(source: QueueSource): () => void
   mergesInFlight(): number
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
-  startApp(ref: string, caller: Caller, app: AppRef): Promise<TaskApp>
+  startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
   stopApp(ref: string, app: AppRef): Promise<TaskApp>
   restartApp(ref: string, app: AppRef): Promise<TaskApp>
   appLog(ref: string, app: AppRef): Promise<AppLog>
+  showApp(ref: string, app: AppRef): Promise<TaskApp>
+  screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
+  recordApp(ref: string, caller: Caller, request: RecordAppRequest): Promise<AppCapture>
+  simulators(): SimulatorSlots
   close(): Promise<void>
 }
 
@@ -368,6 +376,8 @@ export function createTasks(options: {
   stallAfterMs?: number
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
+  simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
+  saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
 }): Tasks {
   const {
     store,
@@ -448,6 +458,11 @@ export function createTasks(options: {
     ...(options.env !== undefined && { env: options.env }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...options.apps,
+    simulators: {
+      dir: path.join(path.dirname(worktreesDir), 'simulators'),
+      ...options.simulators,
+      banners,
+    },
     emit: (event) => {
       for (const listener of listeners) listener(event)
     },
@@ -461,7 +476,9 @@ export function createTasks(options: {
   async function appTask(taskId: string): Promise<AppTask> {
     const task = find(taskId)
     const live = task.repos.filter((r) => !r.removed)
-    if (live.length === 0) return { displayId: task.displayId, repos: [] }
+    if (live.length === 0) {
+      return { displayId: task.displayId, factoryId: task.factoryId, repos: [] }
+    }
     const factory = factoryOf(task)
     const entries = factoryRepos(
       (await resolveWorkflow(factory, { fetch: false })).workflow,
@@ -469,6 +486,7 @@ export function createTasks(options: {
     )
     return {
       displayId: task.displayId,
+      factoryId: task.factoryId,
       repos: live.map((repo) => {
         const entry = repoEntry(entries, repo)
         return {
@@ -491,6 +509,32 @@ export function createTasks(options: {
       return { task, by, runId }
     }
     return { task: find(ref), by: 'human' }
+  }
+
+  async function saveCapture(
+    task: StoredTask,
+    runId: string | undefined,
+    file: string,
+    name: string,
+    mediaType: string,
+    body: string,
+  ): Promise<Attachment> {
+    if (!options.saveAttachment) {
+      await rm(file, { force: true })
+      throw new RequestError(503, 'TED can’t save files here')
+    }
+    const attachment = await options
+      .saveAttachment(file, name, mediaType)
+      .finally(() => rm(file, { force: true }))
+    if (runId === undefined) await humanComment(task, body, [attachment])
+    else
+      store.postComment({
+        taskId: task.id,
+        body,
+        author: { kind: 'run', runId },
+        attachments: [attachment],
+      })
+    return attachment
   }
 
   function runnableApps(ref: string, caller: Caller) {
@@ -4777,7 +4821,8 @@ export function createTasks(options: {
     const now = Date.now()
     for (const run of store.listRuns()) {
       if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
-        if (run.state !== 'working') pausedAt.delete(run.id)
+        if (run.state === 'waiting') pausedAt.set(run.id, now)
+        else if (run.state !== 'working') pausedAt.delete(run.id)
         continue
       }
       if (store.getTask(run.taskId)?.leadRunId !== run.id) continue
@@ -5627,6 +5672,9 @@ export function createTasks(options: {
         throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
       }
       const text = request.text?.trim() ?? ''
+      if (comment.simulator) {
+        return holding(task, () => apps.answerSimulator(comment, request, text))
+      }
       if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
         if (request.action === 'request-changes') {
@@ -6192,10 +6240,45 @@ export function createTasks(options: {
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)
     },
-    startApp(ref, caller, app) {
+    startApp(ref, caller, { shutDown, reason, ...app }) {
       const { task, by, runId } = runnableApps(ref, caller)
-      return apps.start(task.id, app, by, runId)
+      return apps.start(task.id, app, by, {
+        ...(runId !== undefined && { runId }),
+        ...(runId === undefined && shutDown !== undefined && { shutDown }),
+        ...(runId !== undefined && reason !== undefined && { reason }),
+      })
     },
+    async showApp(ref, app) {
+      return apps.show(find(ref).id, app)
+    },
+    async screenshotApp(ref, caller, app) {
+      const { task, runId } = runnableApps(ref, caller)
+      const { file, app: shown } = await apps.screenshot(task.id, app)
+      const attachment = await saveCapture(
+        task,
+        runId,
+        file,
+        `${shown.name} screenshot.png`,
+        'image/png',
+        `Screenshot of ${shown.name}`,
+      )
+      return { attachment, recording: shown.simulator?.recording === true }
+    },
+    async recordApp(ref, caller, { action, ...app }) {
+      const { task, runId } = runnableApps(ref, caller)
+      const { file, app: shown } = await apps.record(task.id, app, action)
+      if (file === undefined) return { recording: shown.simulator?.recording === true }
+      const attachment = await saveCapture(
+        task,
+        runId,
+        file,
+        `${shown.name} recording.mov`,
+        'video/quicktime',
+        `Recording of ${shown.name}`,
+      )
+      return { attachment, recording: false }
+    },
+    simulators: () => apps.simulators(),
     stopApp(ref, app) {
       return apps.stop(find(ref).id, app)
     },

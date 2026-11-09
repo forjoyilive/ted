@@ -297,8 +297,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   discardLineComments: (client, taskId) => client.discardLineComments(String(taskId)),
   sendLineComments: (client, taskId) => client.sendLineComments(String(taskId)),
   listApps: (client, taskId) => client.listApps(String(taskId)),
-  startApp: (client, taskId, repo, name) =>
-    client.startApp(String(taskId), { repo: String(repo), name: String(name) }),
+  startApp: (client, taskId, repo, name, shutDown) =>
+    client.startApp(String(taskId), {
+      repo: String(repo),
+      name: String(name),
+      ...(typeof shutDown === 'string' && { shutDown }),
+    }),
+  showApp: (client, taskId, repo, name) =>
+    client.showApp(String(taskId), { repo: String(repo), name: String(name) }),
+  simulators: (client) => client.simulators(),
   stopApp: (client, taskId, repo, name) =>
     client.stopApp(String(taskId), { repo: String(repo), name: String(name) }),
   restartApp: (client, taskId, repo, name) =>
