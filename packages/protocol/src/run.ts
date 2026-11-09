@@ -25,6 +25,9 @@ export interface Run {
   prompt: string
   cwd: string
   taskId?: string
+  parentRunId?: string
+  name?: string
+  failure?: string
   state: RunState
   startedAt: string
 }
@@ -44,4 +47,32 @@ export interface StartDevRunRequest {
   prompt: string
   cwd: string
   agent?: AgentKind
+}
+
+export interface StartSubAgentRequest {
+  agent?: AgentKind
+  model?: string
+  effort?: Effort
+  prompt: string
+  name?: string
+  ownWorktree?: boolean
+}
+
+export type SubAgentState = 'queued' | 'working' | 'waiting' | 'idle' | 'stopped' | 'failed'
+
+export interface SubAgent {
+  id: string
+  name: string
+  agent: AgentKind
+  state: SubAgentState
+}
+
+export interface SubAgentWait extends SubAgent {
+  done: boolean
+  message?: string
+  error?: string
+}
+
+export interface SendSubAgentRequest {
+  text: string
 }

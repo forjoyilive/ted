@@ -90,6 +90,7 @@ import {
   sendBackResets,
   sendBacks,
   stageEntries,
+  subAgentRequests,
   taskAttachments,
   taskBlockers,
   taskBriefs,
@@ -214,6 +215,19 @@ export interface NewWorktree {
   repo: string
   copied: string[]
   skipped: CopySkip[]
+}
+
+export interface SubAgentRequest {
+  id: string
+  taskId: string
+  parentRunId: string
+  name: string
+  agent: AgentKind
+  model?: string
+  effort?: Effort
+  prompt: string
+  ownWorktree: boolean
+  at: string
 }
 
 export interface QueuedTask extends QueueEntry {
@@ -383,8 +397,16 @@ export interface TedStore {
     taskId?: string
     model?: string
     effort?: Effort
+    parentRunId?: string
+    name?: string
     permissions?: PermissionMode
   }): Run
+  failRun(runId: string, error: string): void
+  requestSubAgent(request: Omit<SubAgentRequest, 'at'>): SubAgentRequest
+  subAgentRequests(taskId?: string): SubAgentRequest[]
+  dropSubAgentRequest(id: string): void
+  setOnSubAgents(runId: string, on: boolean): void
+  onSubAgents(runId: string): boolean
   recordRunOutput(runId: string, output: RunOutput): void
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
@@ -455,6 +477,7 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
+  const waitingOnSubAgents = new Set<string>()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
@@ -499,6 +522,20 @@ export async function openStore({
     factoryId === placeholderFactory.id
       ? placeholderFactory.key
       : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
+
+  const runName = (run: typeof runs.Type) =>
+    run.name ?? (run.taskId !== null && run.parentRunId === null ? 'Task Lead' : 'Run')
+
+  const toSubAgentRequest = ({
+    model,
+    effort,
+    ...row
+  }: typeof subAgentRequests.Type): SubAgentRequest => ({
+    ...row,
+    agent: row.agent as AgentKind,
+    ...(model !== null && { model }),
+    ...(effort !== null && { effort: effort as Effort }),
+  })
 
   const taskRuns = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
@@ -653,7 +690,7 @@ export async function openStore({
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
     const all = taskRuns(row.id)
-    const lead = all.at(0)
+    const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
@@ -710,7 +747,7 @@ export async function openStore({
           ? [
               {
                 runId: run.id,
-                name: 'Task Lead',
+                name: runName(run),
                 agent: run.agent as AgentKind,
                 state: run.state as RunState,
               },
@@ -768,14 +805,21 @@ export async function openStore({
       commentBox: commentBox(facts, status),
       tabs,
       runs: live
-        .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
+        .sort(
+          (a, b) =>
+            Number(b.id === lead?.id) - Number(a.id === lead?.id) ||
+            a.startedAt.localeCompare(b.startedAt),
+        )
         .map((r) => {
           const reason = paused[r.agent as AgentKind]
           return {
             id: r.id,
             agent: r.agent as AgentKind,
+            role: r.parentRunId === null ? ('lead' as const) : ('sub-agent' as const),
+            name: runName(r),
             state: r.state as RunState,
             ...(reason !== undefined && { paused: reason }),
+            ...(waitingOnSubAgents.has(r.id) && { onSubAgents: true }),
           }
         }),
       createdBy: 'human',
@@ -800,11 +844,17 @@ export async function openStore({
     effort,
     usesDefaultModel,
     problem,
+    parentRunId,
+    name,
+    failure,
     permissions,
     manualPermissions,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
+    ...(parentRunId !== null && { parentRunId }),
+    ...(name !== null && { name }),
+    ...(failure !== null && { failure }),
     permissions: permissions === 'bypass' ? 'bypass' : 'auto',
     ...(manualPermissions && { manualPermissions }),
     agent: row.agent as AgentKind,
@@ -1694,23 +1744,35 @@ export async function openStore({
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun({ taskId, sessionId, model, effort, permissions = 'auto', ...input }) {
+    startRun({
+      taskId,
+      sessionId,
+      model,
+      effort,
+      permissions = 'auto',
+      parentRunId,
+      name,
+      ...input
+    }) {
       const row = {
         ...input,
         sessionId: sessionId ?? '',
         taskId: taskId ?? null,
         model: model ?? null,
         effort: effort ?? null,
+        parentRunId: parentRunId ?? null,
+        name: name ?? null,
         startedAt: new Date().toISOString(),
       }
       commit(
-        events.runStartedV3(row),
+        events.runStartedV4(row),
         events.runPermissionsSet({ runId: row.id, permissions, at: row.startedAt }),
       )
       const run = toRun({
         ...row,
         usesDefaultModel: false,
         problem: null,
+        failure: null,
         permissions,
         manualPermissions: false,
         state: 'working',
@@ -1721,6 +1783,52 @@ export async function openStore({
       noteActivity()
       return run
     },
+    failRun(runId, error) {
+      commit(events.runFailed({ runId, error, at: new Date().toISOString() }))
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined) updatedTask(taskId)
+    },
+    requestSubAgent({ model, effort, ...request }) {
+      const at = new Date().toISOString()
+      commit(
+        events.subAgentRequested({ ...request, model: model ?? null, effort: effort ?? null, at }),
+      )
+      updatedTask(request.taskId)
+      return {
+        ...request,
+        ...(model !== undefined && { model }),
+        ...(effort !== undefined && { effort }),
+        at,
+      }
+    },
+    subAgentRequests: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? subAgentRequests : subAgentRequests.where({ taskId })).orderBy(
+              'at',
+              'asc',
+            ),
+          ),
+        )
+        .map(toSubAgentRequest),
+    dropSubAgentRequest(id) {
+      const row = store.query(queryDb(subAgentRequests.where({ id }))).at(0)
+      if (!row) return
+      commit(events.subAgentRequestDropped({ id, at: new Date().toISOString() }))
+      updatedTask(row.taskId)
+    },
+    setOnSubAgents(runId, on) {
+      if (waitingOnSubAgents.has(runId) === on) return
+      if (on) waitingOnSubAgents.add(runId)
+      else waitingOnSubAgents.delete(runId)
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined) updatedTask(taskId)
+      noteActivity()
+    },
+    onSubAgents: (runId) => waitingOnSubAgents.has(runId),
     recordRunOutput(
       runId,
       {

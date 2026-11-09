@@ -34,7 +34,7 @@ function elapsed(from: string, now: number): string {
     : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-function tokenCount(tokens: number): string {
+export function tokenCount(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}k tokens`
   return `${tokens} tokens`

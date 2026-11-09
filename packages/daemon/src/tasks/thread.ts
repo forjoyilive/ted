@@ -191,6 +191,15 @@ export function threadEvents(
       case 'v3.RunStarted':
         add(entry, 'run', `Task Lead started · ${agentLine(data)}`)
         break
+      case 'v4.RunStarted':
+        add(
+          entry,
+          'run',
+          data.parentRunId
+            ? `Sub-agent “${text(data.name)}” started · ${agentLine(data)}`
+            : `Task Lead started · ${agentLine(data)}`,
+        )
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

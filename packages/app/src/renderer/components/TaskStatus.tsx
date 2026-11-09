@@ -145,7 +145,9 @@ export function RunIcons({
         <RunIcon
           key={run.id}
           agent={run.agent}
-          state={run.paused !== undefined ? 'paused' : iconStates[run.state]}
+          state={
+            run.paused !== undefined ? 'paused' : run.onSubAgents ? 'idle' : iconStates[run.state]
+          }
         />
       ))}
       {runs.length > shown.length && (

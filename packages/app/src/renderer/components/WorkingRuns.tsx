@@ -1,4 +1,4 @@
-import type { Factory, FactorySlots, RunSlots } from '@ted/protocol'
+import type { Factory, FactorySlots, RunSlots, SlotHolder } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { slotCount } from '../slots.ts'
 import { priorityLabels } from '../task-fields.ts'
@@ -58,6 +58,14 @@ function Row({
       {trailing !== undefined && <span className={styles.trailing}>{trailing}</span>}
     </li>
   )
+}
+
+function holderRuns(holder: SlotHolder): string {
+  if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
+  const subs = holder.subAgents
+  if (subs === 0) return 'Task Lead'
+  const named = subs === 1 ? '1 sub-agent' : `${subs} sub-agents`
+  return holder.runs > subs ? `Task Lead and ${named}` : named
 }
 
 export function WorkingRunsPopover({
@@ -123,7 +131,7 @@ export function WorkingRunsPopover({
                   key={holder.taskId}
                   lead={holder.displayId}
                   title={holder.title}
-                  detail={`${factoryLabel(holder.factoryId)} · ${holder.runs === 0 && holder.settingUp ? 'Setting up the worktree' : 'Task Lead'}`}
+                  detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                   trailing={slotCount(holder.runs)}
                 />
               ))}
@@ -135,15 +143,25 @@ export function WorkingRunsPopover({
               count={slots.queue.length}
               help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Planning Runs, Automation Runs, then Tasks by Priority and rank."
             >
-              {slots.queue.map((entry) => (
-                <Row
-                  key={entry.taskId}
-                  lead={ordinal(entry.place)}
-                  place
-                  title={`${entry.displayId} · ${entry.title}`}
-                  detail={`${name(entry.factoryId)} · ${priorityLabels[entry.priority]}`}
-                />
-              ))}
+              {slots.queue.map((entry) =>
+                entry.kind === 'sub-agent' ? (
+                  <Row
+                    key={entry.runId}
+                    lead={ordinal(entry.place)}
+                    place
+                    title={`${entry.displayId} · ${entry.name}`}
+                    detail={`${name(entry.factoryId)} · Sub-agent`}
+                  />
+                ) : (
+                  <Row
+                    key={entry.taskId}
+                    lead={ordinal(entry.place)}
+                    place
+                    title={`${entry.displayId} · ${entry.title}`}
+                    detail={`${name(entry.factoryId)} · ${priorityLabels[entry.priority]}`}
+                  />
+                ),
+              )}
             </Group>
           )}
         </div>

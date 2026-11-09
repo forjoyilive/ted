@@ -301,6 +301,57 @@ describe('TED app', () => {
     await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
   }, 90_000)
 
+  test('Runs lists a sub-agent under its Task Lead, opens its chat and stops it from its row', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const promptFile = path.join(home, 'explore.md')
+    await writeFile(
+      promptFile,
+      `# Explore the parser\n\n${JSON.stringify({ steps: [{ say: 'Reading src/parse.ts' }, { waitFor: path.join(home, 'never') }] })}\n`,
+    )
+    const command = `id=$(ted run start --prompt-file ${promptFile} | grep -o "[0-9a-f-]\\{36\\}" | head -1); ted run wait "$id"`
+    const steps = [{ run: ['sh', '-c', command] }, { say: 'Sub-agent done.' }, { endTurn: true }]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs.map((r) => r.role), { timeout: 20_000 })
+      .toEqual(['lead', 'sub-agent'])
+
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByRole('img', { name: 'Claude Code, idle' }).waitFor()
+    await thread.getByRole('img', { name: 'Claude Code, working' }).waitFor()
+
+    const runs = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Runs' })
+    await runs.getByText('2 Runs').waitFor()
+    const rows = runs.getByRole('listitem')
+    await expect
+      .poll(() => rows.allInnerTexts())
+      .toEqual([
+        expect.stringMatching(/^Task Lead\s+on sub-agents\s+Claude · default model/),
+        expect.stringMatching(/^Explore the parser\s+working\s+Claude · default model/),
+      ])
+
+    const sub = rows.filter({ hasText: 'Explore the parser' })
+    await sub.getByRole('button', { name: /Explore the parser/ }).click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Reading src/parse.ts').waitFor()
+    await window.getByRole('tab', { name: /Explore the parser/ }).waitFor()
+
+    await sub.hover()
+    await sub.getByRole('button', { name: 'Stop Run' }).click()
+    await runs.getByRole('button', { name: '1 stopped Run' }).click()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs.map((r) => r.role), { timeout: 20_000 })
+      .toEqual(['lead'])
+    await rows.filter({ hasText: /Explore the parser\s*(just now|\d+m ago)/ }).waitFor()
+  }, 90_000)
+
   test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
     await ted('task', 'create', 'Fix login')
     const window = await launchApp()
