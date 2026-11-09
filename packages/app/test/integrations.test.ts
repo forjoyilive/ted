@@ -9,6 +9,7 @@ import { type ElectronApplication, _electron as electron, type Page } from 'play
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { killRunHosts } from '../../daemon/test/helpers.ts'
+import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -39,7 +40,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await app?.close().catch(() => undefined)
+  await closeApp(app)
   app = undefined
   const info = await readDaemonInfo(home)
   if (info && isAlive(info.pid)) {
