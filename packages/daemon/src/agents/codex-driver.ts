@@ -70,6 +70,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     })
     if (init.error !== undefined) return stop()
     send(JSON.stringify({ method: 'initialized' }))
+    void request('account/read', { refreshToken: false })
+    void request('account/rateLimits/read', undefined)
     const resumingOnDefault = plan.thread.method === 'thread/resume' && model === undefined
     if (plan.effort !== undefined || resumingOnDefault) {
       const models = listedModels(await request('model/list', {}))

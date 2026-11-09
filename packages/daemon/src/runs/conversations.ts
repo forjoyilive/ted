@@ -1,12 +1,14 @@
-import type {
-  ChatItem,
-  Comment,
-  ConversationEntry,
-  Run,
-  RunChat,
-  RunMessage,
-  RunSummary,
-  Task,
+import {
+  type Billing,
+  billingNames,
+  type ChatItem,
+  type Comment,
+  type ConversationEntry,
+  type Run,
+  type RunChat,
+  type RunMessage,
+  type RunSummary,
+  type Task,
 } from '@ted/protocol'
 import type { AgentChatEntry, Agents } from '../agents/index.ts'
 import type { DiskWatch } from '../disk.ts'
@@ -34,10 +36,23 @@ export interface Conversations {
 
 const lineCount = (text: string) => (text === '' ? 0 : text.split('\n').length)
 
-function credentialFrom(account: string | undefined): string | undefined {
+function credentialFrom(account: string | undefined): Billing | undefined {
   if (account === undefined) return undefined
-  if (/api key/i.test(account)) return 'API key'
-  if (/subscription/i.test(account)) return 'Subscription'
+  if (/api key/i.test(account)) return 'api-key'
+  if (/subscription/i.test(account)) return 'subscription'
+  return undefined
+}
+
+function reportedCredential(
+  agents: Agents,
+  run: Run,
+  entries: readonly ConversationEntry[],
+): Billing | undefined {
+  const agent = agents.get(run.agent)
+  for (const { line } of entries) {
+    const report = agent.credentialFrom(line)
+    if (report) return report.billing
+  }
   return undefined
 }
 
@@ -231,9 +246,20 @@ export function createConversations(options: {
 
   const steering = createSteering({ home, store, runs, isCurrentLead })
 
-  const summary = (run: Run, entries?: readonly ConversationEntry[]): RunSummary => {
-    const tokens = tokensOf(agents, run, entries ?? store.conversation(run.id))
-    const credential = credentialFrom(health.list().find((h) => h.agent === run.agent)?.account)
+  const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
+    const entries = given ?? store.conversation(run.id)
+    const tokens = tokensOf(agents, run, entries)
+    const billing =
+      reportedCredential(agents, run, entries) ??
+      credentialFrom(health.list().find((h) => h.agent === run.agent)?.account)
+    const credential = billing === undefined ? undefined : billingNames[billing]
+    const cost =
+      billing === 'api-key'
+        ? agents.get(run.agent).costOf(
+            entries.map((e) => e.line),
+            run.model,
+          )
+        : undefined
     const subAgent = run.parentRunId !== undefined
     const paused = run.state === 'finished' ? undefined : store.agentPauses()[run.agent]
     return {
@@ -246,6 +272,7 @@ export function createConversations(options: {
       ...(run.model !== undefined && { model: run.model }),
       ...(run.effort !== undefined && { effort: run.effort }),
       ...(credential !== undefined && { credential }),
+      ...(cost !== undefined && { cost }),
       ...(tokens !== undefined && { tokens }),
       state: run.state,
       ...(paused !== undefined && { paused }),

@@ -4,6 +4,7 @@ import {
   appMenu,
   closeNotice,
   type MenuEntry,
+  problemNotice,
   quitAnswer,
   quitDialog,
   quitPlan,
@@ -252,5 +253,30 @@ describe('closing the window on Linux', () => {
     })
     expect(closeNotice('linux', true)).toBeUndefined()
     expect(closeNotice('darwin', false)).toBeUndefined()
+  })
+})
+
+describe('problem notifications', () => {
+  test('a stops-work problem notifies once with its banner text and opens its Settings section', () => {
+    expect(
+      problemNotice(
+        banner({
+          severity: 'stops-work',
+          text: 'Claude usage limit · resets 14:20 · 3 Runs paused',
+          action: { label: 'Open', opens: { kind: 'settings', section: 'agents' } },
+        }),
+      ),
+    ).toEqual({
+      title: 'TED',
+      body: 'Claude usage limit · resets 14:20 · 3 Runs paused',
+      opens: { kind: 'settings', section: 'agents' },
+    })
+    expect(
+      problemNotice(banner({ severity: 'stops-work', text: 'You’re offline · 5 Runs paused' })),
+    ).toMatchObject({ opens: { kind: 'open-ted' } })
+  })
+
+  test('warnings never notify', () => {
+    expect(problemNotice(banner({ severity: 'warning' }))).toBeUndefined()
   })
 })

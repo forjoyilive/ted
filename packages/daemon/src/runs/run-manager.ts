@@ -9,12 +9,19 @@ import type {
   AgentKind,
   ConversationEntry,
   PermissionMode,
+  PlanWindow,
   Run,
   RunEnding,
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { hidesText, type PermissionPrompt, type PermissionReply } from '../agents/agent.ts'
+import {
+  type CredentialReport,
+  hidesText,
+  type PermissionPrompt,
+  type PermissionReply,
+  type UsageSignal,
+} from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -46,6 +53,10 @@ export interface RunObserver {
   accepted?(run: Run, texts: string[]): void
   boundary?(run: Run): void
   settled?(run: Run): void
+  usage?(run: Run, signal: UsageSignal): void
+  credential?(run: Run, report: CredentialReport): void
+  planUsage?(run: Run, windows: PlanWindow[]): void
+  retrying?(run: Run): void
 }
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
@@ -82,6 +93,17 @@ export interface RunManager {
   close(): Promise<void>
 }
 
+function mergeUsage(
+  before: UsageSignal | undefined,
+  next: UsageSignal | undefined,
+): UsageSignal | undefined {
+  if (!next) return before
+  if (next.limited && next.resetsAt === undefined && before?.limited && before.resetsAt) {
+    return before
+  }
+  return next
+}
+
 const stopGraceMs = 10_000
 const startRecordBytes = 4096
 
@@ -101,6 +123,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const refuseWhileShuttingDown = () => {
     if (shuttingDown) throw new RequestError(503, 'TED is shutting down')
   }
+
+  const billingOf = (kind: AgentKind) => store.settings().billing[kind]
 
   const environment = (): NodeJS.ProcessEnv => {
     const base = options.env?.() ?? process.env
@@ -192,6 +216,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let problem: RunProblem | undefined
     let autoModeUnavailable = false
     let boundary = false
+    let usage: UsageSignal | undefined
+    let retrying: boolean | undefined
+    let credential: CredentialReport | undefined
+    const windows = new Map<string, PlanWindow>()
     const prompts: (PermissionPrompt & { generation: number })[] = []
     const closedPermissions: string[] = []
     const accepted: string[] = []
@@ -215,6 +243,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         authFailed ||= agent.authErrorFrom(record.line)
         autoModeUnavailable ||= agent.autoModeUnavailableFrom(record.line)
         boundary ||= agent.boundaryFrom(record.line)
+        usage = mergeUsage(usage, agent.usageFrom(record.line))
+        retrying = agent.retryingFrom(record.line) ?? retrying
+        credential ??= agent.credentialFrom(record.line)
+        for (const window of agent.planUsageFrom(record.line) ?? [])
+          windows.set(window.window, window)
         const prompt = agent.permissionPromptFrom(record.line, (matches) => {
           for (let i = entries.length - 2; i >= 0; i--) {
             const line = entries[i]?.line
@@ -275,7 +308,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
       ...(state === 'finished' && { ending: ending(runId, exit, generation) }),
+      ...(retrying !== undefined && { retrying }),
     })
+    if (credential) {
+      const report = credential
+      tellObservers(runId, (observer, run) => observer.credential?.(run, report))
+    }
+    if (windows.size > 0) {
+      const shown = [...windows.values()]
+      tellObservers(runId, (observer, run) => observer.planUsage?.(run, shown))
+    }
+    if (usage) {
+      const signal = usage
+      tellObservers(runId, (observer, run) => observer.usage?.(run, signal))
+    }
+    if (retrying === true) tellObservers(runId, (observer, run) => observer.retrying?.(run))
     if (accepted.length > 0) tellAccepted(runId, accepted)
     if (boundary && state !== 'finished') {
       tellObservers(runId, (observer, run) => observer.boundary?.(run))
@@ -380,6 +427,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
         permissions,
+        billing: billingOf(kind),
       })
       await writeLaunch(runDir, cwd, launch)
 
@@ -422,6 +470,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
         permissions: run.permissions,
+        billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
         (info) => info.size,
@@ -453,6 +502,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
         ...(flags.effort !== undefined && { effort: flags.effort }),
         permissions: run.permissions,
+        billing: billingOf(run.agent),
       })
       await writeLaunch(runDir, run.cwd, launch)
       const before = await startRecordCount(runDir)

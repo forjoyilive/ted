@@ -1,6 +1,21 @@
 import { fileURLToPath } from 'node:url'
-import { isModelName, type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
-import type { Agent, AuthCheck, EarlierLine, PermissionPrompt } from './agent.ts'
+import {
+  isModelName,
+  type PermissionMode,
+  type PlanWindow,
+  type PlanWindowKind,
+  type RunState,
+  tedVersion,
+} from '@ted/protocol'
+import {
+  type Agent,
+  type AuthCheck,
+  type EarlierLine,
+  fromEpoch,
+  type PermissionPrompt,
+  type UsageSignal,
+  withoutKeys,
+} from './agent.ts'
 import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
@@ -20,6 +35,7 @@ const sandbox: Record<PermissionMode, string[]> = {
 const environmentPolicy = [
   'shell_environment_policy.inherit="all"',
   'shell_environment_policy.ignore_default_excludes=true',
+  `shell_environment_policy.exclude=${JSON.stringify(removedEnv)}`,
 ]
 
 const stateByMethod: Record<string, RunState> = {
@@ -35,8 +51,72 @@ const stateByMethod: Record<string, RunState> = {
   applyPatchApproval: 'waiting',
 }
 
-const withoutRemoved = (env: NodeJS.ProcessEnv) =>
-  Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k)))
+interface Price {
+  input: number
+  cachedInput: number
+  output: number
+}
+
+const prices: { prefix: string; price: Price }[] = [
+  { prefix: 'gpt-5-mini', price: { input: 0.25, cachedInput: 0.025, output: 2 } },
+  { prefix: 'gpt-5-nano', price: { input: 0.05, cachedInput: 0.005, output: 0.4 } },
+  { prefix: 'codex-mini', price: { input: 1.5, cachedInput: 0.375, output: 6 } },
+  { prefix: 'o4-mini', price: { input: 1.1, cachedInput: 0.275, output: 4.4 } },
+]
+
+const defaultPrice: Price = { input: 1.25, cachedInput: 0.125, output: 10 }
+
+function priceOf(model: string | undefined): Price {
+  return prices.find((p) => model?.startsWith(p.prefix))?.price ?? defaultPrice
+}
+
+function usageLimitIn(error: unknown): UsageSignal | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const { codexErrorInfo: info, resetsAt } = error as {
+    codexErrorInfo?: unknown
+    resetsAt?: unknown
+  }
+  const nested =
+    typeof info === 'object' && info !== null && 'usageLimitExceeded' in info
+      ? (info as { usageLimitExceeded?: unknown }).usageLimitExceeded
+      : undefined
+  if (info !== 'usageLimitExceeded' && nested === undefined) return undefined
+  const reset = fromEpoch(
+    resetsAt ??
+      (typeof nested === 'object' && nested !== null
+        ? (nested as { resetsAt?: unknown }).resetsAt
+        : undefined),
+  )
+  return { limited: true, ...(reset !== undefined && { resetsAt: reset }) }
+}
+
+const windowByMinutes: Record<number, PlanWindowKind> = { 300: 'five-hour', 10080: 'weekly' }
+
+function planWindow(value: unknown, fallback: PlanWindowKind): PlanWindow | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const { usedPercent, windowDurationMins, resetsAt } = value as Record<string, unknown>
+  if (typeof usedPercent !== 'number') return undefined
+  const window =
+    typeof windowDurationMins === 'number' ? windowByMinutes[windowDurationMins] : fallback
+  if (window === undefined) return undefined
+  const reset = fromEpoch(resetsAt)
+  return {
+    window,
+    percent: Math.min(100, Math.max(0, usedPercent)),
+    ...(reset !== undefined && { resetsAt: reset }),
+  }
+}
+
+function rateLimitsIn(message: CodexLine | undefined): unknown {
+  if (message?.method === 'account/rateLimits/updated') return message.params?.rateLimits
+  if (message?.method === undefined && message?.result !== undefined) {
+    return (message.result as { rateLimits?: unknown }).rateLimits
+  }
+  return undefined
+}
+
+const apiKeyHelp =
+  'Codex is signed in with an API key (codex login --with-api-key) or reads CODEX_API_KEY from its own config. Run codex login and choose ChatGPT, or choose API key billing if you meant to use one.'
 
 function codexAuth({
   code,
@@ -50,8 +130,13 @@ function codexAuth({
   const text = `${stdout}\n${stderr}`
   if (code !== 0 || /not logged in/i.test(text)) return { signedIn: false }
   if (/chatgpt/i.test(text))
-    return { signedIn: true, account: 'Signed in with ChatGPT · subscription' }
-  if (/api key/i.test(text)) return { signedIn: true, account: 'Signed in with an API key' }
+    return {
+      signedIn: true,
+      account: 'Signed in with ChatGPT · subscription',
+      billing: 'subscription',
+    }
+  if (/api key/i.test(text))
+    return { signedIn: true, account: 'Signed in with an API key', billing: 'api-key' }
   return { signedIn: true }
 }
 
@@ -308,8 +393,10 @@ function grantFrom(wanted: unknown): Grant | undefined {
 interface CodexLine {
   id?: unknown
   method?: unknown
-  result?: { thread?: { id?: unknown } }
+  result?: { thread?: { id?: unknown }; account?: unknown; authMode?: unknown }
   params?: {
+    willRetry?: unknown
+    rateLimits?: unknown
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
     error?: { message?: unknown; codexErrorInfo?: unknown }
@@ -342,7 +429,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume, model, effort, permissions }) {
+    launch({ prompt, env, resume, model, effort, permissions, billing }) {
       if (model !== undefined && !isModelName(model)) {
         throw new Error(`“${model}” isn’t a model name`)
       }
@@ -362,7 +449,7 @@ export function codexAgent(binary: string): Agent {
           'app-server',
           ...[...sandbox[permissions], ...environmentPolicy].flatMap((c) => ['-c', c]),
         ],
-        env: withoutRemoved(env),
+        env: withoutKeys(env, removedEnv, billing),
         input: JSON.stringify(plan),
         files: {},
         driver,
@@ -447,7 +534,73 @@ export function codexAgent(binary: string): Agent {
       if (message?.method === 'turn/completed') return isUnauthorized(message.params?.turn?.error)
       return false
     },
-    environment: withoutRemoved,
+    environment: (env, billing) => withoutKeys(env, removedEnv, billing),
+    usageFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'error') return usageLimitIn(message.params?.error)
+      if (message?.method === 'turn/completed') {
+        return usageLimitIn(message.params?.turn?.error) ?? { limited: false }
+      }
+      if (message?.method === 'item/completed' && message.params?.item?.type !== 'userMessage') {
+        return { limited: false }
+      }
+      return undefined
+    },
+    retryingFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'error') return message.params?.willRetry === true
+      if (
+        message?.method === 'item/started' ||
+        message?.method === 'item/completed' ||
+        message?.method === 'turn/completed'
+      ) {
+        return false
+      }
+      return undefined
+    },
+    credentialFrom(line) {
+      const message = parse(line)
+      if (message?.method !== undefined || message?.result === undefined) return undefined
+      const account = message.result.account
+      const type =
+        typeof account === 'object' && account !== null
+          ? (account as { type?: unknown }).type
+          : message.result.authMode
+      if (type === 'apiKey' || type === 'apikey') return { billing: 'api-key', source: 'apiKey' }
+      if (type === 'chatgpt' || type === 'chatgptAuthTokens') return { billing: 'subscription' }
+      return undefined
+    },
+    planUsageFrom(line) {
+      const limits = rateLimitsIn(parse(line))
+      if (typeof limits !== 'object' || limits === null) return undefined
+      const { primary, secondary } = limits as { primary?: unknown; secondary?: unknown }
+      const windows = [planWindow(primary, 'five-hour'), planWindow(secondary, 'weekly')].filter(
+        (w): w is PlanWindow => w !== undefined,
+      )
+      return windows.length > 0 ? windows : undefined
+    },
+    costOf(lines, model) {
+      let last: { input: number; cached: number; output: number } | undefined
+      for (const line of lines) {
+        const message = parse(line)
+        if (message?.method !== 'thread/tokenUsage/updated') continue
+        const total = message.params?.tokenUsage?.total as Record<string, unknown> | undefined
+        const count = (name: string) => (typeof total?.[name] === 'number' ? total[name] : 0)
+        last = {
+          input: count('inputTokens'),
+          cached: count('cachedInputTokens'),
+          output: count('outputTokens'),
+        }
+      }
+      if (!last) return undefined
+      const price = priceOf(model)
+      const fresh = Math.max(0, last.input - last.cached)
+      return (
+        (fresh * price.input + last.cached * price.cachedInput + last.output * price.output) /
+        1_000_000
+      )
+    },
+    keyHelp: () => apiKeyHelp,
     health: {
       minimumVersion: '0.128.0',
       versionArgs: ['--version'],

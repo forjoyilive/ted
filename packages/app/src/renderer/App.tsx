@@ -1,5 +1,5 @@
 import type { AgentHealth, Banner, ListFilters, Task } from '@ted/protocol'
-import { runsPaused } from '@ted/protocol/health'
+import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
@@ -72,6 +72,11 @@ function pausedFooter(health: readonly AgentHealth[]) {
     .filter((h) => h.state !== 'ready')
     .reduce((total, h) => total + h.pausedRuns, 0)
   return paused > 0 ? { paused: runsPaused(paused) } : {}
+}
+
+function planFooter(health: readonly AgentHealth[]) {
+  const chips = health.flatMap((h) => planChip(h) ?? [])
+  return chips.length > 0 ? { planChips: chips } : {}
 }
 
 const stubTitles = { search: 'Search' }
@@ -231,7 +236,10 @@ export function App() {
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'new-task') setNewTaskOpen(true)
-    if (command.kind === 'settings') dispatch({ type: 'open-settings' })
+    if (command.kind === 'settings') {
+      const section = settingsSectionIds.find((id) => id === command.section)
+      dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
+    }
     if (command.kind === 'banner') {
       const banner = banners.find((b) => b.id === command.bannerId)
       if (banner) void act(banner)
@@ -422,6 +430,7 @@ export function App() {
             ...(slots !== undefined && { runs: runsLine(slots) }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
+            ...planFooter(agentHealth),
           }}
           onOpenFailed={() => {
             saveListView(

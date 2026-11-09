@@ -129,6 +129,7 @@ export const runs = State.SQLite.table({
     startedAt: State.SQLite.text(),
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
+    retrying: State.SQLite.boolean({ default: false }),
   },
 })
 
@@ -1082,6 +1083,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runRetryingChanged: Events.synced({
+    name: 'v1.RunRetryingChanged',
+    schema: Schema.Struct({ runId: Schema.String, retrying: Schema.Boolean, at: Schema.String }),
+  }),
   runProblemFound: Events.synced({
     name: 'v1.RunProblemFound',
     schema: Schema.Struct({ runId: Schema.String, problem: Schema.String, at: Schema.String }),
@@ -1665,6 +1670,8 @@ const materializers = counted(
         runs
           .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
           .where({ id: runId }),
+      'v1.RunRetryingChanged': ({ runId, retrying }) =>
+        runs.update({ retrying }).where({ id: runId }),
       'v1.RunProblemFound': ({ runId, problem }) =>
         runs.update({ problem, state: 'waiting' }).where({ id: runId }),
       'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
