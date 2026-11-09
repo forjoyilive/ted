@@ -77,7 +77,6 @@ import {
   clarifyDepths,
   clarifyIsOver,
   parseLinearUrl,
-  planProposal,
   sizeChoices,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
@@ -180,6 +179,7 @@ import {
   reviewMissing,
 } from './merge.ts'
 import { placeBetween } from './order.ts'
+import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import {
   createPullRequests,
   type PullRequestTarget,
@@ -383,8 +383,6 @@ export interface Tasks {
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
-
-type ProposalCreatedRow = { row: number; id: string; displayId: string }
 
 const slugLength = 40
 
@@ -3199,45 +3197,22 @@ export function createTasks(options: {
     if (request.action !== 'approve') {
       throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
     }
-    const skip = [...(request.proposal?.skip ?? [])].sort((a, b) => a - b)
-    const outside = skip.find((row) => row < 1 || row > proposal.rows.length)
-    if (outside !== undefined) throw new RequestError(400, `the proposal has no row ${outside}`)
-    if (proposal.firstPiece && skip.includes(1)) {
-      throw new RequestError(400, 'row 1 is this Task, so it’s always kept')
-    }
-    const plan = planProposal(proposal, skip)
-    if (plan.creates === 0) throw new RequestError(400, 'check at least one row to create')
+    const { skip, shape: plan } = approvedShape(
+      proposal,
+      request.proposal?.skip,
+      proposal.firstPiece && { name: 'this Task' },
+    )
     const startUnblocked = request.proposal?.startUnblocked === true
     const first = proposal.rows[0]
     const result = await holding(task, async () => {
       unanswered(comment)
       const current = find(task.id)
       if (current.archived) throw new RequestError(409, `${task.displayId} is archived`)
-      const ids = new Map<number, string>()
-      if (proposal.firstPiece) ids.set(1, task.id)
-      const created: ProposalCreatedRow[] = []
-      for (const row of plan.order) {
-        const planned = plan.rows[row - 1]
-        const piece = proposal.rows[row - 1]
-        if (!planned || !piece) continue
-        const blockedBy = planned.blockedBy.flatMap((b) => {
-          const id = ids.get(b)
-          return id === undefined ? [] : [id]
-        })
-        const made = await store.createTask({
-          title: piece.title,
-          description: piece.description ?? piece.scope,
-          priority: piece.priority,
-          factoryId: current.factoryId,
-          ...(current.lead && { lead: current.lead }),
-          blockedBy,
-          startRequested: blockedBy.length > 0,
-          splitFrom: task.id,
-        })
-        ids.set(row, made.id)
-        created.push({ row, id: made.id, displayId: made.displayId })
-      }
-      created.sort((a, b) => a.row - b.row)
+      const created = await createProposalTasks(store, proposal, plan, {
+        firstPieceId: proposal.firstPiece ? task.id : undefined,
+        factoryId: current.factoryId,
+        fields: () => ({ ...(current.lead && { lead: current.lead }), splitFrom: task.id }),
+      })
       const narrowed =
         proposal.firstPiece && first
           ? { title: first.title, description: first.description ?? first.scope }
