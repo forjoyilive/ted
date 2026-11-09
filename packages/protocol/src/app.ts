@@ -18,6 +18,7 @@ export interface TaskApp {
   signal?: string
   problem?: string
   startedBy?: AppStarter
+  removed?: boolean
 }
 
 export interface AppRef {

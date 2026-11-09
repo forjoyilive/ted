@@ -23,7 +23,7 @@ export function hostedPreviews(task: Task): HostedPreview[] {
 export function previewChoice(task: Task, apps: readonly TaskApp[]): PreviewChoice | undefined {
   const [hosted] = hostedPreviews(task)
   if (hosted) return { kind: 'hosted', hosted }
-  const web = apps.filter((a) => a.kind === 'web')
+  const web = apps.filter((a) => a.kind === 'web' && !a.removed)
   const live = web.find((a) => a.state === 'running') ?? web.find((a) => a.state === 'starting')
   if (live) return { kind: 'local', app: live }
   const [first] = web
@@ -38,6 +38,11 @@ export function hostOf(url: string): string {
 }
 
 export function appStatusLine(app: TaskApp, now: number): string {
+  const line = stateLine(app, now)
+  return app.removed ? `Removed from settings · ${line}` : line
+}
+
+function stateLine(app: TaskApp, now: number): string {
   switch (app.state) {
     case 'running':
       return app.url !== undefined
