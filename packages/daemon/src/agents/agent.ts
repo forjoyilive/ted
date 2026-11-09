@@ -1,4 +1,4 @@
-import type { AgentKind, Effort, RunProblem, RunState } from '@ted/protocol'
+import type { AgentKind, Effort, PermissionMode, RunProblem, RunState } from '@ted/protocol'
 
 export interface AgentLaunch {
   command: string
@@ -8,6 +8,23 @@ export interface AgentLaunch {
   files: Record<string, string>
   driver?: string
   sessionId?: string
+}
+
+export interface PermissionPrompt {
+  requestId: string
+  title: string
+  command: string
+  details?: string
+  reason?: string
+  input?: unknown
+  refuse?: boolean
+}
+
+export interface PermissionReply {
+  requestId: string
+  approved: boolean
+  input?: unknown
+  text?: string
 }
 
 export interface TokenCount {
@@ -41,9 +58,14 @@ export interface Agent {
     resume?: string
     model?: string
     effort?: Effort
+    permissions: PermissionMode
   }): AgentLaunch
   message(text: string): string
   stateFrom(line: string): RunState | undefined
+  permissionPromptFrom(line: string): PermissionPrompt | undefined
+  permissionClosedFrom(line: string): string | undefined
+  autoModeUnavailableFrom(line: string): boolean
+  permissionReply(reply: PermissionReply): string[]
   acceptedTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined
   problemFrom(line: string): RunProblem | undefined

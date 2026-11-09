@@ -11,7 +11,8 @@ type Step =
   | { lines: number; everyMs: number }
   | { waitFor: string }
   | { run: string[] }
-  | { approval: 'command' | 'fileChange' }
+  | { approval: 'command' | 'fileChange'; command?: string }
+  | { approval: 'permissions'; permissions: Record<string, unknown> }
   | { endTurn: true }
   | { exit: number }
   | { authError: true }
@@ -110,8 +111,18 @@ async function runStep(step: Step): Promise<void> {
     status({ type: 'active', activeFlags: ['waitingOnApproval'] })
     send({
       id,
-      method: `item/${step.approval === 'command' ? 'commandExecution' : 'fileChange'}/requestApproval`,
-      params: { threadId, turnId: 'turn-1', itemId: 'item-1' },
+      method: `item/${step.approval === 'command' ? 'commandExecution' : step.approval}/requestApproval`,
+      params: {
+        threadId,
+        turnId: 'turn-1',
+        itemId: 'item-1',
+        ...('permissions' in step && { permissions: step.permissions, cwd: process.cwd() }),
+        ...('command' in step &&
+          step.command !== undefined && {
+            command: step.command,
+            reason: 'git needs to write outside the workspace',
+          }),
+      },
     })
     const answer = await answered
     notify('serverRequest/resolved', { threadId, requestId: id })

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { RunState } from '@ted/protocol'
-import type { Agent, AuthCheck } from './agent.ts'
+import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
 
 const stateByHook: Record<string, RunState> = {
   UserPromptSubmit: 'working',
@@ -46,6 +46,52 @@ function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): 
   return { signedIn: true, account: parts.join(' · ') }
 }
 
+const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
+
+const toolTitles: Record<string, string> = {
+  Bash: 'Run a command',
+  Edit: 'Edit a file',
+  MultiEdit: 'Edit a file',
+  Write: 'Write a file',
+  NotebookEdit: 'Edit a notebook',
+  WebFetch: 'Fetch a web page',
+  WebSearch: 'Search the web',
+}
+
+const commandFields = ['command', 'file_path', 'notebook_path', 'url', 'query', 'path', 'pattern']
+
+function promptFrom(message: ClaudeLine): PermissionPrompt | undefined {
+  if (message.type !== 'control_request' || typeof message.request_id !== 'string') return undefined
+  const request = message.request
+  if (request?.subtype !== 'can_use_tool' || typeof request.tool_name !== 'string') return undefined
+  const input =
+    typeof request.input === 'object' && request.input !== null
+      ? (request.input as Record<string, unknown>)
+      : {}
+  const field = commandFields.find((name) => typeof input[name] === 'string')
+  const tool = typeof request.display_name === 'string' ? request.display_name : request.tool_name
+  const command = field !== undefined ? String(input[field]) : tool
+  const reason =
+    typeof request.description === 'string'
+      ? request.description
+      : typeof input.description === 'string'
+        ? input.description
+        : undefined
+  const rest = Object.fromEntries(
+    Object.entries(input).filter(
+      ([name, value]) => name !== field && !(name === 'description' && value === reason),
+    ),
+  )
+  return {
+    requestId: message.request_id,
+    title: toolTitles[request.tool_name] ?? `Use ${tool}`,
+    command,
+    ...(Object.keys(rest).length > 0 && { details: JSON.stringify(rest, null, 2) }),
+    ...(reason !== undefined && reason !== '' && { reason }),
+    input,
+  }
+}
+
 const userMessage = (text: string) =>
   JSON.stringify({ type: 'user', message: { role: 'user', content: text } })
 
@@ -53,7 +99,7 @@ export function claudeAgent(binary: string): Agent {
   return {
     kind: 'claude',
     binary,
-    launch({ prompt, runDir, env, resume, model, effort }) {
+    launch({ prompt, runDir, env, resume, model, effort, permissions }) {
       const sessionId = resume ?? randomUUID()
       const settingsPath = path.join(runDir, 'settings.json')
       const hooks = Object.fromEntries(
@@ -78,7 +124,9 @@ export function claudeAgent(binary: string): Agent {
           '--settings',
           settingsPath,
           '--permission-mode',
-          'auto',
+          modeFlag[permissions],
+          '--permission-prompt-tool',
+          'stdio',
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
@@ -89,9 +137,41 @@ export function claudeAgent(binary: string): Agent {
       }
     },
     message: userMessage,
+    permissionPromptFrom(line) {
+      const message = parse(line)
+      return message && promptFrom(message)
+    },
+    permissionClosedFrom(line) {
+      const message = parse(line)
+      return message?.type === 'control_cancel_request' && typeof message.request_id === 'string'
+        ? message.request_id
+        : undefined
+    },
+    autoModeUnavailableFrom(line) {
+      const message = parse(line)
+      return (
+        message?.type === 'system' &&
+        message.subtype === 'init' &&
+        typeof message.permissionMode === 'string' &&
+        !['auto', 'bypassPermissions'].includes(message.permissionMode)
+      )
+    },
+    permissionReply({ requestId, approved, input, text }) {
+      const response = approved
+        ? { behavior: 'allow', updatedInput: input ?? {} }
+        : { behavior: 'deny', message: text ?? 'The human denied this request.' }
+      return [
+        JSON.stringify({
+          type: 'control_response',
+          response: { subtype: 'success', request_id: requestId, response },
+        }),
+        ...(approved && text !== undefined ? [userMessage(text)] : []),
+      ]
+    },
     stateFrom(line) {
       const message = parse(line)
       if (message === undefined) return undefined
+      if (promptFrom(message)) return 'waiting'
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
@@ -165,6 +245,15 @@ export function claudeAgent(binary: string): Agent {
 interface ClaudeLine {
   type?: unknown
   subtype?: unknown
+  request_id?: unknown
+  permissionMode?: unknown
+  request?: {
+    subtype?: unknown
+    tool_name?: unknown
+    display_name?: unknown
+    description?: unknown
+    input?: unknown
+  }
   hook_event?: unknown
   error?: unknown
   message?: { content?: unknown }

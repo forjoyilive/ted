@@ -1,16 +1,22 @@
 import { fileURLToPath } from 'node:url'
-import { type RunState, tedVersion } from '@ted/protocol'
-import type { Agent, AuthCheck } from './agent.ts'
+import { type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
+import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
 
 const removedEnv = ['CODEX_API_KEY', 'OPENAI_API_KEY']
 
-const config = [
-  'sandbox_mode="workspace-write"',
-  'approval_policy="on-request"',
-  'sandbox_workspace_write.network_access=true',
+const sandbox: Record<PermissionMode, string[]> = {
+  auto: [
+    'sandbox_mode="workspace-write"',
+    'approval_policy="on-request"',
+    'sandbox_workspace_write.network_access=true',
+  ],
+  bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
+}
+
+const environmentPolicy = [
   'shell_environment_policy.inherit="all"',
   'shell_environment_policy.ignore_default_excludes=true',
 ]
@@ -56,6 +62,99 @@ function isUnauthorized(error: unknown): boolean {
   )
 }
 
+const text = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined)
+
+function promptFrom(message: CodexLine): PermissionPrompt | undefined {
+  if (typeof message.method !== 'string') return undefined
+  if (typeof message.id !== 'number' && typeof message.id !== 'string') return undefined
+  const params = (message.params ?? {}) as Record<string, unknown>
+  const reason = text(params.reason)
+  const ask = (title: string, command: string): PermissionPrompt => ({
+    requestId: String(message.id),
+    title,
+    command,
+    ...(reason !== undefined && { reason }),
+  })
+  switch (message.method) {
+    case 'item/commandExecution/requestApproval':
+      return ask(
+        params.kind === 'writeStdin'
+          ? 'Send input to a running command'
+          : params.networkApprovalContext
+            ? 'Run a command that needs the network'
+            : 'Run a command outside the sandbox',
+        text(params.command) ?? 'a command',
+      )
+    case 'execCommandApproval':
+      return ask(
+        'Run a command outside the sandbox',
+        Array.isArray(params.command) ? params.command.join(' ') : 'a command',
+      )
+    case 'item/fileChange/requestApproval':
+      return ask(
+        'Change files',
+        text(params.grantRoot) !== undefined ? `write under ${params.grantRoot}` : 'apply a patch',
+      )
+    case 'applyPatchApproval': {
+      const files = Object.keys((params.fileChanges ?? {}) as Record<string, unknown>)
+      return ask('Change files', files.length > 0 ? files.join(' ') : 'apply a patch')
+    }
+    case 'item/permissions/requestApproval': {
+      const grant = grantFrom(params.permissions)
+      if (!grant) return { ...ask('Get more access', 'access TED can’t show'), refuse: true }
+      const parts = [
+        ...(grant.network ? ['network access'] : []),
+        ...(grant.fileSystem?.write ?? []).map((p) => `write ${p}`),
+        ...(grant.fileSystem?.read ?? []).map((p) => `read ${p}`),
+      ]
+      if (parts.length === 0) return { ...ask('Get more access', 'nothing'), refuse: true }
+      return { ...ask('Get more access', parts.join(', ')), input: grant }
+    }
+  }
+  return undefined
+}
+
+interface Grant {
+  network?: { enabled: true }
+  fileSystem?: { read: string[] | null; write: string[] | null }
+}
+
+const isEmpty = (value: unknown) =>
+  value === null || value === undefined || (Array.isArray(value) && value.length === 0)
+
+const paths = (value: unknown): string[] | null | undefined => {
+  if (isEmpty(value)) return null
+  return Array.isArray(value) && value.every((p) => typeof p === 'string' && p !== '')
+    ? (value as string[])
+    : undefined
+}
+
+function grantFrom(wanted: unknown): Grant | undefined {
+  if (typeof wanted !== 'object' || wanted === null) return undefined
+  const { network, fileSystem, ...other } = wanted as Record<string, unknown>
+  if (Object.values(other).some((value) => !isEmpty(value))) return undefined
+  const grant: Grant = {}
+  if (!isEmpty(network)) {
+    if (typeof network !== 'object' || network === null) return undefined
+    const { enabled, ...rest } = network as Record<string, unknown>
+    if (Object.values(rest).some((value) => !isEmpty(value))) return undefined
+    if (enabled === true) grant.network = { enabled: true }
+    else if (enabled !== false && !isEmpty(enabled)) return undefined
+  }
+  if (!isEmpty(fileSystem)) {
+    if (typeof fileSystem !== 'object' || fileSystem === null) return undefined
+    const { read, write, ...rest } = fileSystem as Record<string, unknown>
+    if (Object.values(rest).some((value) => !isEmpty(value))) return undefined
+    const readPaths = paths(read)
+    const writePaths = paths(write)
+    if (readPaths === undefined || writePaths === undefined) return undefined
+    if (readPaths !== null || writePaths !== null) {
+      grant.fileSystem = { read: readPaths, write: writePaths }
+    }
+  }
+  return grant
+}
+
 interface CodexLine {
   id?: unknown
   method?: unknown
@@ -82,7 +181,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume, model, effort }) {
+    launch({ prompt, env, resume, model, effort, permissions }) {
       const plan: CodexPlan = {
         thread:
           resume === undefined
@@ -95,7 +194,10 @@ export function codexAgent(binary: string): Agent {
       }
       return {
         command: binary,
-        args: ['app-server', ...config.flatMap((c) => ['-c', c])],
+        args: [
+          'app-server',
+          ...[...sandbox[permissions], ...environmentPolicy].flatMap((c) => ['-c', c]),
+        ],
         env: withoutRemoved(env),
         input: JSON.stringify(plan),
         files: {},
@@ -104,6 +206,25 @@ export function codexAgent(binary: string): Agent {
       }
     },
     message: (text) => JSON.stringify({ text }),
+    permissionPromptFrom(line) {
+      const message = parse(line)
+      return message && promptFrom(message)
+    },
+    permissionClosedFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'serverRequest/resolved') return undefined
+      const id = (message.params as { requestId?: unknown } | undefined)?.requestId
+      return typeof id === 'number' || typeof id === 'string' ? String(id) : undefined
+    },
+    autoModeUnavailableFrom: () => false,
+    permissionReply({ requestId, approved, input, text }) {
+      return [
+        JSON.stringify({
+          permission: { id: requestId, approved, ...(input !== undefined && { grant: input }) },
+        }),
+        ...(text !== undefined ? [JSON.stringify({ text })] : []),
+      ]
+    },
     stateFrom(line) {
       const message = parse(line)
       if (typeof message?.method !== 'string') return undefined

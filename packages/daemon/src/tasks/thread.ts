@@ -184,6 +184,13 @@ export function threadEvents(
           `Paused · ${agentNames[text(data.agent)] ?? text(data.agent)} can’t run right now`,
         )
         break
+      case 'v1.RunAutoModeUnavailable':
+        add(
+          entry,
+          'quiet',
+          'Claude Code’s auto mode isn’t available, so every permission prompt comes to you',
+        )
+        break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')
         held = false
