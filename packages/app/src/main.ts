@@ -19,6 +19,7 @@ import {
   type BannerActionInput,
   blockedChoices,
   type CheckRepoRequest,
+  type CheckTryRequest,
   type ClarifyDepth,
   type CreateFactoryRequest,
   type CreateTaskRequest,
@@ -37,6 +38,7 @@ import {
   type RestoreBackupRequest,
   type RunFixRequest,
   type SaveSettingsRequest,
+  type Task,
   tedHome,
   tedPaths,
   tedVersion,
@@ -62,6 +64,7 @@ import {
   type MenuCommand,
   type MenuEntry,
   type MenuState,
+  mergedNotice,
   type Platform,
   problemNotice,
   quitAnswer,
@@ -83,6 +86,8 @@ import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
 
+const githubLink =
+  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
@@ -149,6 +154,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     })
   },
   unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  followUpTask: (client, taskId, comment) =>
+    client.followUpTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  archiveDone: (client, factoryId) => client.archiveDone(String(factoryId)),
   deleteTask: (client, taskId, options) => {
     const blocked = blockedChoices.find(
       (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
@@ -197,13 +205,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   saveFactorySettings: (client, factoryId, request) =>
     client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  tryCheck: (client, factoryId, request) =>
+    client.tryCheck(String(factoryId), request as CheckTryRequest),
+  stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),
+  checkTryOutput: (client, factoryId, name) =>
+    client.checkTryOutput(String(factoryId), String(name)),
   setRepoLocalFolder: (client, factoryId, repoName, folder) =>
     client.setRepoLocalFolder(String(factoryId), String(repoName), String(folder)),
   clearRepoLocalFolder: (client, factoryId, repoName) =>
     client.clearRepoLocalFolder(String(factoryId), String(repoName)),
   openOnGitHub: async (_, target) => {
     const url = String(target)
-    if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+)?$/.test(url)) {
+    if (!githubLink.test(url)) {
       throw new Error('That isn’t a GitHub repo or pull request link')
     }
     await shell.openExternal(url)
@@ -404,6 +417,7 @@ function forward(event: DaemonEvent): void {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
   if (event.type === 'banner-raised') notifyProblem(event.banner)
+  if (event.type === 'task-updated') notifyMerged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
@@ -412,6 +426,18 @@ function forward(event: DaemonEvent): void {
 function notifyProblem(banner: Banner): void {
   const notice = problemNotice(banner)
   if (!notice || hiddenWindow || !Notification.isSupported()) return
+  const shown = new Notification({ title: notice.title, body: notice.body })
+  shown.on('click', () => run(notice.opens))
+  shown.show()
+}
+
+const mergedNotified = new Set<string>()
+
+function notifyMerged(task: Task): void {
+  const notice = mergedNotice(task, Date.now())
+  if (!notice || mergedNotified.has(task.id)) return
+  mergedNotified.add(task.id)
+  if (!settings.notifyTaskMerged || hiddenWindow || !Notification.isSupported()) return
   const shown = new Notification({ title: notice.title, body: notice.body })
   shown.on('click', () => run(notice.opens))
   shown.show()

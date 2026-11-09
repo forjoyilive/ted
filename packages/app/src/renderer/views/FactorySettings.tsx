@@ -1,5 +1,6 @@
 import type {
   AppInput,
+  CheckTry,
   Factory,
   FactorySettingsView,
   RepoCheck,
@@ -18,20 +19,39 @@ import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { useConnection } from '../data.ts'
 import {
-  changeCount,
-  draftFrom,
   editedFields,
   missingCopies,
   type RepoField,
   remoteFor,
-  unsavedLine,
+  type SettingsDraft,
+  settingsChanges,
+  settingsDraft,
+  unsavedChanges,
+  unsavedSummary,
 } from '../factory-settings.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
 import styles from './FactorySettings.module.css'
+import {
+  AgentsSection,
+  ChecksSection,
+  InvalidNotice,
+  NotesSection,
+  PermissionsSection,
+  WorkflowSection,
+} from './FactorySettingsSections.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
+
+const sections = [
+  ['repos', 'Repos'],
+  ['workflow', 'Workflow'],
+  ['checks', 'Checks'],
+  ['agents', 'Agents'],
+  ['permissions', 'Permissions'],
+  ['notes', 'Factory notes'],
+] as const
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
 const appKindLabels = { web: 'web', command: 'command', 'ios-simulator': 'iOS simulator' }
@@ -56,8 +76,9 @@ export function FactorySettings({
 }: FactorySettingsProps) {
   const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
-  const [draft, setDraft] = useState<RepoSettingsInput[]>([])
-  const [base, setBase] = useState<{ repos: RepoSettingsInput[]; version: string }>()
+  const [draft, setDraft] = useState<SettingsDraft>()
+  const [base, setBase] = useState<{ draft: SettingsDraft; version: string }>()
+  const [tries, setTries] = useState<CheckTry[]>([])
   const [reviewing, setReviewing] = useState(false)
   const [saved, setSaved] = useState<SaveSettingsResult>()
   const [home, setHome] = useState<string>()
@@ -70,6 +91,7 @@ export function FactorySettings({
     try {
       const loaded = await ted.factorySettings(factory.id)
       setView(loaded)
+      setTries(loaded.tries)
       setLoadError(undefined)
       return loaded
     } catch (failure) {
@@ -79,9 +101,19 @@ export function FactorySettings({
   }, [factory.id])
 
   const restart = useCallback((from: FactorySettingsView) => {
-    setBase({ repos: draftFrom(from.repos), version: from.version })
-    setDraft(draftFrom(from.repos))
+    setBase({ draft: settingsDraft(from), version: from.version })
+    setDraft(settingsDraft(from))
   }, [])
+
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type !== 'check-try-updated' || event.checkTry.factoryId !== factory.id) return
+        const next = event.checkTry
+        setTries((current) => [...current.filter((t) => t.name !== next.name), next])
+      }),
+    [factory.id],
+  )
 
   useEffect(() => {
     void epoch
@@ -93,11 +125,15 @@ export function FactorySettings({
     void ted.homeFolder().then(setHome, () => undefined)
   }, [load, epoch, restart])
 
-  const loaded = base?.repos ?? []
-  const count = base ? changeCount(draft, loaded) : 0
-
+  const loaded = base?.draft.repos ?? []
+  const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }
+  const count = unsaved.count
+  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) =>
+    setDraft((current) => (current ? change(current) : current))
+  const setRepos = (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
+    onDraft((current) => ({ ...current, repos: change(current.repos) }))
   const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
-    setDraft((current) => current.map((repo, i) => (i === index ? change(repo) : repo)))
+    setRepos((current) => current.map((repo, i) => (i === index ? change(repo) : repo)))
 
   async function afterSave(result: SaveSettingsResult) {
     setSaved(result)
@@ -138,27 +174,30 @@ export function FactorySettings({
           <button type="button" className={styles.navItem} onClick={() => scrollTo('general')}>
             General
           </button>
-          <button type="button" className={styles.navItem} onClick={() => scrollTo('repos')}>
-            Repos
-          </button>
+          {sections.map(([id, label]) => (
+            <button key={id} type="button" className={styles.navItem} onClick={() => scrollTo(id)}>
+              {label}
+            </button>
+          ))}
         </nav>
         <div className={styles.scroller} ref={scroller}>
           <div className={styles.column}>
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
+            {view?.invalid && <InvalidNotice invalid={view.invalid} />}
             <GeneralSection factory={factory} />
             {loadError !== undefined && (
               <p className={styles.loadError} role="alert">
                 {loadError}
               </p>
             )}
-            {view && (
+            {view && draft && base && (
               <ReposSection
                 view={view}
-                draft={draft}
+                draft={draft.repos}
                 loaded={loaded}
                 home={home}
                 onRepo={updateRepo}
-                onDraft={setDraft}
+                onDraft={setRepos}
                 onFolder={async (repo, folder) => {
                   if (folder === undefined) await ted.clearRepoLocalFolder(factory.id, repo.was)
                   else await ted.setRepoLocalFolder(factory.id, repo.was, folder)
@@ -169,13 +208,27 @@ export function FactorySettings({
                 onOpenGitHubSettings={onOpenGitHubSettings}
               />
             )}
+            {view && draft && base && (
+              <>
+                <WorkflowSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
+                <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
+                <AgentsSection view={view} draft={draft} loaded={base.draft} onDraft={onDraft} />
+                <PermissionsSection
+                  view={view}
+                  draft={draft}
+                  loaded={base.draft}
+                  onDraft={onDraft}
+                />
+                <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
+              </>
+            )}
           </div>
         </div>
       </div>
       {count > 0 && view && (
         <footer className={styles.saveBar}>
           <span className={styles.unsavedDot} aria-hidden />
-          <span>{unsavedLine(count)}</span>
+          <span>{unsavedSummary(unsaved)}</span>
           <span className={views.headerSpacer} />
           <Button size="small" onClick={() => restart(view)}>
             Discard
@@ -185,11 +238,12 @@ export function FactorySettings({
           </Button>
         </footer>
       )}
-      {reviewing && view && base && (
+      {reviewing && view && base && draft && (
         <SaveSettingsDialog
           factoryId={factory.id}
+          factoryName={factory.name}
           view={{ ...view, version: base.version }}
-          changes={{ repos: draft }}
+          changes={settingsChanges(draft, base.draft)}
           onClose={() => setReviewing(false)}
           onSaved={(result) => {
             setReviewing(false)
@@ -363,12 +417,6 @@ function ReposSection({
         where="repo"
         help="Saved in .ted/workflow.yaml on the primary repo’s default branch. Changes go through a pull request."
       />
-      {view.source === 'last-valid' && (
-        <p className={styles.lastValid}>
-          .ted/workflow.yaml on GitHub has an error, so this shows the last valid version. Saving
-          replaces the broken file.
-        </p>
-      )}
       {draft.map((repo, index) => {
         const shown = view.repos.find((r) => r.was === repo.was)
         return (

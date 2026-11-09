@@ -1,16 +1,29 @@
 import {
   type AddFactoryRequest,
+  type AgentChoiceInput,
+  type AgentStageId,
   type AppInput,
+  agentRoles,
+  agentStageIds,
   appKinds,
+  type CheckInput,
   type CheckRepoRequest,
+  type CheckTryRequest,
+  type ClarifyDepth,
   type CreateFactoryRequest,
+  clarifyDepths,
+  type Effort,
+  efforts,
   type FactorySettingsChanges,
   type NewFactoryRepo,
+  permissionModes,
   type RepoSettingsInput,
   type RepoSource,
   type SetLocalFolderRequest,
   type SettingsMergeMethod,
   type SettingsSaveMode,
+  type StageId,
+  type StageSettingsInput,
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from '@ted/protocol'
@@ -101,9 +114,34 @@ export const factoryRoutes: Route[] = [
           changes: settingsChanges(body.changes),
           mode,
           version: body.version,
+          confirmBypass: body.confirmBypass === true,
         }),
       ]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/checks\/try$/,
+    async handle({ req, params: [id = ''] }, { checkTries }) {
+      return [200, await checkTries.start(id, tryRequest(await readJson(req)))]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/checks\/try\/stop$/,
+    async handle({ req, params: [id = ''] }, { checkTries }) {
+      const body = record(await readJson(req))
+      checkTries.stop(id, text(body.name, 'name'))
+      return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/checks\/try\/output\?name=([^&]*)$/,
+    handle: async ({ params: [id = '', name = ''] }, { checkTries }) => [
+      200,
+      await checkTries.output(id, decodeURIComponent(name)),
+    ],
   },
   {
     method: 'PUT',
@@ -154,6 +192,109 @@ export const factoryRoutes: Route[] = [
 
 const maxSettingsRepos = 10
 const maxListItems = 200
+const maxFileChars = 256 * 1024
+const stageIds: readonly StageId[] = ['backlog', ...agentStageIds, 'done']
+
+function tryRequest(given: unknown): CheckTryRequest {
+  const body = record(given)
+  const name = text(body.name, 'name').trim()
+  const run = text(body.run, 'run').trim()
+  if (name === '' || run === '') throw new HttpError(400, 'A Check needs a name and a command')
+  const repo = optionalText(body.repo, 'repo')?.trim() || undefined
+  const timeout = optionalText(body.timeout, 'timeout')?.trim() || undefined
+  if (timeout !== undefined && !/^\d+[smh]$/.test(timeout)) {
+    throw new HttpError(400, 'timeout must be a duration such as 30s, 15m or 1h')
+  }
+  return {
+    name,
+    run,
+    ...(repo !== undefined && { repo }),
+    ...(timeout !== undefined && { timeout }),
+  }
+}
+
+function fileText(given: unknown, field: string): string {
+  const value = text(given, field)
+  if (value.length > maxFileChars) throw new HttpError(400, `${field} is too long`)
+  return value
+}
+
+function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInput>> {
+  const body = record(given)
+  const stages: Partial<Record<StageId, StageSettingsInput>> = {}
+  for (const [id, value] of Object.entries(body)) {
+    if (!stageIds.includes(id as StageId)) throw new HttpError(400, `unknown Stage ${id}`)
+    const stage = record(value)
+    const flag = (name: 'enabled' | 'gate') => {
+      const v = stage[name]
+      if (v === undefined) return undefined
+      if (typeof v !== 'boolean') throw new HttpError(400, `${id}.${name} must be true or false`)
+      return v
+    }
+    const maxBack = stage.maxBack
+    if (
+      maxBack !== undefined &&
+      (typeof maxBack !== 'number' || !Number.isInteger(maxBack) || maxBack < 0)
+    ) {
+      throw new HttpError(400, `${id}.maxBack must be a whole number, 0 or more`)
+    }
+    const depth = stage.depth
+    if (depth !== undefined && !clarifyDepths.some((d) => d === depth)) {
+      throw new HttpError(400, `${id}.depth must be one of ${clarifyDepths.join(', ')}`)
+    }
+    const enabled = flag('enabled')
+    const gate = flag('gate')
+    stages[id as StageId] = {
+      ...(enabled !== undefined && { enabled }),
+      ...(gate !== undefined && { gate }),
+      ...(typeof maxBack === 'number' && { maxBack }),
+      ...(depth !== undefined && { depth: depth as ClarifyDepth }),
+    }
+  }
+  return stages
+}
+
+function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
+  const files: Partial<Record<AgentStageId, string | null>> = {}
+  for (const [id, value] of Object.entries(record(given))) {
+    if (!agentStageIds.includes(id as AgentStageId)) throw new HttpError(400, `unknown Stage ${id}`)
+    files[id as AgentStageId] = value === null ? null : fileText(value, `${id} Stage file`)
+  }
+  return files
+}
+
+function checkInput(given: unknown): CheckInput {
+  const body = record(given)
+  const was = body.was
+  if (was !== undefined && (typeof was !== 'number' || !Number.isInteger(was) || was < 0)) {
+    throw new HttpError(400, 'a Check’s was must be a list position')
+  }
+  const repo = optionalText(body.repo, 'Check repo')
+  const timeout = optionalText(body.timeout, 'Check timeout')
+  return {
+    ...(typeof was === 'number' && { was }),
+    name: text(body.name, 'Check name'),
+    run: text(body.run, 'Check command'),
+    ...(repo !== undefined && { repo }),
+    ...(timeout !== undefined && { timeout }),
+  }
+}
+
+function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
+  if (given === null) return null
+  const body = record(given)
+  const agent = optionalText(body.agent, `${role}.agent`)
+  const model = optionalText(body.model, `${role}.model`)
+  const effort = optionalText(body.effort, `${role}.effort`)
+  if (effort !== undefined && effort !== '' && !efforts.some((e) => e === effort)) {
+    throw new HttpError(400, `${role}.effort must be one of ${efforts.join(', ')}`)
+  }
+  return {
+    ...(agent !== undefined && agent !== '' && { agent }),
+    ...(model !== undefined && model !== '' && { model }),
+    ...(effort !== undefined && effort !== '' && { effort: effort as Effort }),
+  }
+}
 
 function record(given: unknown): Record<string, unknown> {
   return typeof given === 'object' && given !== null && !Array.isArray(given)
@@ -188,7 +329,32 @@ function settingsChanges(given: unknown): FactorySettingsChanges {
   if (repos.length === 0 || repos.length > maxSettingsRepos) {
     throw new HttpError(400, `a Factory has 1 to ${maxSettingsRepos} repos`)
   }
-  return { repos: repos.map(settingsRepo) }
+  const body = record(given)
+  const changes: FactorySettingsChanges = { repos: repos.map(settingsRepo) }
+  if (body.stages !== undefined) changes.stages = stageSettings(body.stages)
+  if (body.stageFiles !== undefined) changes.stageFiles = stageFiles(body.stageFiles)
+  if (body.checks !== undefined) changes.checks = list(body.checks, 'checks').map(checkInput)
+  if (body.agents !== undefined) {
+    const given = record(body.agents)
+    changes.agents = {}
+    for (const role of agentRoles) {
+      if (given[role] !== undefined) changes.agents[role] = agentChoice(given[role], role)
+    }
+  }
+  if (body.permissions !== undefined) {
+    const mode = permissionModes.find((m) => m === body.permissions)
+    if (mode === undefined) throw new HttpError(400, 'permissions must be auto or bypass')
+    changes.permissions = mode
+  }
+  if (body.maxWorkingRuns !== undefined) {
+    const limit = body.maxWorkingRuns
+    if (limit !== null && (typeof limit !== 'number' || !Number.isInteger(limit) || limit < 1)) {
+      throw new HttpError(400, 'maxWorkingRuns must be a whole number above 0, or null')
+    }
+    changes.maxWorkingRuns = limit
+  }
+  if (body.notes !== undefined) changes.notes = fileText(body.notes, 'notes')
+  return changes
 }
 
 function settingsRepo(given: unknown): RepoSettingsInput {

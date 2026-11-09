@@ -28,7 +28,7 @@ import {
   useTasks,
 } from './data.ts'
 import { waitingByFactory } from './inbox.ts'
-import { failedView, queueView } from './list-view.ts'
+import { doneView, failedView, queueView } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
@@ -271,6 +271,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'new-task') setNewTaskOpen(true)
+    if (command.kind === 'open-task') {
+      dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
+    }
     if (command.kind === 'settings') {
       const section = settingsSectionIds.find((id) => id === command.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
@@ -302,6 +305,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         answeredId={inboxScreen?.answered ? navigation.requestId : undefined}
         onBack={() => dispatch({ type: 'close-task' })}
         onOpenTask={openTaskByRef}
+        onFollowedUp={openTask}
       />
     )
     const { screen } = navigation
@@ -391,6 +395,17 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               }
               onOpenTask={openTaskByRef}
               onPlan={openPlans}
+              onShowAllDone={() => {
+                saveListView(
+                  settings,
+                  screen.factoryId,
+                  doneView(screen.factoryId, settings?.listViews),
+                ).catch((error: unknown) => console.error(error))
+                dispatch({
+                  type: 'open',
+                  screen: { kind: 'factory', factoryId: screen.factoryId, view: 'list' },
+                })
+              }}
             />
           )
         }

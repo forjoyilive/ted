@@ -31,6 +31,9 @@ import type {
   RepoCheck,
 } from './factory.ts'
 import type {
+  CheckTry,
+  CheckTryOutput,
+  CheckTryRequest,
   FactorySettingsChanges,
   FactorySettingsView,
   RenameFactoryRequest,
@@ -55,6 +58,7 @@ import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
+  ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
   CancelMergeRequest,
@@ -202,6 +206,16 @@ export class DaemonClient {
 
   archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
+  }
+
+  followUpTask(ref: string, comment?: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/follow-up`, {
+      ...(comment !== undefined && { comment }),
+    })
+  }
+
+  archiveDone(factory: string): Promise<ArchiveDoneResult> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factory)}/archive-done`, {})
   }
 
   unarchiveTask(ref: string): Promise<Task> {
@@ -470,6 +484,23 @@ export class DaemonClient {
       'POST',
       `/factories/${encodeURIComponent(factoryId)}/settings/save`,
       request,
+    )
+  }
+
+  tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
+  }
+
+  stopCheckTry(factoryId: string, name: string): Promise<void> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try/stop`, {
+      name,
+    })
+  }
+
+  checkTryOutput(factoryId: string, name: string): Promise<CheckTryOutput> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/checks/try/output?name=${encodeURIComponent(name)}`,
     )
   }
 

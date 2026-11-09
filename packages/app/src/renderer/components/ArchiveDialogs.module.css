@@ -124,6 +124,28 @@
   accent-color: var(--accent-default);
 }
 
+.text {
+  box-sizing: border-box;
+  min-height: 80px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-14);
+  resize: vertical;
+}
+
+.text::placeholder {
+  color: var(--text-muted);
+}
+
+.text:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
 .error {
   margin: 0;
   color: var(--status-destructive);

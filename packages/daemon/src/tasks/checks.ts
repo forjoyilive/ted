@@ -129,7 +129,7 @@ export async function runChecks(input: {
   return { outcome: 'passed', notFound }
 }
 
-function loginShell(): string {
+export function loginShell(): string {
   const shell = process.env.SHELL
   return shell && path.isAbsolute(shell) ? shell : '/bin/sh'
 }

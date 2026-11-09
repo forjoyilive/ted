@@ -5,6 +5,7 @@ import type {
   AgentKind,
   AgentStageId,
   AnswerRequest,
+  ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
   BlockedChoice,
@@ -20,6 +21,7 @@ import type {
   EditTaskRequest,
   Effort,
   FactoryBoard,
+  FollowUpRequest,
   GitHubWait,
   InboxItem,
   LinearIssue,
@@ -170,7 +172,10 @@ import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from '.
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
 export interface CreateTaskInput
-  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source'> {
+  extends Omit<
+    NewTask,
+    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf'
+  > {
   title?: string
   source?: string
   factory?: string
@@ -193,6 +198,8 @@ export interface Tasks {
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
+  archiveDone(factory: string): ArchiveDoneResult
+  followUp(ref: string, request: FollowUpRequest): Promise<Task>
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
@@ -2431,6 +2438,7 @@ export function createTasks(options: {
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
     const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
+    const followUp = resumeSession === undefined ? followUpNote(current) : undefined
     if (!(await health.ready(agent))) {
       store.holdTaskRun({
         taskId: task.id,
@@ -2461,6 +2469,7 @@ export function createTasks(options: {
                 folder: cwd,
               },
             ),
+            ...(followUp !== undefined ? [followUp] : []),
             ...(note !== undefined ? [note] : []),
           ]
         : [continueMessage, ...editedSince(current)]),
@@ -3698,6 +3707,28 @@ export function createTasks(options: {
     ].join('\n\n')
   }
 
+  function followUpNote(task: StoredTask): string | undefined {
+    if (!task.followUpOf || store.latestBrief(task.id)) return undefined
+    const original = store.getTask(task.followUpOf.id)
+    const id = task.followUpOf.displayId
+    if (!original) return undefined
+    const brief = store.latestBrief(original.id)
+    const pullRequests = original.repos.flatMap((r) =>
+      r.pullRequest ? [`- ${r.name} #${r.pullRequest.number}: ${r.pullRequest.url}`] : [],
+    )
+    const merged = original.merged ? ` It merged at ${original.merged.at}.` : ''
+    return [
+      `# Follow-up to ${id}`,
+      `This Task follows up ${id} · ${original.title.replace(/\s*\n\s*/g, ' ')}.${merged} ${id} is Done and is never reopened, so make the further change the human asked for in this Task. Start from ${id}’s Task brief and pull requests below. Where they already settle what Clarify or Design would decide, skip that Stage with \`ted outcome advance --skip\`.`,
+      ...(brief
+        ? [`## ${id}’s Task brief (version ${brief.version})\n\n${brief.text.trim()}`]
+        : []),
+      ...(pullRequests.length > 0
+        ? [`## ${id}’s pull requests\n\n${pullRequests.join('\n')}`]
+        : []),
+    ].join('\n\n')
+  }
+
   function cycleFrom(blockerId: string, taskId: string): string[] | undefined {
     const seen = new Set<string>()
     const walk = (id: string): string[] | undefined => {
@@ -4386,6 +4417,44 @@ export function createTasks(options: {
 
     unarchive,
     delete: remove,
+
+    archiveDone(key) {
+      const factory = store.listFactories().find((f) => f.key === key || f.id === key)
+      if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+      const done = store
+        .listTasks()
+        .filter((t) => t.factoryId === factory.id && t.stage === 'done' && !t.archived)
+      for (const task of done) archiveNow(find(task.id), false)
+      if (done.length > 0) wake()
+      return { archived: done.length }
+    },
+
+    async followUp(ref, { comment = '' }) {
+      const original = find(ref)
+      if (original.archived) {
+        throw new RequestError(409, `${original.displayId} is archived; unarchive it to follow up`)
+      }
+      if (original.stage !== 'done') {
+        throw new RequestError(
+          409,
+          `${original.displayId} isn’t Done; only a Done Task can be followed up`,
+        )
+      }
+      const text = comment.trim()
+      const lead =
+        original.lead ??
+        leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+      const task = await store.createTask({
+        title: firstLine(text) || `Follow-up to ${original.displayId}`,
+        description: text,
+        priority: original.priority,
+        lead,
+        factoryId: original.factoryId,
+        ...(original.source && { source: original.source }),
+        followUpOf: original.id,
+      })
+      return start(task.id)
+    },
 
     async block(ref, caller, by) {
       const task =

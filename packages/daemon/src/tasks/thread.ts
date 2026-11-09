@@ -4,6 +4,7 @@ import type {
   CopySkip,
   DescriptionVersion,
   Judgment,
+  LayerUse,
   ThreadEvent,
   ThreadEventTone,
 } from '@ted/protocol'
@@ -98,6 +99,26 @@ function leadFailedLine(data: Record<string, unknown>): string {
   return `${what} · starting a fresh Task Lead Run from the brief`
 }
 
+function settingsFallback(layers: unknown): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = typeof layers === 'string' ? JSON.parse(layers) : layers
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(parsed)) return undefined
+  for (const use of parsed as LayerUse[]) {
+    if (use.status !== 'last-valid' && use.status !== 'skipped') continue
+    const error = use.problems?.find((p) => p.severity === 'error')
+    const file = error?.file ?? (use.layer === 'library' ? 'workflow.yaml' : '.ted/workflow.yaml')
+    const where = use.layer === 'library' ? 'Library ' : ''
+    return use.status === 'last-valid'
+      ? `Used last valid TED settings: ${where}${file} has an error`
+      : `Used the inherited TED settings: ${where}${file} has an error`
+  }
+  return undefined
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -141,6 +162,12 @@ export function threadEvents(
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
         add(entry, 'done', 'You created this Task')
+        break
+      case 'v1.TaskFollowsUp':
+        add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
+        break
+      case 'v1.TaskFollowedUp':
+        add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
         break
       case 'v1.TaskEdited': {
         const title = text(data.title)
@@ -330,6 +357,8 @@ export function threadEvents(
         judged = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
+          const fallback = settingsFallback(data.layers)
+          if (fallback) add(entry, 'quiet', fallback)
           break
         }
         const at = Date.parse(entry.at)
@@ -341,6 +370,8 @@ export function threadEvents(
           stage === 'done' ? 'done' : 'edit',
           approval !== undefined ? `You approved · ${moved}` : moved,
         )
+        const fallback = settingsFallback(data.layers)
+        if (fallback) add(entry, 'quiet', fallback)
         break
       }
       case 'v2.RunStarted':
