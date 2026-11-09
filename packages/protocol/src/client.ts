@@ -32,9 +32,12 @@ import type {
   Comment,
   CreateTaskRequest,
   InboxItem,
+  MoveTaskRequest,
   OutcomeResult,
   PostCommentRequest,
+  Priority,
   ReportOutcomeRequest,
+  SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
   TaskBrief,
@@ -45,7 +48,11 @@ import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
 
-const agent = new Agent({ keepAlive: false })
+let sharedAgent: Agent | undefined
+const agent = () => {
+  sharedAgent ??= new Agent({ keepAlive: false })
+  return sharedAgent
+}
 
 export class DaemonRequestError extends Error {
   readonly status: number
@@ -99,6 +106,19 @@ export class DaemonClient {
 
   moveToBacklog(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
+  }
+
+  setPriority(ref: string, priority: Priority): Promise<Task> {
+    const body: SetPriorityRequest = { priority }
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
+  }
+
+  archiveTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`)
   }
 
   getSlots(): Promise<RunSlots> {
@@ -423,7 +443,7 @@ export class DaemonClient {
         port,
         path: route,
         method,
-        agent,
+        agent: agent(),
         headers: {
           authorization: `Bearer ${this.#token}`,
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),

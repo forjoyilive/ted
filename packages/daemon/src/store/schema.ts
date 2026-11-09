@@ -48,6 +48,9 @@ export const tasks = State.SQLite.table({
     worktree: State.SQLite.text({ nullable: true }),
     activity: State.SQLite.text({ nullable: true }),
     activityEntries: State.SQLite.integer({ nullable: true }),
+    rank: State.SQLite.real({ nullable: true }),
+    changedAt: State.SQLite.text({ nullable: true }),
+    archivedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -485,6 +488,18 @@ export const events = {
   }),
   taskMovedToBacklog: Events.synced({
     name: 'v1.TaskMovedToBacklog',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskRanked: Events.synced({
+    name: 'v1.TaskRanked',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskPriorityChanged: Events.synced({
+    name: 'v1.TaskPriorityChanged',
+    schema: Schema.Struct({ taskId: Schema.String, priority: Schema.String, at: Schema.String }),
+  }),
+  taskArchived: Events.synced({
+    name: 'v1.TaskArchived',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   taskStageChanged: Events.synced({
@@ -966,6 +981,16 @@ const materializers = counted(
       'v1.TaskMovedToBacklog': ({ taskId }) => [
         taskQueue.delete().where({ taskId }),
         tasks.update({ stage: 'backlog' }).where({ id: taskId }),
+      ],
+      'v1.TaskRanked': ({ taskId, rank }) => [
+        tasks.update({ rank }).where({ id: taskId }),
+        taskQueue.update({ rank }).where({ taskId }),
+      ],
+      'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
+        tasks.update({ priority, changedAt: at }).where({ id: taskId }),
+      'v1.TaskArchived': ({ taskId, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>

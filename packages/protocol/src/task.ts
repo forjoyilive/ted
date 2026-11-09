@@ -47,6 +47,34 @@ export interface TaskDefaults {
 
 export type GitHubWait = 'ci' | 'review' | 'merge' | 'sign-in'
 
+export const taskStatusKinds = [
+  'failed',
+  'partly-merged',
+  'waiting-on-you',
+  'paused',
+  'working',
+  'stopped',
+  'blocked',
+  'queued',
+  'waiting-for-github',
+] as const
+
+export type TaskStatusKind = (typeof taskStatusKinds)[number]
+
+export const createdByKinds = ['human', 'automation', 'planning', 'split', 'follow-up'] as const
+
+export type CreatedBy = (typeof createdByKinds)[number]
+
+export type TaskEnding =
+  | { kind: 'never-started' }
+  | { kind: 'merged'; at: string }
+  | { kind: 'stopped'; stage: StageId }
+
+export interface TaskArchive {
+  at: string
+  ended: TaskEnding
+}
+
 export type TaskStatus =
   | { kind: 'failed' }
   | { kind: 'partly-merged' }
@@ -103,7 +131,9 @@ export interface Task {
   stage: StageId
   branch?: string
   leadRunId?: string
+  rank: number
   status?: TaskStatus
+  statuses: TaskStatusKind[]
   markers: TaskMarker[]
   activity?: string
   track: TrackStage[]
@@ -111,7 +141,19 @@ export interface Task {
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]
+  createdBy: CreatedBy
   createdAt: string
+  updatedAt: string
+  archived?: TaskArchive
+}
+
+export interface MoveTaskRequest {
+  after?: string
+  before?: string
+}
+
+export interface SetPriorityRequest {
+  priority: Priority
 }
 
 export type WorktreeCommandOutcome = 'passed' | 'failed' | 'timed-out'
@@ -175,6 +217,7 @@ export type CommentAnswer =
   | { kind: 'changes-requested'; at: string; text: string }
   | { kind: 'answered'; at: string; choice?: string; text?: string }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
+  | { kind: 'withdrawn'; at: string; archived: true }
 
 export interface Comment {
   id: string

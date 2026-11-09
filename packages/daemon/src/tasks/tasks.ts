@@ -9,7 +9,9 @@ import type {
   DaemonEvent,
   InboxItem,
   LinearIssue,
+  MoveTaskRequest,
   OutcomeResult,
+  Priority,
   ReportOutcomeRequest,
   Run,
   RunSlots,
@@ -52,6 +54,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { placeBetween } from './order.ts'
 import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import { threadEvents } from './thread.ts'
 import {
@@ -79,6 +82,9 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  move(ref: string, request: MoveTaskRequest): Task
+  setPriority(ref: string, priority: Priority): Task
+  archive(ref: string): Task
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -145,6 +151,7 @@ export function createTasks(options: {
   const stopping = new AbortController()
   const holds = new Map<string, number>()
   const beginning = new Map<string, Promise<void>>()
+  const settingUp = new Map<string, AbortController>()
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   let pumping: Promise<void> | undefined
@@ -583,6 +590,7 @@ export function createTasks(options: {
     setupReport?: string,
     { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
   ): Promise<void> {
+    if (find(task.id).archived) return
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
     const note = pickUp ?? (resumeSession === undefined ? heldPickUps.get(task.id) : undefined)
@@ -739,14 +747,16 @@ export function createTasks(options: {
   ): Promise<void> {
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
+    const cancel = new AbortController()
+    settingUp.set(task.id, cancel)
     const result = await runWorktreeCommand({
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),
       log,
-      signal: stopping.signal,
-    })
-    if (result.outcome === 'interrupted') return
+      signal: AbortSignal.any([stopping.signal, cancel.signal]),
+    }).finally(() => settingUp.delete(task.id))
+    if (result.outcome === 'interrupted' || find(task.id).archived) return
     store.worktreeSetupFinished(task.id, repo.name, {
       outcome: result.outcome,
       ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
@@ -772,7 +782,7 @@ export function createTasks(options: {
     const repo = task.repos.find((r) => !r.removed)
     const held = store.heldRuns().find((h) => h.taskId === taskId)
     const leadLive = task.runs.some((r) => r.id === task.leadRunId)
-    if (!repo || task.stage === 'backlog' || task.stage === 'done') {
+    if (!repo || task.archived || task.stage === 'backlog' || task.stage === 'done') {
       if (held) store.releaseTaskRun(taskId)
       return
     }
@@ -930,8 +940,26 @@ export function createTasks(options: {
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
   }
 
-  async function start(ref: string): Promise<Task> {
+  function live(ref: string): StoredTask {
     const task = find(ref)
+    if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
+    return task
+  }
+
+  async function clearAway(taskId: string): Promise<void> {
+    if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
+    settingUp.get(taskId)?.abort()
+    await beginning.get(taskId)?.catch(() => undefined)
+    settingUp.get(taskId)?.abort()
+    const task = find(taskId)
+    await Promise.all(task.runs.map((run) => runs.stop(run.id)))
+    if (!task.repos.some((r) => !r.removed) && !task.worktree) return
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    await finish(find(taskId), resolution)
+  }
+
+  async function start(ref: string): Promise<Task> {
+    const task = live(ref)
     const factory = factoryOf(task)
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
@@ -1091,6 +1119,7 @@ export function createTasks(options: {
     for (const { id } of store.listTasks()) {
       const task = store.getTask(id)
       if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
+      if (task.archived) continue
       if (unmergedBlockers(id).length > 0) continue
       if (task.stage === 'backlog' && task.startRequested) {
         inBackground(`start ${task.displayId}`, async () => {
@@ -1179,6 +1208,10 @@ export function createTasks(options: {
 
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
+    if (task.archived && task.repos.some((r) => !r.removed)) {
+      inBackground(`finish archiving ${task.displayId}`, () => clearAway(task.id))
+      continue
+    }
     if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
@@ -1287,6 +1320,37 @@ export function createTasks(options: {
       return store.moveToBacklog(task.id)
     },
 
+    move(ref, { after, before }) {
+      const task = live(ref)
+      if (after === undefined && before === undefined) {
+        throw new RequestError(400, 'a move needs a Task to go after or before')
+      }
+      const neighbour = (other: string | undefined) => {
+        if (other === undefined) return undefined
+        const found = find(other)
+        if (found.id === task.id) throw new RequestError(400, 'a Task can’t move next to itself')
+        return found
+      }
+      const below = neighbour(after)
+      const above = neighbour(before)
+      const placed = placeBetween(task.priority, {
+        ...(below && { after: below }),
+        ...(above && { before: above }),
+      })
+      return store.rankTask(task.id, placed.rank, placed.priority)
+    },
+
+    setPriority(ref, priority) {
+      return store.setPriority(live(ref).id, priority)
+    },
+
+    archive(ref) {
+      const task = live(ref)
+      const archived = store.archiveTask(task.id)
+      inBackground(`archive ${task.displayId}`, () => clearAway(task.id))
+      return archived
+    },
+
     async block(ref, caller, by) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
       await beginning.get(task.id)?.catch(() => undefined)
@@ -1340,7 +1404,7 @@ export function createTasks(options: {
       if (caller.kind === 'daemon' && wasBlocked && unmergedBlockers(task.id).length === 0) {
         if (current.stage === 'backlog' && current.startRequested) {
           store.setStartRequested(task.id, false)
-        } else if (current.waitsForBlockers && !liveLead(current)) {
+        } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
           store.requeueAfterBlockers(task.id)
         }
       }
@@ -1413,7 +1477,7 @@ export function createTasks(options: {
         .listOpenRequests()
         .flatMap((request) => {
           const task = tasks.get(request.taskId)
-          return task ? [{ request, task }] : []
+          return task && !task.archived ? [{ request, task }] : []
         })
         .sort(
           (a, b) =>

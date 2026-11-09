@@ -216,6 +216,28 @@ describe('worktree setup outcomes', () => {
     expect((await getTask(client, task.id))?.repos[0]?.setup?.state).toBe('passed')
   })
 
+  test('archiving during setup stops setup, starts no Task Lead and removes the worktree', async () => {
+    await workflow(`      setup: "while true; do sleep 0.05; done"\n`)
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+    await client.ok<Task>('POST', `/tasks/${task.id}/start`)
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.repos[0]?.setup?.state === 'running',
+      'setup to start',
+    )
+
+    await client.ok<Task>('POST', `/tasks/${task.id}/archive`)
+
+    const archived = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.repos[0]?.removed ? current : undefined
+    }, 'the worktree to be removed')
+    expect(archived.leadRunId).toBeUndefined()
+    expect(await exists(worktreeOf())).toBe(false)
+    expect((await client.ok<{ working: number }>('GET', '/slots')).working).toBe(0)
+  })
+
   test('a setup that runs past its timeout is stopped and the Task Lead starts', async () => {
     await workflow('      setup: { run: "echo slow; sleep 30", timeout: 1s }\n')
     const client = await startWithStub()
