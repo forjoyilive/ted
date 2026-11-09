@@ -12,8 +12,6 @@ import {
   type ClarifyDepth,
   type CreateFactoryRequest,
   clarifyDepths,
-  type Effort,
-  efforts,
   type FactorySettingsChanges,
   type NewFactoryRepo,
   permissionModes,
@@ -29,7 +27,7 @@ import {
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { addFactory } from '../factories.ts'
-import { type Route, readJson } from './route.ts'
+import { agentChoice, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
   {
@@ -339,35 +337,14 @@ function checkInput(given: unknown): CheckInput {
   }
 }
 
-export function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
-  if (given === null) return null
-  const body = record(given)
-  const agent = optionalText(body.agent, `${role}.agent`)
-  const model = optionalText(body.model, `${role}.model`)
-  const effort = optionalText(body.effort, `${role}.effort`)
-  if (effort !== undefined && effort !== '' && !efforts.some((e) => e === effort)) {
-    throw new HttpError(400, `${role}.effort must be one of ${efforts.join(', ')}`)
-  }
-  return {
-    ...(agent !== undefined && agent !== '' && { agent }),
-    ...(model !== undefined && model !== '' && { model }),
-    ...(effort !== undefined && effort !== '' && { effort: effort as Effort }),
-  }
+export function roleChoice(given: unknown, role: string): AgentChoiceInput | null {
+  return given === null ? null : agentChoice(given, role)
 }
 
 export function record(given: unknown): Record<string, unknown> {
   return typeof given === 'object' && given !== null && !Array.isArray(given)
     ? (given as Record<string, unknown>)
     : {}
-}
-
-function text(given: unknown, field: string): string {
-  if (typeof given !== 'string') throw new HttpError(400, `${field} must be text`)
-  return given
-}
-
-function optionalText(given: unknown, field: string): string | undefined {
-  return given === undefined || given === null ? undefined : text(given, field)
 }
 
 function list(given: unknown, field: string): unknown[] {
@@ -400,7 +377,7 @@ function settingsChanges(given: unknown): FactorySettingsChanges {
     const given = record(body.agents)
     changes.agents = {}
     for (const role of agentRoles) {
-      if (given[role] !== undefined) changes.agents[role] = agentChoice(given[role], role)
+      if (given[role] !== undefined) changes.agents[role] = roleChoice(given[role], role)
     }
   }
   if (body.permissions !== undefined) {

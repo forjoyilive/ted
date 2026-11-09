@@ -271,6 +271,28 @@ describe('Factory settings: Agents, Permissions and notes', () => {
     expect(after.agents.find((a) => a.role === 'reviewer')?.from).toBe('ted')
   })
 
+  test('an agent row must name claude or codex and a model name', async () => {
+    const client = await start()
+    const view = await client.settings()
+    const refused = async (lead: unknown) =>
+      client.call('POST', `/factories/${client.factory.id}/settings/preview`, {
+        ...unchanged(view),
+        agents: { lead },
+      })
+    expect(await refused({ agent: 'gpt' })).toEqual({
+      status: 400,
+      body: { error: 'lead.agent must be claude or codex' },
+    })
+    expect(await refused({ agent: 'claude', model: 'opus; rm -rf ~' })).toEqual({
+      status: 400,
+      body: { error: 'lead.model must be a model name, such as opus or gpt-5.5' },
+    })
+    expect(await refused('claude')).toEqual({
+      status: 400,
+      body: { error: 'lead must be an object' },
+    })
+  })
+
   test('turning on Bypass needs confirming, and the limit on working Runs saves', async () => {
     const client = await start()
     const view = await client.settings()

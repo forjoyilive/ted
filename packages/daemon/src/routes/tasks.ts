@@ -1,10 +1,8 @@
 import { stripVTControlCharacters } from 'node:util'
 import {
-  type AgentKind,
   type AgentStageId,
   type AnswerRequest,
   type Attachment,
-  agentKinds,
   agentStageIds,
   type BlockedChoice,
   type BlockTaskRequest,
@@ -14,10 +12,7 @@ import {
   type CreateTaskRequest,
   clarifyDepths,
   type EditTaskRequest,
-  type Effort,
-  efforts,
   type FollowUpRequest,
-  isModelName,
   type PostCommentRequest,
   type ProposalChoice,
   type ProposalInput,
@@ -47,7 +42,7 @@ import type {
   DesignSubmissionFile,
   OutcomeInput,
 } from '../tasks/tasks.ts'
-import { type Route, readJson, readOptionalJson } from './route.ts'
+import { agentChoice, type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
 
@@ -280,7 +275,7 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/lead$/,
     fileToken: true,
     async handle({ req, params: [ref = ''] }, { tasks }) {
-      return [200, tasks.setLead(ref, agentChoice(await readJson(req)))]
+      return [200, tasks.setLead(ref, taskLead(await readJson(req)))]
     },
   },
   {
@@ -637,22 +632,12 @@ function reposRequest(body: unknown): SetTaskReposRequest {
   return { remove: list(given.remove, 'remove'), confirm }
 }
 
-function agentChoice(body: unknown): TaskLead {
-  const { agent, model, effort } = (body ?? {}) as Record<string, unknown>
-  if (!agentKinds.includes(agent as AgentKind)) {
-    throw new HttpError(400, 'agent must be claude or codex')
+function taskLead(body: unknown, name?: string): TaskLead {
+  const { agent, ...rest } = agentChoice(body, name)
+  if (agent === undefined) {
+    throw new HttpError(400, `${name === undefined ? '' : `${name}.`}agent must be claude or codex`)
   }
-  if (model !== undefined && !isModelName(model)) {
-    throw new HttpError(400, 'model must be a model name, such as opus or gpt-5.5')
-  }
-  if (effort !== undefined && !efforts.includes(effort as Effort)) {
-    throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
-  }
-  return {
-    agent: agent as AgentKind,
-    ...(model !== undefined && { model }),
-    ...(effort !== undefined && { effort: effort as Effort }),
-  }
+  return { agent, ...rest }
 }
 
 async function createTaskInput(body: unknown, attachments: Attachments): Promise<CreateTaskInput> {
@@ -685,7 +670,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const followUp = text('followUp')?.trim() || undefined
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
-  const lead = taskLead(request.lead)
+  const lead = request.lead === undefined ? undefined : taskLead(request.lead, 'lead')
   const blockedBy = list('blockedBy', request.blockedBy)?.map((ref) => {
     if (typeof ref !== 'string') throw new HttpError(400, 'blockedBy must list Task IDs')
     return ref
@@ -706,25 +691,6 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(source !== undefined && { source }),
     ...(followUp !== undefined && { followUp }),
     ...(request.start !== undefined && { start: request.start }),
-  }
-
-  function taskLead(value: unknown) {
-    if (value === undefined) return undefined
-    if (typeof value !== 'object' || value === null) {
-      throw new HttpError(400, 'lead must be an object')
-    }
-    const { agent, model, effort } = value as Record<string, unknown>
-    const kind = oneOf('lead.agent', agent, agentKinds)
-    if (kind === undefined) throw new HttpError(400, 'lead.agent is required')
-    if (model !== undefined && !isModelName(model)) {
-      throw new HttpError(400, 'lead.model must be a model name, such as opus or gpt-5.5')
-    }
-    const level = oneOf('lead.effort', effort, efforts)
-    return {
-      agent: kind,
-      ...(model !== undefined && { model }),
-      ...(level !== undefined && { effort: level }),
-    }
   }
 }
 
