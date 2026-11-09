@@ -36,6 +36,7 @@ import type {
   DeleteTaskRequest,
   DescriptionVersion,
   Diagnostics,
+  DraftLineCommentRequest,
   DriftCounts,
   EditAutomationRequest,
   EditTaskRequest,
@@ -44,6 +45,7 @@ import type {
   FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
+  FileDiff,
   FoundEditor,
   InboxItem,
   IntegrationsHealth,
@@ -52,6 +54,7 @@ import type {
   LibraryView,
   LinearLookup,
   LinearStatus,
+  LineComment,
   LogText,
   MachineSettings,
   MoveTaskRequest,
@@ -83,6 +86,7 @@ import type {
   StageEntry,
   StorageSummary,
   Task,
+  TaskChanges,
   TaskDefaults,
   TaskLead,
   TaskReposResult,
@@ -222,6 +226,21 @@ export const ted = {
   listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
   openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
     window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,
+  taskChanges: (taskId: string) =>
+    window.ted.request('taskChanges', taskId) as Promise<TaskChanges>,
+  fileDiffs: (taskId: string, repo: string, path?: string) =>
+    window.ted.request('fileDiffs', taskId, repo, path) as Promise<FileDiff[]>,
+  lineComments: (taskId: string) =>
+    window.ted.request('lineComments', taskId) as Promise<LineComment[]>,
+  draftLineComment: (taskId: string, request: DraftLineCommentRequest) =>
+    window.ted.request('draftLineComment', taskId, request) as Promise<LineComment>,
+  editLineComment: (id: string, body: string) =>
+    window.ted.request('editLineComment', id, body) as Promise<LineComment>,
+  deleteLineComment: (id: string) => window.ted.request('deleteLineComment', id) as Promise<void>,
+  discardLineComments: (taskId: string) =>
+    window.ted.request('discardLineComments', taskId) as Promise<void>,
+  sendLineComments: (taskId: string) =>
+    window.ted.request('sendLineComments', taskId) as Promise<Comment>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>

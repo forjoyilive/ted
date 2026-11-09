@@ -1,3 +1,4 @@
+import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
@@ -442,6 +443,7 @@ export interface Comment {
   readAt?: string
   failed?: { runId: string }
   attachments?: Attachment[]
+  lineComments?: LineComment[]
 }
 
 export interface CommentGate {

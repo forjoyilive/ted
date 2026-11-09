@@ -30,6 +30,7 @@ import {
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
+  type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
   type EditAutomationRequest,
@@ -259,6 +260,16 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
+  fileDiffs: (client, taskId, repo, file) =>
+    client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
+  lineComments: (client, taskId) => client.lineComments(String(taskId)),
+  draftLineComment: (client, taskId, request) =>
+    client.draftLineComment(String(taskId), request as DraftLineCommentRequest),
+  editLineComment: (client, id, body) => client.editLineComment(String(id), String(body)),
+  deleteLineComment: (client, id) => client.deleteLineComment(String(id)),
+  discardLineComments: (client, taskId) => client.discardLineComments(String(taskId)),
+  sendLineComments: (client, taskId) => client.sendLineComments(String(taskId)),
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {

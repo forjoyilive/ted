@@ -21,6 +21,7 @@ import type {
   SchedulePreview,
 } from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
@@ -528,6 +529,42 @@ export class DaemonClient {
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/open-in-editor`,
       request,
     )
+  }
+
+  taskChanges(ref: string): Promise<TaskChanges> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/changes`)
+  }
+
+  fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]> {
+    const query = path === undefined ? '' : `?${new URLSearchParams({ path })}`
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/changes/${encodeURIComponent(repo)}/diffs${query}`,
+    )
+  }
+
+  lineComments(ref: string): Promise<LineComment[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/line-comments`)
+  }
+
+  draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/line-comments`, request)
+  }
+
+  editLineComment(id: string, body: string): Promise<LineComment> {
+    return this.#request('PATCH', `/line-comments/${encodeURIComponent(id)}`, { body })
+  }
+
+  deleteLineComment(id: string): Promise<void> {
+    return this.#request('DELETE', `/line-comments/${encodeURIComponent(id)}`)
+  }
+
+  discardLineComments(ref: string): Promise<void> {
+    return this.#request('DELETE', `/tasks/${encodeURIComponent(ref)}/line-comments`)
+  }
+
+  sendLineComments(ref: string): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/line-comments/send`)
   }
 
   async setupLog(ref: string, repo: string): Promise<string> {

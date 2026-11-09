@@ -33,12 +33,15 @@ import {
   type CopySkip,
   type DaemonEvent,
   type DescriptionVersion,
+  type DiffRow,
   defaultMachineSettings,
   type Effort,
   type Factory,
   type GitHubWait,
   type LayerKind,
   type LayerUse,
+  type LineComment,
+  type LineSide,
   type MachineSettings,
   type MergeMethod,
   type PermissionMode,
@@ -95,6 +98,7 @@ import {
   factoryOrder,
   factoryRepos,
   heldRuns,
+  lineComments,
   localFolders,
   loopChecks,
   machineSettings,
@@ -349,6 +353,19 @@ export interface NewComment {
   round?: Round
   gate?: NonNullable<Comment['gate']>
   attachments?: readonly Attachment[]
+  lineComments?: readonly string[]
+}
+
+export interface NewLineComment {
+  taskId: string
+  repo: string
+  path: string
+  side: LineSide
+  start: number
+  end: number
+  commit: string
+  quoted: readonly DiffRow[]
+  body: string
 }
 
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
@@ -509,7 +526,13 @@ export interface TedStore {
   taskFiles(taskId: string): Attachment[]
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
-  answerComment(id: string, answer: CommentAnswer): Comment
+  answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
+  draftLineComment(input: NewLineComment): LineComment
+  editLineComment(id: string, body: string): LineComment
+  deleteLineComments(taskId: string, ids: readonly string[]): void
+  getLineComment(id: string): LineComment | undefined
+  lineCommentDrafts(taskId: string): LineComment[]
+  taskLineComments(taskId: string): LineComment[]
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
@@ -1325,7 +1348,47 @@ export async function openStore({
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
     ...withFiles(row.id),
+    ...withLineComments(row.id),
   })
+
+  const toLineComment = ({
+    side,
+    quoted,
+    editedAt,
+    commentId,
+    sentAt,
+    deleted: _,
+    ...row
+  }: typeof lineComments.Type): LineComment => ({
+    ...row,
+    side: side as LineSide,
+    quoted: JSON.parse(quoted) as DiffRow[],
+    ...(editedAt !== null && { editedAt }),
+    ...(commentId !== null && sentAt !== null && { sent: { commentId, at: sentAt } }),
+  })
+
+  const withLineComments = (commentId: string): { lineComments?: LineComment[] } => {
+    const sent = store
+      .query(queryDb(lineComments.where({ commentId }).orderBy('createdAt', 'asc')))
+      .map(toLineComment)
+    return sent.length > 0 ? { lineComments: sent } : {}
+  }
+
+  const lineCommentDrafts = (taskId: string) =>
+    store
+      .query(
+        queryDb(
+          lineComments
+            .where({ taskId, commentId: null, deleted: false })
+            .orderBy('createdAt', 'asc'),
+        ),
+      )
+      .map(toLineComment)
+
+  const lineCommentsSent = (ids: readonly string[] | undefined, commentId: string, at: string) =>
+    ids === undefined || ids.length === 0
+      ? []
+      : [events.lineCommentsSent({ ids: [...ids], commentId, at })]
 
   const withFiles = (commentId: string): { attachments?: Attachment[] } => {
     const files = commentFiles(commentId)
@@ -1487,6 +1550,15 @@ export async function openStore({
   const getComment = (id: string) => {
     const row = store.query(queryDb(comments.where({ id }))).at(0)
     return row && toComment(row)
+  }
+  const lineCommentRow = (id: string) => {
+    const row = store.query(queryDb(lineComments.where({ id, deleted: false }))).at(0)
+    return row && toLineComment(row)
+  }
+  const requireLineComment = (id: string) => {
+    const found = lineCommentRow(id)
+    if (!found) throw new Error(`no line comment ${id}`)
+    return found
   }
   const requireComment = (id: string) => {
     const comment = getComment(id)
@@ -2392,11 +2464,15 @@ export async function openStore({
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
       ]),
     postComment(input) {
-      const { id, event, attached } = commentPosted(input, new Date().toISOString())
-      commit(event, ...attached)
+      const at = new Date().toISOString()
+      const { id, event, attached } = commentPosted(input, at)
+      commit(event, ...attached, ...lineCommentsSent(input.lineComments, id, at))
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
       if (comment.kind !== 'note') updatedTask(input.taskId)
+      for (const taskId of new Set(comment.lineComments?.map((c) => c.taskId))) {
+        emit({ type: 'line-comments-changed', taskId })
+      }
       return comment
     },
     supersedeComment(oldId, input) {
@@ -2417,12 +2493,48 @@ export async function openStore({
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
     getComment,
-    answerComment(id, answer) {
-      commit(events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
+    answerComment(id, answer, sending) {
+      commit(
+        events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }),
+        ...lineCommentsSent(sending, id, answer.at),
+      )
       const comment = emitComment(id)
       updatedTask(comment.taskId)
+      if (sending !== undefined && sending.length > 0) {
+        emit({ type: 'line-comments-changed', taskId: comment.taskId })
+      }
       return comment
     },
+    draftLineComment({ quoted, ...input }) {
+      const id = randomUUID()
+      commit(
+        events.lineCommentDrafted({
+          id,
+          ...input,
+          quoted: JSON.stringify(quoted),
+          at: new Date().toISOString(),
+        }),
+      )
+      emit({ type: 'line-comments-changed', taskId: input.taskId })
+      return requireLineComment(id)
+    },
+    editLineComment(id, body) {
+      commit(events.lineCommentEdited({ id, body, at: new Date().toISOString() }))
+      const edited = requireLineComment(id)
+      emit({ type: 'line-comments-changed', taskId: edited.taskId })
+      return edited
+    },
+    deleteLineComments(taskId, ids) {
+      if (ids.length === 0) return
+      commit(events.lineCommentsDeleted({ ids: [...ids], at: new Date().toISOString() }))
+      emit({ type: 'line-comments-changed', taskId })
+    },
+    getLineComment: (id) => lineCommentRow(id),
+    lineCommentDrafts,
+    taskLineComments: (taskId) =>
+      store
+        .query(queryDb(lineComments.where({ taskId, deleted: false }).orderBy('createdAt', 'asc')))
+        .map(toLineComment),
     commentsDelivered(ids, runId) {
       if (ids.length === 0) return
       commit(events.commentsDelivered({ ids, runId, at: new Date().toISOString() }))

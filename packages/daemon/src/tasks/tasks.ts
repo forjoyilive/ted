@@ -18,12 +18,15 @@ import type {
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
+  DraftLineCommentRequest,
   EditTaskRequest,
   Effort,
   FactoryBoard,
+  FileDiff,
   GitHubWait,
   InboxItem,
   LinearIssue,
+  LineComment,
   MergeMethod,
   MergeRow,
   MoveTaskRequest,
@@ -44,6 +47,7 @@ import type {
   SubAgentWait,
   Task,
   TaskBrief,
+  TaskChanges,
   TaskDefaults,
   TaskLead,
   TaskRepo,
@@ -94,6 +98,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { fileDiffs, taskChanges } from './changes.ts'
 import {
   type CheckRunnerResult,
   failureFindings,
@@ -131,6 +136,7 @@ import {
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
+import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
 import {
   chooseMethod,
   ciState,
@@ -252,6 +258,14 @@ export interface Tasks {
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
+  changes(ref: string): Promise<TaskChanges>
+  fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
+  lineComments(ref: string): Promise<LineComment[]>
+  draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
+  editLineComment(id: string, body: string): LineComment
+  deleteLineComment(id: string): void
+  discardLineComments(ref: string): void
+  sendLineComments(ref: string): Promise<Comment>
   setRepos(ref: string, caller: Caller, request: SetTaskReposRequest): Promise<TaskReposResult>
   repoSetup(ref: string, repo: string, caller: Caller): Promise<RepoSetupReport>
   runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
@@ -318,7 +332,7 @@ export function createTasks(options: {
   const stoppingForBlockers = new Set<string>()
   const sendingComments = new Set<string>()
   const runUploads = new Set<string>()
-  const commentText = (comment: Comment): string => {
+  const plainText = (comment: Comment): string => {
     const files = comment.attachments ?? []
     return [
       comment.body,
@@ -329,6 +343,13 @@ export function createTasks(options: {
       .filter((part) => part !== '')
       .join('\n\n')
   }
+  const linesText = (comment: Comment): string | undefined =>
+    comment.lineComments === undefined
+      ? undefined
+      : lineCommentsText(comment.lineComments, comment.taskId, (id) => store.getTask(id)?.displayId)
+  const commentText = (comment: Comment): string =>
+    [plainText(comment), linesText(comment) ?? ''].filter((part) => part !== '').join('\n\n')
+  const drafts = (taskId: string): string[] => store.lineCommentDrafts(taskId).map((c) => c.id)
   const stoppingByHand = new Set<string>()
   const nudgeTimers = new Map<string, NodeJS.Timeout>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
@@ -1601,6 +1622,7 @@ export function createTasks(options: {
         body: text,
         author: { kind: 'human' },
         attachments,
+        lineComments: drafts(task.id),
       })
       store.mergeCanceled(task.id, comment.id)
       return comment
@@ -2637,6 +2659,11 @@ export function createTasks(options: {
     }
   }
 
+  function withLines(line: string, comment: Comment): string {
+    const lines = linesText(comment)
+    return lines === undefined ? line : `${line}\n\n${lines}\n`
+  }
+
   function sinceLastRun(
     taskId: string,
     { comments, answers }: { comments: Comment[]; answers: Comment[] },
@@ -2645,7 +2672,7 @@ export function createTasks(options: {
     const items = [
       ...comments.map((c) => ({
         at: c.createdAt,
-        line: `- ${c.createdAt}: ${flat(commentText(c))}`,
+        line: withLines(`- ${c.createdAt}: ${flat(plainText(c))}`, c),
       })),
       ...answers.flatMap((c) => {
         const answer = answerText(c)
@@ -2654,7 +2681,10 @@ export function createTasks(options: {
           : [
               {
                 at: c.answer?.at ?? c.createdAt,
-                line: `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+                line: withLines(
+                  `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+                  c,
+                ),
               },
             ]
       }),
@@ -2787,6 +2817,7 @@ export function createTasks(options: {
       body,
       author: { kind: 'human' },
       attachments,
+      ...(task.stage !== 'done' && { lineComments: drafts(task.id) }),
     })
     const run = liveLead(find(task.id))
     if (!run) return posted
@@ -3163,8 +3194,20 @@ export function createTasks(options: {
     )
   }
 
-  function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
-    const answered = store.answerComment(comment.id, answer)
+  function draftOf(id: string): LineComment {
+    const found = store.getLineComment(id)
+    if (!found) throw new RequestError(404, `no line comment ${id}`)
+    if (found.sent) throw new RequestError(409, 'that line comment has already been sent')
+    return found
+  }
+
+  function answerRequest(
+    task: Task,
+    comment: Comment,
+    answer: CommentAnswer,
+    lineComments?: readonly string[],
+  ): Comment {
+    const answered = store.answerComment(comment.id, answer, lineComments)
     if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
     return answered
   }
@@ -4365,7 +4408,13 @@ export function createTasks(options: {
     }
     const text = comment?.trim() ?? ''
     if (text !== '' || attachments.length > 0) {
-      store.postComment({ taskId: task.id, body: text, author: { kind: 'human' }, attachments })
+      store.postComment({
+        taskId: task.id,
+        body: text,
+        author: { kind: 'human' },
+        attachments,
+        lineComments: drafts(task.id),
+      })
     }
     const waitForBlockers = unmergedBlockers(task.id).length > 0
     if (task.status?.kind === 'failed') {
@@ -4865,6 +4914,15 @@ export function createTasks(options: {
         followUpOf: original.id,
         ...(attachments.length > 0 && { attachments }),
       })
+      const carried = drafts(original.id)
+      if (carried.length > 0) {
+        store.postComment({
+          taskId: task.id,
+          body: '',
+          author: { kind: 'human' },
+          lineComments: carried,
+        })
+      }
       return start(task.id)
     },
 
@@ -5151,14 +5209,21 @@ export function createTasks(options: {
         if (current?.answer) throw new RequestError(409, 'this request has already been answered')
         const at = new Date().toISOString()
         if (request.action === 'request-changes') {
-          const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
+          const answered = answerRequest(
+            task,
+            comment,
+            { kind: 'changes-requested', at, text },
+            drafts(task.id),
+          )
           const picksStage = comment.stage === 'review' || comment.stage === 'merge'
+          const lines = linesText(answered)
           await deliverAnswer(
             task,
             comment,
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
+              ...(lines !== undefined ? [lines] : []),
               picksStage
                 ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
                 : comment.stage === 'clarify'
@@ -5217,13 +5282,19 @@ export function createTasks(options: {
         }
         const aboutModel = [...asked.values()].includes(comment.id)
         if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
-        const answered = answerRequest(task, comment, {
-          kind: 'answered',
-          at,
-          ...(choice !== undefined && { choice }),
-          ...(text !== '' && { text }),
-        })
+        const answered = answerRequest(
+          task,
+          comment,
+          {
+            kind: 'answered',
+            at,
+            ...(choice !== undefined && { choice }),
+            ...(text !== '' && { text }),
+          },
+          text !== '' && !aboutModel ? drafts(task.id) : undefined,
+        )
         if (aboutModel) return answered
+        const lines = linesText(answered)
         await deliverAnswer(
           task,
           comment,
@@ -5231,6 +5302,7 @@ export function createTasks(options: {
             `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
             ...(choice !== undefined ? [choice] : []),
             ...(text !== '' ? [text] : []),
+            ...(lines !== undefined ? [lines] : []),
           ].join('\n\n'),
         )
         return answered
@@ -5457,6 +5529,82 @@ export function createTasks(options: {
         worktree: repo.worktree,
         env: commandEnv(task, env),
       }
+    },
+
+    async changes(ref) {
+      const task = find(ref)
+      return taskChanges(task.id, await pullRequestTargets(task))
+    },
+
+    async fileDiffs(ref, name, file) {
+      const task = find(ref)
+      const target = (await pullRequestTargets(task)).find((t) => t.name === name)
+      if (!target) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
+      return fileDiffs(target, file)
+    },
+
+    async lineComments(ref) {
+      const task = find(ref)
+      const all = store.taskLineComments(task.id)
+      if (all.length === 0) return []
+      return markOutdated(all, await pullRequestTargets(task))
+    },
+
+    async draftLineComment(ref, { repo, path: file, from, to, body }) {
+      const task = find(ref)
+      if (task.archived) {
+        throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
+      }
+      const target = (await pullRequestTargets(task)).find((t) => t.name === repo)
+      if (!target) throw new RequestError(404, `${task.displayId} has no worktree for ${repo}`)
+      const diff = (await fileDiffs(target, file))[0]
+      if (!diff || diff.binary) throw new RequestError(409, `${file} has no lines to comment on`)
+      const anchored = anchorIn(diff, from, to)
+      return store.draftLineComment({
+        taskId: task.id,
+        repo,
+        path: diff.path,
+        commit: diff.head,
+        ...anchored,
+        body,
+      })
+    },
+
+    editLineComment(id, body) {
+      return store.editLineComment(draftOf(id).id, body)
+    },
+
+    deleteLineComment(id) {
+      const draft = draftOf(id)
+      store.deleteLineComments(draft.taskId, [draft.id])
+    },
+
+    discardLineComments(ref) {
+      const task = find(ref)
+      store.deleteLineComments(task.id, drafts(task.id))
+    },
+
+    async sendLineComments(ref) {
+      const task = find(ref)
+      if (drafts(task.id).length === 0) {
+        throw new RequestError(409, `${task.displayId} has no line comments to send`)
+      }
+      if (task.archived) {
+        throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
+      }
+      if (task.stage === 'done') {
+        throw new RequestError(
+          409,
+          `${task.displayId} is done; its line comments go with a Follow up`,
+        )
+      }
+      if (publicTask(task.id).commentBox === 'merge-pending') {
+        throw new RequestError(
+          409,
+          `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+        )
+      }
+      return humanComment(task, '', [])
     },
 
     async runChecks(ref, caller, only) {

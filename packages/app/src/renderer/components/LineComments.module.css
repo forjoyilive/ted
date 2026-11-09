@@ -1,0 +1,180 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: var(--font-sans);
+}
+
+.card,
+.editor {
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.author {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.meta {
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.link,
+.lineLink,
+.disclosure {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.disclosure {
+  color: var(--text-secondary);
+}
+
+.link:hover,
+.lineLink:hover,
+.disclosure:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible,
+.lineLink:focus-visible,
+.disclosure:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.body {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.outdated {
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-11);
+}
+
+.error {
+  margin: 4px 0 0;
+  color: var(--status-destructive);
+  font-size: var(--text-12);
+}
+
+.box {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  resize: vertical;
+}
+
+.box:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.editorRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--surface-pane);
+  font-size: var(--text-13);
+}
+
+.count {
+  color: var(--text-primary);
+}
+
+.chipWrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+.chip {
+  padding: 2px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.chipList,
+.sentList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  list-style: none;
+  font-size: var(--text-12);
+}
+
+.chipList li {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.preview {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sent {
+  margin-top: 6px;
+}
+
+.sentList .body {
+  font-size: var(--text-13);
+}

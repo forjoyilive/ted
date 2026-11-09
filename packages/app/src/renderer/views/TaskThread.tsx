@@ -6,6 +6,7 @@ import type {
   ConversationTab,
   DescriptionVersion,
   Factory,
+  LineComment,
   Priority,
   RunState,
   Task,
@@ -13,18 +14,29 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
+import { type ChangedFile, changedFiles, useTaskChanges } from '../changes.ts'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { ChangesSection } from '../components/ChangesSection.tsx'
 import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { AllChanges, DiffView, type LineFocus } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
+import {
+  DraftBar,
+  isDraft,
+  SentLineComments,
+  UnsentChip,
+  useDiffComments,
+  useLineComments,
+} from '../components/LineComments.tsx'
 import {
   AnsweredCard,
   OpenRequestLine,
@@ -78,7 +90,20 @@ function delivery(task: Task, comment: Comment): string | undefined {
   return comment.readAt === undefined ? 'Not read yet' : undefined
 }
 
-function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
+interface LineLinks {
+  current: readonly LineComment[]
+  onOpen: (comment: LineComment) => void
+}
+
+function NoteRow({
+  task,
+  comment,
+  lines,
+}: {
+  task: Task
+  comment: Comment
+  lines?: LineLinks | undefined
+}) {
   const agent = leadAgent(task, comment)
   const author =
     comment.author.kind === 'human' ? 'You' : comment.author.kind === 'ted' ? 'TED' : 'Task Lead'
@@ -94,6 +119,14 @@ function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
         </div>
         {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
+        {comment.lineComments && (
+          <SentLineComments
+            comments={comment.lineComments}
+            taskId={task.id}
+            current={lines?.current ?? []}
+            onOpen={(c) => lines?.onOpen(c)}
+          />
+        )}
       </div>
     </li>
   )
@@ -243,12 +276,23 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
   useEffect(() => {
-    if (answeredId !== undefined) setShown(undefined)
+    if (answeredId !== undefined) {
+      setShown(undefined)
+      setChangesView(undefined)
+    }
   }, [answeredId])
+  const changes = useTaskChanges(task)
+  const view = changesView?.taskId === task.id ? changesView.view : undefined
+  const showChanges = (next: ChangesView | undefined) =>
+    setChangesView(next && { taskId: task.id, view: next })
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
-  const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
+  const show = (runId: string | undefined) => {
+    showChanges(undefined)
+    setShown({ taskId: task.id, runId })
+  }
   const openRun = (runId: string) => {
     show(runId)
     void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
@@ -275,9 +319,66 @@ export function TaskPanes({
     window.addEventListener(openShellEvent, take)
     return () => window.removeEventListener(openShellEvent, take)
   }, [task.id, task.repos])
+  const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file })
+  const all = view?.kind === 'all' && changes !== undefined
+  const lineComments = useLineComments(task.id)
+  const drafts = lineComments.filter(isDraft)
+  const seams = useDiffComments(
+    task.id,
+    lineComments.filter((c) => isDraft(c) || !c.outdated),
+  )
+  const comments = useComments(task.id)
+  const requestOpen = comments.some((c) => c.kind !== 'note' && c.answer === undefined)
+  const back = () => showChanges(undefined)
+  const bar = (
+    <DraftBar
+      taskId={task.id}
+      drafts={drafts}
+      mode={task.stage === 'done' ? 'done' : requestOpen ? 'request' : 'none'}
+      onBack={back}
+    />
+  )
+  const openLine = (comment: LineComment) => {
+    const repo = changes?.repos.find((r) => r.name === comment.repo)
+    const file = changedFiles(changes).find(
+      (f) => f.repo === comment.repo && f.path === comment.path,
+    ) ?? {
+      repo: comment.repo,
+      path: comment.path,
+      baseBranch: repo?.baseBranch ?? '',
+      added: 0,
+      removed: 0,
+      uncommitted: false,
+    }
+    showChanges({ kind: 'diff', file, focus: { side: comment.side, line: comment.start } })
+  }
+  const draftsIn = (file: ChangedFile) =>
+    drafts.filter((d) => d.repo === file.repo && d.path === file.path).length
+  const covered = all || view?.kind === 'diff'
   return (
     <>
-      {shellRepo !== undefined ? (
+      {all && (
+        <AllChanges
+          taskId={task.id}
+          changes={changes}
+          seams={seams}
+          footer={bar}
+          onCollapse={back}
+        />
+      )}
+      {view?.kind === 'diff' && (
+        <DiffView
+          taskId={task.id}
+          changes={changes}
+          file={view.file}
+          seams={seams}
+          focus={view.focus}
+          footer={bar}
+          onBack={back}
+          onOpen={openFile}
+        />
+      )}
+      {shellRepo !== undefined && !covered ? (
         <TaskShell
           key={`${task.id}:${shellRepo}`}
           taskId={task.id}
@@ -297,6 +398,8 @@ export function TaskPanes({
           onShowRun={show}
           onOpenRun={openRun}
           onCloseRun={closeRun}
+          hidden={covered}
+          lines={{ current: lineComments, onOpen: openLine }}
         />
       )}
       <TaskDetails
@@ -305,10 +408,23 @@ export function TaskPanes({
         factories={factories}
         onOpenRun={openRun}
         onOpenShell={openShell}
+        hidden={all}
+        changes={
+          <ChangesSection
+            changes={changes}
+            selected={view?.kind === 'diff' ? view.file : undefined}
+            onOpen={openFile}
+            onExpandAll={() => showChanges({ kind: 'all' })}
+            drafts={draftsIn}
+            draftTotal={drafts.length}
+          />
+        }
       />
     </>
   )
 }
+
+type ChangesView = { kind: 'diff'; file: ChangedFile; focus?: LineFocus } | { kind: 'all' }
 
 export function TaskThread({
   task,
@@ -322,6 +438,8 @@ export function TaskThread({
   onShowRun,
   onOpenRun,
   onCloseRun,
+  hidden = false,
+  lines,
 }: {
   task: Task
   backLink: string | undefined
@@ -334,6 +452,8 @@ export function TaskThread({
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
+  hidden?: boolean
+  lines?: LineLinks | undefined
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -377,14 +497,22 @@ export function TaskThread({
 
   if (talk && shownRun !== undefined) {
     return (
-      <section className={styles.pane} aria-label="Task thread">
+      <section
+        className={styles.pane}
+        aria-label="Task thread"
+        style={hidden ? { display: 'none' } : undefined}
+      >
         <TalkThrough request={talk} task={task} onBack={() => onShowRun(undefined)} />
       </section>
     )
   }
 
   return (
-    <section className={styles.pane} aria-label="Task thread">
+    <section
+      className={styles.pane}
+      aria-label="Task thread"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       {backLink !== undefined && (
         <button type="button" className={styles.back} onClick={onBack}>
           {backLink}
@@ -503,7 +631,7 @@ export function TaskThread({
                 )
               }
               if (comment.kind === 'note') {
-                return <NoteRow key={comment.id} task={task} comment={comment} />
+                return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} />
               }
               if (comment.answer !== undefined) {
                 const { answer } = comment
@@ -521,6 +649,14 @@ export function TaskThread({
                       expanded={comment.id === answeredId}
                       onOpenRun={onOpenRun}
                     />
+                    {comment.lineComments && (
+                      <SentLineComments
+                        comments={comment.lineComments}
+                        taskId={task.id}
+                        current={lines?.current ?? []}
+                        onOpen={(c) => lines?.onOpen(c)}
+                      />
+                    )}
                   </li>
                 )
               }
@@ -539,11 +675,19 @@ export function TaskThread({
           </ol>
           {pinned ? (
             <div className={styles.pinned}>
+              <UnsentChip
+                drafts={(lines?.current ?? []).filter(isDraft)}
+                onOpen={(c) => lines?.onOpen(c)}
+              />
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
               <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
             </div>
           ) : (
             <div className={styles.pinned}>
+              <UnsentChip
+                drafts={(lines?.current ?? []).filter(isDraft)}
+                onOpen={(c) => lines?.onOpen(c)}
+              />
               <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
             </div>
           )}
@@ -609,12 +753,16 @@ export function TaskDetails({
   factories,
   onOpenRun,
   onOpenShell,
+  changes,
+  hidden = false,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
   onOpenShell: (repo: string) => void
+  changes?: ReactNode
+  hidden?: boolean
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -626,7 +774,11 @@ export function TaskDetails({
   const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
-    <aside className={styles.detailsPane} aria-label="Task details">
+    <aside
+      className={styles.detailsPane}
+      aria-label="Task details"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       <dl className={styles.details}>
         <dt>Priority</dt>
         <dd>
@@ -744,6 +896,7 @@ export function TaskDetails({
         </p>
       )}
       <CodeSection task={task} onOpenShell={onOpenShell} />
+      {changes}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <TaskBriefSection task={task} />
     </aside>
