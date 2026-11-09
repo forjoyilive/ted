@@ -138,11 +138,13 @@ export async function runWorktreeCommand(input: {
   env: NodeJS.ProcessEnv
   log: string
   signal?: AbortSignal
+  shell?: [string, ...string[]]
 }): Promise<CommandResult> {
   await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
   const log = await open(input.log, 'w', 0o600)
   try {
-    const child = spawn('/bin/sh', ['-c', input.command.run], {
+    const [shell, ...flags] = input.shell ?? ['/bin/sh', '-c']
+    const child = spawn(shell, [...flags, input.command.run], {
       cwd: input.cwd,
       env: input.env,
       detached: true,

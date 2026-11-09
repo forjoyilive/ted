@@ -15,7 +15,9 @@ export interface StayAwake {
 export function stayAwakeWhileWorking(store: TedStore, holdAwake: HoldAwake): StayAwake {
   let hold: AwakeHold | undefined
   const update = () => {
-    const wanted = store.settings().stayAwake && store.activity().runs.working > 0
+    const wanted =
+      store.settings().stayAwake &&
+      (store.activity().runs.working > 0 || store.activity().checksRunning > 0)
     if (wanted && !hold) hold = holdAwake()
     if (!wanted && hold) {
       hold.release()

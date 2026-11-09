@@ -359,3 +359,150 @@
   color: var(--text-caption);
   font-size: var(--text-12);
 }
+
+.tabs {
+  display: flex;
+  flex-shrink: 0;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 22px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.tabWrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-13);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--accent-default);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.tab:focus-visible,
+.tabClose:focus-visible,
+.runRow:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.tabDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--agent-ring-idle);
+}
+
+.tabDot[data-state='working'] {
+  background: var(--agent-ring-working);
+}
+
+.tabDot[data-state='waiting'] {
+  background: var(--agent-ring-waiting);
+}
+
+.tabDot[data-state='finished'] {
+  border: 1px solid var(--event-hollow);
+  background: none;
+}
+
+.tabClose {
+  padding: 2px 4px;
+  margin-left: -6px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-14);
+  cursor: pointer;
+}
+
+.tabClose:hover {
+  color: var(--text-primary);
+}
+
+.runsSection {
+  margin-top: 20px;
+  font-size: var(--text-13);
+}
+
+.sectionHeading {
+  margin: 0 0 8px;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+  font-weight: 500;
+}
+
+.runList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runRow {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.runRow:hover {
+  background: var(--surface-hover);
+}
+
+.runText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.runName {
+  font-weight: var(--weight-medium);
+}
+
+.runMeta {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.runState {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.runState[data-state='working'] {
+  color: var(--status-working-fg);
+}
+
+.runState[data-state='waiting'] {
+  color: var(--status-waiting-fg);
+}

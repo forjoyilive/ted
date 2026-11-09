@@ -3,7 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type DaemonConnection, type DaemonSupervisor, superviseDaemon } from '../src/launch.ts'
-import { makeTempHome, waitUntil } from './helpers.ts'
+import { isAlive, makeTempHome, waitUntil } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -27,15 +27,6 @@ afterEach(async () => {
   }
   await cleanup()
 })
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 async function supervise(options: Partial<Parameters<typeof superviseDaemon>[1]> = {}) {
   supervisor = await superviseDaemon(home, {

@@ -2,13 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { killRunHosts } from '../../daemon/test/helpers.ts'
+import { stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -42,23 +40,9 @@ beforeEach(async () => {
 afterEach(async () => {
   await closeApp(app)
   app = undefined
-  const info = await readDaemonInfo(home)
-  if (info && isAlive(info.pid)) {
-    process.kill(info.pid, 'SIGTERM')
-    while (isAlive(info.pid)) await sleep(50)
-  }
-  await killRunHosts(home)
+  await stopDaemonIn(home)
   await rm(home, { recursive: true, force: true })
 })
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 async function setGh(hosts: Record<string, unknown[]>): Promise<void> {
   await writeFile(ghState, JSON.stringify({ hosts }))

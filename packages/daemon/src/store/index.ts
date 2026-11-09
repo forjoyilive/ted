@@ -14,12 +14,18 @@ import {
   type BannerAction,
   type BannerSeverity,
   bannerOrder,
+  type CheckResult,
+  type CheckRun,
+  type CheckRunOutcome,
+  type CheckRunTrigger,
+  type CheckState,
   type ClarifyDepth,
   type Comment,
   type CommentAnswer,
   type CommentAuthor,
   type CommentKind,
   type ConversationEntry,
+  type ConversationTab,
   type CopySkip,
   type DaemonEvent,
   defaultMachineSettings,
@@ -30,8 +36,10 @@ import {
   type MachineSettings,
   type Priority,
   type Run,
+  type RunMessage,
   type RunProblem,
   type RunState,
+  type SendBack,
   type StageEntry,
   type StageId,
   type Task,
@@ -59,8 +67,11 @@ import { countMaterialized } from './progress.ts'
 import {
   agentPauses,
   banners,
+  checkResults,
+  checkRuns,
   comments,
   conversationEntries,
+  conversationTabs,
   events,
   factories,
   factoryRepos,
@@ -68,6 +79,7 @@ import {
   localFolders,
   machineSettings,
   machineSettingValues,
+  runMessages,
   runs,
   schema,
   sendBackResets,
@@ -201,6 +213,8 @@ export interface NewComment {
   gate?: NonNullable<Comment['gate']>
 }
 
+export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
+
 export interface LoggedEvent {
   id: string
   name: string
@@ -290,7 +304,26 @@ export interface TedStore {
     to: StageId
     findings: string
     counted: boolean
-  }): void
+    round?: number
+    limit?: number
+    checkRunId?: string
+  }): SendBack
+  listSendBacks(taskId: string): SendBack[]
+  startChecks(input: {
+    taskId: string
+    trigger: CheckRunTrigger
+    stage: StageId
+    checks: PlannedCheck[]
+  }): CheckRun
+  checkStarted(checkRunId: string, position: number): CheckRun
+  checkFinished(
+    checkRunId: string,
+    position: number,
+    result: { state: CheckState; exitCode?: number; durationMs: number },
+  ): CheckRun
+  finishChecks(checkRunId: string, outcome: CheckRunOutcome): CheckRun
+  getCheckRun(id: string): CheckRun | undefined
+  listCheckRuns(taskId?: string): CheckRun[]
   resetSendBacks(taskId: string, stage: StageId): void
   sendBackCount(taskId: string, stage: StageId): number
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -310,6 +343,11 @@ export interface TedStore {
   listRuns(): Run[]
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
+  taskRunList(taskId: string): Run[]
+  recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
+  runMessages(runId: string): RunMessage[]
+  openTab(taskId: string, runId: string): Task
+  closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
   activity(): Activity
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
@@ -541,6 +579,8 @@ export async function openStore({
         ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
         : []
     })
+    const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
+    const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
     const paused = pauses()
     const held = heldRow(row.id)
@@ -561,10 +601,27 @@ export async function openStore({
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
+      ...(checking && { tedWorking: true }),
+      ...(checkingNow && { checking: checkingNow }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
+    const tabs: ConversationTab[] = store
+      .query(queryDb(conversationTabs.where({ taskId: row.id }).orderBy('openedAt', 'asc')))
+      .flatMap((tab) => {
+        const run = all.find((r) => r.id === tab.runId)
+        return run
+          ? [
+              {
+                runId: run.id,
+                name: 'Task Lead',
+                agent: run.agent as AgentKind,
+                state: run.state as RunState,
+              },
+            ]
+          : []
+      })
     const updatedAt = [
       row.createdAt,
       changedAt,
@@ -613,6 +670,7 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      tabs,
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
         .map((r) => {
@@ -731,6 +789,73 @@ export async function openStore({
     at: row.at,
   })
 
+  const checkRunRows = (taskId?: string) =>
+    store.query(
+      queryDb(
+        (taskId === undefined ? checkRuns : checkRuns.where({ taskId })).orderBy(
+          'startedAt',
+          'asc',
+        ),
+      ),
+    )
+  const checkResultRows = (checkRunId: string) =>
+    store.query(queryDb(checkResults.where({ checkRunId }).orderBy('position', 'asc')))
+  const toCheckResult = (row: typeof checkResults.Type): CheckResult => ({
+    name: row.name,
+    ...(row.repo !== null && { repo: row.repo }),
+    command: row.command,
+    timeout: row.timeout,
+    state: row.state as CheckState,
+    ...(row.exitCode !== null && { exitCode: row.exitCode }),
+    ...(row.durationMs !== null && { durationMs: row.durationMs }),
+    ...(row.builtIn === 'ted-settings' && { builtIn: 'ted-settings' as const }),
+  })
+  const toCheckRun = (row: typeof checkRuns.Type): CheckRun => ({
+    id: row.id,
+    taskId: row.taskId,
+    trigger: row.trigger as CheckRunTrigger,
+    stage: row.stage as StageId,
+    checks: checkResultRows(row.id).map(toCheckResult),
+    startedAt: row.startedAt,
+    ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+  })
+  const checkProgress = (checkRunId: string) => {
+    const rows = checkResultRows(checkRunId)
+    const index = rows.findIndex((r) => r.state === 'running')
+    const current = rows[index]
+    if (!current) return undefined
+    return {
+      name: current.repo === null ? current.name : `${current.name} (${current.repo})`,
+      index: index + 1,
+      total: rows.length,
+    }
+  }
+  const requireCheckRun = (id: string) => {
+    const row = store.query(queryDb(checkRuns.where({ id }))).at(0)
+    if (!row) throw new Error(`no Check run ${id}`)
+    return toCheckRun(row)
+  }
+  const updatedCheckRun = (id: string): CheckRun => {
+    const checkRun = requireCheckRun(id)
+    emit({ type: 'check-run-updated', checkRun })
+    noteActivity()
+    updatedTask(checkRun.taskId)
+    return checkRun
+  }
+  const toSendBack = (row: typeof sendBacks.Type): SendBack => ({
+    id: row.id,
+    taskId: row.taskId,
+    from: row.fromStage as StageId,
+    to: row.toStage as StageId,
+    findings: row.findings,
+    counted: row.counted,
+    ...(row.round !== null && { round: row.round }),
+    ...(row.limit !== null && { limit: row.limit }),
+    ...(row.checkRunId !== null && { checkRunId: row.checkRunId }),
+    at: row.at,
+  })
+
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const lastCommentAt = (taskId: string) =>
     store
@@ -823,6 +948,7 @@ export async function openStore({
       },
       automationsOn: 0,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
+      checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
     }
   }
   let lastActivity = activity()
@@ -1261,19 +1387,77 @@ export async function openStore({
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
     },
-    recordSendBack({ taskId, from, to, findings, counted }) {
+    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId }) {
+      const id = randomUUID()
       commit(
-        events.taskSentBack({
-          id: randomUUID(),
+        events.taskSentBackV2({
+          id,
           taskId,
           from,
           to,
           findings,
           counted,
+          round: round ?? null,
+          limit: limit ?? null,
+          checkRunId: checkRunId ?? null,
           at: new Date().toISOString(),
         }),
       )
+      const row = store.query(queryDb(sendBacks.where({ id }))).at(0)
+      if (!row) throw new Error(`no send-back ${id}`)
+      const sendBack = toSendBack(row)
+      emit({ type: 'sent-back', sendBack })
+      return sendBack
     },
+    listSendBacks: (taskId) =>
+      store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBack),
+    startChecks({ taskId, trigger, stage, checks }) {
+      const id = randomUUID()
+      commit(
+        events.checksStarted({
+          id,
+          taskId,
+          trigger,
+          stage,
+          checks: checks.map((check) => ({
+            name: check.name,
+            repo: check.repo ?? null,
+            command: check.command,
+            timeout: check.timeout,
+            builtIn: check.builtIn ?? null,
+            state: check.state,
+          })),
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(id)
+    },
+    checkStarted(checkRunId, position) {
+      commit(events.checkStarted({ checkRunId, position, at: new Date().toISOString() }))
+      return updatedCheckRun(checkRunId)
+    },
+    checkFinished(checkRunId, position, { state, exitCode, durationMs }) {
+      commit(
+        events.checkFinished({
+          checkRunId,
+          position,
+          state,
+          exitCode: exitCode ?? null,
+          durationMs,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(checkRunId)
+    },
+    finishChecks(checkRunId, outcome) {
+      commit(events.checksFinished({ checkRunId, outcome, at: new Date().toISOString() }))
+      return updatedCheckRun(checkRunId)
+    },
+    getCheckRun(id) {
+      const row = store.query(queryDb(checkRuns.where({ id }))).at(0)
+      return row && toCheckRun(row)
+    },
+    listCheckRuns: (taskId) => checkRunRows(taskId).map(toCheckRun),
     resetSendBacks(taskId, stage) {
       commit(
         events.sendBackCountReset({
@@ -1327,7 +1511,11 @@ export async function openStore({
       const target = holding ? 'waiting' : state
       const stateChanged = target !== undefined && target !== current.state
       commit(
-        events.runOutputRead({ runId, toOffset, entries }),
+        events.runOutputReadV2({
+          runId,
+          toOffset,
+          entries: entries.map((entry) => ({ ...entry, at: entry.at ?? at })),
+        }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
@@ -1336,6 +1524,7 @@ export async function openStore({
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
       )
+      if (entries.length > 0) emit({ type: 'run-output', runId })
       if (newProblem || stateChanged) {
         const row = runRow(runId)
         if (row) emit({ type: 'run-updated', run: toRun(row) })
@@ -1372,7 +1561,31 @@ export async function openStore({
     conversation: (runId) =>
       store
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
-        .map(({ offset, line }) => ({ offset, line })),
+        .map(({ offset, line, at }) => ({ offset, line, ...(at !== null && { at }) })),
+    taskRunList: (taskId) => taskRuns(taskId).map(toRun),
+    recordRunMessage({ runId, text, lead }) {
+      const taskId = taskIdOfRun(runId) ?? null
+      const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
+      commit(events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }))
+      emit({ type: 'run-output', runId })
+      if (taskId !== null && lead) updatedTask(taskId)
+      return message
+    },
+    runMessages: (runId) =>
+      store.query(queryDb(runMessages.where({ runId }).orderBy('at', 'asc'))).map((row) => row),
+    openTab(taskId, runId) {
+      const at = new Date().toISOString()
+      if (store.query(queryDb(conversationTabs.where({ id: `${taskId}:${runId}` }))).length === 0) {
+        commit(events.conversationTabOpened({ taskId, runId, at }))
+      }
+      return updatedTask(taskId)
+    },
+    closeTab(taskId, runId) {
+      if (store.query(queryDb(conversationTabs.where({ id: `${taskId}:${runId}` }))).length > 0) {
+        commit(events.conversationTabClosed({ taskId, runId, at: new Date().toISOString() }))
+      }
+      return updatedTask(taskId)
+    },
     settings,
     activity,
     updateSettings(changes) {

@@ -127,6 +127,27 @@ export const conversationEntries = State.SQLite.table({
     runId: State.SQLite.text(),
     offset: State.SQLite.integer(),
     line: State.SQLite.text(),
+    at: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const runMessages = State.SQLite.table({
+  name: 'runMessages',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    runId: State.SQLite.text(),
+    text: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const conversationTabs = State.SQLite.table({
+  name: 'conversationTabs',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    openedAt: State.SQLite.text(),
   },
 })
 
@@ -185,7 +206,40 @@ export const sendBacks = State.SQLite.table({
     toStage: State.SQLite.text(),
     findings: State.SQLite.text(),
     counted: State.SQLite.boolean(),
+    round: State.SQLite.integer({ nullable: true }),
+    limit: State.SQLite.integer({ nullable: true }),
+    checkRunId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
+  },
+})
+
+export const checkRuns = State.SQLite.table({
+  name: 'checkRuns',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    trigger: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    startedAt: State.SQLite.text(),
+    finishedAt: State.SQLite.text({ nullable: true }),
+    outcome: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const checkResults = State.SQLite.table({
+  name: 'checkResults',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    checkRunId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    name: State.SQLite.text(),
+    repo: State.SQLite.text({ nullable: true }),
+    command: State.SQLite.text(),
+    timeout: State.SQLite.text(),
+    builtIn: State.SQLite.text({ nullable: true }),
+    state: State.SQLite.text(),
+    exitCode: State.SQLite.integer({ nullable: true }),
+    durationMs: State.SQLite.integer({ nullable: true }),
   },
 })
 
@@ -540,6 +594,64 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskSentBackV2: Events.synced({
+    name: 'v2.TaskSentBack',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      counted: Schema.Boolean,
+      round: Schema.NullOr(Schema.Number),
+      limit: Schema.NullOr(Schema.Number),
+      checkRunId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  checksStarted: Events.synced({
+    name: 'v1.ChecksStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      trigger: Schema.String,
+      stage: Schema.String,
+      checks: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+          command: Schema.String,
+          timeout: Schema.String,
+          builtIn: Schema.NullOr(Schema.String),
+          state: Schema.String,
+        }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  checkStarted: Events.synced({
+    name: 'v1.CheckStarted',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  checkFinished: Events.synced({
+    name: 'v1.CheckFinished',
+    schema: Schema.Struct({
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      state: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      durationMs: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  checksFinished: Events.synced({
+    name: 'v1.ChecksFinished',
+    schema: Schema.Struct({ checkRunId: Schema.String, outcome: Schema.String, at: Schema.String }),
+  }),
   sendBackCountReset: Events.synced({
     name: 'v1.SendBackCountReset',
     schema: Schema.Struct({
@@ -754,6 +866,35 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runOutputReadV2: Events.synced({
+    name: 'v2.RunOutputRead',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      toOffset: Schema.Number,
+      entries: Schema.Array(
+        Schema.Struct({ offset: Schema.Number, line: Schema.String, at: Schema.String }),
+      ),
+    }),
+  }),
+  runMessageSent: Events.synced({
+    name: 'v1.RunMessageSent',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      lead: Schema.Boolean,
+      text: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  conversationTabOpened: Events.synced({
+    name: 'v1.ConversationTabOpened',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  conversationTabClosed: Events.synced({
+    name: 'v1.ConversationTabClosed',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -803,6 +944,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
+  'v2.TaskSentBack': (args) =>
+    task(args, {
+      from: args.from,
+      to: args.to,
+      findings: args.findings,
+      round: args.round,
+      limit: args.limit,
+      checkRunId: args.checkRunId,
+    }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v1.TaskLeadSet': (args) =>
@@ -820,6 +970,11 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.TaskRunReleased': (args) => task(args),
+  'v1.RunMessageSent': (args) => ({
+    taskId: args.lead === true ? str(args.taskId) : null,
+    at: String(args.at),
+    data: { runId: args.runId, messageId: args.id },
+  }),
 }
 
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
@@ -945,6 +1100,30 @@ const materializers = counted(
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
         sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+      'v2.TaskSentBack': ({ from, to, ...row }) =>
+        sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+      'v1.ChecksStarted': ({ checks, at, ...run }) => [
+        checkRuns.insert({ ...run, startedAt: at }),
+        ...checks.map((check, position) =>
+          checkResults.insert({
+            ...check,
+            id: `${run.id}:${position}`,
+            checkRunId: run.id,
+            position,
+          }),
+        ),
+      ],
+      'v1.CheckStarted': ({ checkRunId, position }) =>
+        checkResults.update({ state: 'running' }).where({ id: `${checkRunId}:${position}` }),
+      'v1.CheckFinished': ({ checkRunId, position, state, exitCode, durationMs }) =>
+        checkResults
+          .update({ state, exitCode, durationMs })
+          .where({ id: `${checkRunId}:${position}` }),
+      'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
+        checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),
+        checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'waiting' }),
+        checkResults.update({ state: 'not-run' }).where({ checkRunId, state: 'running' }),
+      ],
       'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
       'v1.RunStarted': (run) =>
         runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
@@ -968,6 +1147,19 @@ const materializers = counted(
           conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
         ),
       ],
+      'v2.RunOutputRead': ({ runId, toOffset, entries }) => [
+        runs.update({ readOffset: toOffset }).where({ id: runId }),
+        ...entries.map(({ offset, line, at }) =>
+          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line, at }),
+        ),
+      ],
+      'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
+      'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
+        conversationTabs
+          .insert({ id: `${taskId}:${runId}`, taskId, runId, openedAt: at })
+          .onConflict('id', 'ignore'),
+      'v1.ConversationTabClosed': ({ taskId, runId }) =>
+        conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
       'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
       'v1.RunSessionIdentified': ({ runId, sessionId }) =>
         runs.update({ sessionId }).where({ id: runId }),
@@ -1059,11 +1251,15 @@ const state = State.SQLite.makeState({
     taskSources,
     runs,
     conversationEntries,
+    runMessages,
+    conversationTabs,
     comments,
     taskLog,
     taskBriefs,
     sendBacks,
     sendBackResets,
+    checkRuns,
+    checkResults,
     stageEntries,
     workflowLayers,
     taskRepos,

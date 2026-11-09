@@ -5,7 +5,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { holdAwakeWithOs, stayAwakeCommand } from '../src/stay-awake.ts'
-import { api, killRunHosts, makeTempHome, stubClaudePath, tokenFor } from './helpers.ts'
+import { api, isAlive, killRunHosts, makeTempHome, stubClaudePath, tokenFor } from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -164,12 +164,3 @@ describe('holding the machine awake with the OS command', () => {
     expect(() => holdAwakeWithOs(undefined)().release()).not.toThrow()
   })
 })
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
