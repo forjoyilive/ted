@@ -4,7 +4,7 @@
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useRunChat } from '../data.ts'
-import { ago, useNow } from '../requests.ts'
+import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
@@ -12,8 +12,6 @@ import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
-
-const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -416,7 +414,7 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
       return (
         <Collapsible
           label="TED’s instructions for this Run"
-          meta={`${item.lines} lines${item.at !== undefined ? ` · ${clock.format(new Date(item.at))}` : ''}`}
+          meta={`${item.lines} lines${item.at !== undefined ? ` · ${clockTime(item.at)}` : ''}`}
         >
           <pre className={styles.output}>{item.text}</pre>
         </Collapsible>
@@ -425,7 +423,7 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
       return (
         <Collapsible
           label="Prompt"
-          meta={`${item.lines} lines${item.at !== undefined ? ` · ${clock.format(new Date(item.at))}` : ''}`}
+          meta={`${item.lines} lines${item.at !== undefined ? ` · ${clockTime(item.at)}` : ''}`}
         >
           <pre className={styles.output}>{item.text}</pre>
         </Collapsible>

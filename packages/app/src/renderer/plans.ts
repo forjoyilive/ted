@@ -1,5 +1,6 @@
 import type { ChatItem, Plan, PlanRequest, PlanStatus } from '@ted/protocol'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
+import { clockTime } from './requests.ts'
 
 function ordinal(n: number): string {
   const tens = n % 100
@@ -12,15 +13,8 @@ const day = new Intl.DateTimeFormat('en-GB', {
   day: 'numeric',
   month: 'short',
 })
-const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
-
 export function when(iso: string): string {
-  const at = new Date(iso)
-  return `${day.format(at).replace(',', '')} ${clock.format(at)}`
-}
-
-export function timeOf(iso: string): string {
-  return clock.format(new Date(iso))
+  return `${day.format(new Date(iso)).replace(',', '')} ${clockTime(iso)}`
 }
 
 export const endedStatuses: readonly PlanStatus[] = ['finished', 'stopped', 'failed']
@@ -120,8 +114,8 @@ export function requestHeading(request: PlanRequest): { kind: string; detail: st
 export function requestState(request: PlanRequest, latest: boolean): string {
   const { answer } = request
   if (!answer) return 'pinned below'
-  if (answer.kind === 'answered') return `answered by you at ${timeOf(answer.at)}`
-  if (answer.kind === 'approved') return `approved by you at ${timeOf(answer.at)}`
+  if (answer.kind === 'answered') return `answered by you at ${clockTime(answer.at)}`
+  if (answer.kind === 'approved') return `approved by you at ${clockTime(answer.at)}`
   if (answer.kind === 'superseded') return 'Superseded'
   if (answer.kind === 'changes-requested') return latest ? 'changes requested' : 'Superseded'
   if (answer.kind === 'withdrawn') return 'Withdrawn'
