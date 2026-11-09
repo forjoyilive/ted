@@ -182,6 +182,10 @@ _Avoid_: Table
 The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered.
 _Avoid_: Notifications, feed
 
+**Middle pane**:
+The wide column in the middle of the app’s window, left of a Task’s details. On a Task it shows the Task’s thread, or in its place a Run chat, an App log, a Shell, a diff, All changes or the Full brief; `middle-pane.ts` in the renderer decides which.
+_Avoid_: Main pane, content area
+
 **Banner**:
 A one-line notice of a machine or Factory problem, shown app-wide or on one Factory’s pages until the problem clears. A banner either stops work (red, can’t be dismissed) or is a warning (amber, hidden for 24 hours by ×). Banners are never Inbox items.
 _Avoid_: Alert, error bar, toast
