@@ -27,6 +27,7 @@ import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
+import type { Sandbox } from '../sandbox.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
@@ -60,6 +61,7 @@ export interface AppTask {
   displayId: string
   factoryId: string
   repos: AppRepo[]
+  sandbox?: { writable: string[] }
 }
 
 export interface SimulatorOptions {
@@ -92,6 +94,8 @@ export interface AppsOptions {
   stopGraceMs?: number
   logBytes?: number
   simulators?: SimulatorOptions
+  sandbox: Sandbox
+  sandboxProblem(factoryId: string): Promise<string | undefined>
 }
 
 export interface Apps {
@@ -144,13 +148,14 @@ interface Runner {
     cwd: string
     env: NodeJS.ProcessEnv
     logBytes: number
+    shell?: string[]
   }): Promise<void>
 }
 
 const processRunner: Runner = {
-  async launch({ dir, run, cwd, env, logBytes }) {
+  async launch({ dir, run, cwd, env, logBytes, shell }) {
     const files = appFiles(dir)
-    const launch: AppLaunchFile = { run, cwd, logBytes }
+    const launch: AppLaunchFile = { run, cwd, logBytes, ...(shell !== undefined && { shell }) }
     await writeFile(files.launch, JSON.stringify(launch), { mode: 0o600 })
     await rm(files.records, { force: true })
     await appendFile(files.log, `$ ${run}\n`, { mode: 0o600 })
@@ -555,6 +560,11 @@ export function createApps(options: AppsOptions): Apps {
       options.env?.() ?? process.env,
     )
     const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
+    const sandboxed = await sandboxFor(task, dir)
+    if ('problem' in sandboxed) {
+      await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
+      throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
+    }
     const instance: Instance = {
       repo: repo.name,
       name: app.name,
@@ -571,8 +581,9 @@ export function createApps(options: AppsOptions): Apps {
       dir,
       run: app.run,
       cwd: repo.worktree,
-      env,
+      env: { ...env, ...sandboxed.env },
       logBytes: options.logBytes ?? appLogBytes,
+      ...(sandboxed.shell !== undefined && { shell: sandboxed.shell }),
     })
     store.appStarted({
       taskId,
@@ -587,6 +598,24 @@ export function createApps(options: AppsOptions): Apps {
     changed(taskId)
     watch(taskId, key, dir)
     return toApp(taskId, repo.name, app, instance)
+  }
+
+  async function sandboxFor(
+    task: AppTask,
+    dir: string,
+  ): Promise<{ shell?: string[]; env: Record<string, string> } | { problem: string }> {
+    if (task.sandbox === undefined) return { env: {} }
+    const problem = await options.sandboxProblem(task.factoryId)
+    if (problem !== undefined) return { problem }
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await removeInside(dir, 'tmp')
+    const tmp = appFiles(dir).tmp
+    await mkdir(tmp, { mode: 0o700 })
+    const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], {
+      writable: task.sandbox.writable,
+      tmp,
+    })
+    return { shell: wrapped.argv, env: wrapped.env }
   }
 
   async function hostAlive(dir: string): Promise<boolean> {

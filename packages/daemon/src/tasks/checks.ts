@@ -1,14 +1,16 @@
-import { mkdir, open, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, open, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
+import { type Sandbox, SandboxUnavailable } from '../sandbox.ts'
 import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
-import { durationMs, runWorktreeCommand } from './worktree.ts'
+import { type CommandResult, durationMs, runWorktreeCommand } from './worktree.ts'
 
 export const defaultCheckTimeout = '10m'
 export const tedSettingsCheck = 'TED settings'
@@ -90,6 +92,7 @@ export async function runChecks(input: {
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
+  sandbox?: { sandbox: Sandbox; writable: readonly string[] }
   signal?: AbortSignal
   onStart: (position: number) => void
   onFinish: (
@@ -107,13 +110,14 @@ export async function runChecks(input: {
     const result =
       check.builtIn === 'ted-settings'
         ? await checkSettings(cwd, log, input.libraryDir)
-        : await runWorktreeCommand({
+        : await runCheck({
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
             env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
             log,
             shell: [loginShell(input.env), '-lc'],
             ...(input.signal !== undefined && { signal: input.signal }),
+            ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
           })
     if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
     const state: CheckState = result.outcome
@@ -129,6 +133,32 @@ export async function runChecks(input: {
     }
   }
   return { outcome: 'passed', notFound }
+}
+
+async function runCheck(
+  input: Parameters<typeof runWorktreeCommand>[0] & {
+    shell: [string, ...string[]]
+    sandbox?: { sandbox: Sandbox; writable: readonly string[] }
+  },
+): Promise<CommandResult> {
+  const { sandbox, ...command } = input
+  if (sandbox === undefined) return runWorktreeCommand(command)
+  const tmp = await mkdtemp(path.join(tmpdir(), 'ted-check-'))
+  try {
+    const wrapped = await sandbox.sandbox.wrap(input.shell, { writable: sandbox.writable, tmp })
+    return await runWorktreeCommand({
+      ...command,
+      shell: wrapped.argv,
+      env: { ...command.env, ...wrapped.env },
+    })
+  } catch (error) {
+    if (!(error instanceof SandboxUnavailable)) throw error
+    await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
+    await writeFile(input.log, `TED didn’t run this Check: ${error.message}\n`, { mode: 0o600 })
+    return { outcome: 'failed' }
+  } finally {
+    await rm(tmp, { recursive: true, force: true })
+  }
 }
 
 export function checkEnv(

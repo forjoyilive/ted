@@ -1,5 +1,6 @@
+import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -116,11 +117,19 @@ const sendBacks = (client: Client, task: Task) =>
     return found.length > 0 ? found : undefined
   }, 'a send-back')
 
+const worktreeFile = async (client: Client, task: Task, name: string) => {
+  const repo = await waitUntil(
+    async () => (await getTask(client, task.id))?.repos[0],
+    `${task.displayId}’s worktree`,
+  )
+  return path.join(repo.worktree, name)
+}
+
 const states = (run: CheckRun | undefined) => run?.checks.map((c) => [c.name, c.state])
 
 describe('Checks at Validate', () => {
   test('Checks run in order, the first failure sends the Task back to Work with its output', async () => {
-    const flag = path.join(scratch, 'failed-once')
+    const flag = 'stub-failed-once'
     await workflow(
       [
         '      - { name: Typecheck, run: "echo typed" }',
@@ -403,9 +412,8 @@ describe('Checks over the send-back limit and across restarts', () => {
 
   test('Checks cut short by a daemon restart run again from the start', async () => {
     const go = path.join(scratch, 'go')
-    const count = path.join(scratch, 'count')
     await workflow(
-      `      - { name: Tests, run: "echo run >> '${count}'; while [ ! -e '${go}' ]; do sleep 0.05; done" }`,
+      `      - { name: Tests, run: "echo run >> stub-count; while [ ! -e '${go}' ]; do sleep 0.05; done" }`,
     )
     let client = await startTed()
     const task = await startTask(
@@ -417,6 +425,7 @@ describe('Checks over the send-back limit and across restarts', () => {
         advance,
       ),
     )
+    const count = await worktreeFile(client, task, 'stub-count')
     await waitUntil(
       () =>
         readFile(count, 'utf8').then(
@@ -452,7 +461,6 @@ describe('Checks over the send-back limit and across restarts', () => {
 
 describe('the Checks’ environment', () => {
   test('Checks get worktree.env, CI=1 and TED_TASK, and none of the daemon’s TED_ names or agent credentials', async () => {
-    const seen = path.join(scratch, 'env-seen.txt')
     const planted = {
       ANTHROPIC_API_KEY: 'anthropic-secret',
       ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
@@ -463,6 +471,7 @@ describe('the Checks’ environment', () => {
       KEEP_ME: 'kept',
     }
     const before = { ...process.env }
+    let seen = ''
     Object.assign(process.env, planted)
     try {
       await commitToOrigin(scratch, {
@@ -478,7 +487,7 @@ describe('the Checks’ environment', () => {
           'stages:',
           '  validate:',
           '    checks:',
-          `      - { name: Env, run: "env > '${seen}'" }`,
+          '      - { name: Env, run: env }',
           '',
         ].join('\n'),
       })
@@ -492,7 +501,9 @@ describe('the Checks’ environment', () => {
           advance,
         ),
       )
-      await finishedRuns(client, task, 1)
+      const [run] = await finishedRuns(client, task, 1)
+      seen = (await client.ok<{ text: string }>('GET', `/check-runs/${run?.id}/checks/0/output`))
+        .text
     } finally {
       for (const name of Object.keys(planted)) {
         if (before[name] === undefined) delete process.env[name]
@@ -500,7 +511,7 @@ describe('the Checks’ environment', () => {
       }
     }
     const env = Object.fromEntries(
-      (await readFile(seen, 'utf8'))
+      seen
         .split('\n')
         .filter((line) => line.includes('='))
         .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
@@ -528,12 +539,11 @@ describe('the Checks’ environment', () => {
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
     await chmod(path.join(loginBin, 'login-tool'), 0o755)
     const shell = path.join(scratch, 'fake-login-shell')
-    const seen = path.join(scratch, 'check-saw')
     await writeFile(
       shell,
       [
         '#!/bin/sh',
-        `if [ "$1" = "-lc" ]; then echo login-shell > '${seen}'; exec /bin/sh -c "$2"; fi`,
+        'if [ "$1" = "-lc" ]; then echo login-shell; exec /bin/sh -c "$2"; fi',
         `PATH='${loginBin}':"$PATH"`,
         'export PATH',
         'exec /bin/sh -c "$4"',
@@ -541,7 +551,7 @@ describe('the Checks’ environment', () => {
       ].join('\n'),
     )
     await chmod(shell, 0o755)
-    await workflow(`      - { name: Tool, run: "login-tool ran >> '${seen}'" }`)
+    await workflow('      - { name: Tool, run: "login-tool ran" }')
     const realShell = process.env.SHELL
     process.env.SHELL = shell
     daemon = await startDaemon({
@@ -569,7 +579,8 @@ describe('the Checks’ environment', () => {
     )
     const [run] = await finishedRuns({ ...client, ok }, task, 1)
     expect(states(run)).toEqual([['Tool', 'passed']])
-    expect(await readFile(seen, 'utf8')).toBe('login-shell\nran')
+    const output = await ok<{ text: string }>('GET', `/check-runs/${run?.id}/checks/0/output`)
+    expect(output.text).toBe('login-shell\nran')
   }, 90_000)
 })
 
@@ -642,5 +653,119 @@ describe('ted checks', () => {
     expect(result?.code).not.toBe(0)
     expect(result?.stderr).toContain('no Check named “Nope”')
     expect(await checkRuns(client, task)).toEqual([])
+  })
+})
+
+describe('the Checks’ sandbox', () => {
+  const escapeCheck = (targets: string[]) =>
+    `      - { name: Escape, run: "${targets.map((t) => `touch '${t}' 2>/dev/null`).join('; ')}; touch stub-inside; echo done" }`
+
+  test.runIf(process.platform === 'darwin')(
+    'a Check an agent starts writes its worktree but not TED_HOME or the home folder',
+    async () => {
+      const homeFile = path.join(homedir(), `.ted-check-escape-${randomUUID()}`)
+      const targets = [path.join(home, 'planted'), homeFile, path.join(scratch, 'out')]
+      try {
+        await workflow(escapeCheck(targets))
+        const client = await startTed()
+        const task = await startTask(
+          client,
+          steps(
+            { run: ['sh', '-c', 'echo x > a.txt'] },
+            { run: ['ted', 'checks'] },
+            { endTurn: true },
+          ),
+        )
+        const [run] = await finishedRuns(client, task, 1)
+        expect(run?.trigger).toBe('agent')
+        expect(states(run)).toEqual([['Escape', 'passed']])
+        expect(await readFile(await worktreeFile(client, task, 'stub-inside'), 'utf8')).toBe('')
+        for (const file of targets) await expect(readFile(file), file).rejects.toThrow()
+      } finally {
+        await rm(homeFile, { force: true })
+      }
+    },
+  )
+
+  test.runIf(process.platform === 'darwin')(
+    'Validate’s Checks run sandboxed too, since they run the code the agent wrote',
+    async () => {
+      await workflow(escapeCheck([path.join(home, 'planted')]))
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { everyMessage: [{ endTurn: true }] },
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          advance,
+          advance,
+        ),
+      )
+      const [run] = await finishedRuns(client, task, 1)
+      expect(run?.trigger).toBe('validate')
+      expect(states(run)).toEqual([['Escape', 'passed']])
+      await expect(readFile(path.join(home, 'planted'))).rejects.toThrow()
+    },
+  )
+
+  test('in a Bypass Factory the Checks run as before, outside any sandbox', async () => {
+    await commitToOrigin(scratch, {
+      '.gitignore': 'stub-*\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'permissions: bypass',
+        'order: [intake, work, validate]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        escapeCheck([path.join(scratch, 'out')]),
+        '',
+      ].join('\n'),
+    })
+    const client = await startTed()
+    const task = await startTask(
+      client,
+      steps({ run: ['sh', '-c', 'echo x > a.txt'] }, { run: ['ted', 'checks'] }, { endTurn: true }),
+    )
+    const [run] = await finishedRuns(client, task, 1)
+    expect(states(run)).toEqual([['Escape', 'passed']])
+    expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
+  })
+
+  test('without a working sandbox, ted checks is refused and a banner says why', async () => {
+    await workflow('      - { name: Typecheck, run: "echo typed" }')
+    const before = process.env.TED_SANDBOX_BIN
+    process.env.TED_SANDBOX_BIN = path.join(scratch, 'no-such-sandbox')
+    try {
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+      )
+      const current = await waitUntil(async () => {
+        const t = await getTask(client, task.id)
+        return t?.leadRunId ? t : undefined
+      }, 'the Task Lead')
+      const results = await waitUntil(async () => {
+        const texts = assistantTexts((await client.getRun(current.leadRunId ?? '')).conversation)
+          .filter((t) => t.startsWith('{'))
+          .map((t) => JSON.parse(t) as { code: number; stderr: string })
+        return texts.length >= 2 ? texts : undefined
+      }, 'the ted checks result')
+      expect(results[1]?.code).not.toBe(0)
+      expect(results[1]?.stderr).toContain('can’t sandbox Checks and Apps')
+      expect(await checkRuns(client, task)).toEqual([])
+      const banners = await client.ok<Banner[]>('GET', '/banners')
+      expect(banners.find((b) => b.problem === 'sandbox-unavailable')).toMatchObject({
+        severity: 'stops-work',
+      })
+    } finally {
+      if (before === undefined) delete process.env.TED_SANDBOX_BIN
+      else process.env.TED_SANDBOX_BIN = before
+    }
   })
 })

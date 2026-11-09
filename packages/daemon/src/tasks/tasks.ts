@@ -95,6 +95,7 @@ import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
+import type { Sandbox } from '../sandbox.ts'
 import type {
   LoopCheck,
   LoopVerdict,
@@ -422,6 +423,7 @@ export function createTasks(options: {
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
+  sandbox: Sandbox
 }): Tasks {
   const {
     store,
@@ -515,7 +517,26 @@ export function createTasks(options: {
       return task !== undefined && !task.archived && task.stage !== 'done'
     },
     task: appTask,
+    sandbox: options.sandbox,
+    sandboxProblem,
   })
+
+  async function sandboxProblem(factoryId: string): Promise<string | undefined> {
+    const ref = { problem: 'sandbox-unavailable', factoryId }
+    const problem = await options.sandbox.problem()
+    if (problem === undefined) {
+      if (store.getBanner(bannerId(ref))) banners.clear(ref)
+      return undefined
+    }
+    banners.raise({ ...ref, severity: 'stops-work', text: problem })
+    return problem
+  }
+
+  function sandboxWritable(task: StoredTask, entries: readonly FactoryRepoEntry[]): string[] {
+    const folder = runFolderOf(task, entries)
+    const worktrees = task.repos.filter((r) => !r.removed).map((r) => r.worktree)
+    return [...new Set([...(folder === undefined ? [] : [folder]), ...worktrees])]
+  }
 
   async function appTask(taskId: string): Promise<AppTask> {
     const task = find(taskId)
@@ -529,9 +550,11 @@ export function createTasks(options: {
       factory,
     )
     const setupApps = task.setup ? await approvedSetupApps(task) : undefined
+    const bypass = runsInBypass(await taskWorkflow(task, { fetch: false }))
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
+      ...(!bypass && { sandbox: { writable: sandboxWritable(task, entries) } }),
       repos: live.map((repo) => {
         const entry = repoEntry(entries, repo)
         return {
@@ -1033,6 +1056,10 @@ export function createTasks(options: {
       ...(only !== undefined && { only }),
     })
     if (plan.length === 0) return undefined
+    const sandbox = runsInBypass(resolution)
+      ? undefined
+      : { sandbox: options.sandbox, writable: sandboxWritable(task, entries) }
+    if (sandbox !== undefined) await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,
       trigger,
@@ -1046,6 +1073,7 @@ export function createTasks(options: {
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
         env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
+        ...(sandbox !== undefined && { sandbox }),
         signal: stopping.signal,
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
@@ -6550,6 +6578,8 @@ export function createTasks(options: {
       checking.add(task.id)
       try {
         const resolution = await taskWorkflow(task, { fetch: false })
+        const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
+        if (problem !== undefined) throw new RequestError(409, problem)
         const listed = task.setup
           ? await approvedSetupChecks(task)
           : (resolution.workflow.settings.stages.validate?.checks ?? [])
