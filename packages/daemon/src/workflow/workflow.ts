@@ -60,7 +60,9 @@ export async function taskLeadPrompt(
     ...(task.source ? [sourceContext(task.source)] : []),
     ...(task.clarifyDepth !== 'auto'
       ? [
-          `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
+          task.clarifyDepthBy === 'task-lead'
+            ? `Clarify depth: ${depthNames[task.clarifyDepth]}. You picked it at Clarify.`
+            : `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
         ]
       : []),
     ...(attachmentFile && task.attachments.length > 0

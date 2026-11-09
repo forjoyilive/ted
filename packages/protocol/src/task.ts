@@ -23,6 +23,13 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
+export type ClarifyDepthChooser = 'human' | 'task-lead'
+
+export interface SetClarifyDepthRequest {
+  depth: ClarifyDepth
+  why?: string
+}
+
 export const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as const
 
 export type Effort = (typeof efforts)[number]
@@ -127,6 +134,7 @@ export interface Task {
   description: string
   priority: Priority
   clarifyDepth: ClarifyDepth
+  clarifyDepthBy?: ClarifyDepthChooser
   lead?: TaskLead
   blockedBy: string[]
   attachments: Attachment[]
@@ -244,10 +252,38 @@ export type CommentKind = (typeof commentKinds)[number]
 
 export type CommentAuthor = { kind: 'human' } | { kind: 'run'; runId: string } | { kind: 'ted' }
 
+export interface RoundQuestion {
+  question: string
+  choices?: string[]
+  recommended: string
+}
+
+export interface Round {
+  number: number
+  questions: RoundQuestion[]
+}
+
+export interface RoundInput {
+  title: string
+  summary?: string
+  questions: RoundQuestion[]
+}
+
+export interface RoundAnswer {
+  answer: string
+  note?: string
+  changed: boolean
+}
+
+export interface RoundAnswerInput {
+  answer: string
+  note?: string
+}
+
 export type CommentAnswer =
   | { kind: 'approved'; at: string; text?: string }
   | { kind: 'changes-requested'; at: string; text: string }
-  | { kind: 'answered'; at: string; choice?: string; text?: string }
+  | { kind: 'answered'; at: string; choice?: string; text?: string; answers?: RoundAnswer[] }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
@@ -265,6 +301,7 @@ export interface Comment {
   stage?: StageId
   title?: string
   choices?: string[]
+  round?: Round
   gate?: { approveLabel: string; caption?: string }
   permission?: PermissionAsk
   answer?: CommentAnswer
@@ -301,10 +338,13 @@ export type AnswerRequest =
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
   | { action: 'answer'; choice?: string; text?: string }
+  | { action: 'answer-round'; answers: RoundAnswerInput[] }
+  | { action: 'accept-recommended' }
 
 export interface PostCommentRequest {
-  body: string
+  body?: string
   choices?: string[]
+  round?: RoundInput
   supersedes?: string
 }
 

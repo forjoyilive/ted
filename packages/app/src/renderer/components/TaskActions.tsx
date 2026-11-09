@@ -1,9 +1,9 @@
 import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
-import { priorities } from '@ted/protocol/task'
+import { clarifyDepths, priorities } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
-import { agentLabels, leadSummary, priorityLabels } from '../task-fields.ts'
+import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
@@ -100,6 +100,10 @@ function Choice({
   )
 }
 
+function clarifyAhead(task: Task): boolean {
+  return task.stage === 'backlog' || task.stage === 'intake' || task.stage === 'clarify'
+}
+
 export function TaskActionsMenu({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
@@ -188,6 +192,18 @@ export function TaskActionsMenu({ task }: { task: Task }) {
                         : ted.setTaskLead(task.id, { agent }),
                     )
                   }
+                />
+              ))}
+            </Submenu>
+          )}
+          {clarifyAhead(task) && (
+            <Submenu label="Clarify depth" hint={clarifyDepthLabels[task.clarifyDepth]}>
+              {clarifyDepths.map((depth) => (
+                <Choice
+                  key={depth}
+                  label={clarifyDepthLabels[depth]}
+                  checked={task.clarifyDepth === depth}
+                  onChoose={() => act(() => ted.setClarifyDepth(task.id, depth))}
                 />
               ))}
             </Submenu>

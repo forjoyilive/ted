@@ -17,8 +17,10 @@ import type {
   OutcomeResult,
   Priority,
   ReportOutcomeRequest,
+  RoundInput,
   Run,
   RunSlots,
+  SetClarifyDepthRequest,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -80,6 +82,14 @@ import {
   type PullRequestTask,
 } from './pull-requests.ts'
 import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  clarifySignoffCaption,
+  depthNames,
+  pickDepth,
+  roundAnswerMessage,
+  roundAnswerSummary,
+  roundAnswers,
+} from './rounds.ts'
 import { createSubAgents } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import {
@@ -120,8 +130,9 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[]; supersedes?: string },
+    input: { body: string; choices?: string[]; round?: RoundInput; supersedes?: string },
   ): Promise<Comment>
+  setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
   setActivity(ref: string, caller: Caller, text: string): Task
@@ -1015,6 +1026,79 @@ export function createTasks(options: {
     }
   }
 
+  function roundsThisVisit(task: Task): Comment[] {
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .filter((c) => c.kind === 'round' && c.stage === 'clarify' && c.createdAt >= since)
+  }
+
+  function openRound(task: Task): Comment | undefined {
+    return store.listComments(task.id).find((c) => c.kind === 'round' && c.answer === undefined)
+  }
+
+  async function postRound(
+    task: StoredTask,
+    runId: string,
+    input: RoundInput,
+    supersedes: string | undefined,
+  ): Promise<Comment> {
+    if (task.leadRunId !== runId) throw new RequestError(403, 'only the Task Lead posts a round')
+    if (task.stage !== 'clarify') {
+      throw new RequestError(
+        409,
+        `rounds are for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
+      )
+    }
+    if (task.clarifyDepth === 'auto') {
+      throw new RequestError(409, `pick a Clarify depth first with \`${pickDepth}\``)
+    }
+    if (task.clarifyDepth === 'none') {
+      throw new RequestError(
+        409,
+        `Clarify depth is None, which asks no questions; change it with \`${pickDepth}\` first`,
+      )
+    }
+    return holding(task, async () => {
+      const old = supersedes === undefined ? undefined : store.getComment(supersedes)
+      if (supersedes !== undefined) {
+        if (!old || old.taskId !== task.id) {
+          throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+        }
+        if (old.kind !== 'round') throw new RequestError(400, 'a round can replace only a round')
+        if (old.answer) throw new RequestError(409, 'that request has already been answered')
+      } else {
+        const open = openRound(task)
+        if (open) {
+          throw new RequestError(
+            409,
+            `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+          )
+        }
+        const answered = roundsThisVisit(task).some((c) => c.answer?.kind === 'answered')
+        if (task.clarifyDepth === 'few' && answered) {
+          throw new RequestError(
+            409,
+            'Clarify depth is Few, which asks one round; to ask more, switch to grilling with `ted clarify depth grilling "<why>"`',
+          )
+        }
+      }
+      const numbers = store.listComments(task.id).map((c) => c.round?.number ?? 0)
+      const comment = {
+        taskId: task.id,
+        kind: 'round' as const,
+        title: input.title,
+        body: input.summary ?? '',
+        author: { kind: 'run' as const, runId },
+        round: {
+          number: old?.round?.number ?? Math.max(0, ...numbers) + 1,
+          questions: input.questions,
+        },
+      }
+      return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
+    })
+  }
+
   async function humanComment(task: StoredTask, body: string): Promise<Comment> {
     const posted = store.postComment({ taskId: task.id, body, author: { kind: 'human' } })
     const run = liveLead(find(task.id))
@@ -1177,6 +1261,32 @@ export function createTasks(options: {
 
   async function deliverAnswer(task: Task, comment: Comment, text: string): Promise<void> {
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
+  }
+
+  async function answerRound(task: Task, comment: Comment, request: AnswerRequest) {
+    if (!comment.round) throw new RequestError(409, 'this round has no questions')
+    const answers = roundAnswers(comment.round, request)
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer?.kind === 'superseded') {
+        throw new RequestError(409, 'this request was replaced by a newer one')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        answers,
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        roundAnswerMessage(comment, answers, find(task.id).clarifyDepth),
+      )
+      return answered
+    })
   }
 
   async function move(
@@ -2003,9 +2113,10 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [], supersedes }) {
+    async comment(ref, caller, { body, choices = [], round, supersedes }) {
       if (caller.kind === 'daemon') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
+        if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
@@ -2020,6 +2131,7 @@ export function createTasks(options: {
           )
         }
       }
+      if (round !== undefined) return postRound(task, runId, round, supersedes)
       if (supersedes === undefined) {
         return store.postComment({
           taskId: task.id,
@@ -2033,6 +2145,7 @@ export function createTasks(options: {
         throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
       }
       if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
+      if (old.kind === 'round') throw new RequestError(400, 'replace a round with another round')
       if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
@@ -2048,6 +2161,42 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           ...(choices.length > 0 && { choices }),
         })
+      })
+    },
+
+    async setClarifyDepth(ref, caller, { depth, why }) {
+      if (caller.kind === 'daemon') {
+        const task = find(ref)
+        if (task.archived || task.stage === 'done') {
+          throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
+        }
+        const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
+        if (liveLead(find(task.id))) {
+          await deliver(
+            task,
+            depth === 'auto'
+              ? 'The human set Clarify depth back to Auto. Pick one yourself at Clarify.'
+              : `The human set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
+          )
+        }
+        return set
+      }
+      const { task, runId } = ownTask(ref, caller)
+      if (task.leadRunId !== runId) {
+        throw new RequestError(403, 'only the Task Lead picks the Clarify depth')
+      }
+      if (task.stage !== 'clarify') {
+        throw new RequestError(
+          409,
+          `pick the Clarify depth at Clarify; ${task.displayId} is in ${stageTitle(task.stage)}`,
+        )
+      }
+      if (depth === 'auto') throw new RequestError(400, 'pick none, few or grilling')
+      return store.setClarifyDepth(task.id, {
+        depth,
+        by: 'task-lead',
+        runId,
+        ...(why !== undefined && { why }),
       })
     },
 
@@ -2110,6 +2259,10 @@ export function createTasks(options: {
       if (!comment) throw new RequestError(404, `no Comment ${id}`)
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
+      if (comment.kind === 'round') return answerRound(task, comment, request)
+      if (request.action === 'answer-round' || request.action === 'accept-recommended') {
+        throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
+      }
       const text = request.text?.trim() ?? ''
       if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
@@ -2145,7 +2298,9 @@ export function createTasks(options: {
             [
               `The human asked for changes at the ${gateName(comment)}:`,
               text,
-              `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+              comment.stage === 'clarify'
+                ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
+                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
             ].join('\n\n'),
           )
           return answered
@@ -2242,6 +2397,13 @@ export function createTasks(options: {
         const resolution = await resolveWorkflow(factoryOf(current))
         const { workflow } = resolution
         if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        const waiting = stage === 'clarify' ? openRound(current) : undefined
+        if (waiting) {
+          throw new RequestError(
+            409,
+            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+          )
+        }
         if (outcome.skip === true) {
           if (!skippableStages.includes(stage)) {
             throw new RequestError(
@@ -2264,7 +2426,10 @@ export function createTasks(options: {
             author: { kind: 'ted' },
           })
         }
-        const gate = workflow.settings.stages[stage]?.gate === true && outcome.skip !== true
+        const gate =
+          (workflow.settings.stages[stage]?.gate === true ||
+            (stage === 'clarify' && current.clarifyDepth === 'grilling')) &&
+          outcome.skip !== true
         if (!gate) {
           const next = workflow.next(stage) as AgentStageId | 'done'
           if (stage === 'validate') pullRequestWork(task.id, 'again')
@@ -2276,7 +2441,7 @@ export function createTasks(options: {
           )
           return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
         }
-        const name = `${stageTitle(stage)} Gate`
+        const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} Gate`
         if (openGateRequest(current)) {
           throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
         }
@@ -2436,11 +2601,13 @@ function latest(a: string, b: string): string {
 }
 
 function gateName(comment: Comment): string {
+  if (comment.stage === 'clarify') return 'Clarify sign-off'
   return `${stageTitle(comment.stage ?? '')} Gate`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
   if (stage === 'merge') return { approveLabel: 'Merge' }
+  if (stage === 'clarify') return { approveLabel: 'Approve', caption: clarifySignoffCaption }
   if (stage !== 'review') return { approveLabel: 'Approve' }
   if (!workflow.stages.includes('merge')) {
     return {
@@ -2519,6 +2686,9 @@ function answerText(comment: Comment): string | undefined {
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
+  if (answer.kind === 'answered' && answer.answers) {
+    return roundAnswerSummary(comment, answer.answers)
+  }
   if (answer.kind === 'answered') {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
   }

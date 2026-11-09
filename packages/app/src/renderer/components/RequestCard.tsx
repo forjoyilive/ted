@@ -15,12 +15,15 @@ import { stageName } from '../views/TaskViews.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import styles from './RequestCard.module.css'
+import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 
 function CardHead({ request, task, now }: { request: Comment; task: Task; now: number }) {
   return (
     <div className={styles.head}>
       <span className={styles.kind}>{kindLabels[request.kind]}</span>
-      <span>{` · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}</span>
+      <span>
+        {`${request.round ? ` · Round ${request.round.number}` : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
+      </span>
     </div>
   )
 }
@@ -42,6 +45,37 @@ function BriefSections({ text, title }: { text: string; title: string }) {
         </section>
       ))}
     </div>
+  )
+}
+
+function SignoffDecisions({ text }: { text: string }) {
+  const sections = briefSections(text)
+  const body = (name: string) =>
+    sections.find((s) => s.heading.toLowerCase() === name)?.body.trim() ?? ''
+  const decisions = body('decisions so far')
+  const open = body('open questions')
+  const items = decisions
+    .split('\n')
+    .map((line) => line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').trim())
+    .filter((line) => line !== '')
+  return (
+    <>
+      <section className={styles.content} aria-label="Decisions so far">
+        <h3 className={styles.sectionHeading}>Decisions so far</h3>
+        {items.length === 0 ? (
+          <p className={styles.sectionBody}>None yet.</p>
+        ) : (
+          <ul className={styles.decisions}>
+            {items.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+      <p className={styles.openQuestions}>
+        {`Open questions: ${open === '' ? 'none.' : open.replace(/\s*\n\s*/g, ' ')}`}
+      </p>
+    </>
   )
 }
 
@@ -126,10 +160,25 @@ export function RequestCard({
     >
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
-      {request.gate ? (
+      {request.gate && request.stage === 'clarify' ? (
+        <SignoffDecisions text={request.body} />
+      ) : request.gate ? (
         <BriefSections text={request.body} title={headline(request)} />
       ) : (
         shown !== undefined && shown !== '' && <Summary text={shown} />
+      )}
+      {request.round && (
+        <RoundQuestions
+          round={request.round}
+          readOnly={readOnly}
+          sending={sending}
+          onSend={(answer) => void send(answer)}
+        />
+      )}
+      {request.round && error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
       )}
       <PermissionCommand request={request} />
       {actionChoice === undefined && request.choices && request.choices.length > 0 && (
@@ -147,7 +196,7 @@ export function RequestCard({
           ))}
         </div>
       )}
-      {!readOnly && (
+      {!readOnly && !request.round && (
         <>
           <textarea
             className={styles.box}
@@ -265,6 +314,9 @@ function answerLine(
     case 'changes-requested':
       return { mark: '↩', tone: 'neutral', text: 'You requested changes' }
     case 'answered':
+      if (answer.answers) {
+        return { mark: '✓', tone: 'good', text: `You answered · ${roundTally(answer.answers)}` }
+      }
       return answer.choice !== undefined
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }
         : { mark: '✓', tone: 'good', text: 'You answered in your own words' }
@@ -365,6 +417,9 @@ export function AnsweredCard({
         <p className={styles.answeredCommand}>{request.permission.command}</p>
       ) : (
         <p className={styles.answeredTitle}>{headline(request)}</p>
+      )}
+      {request.answer?.kind === 'answered' && request.answer.answers && (
+        <RoundAnswers request={request} answers={request.answer.answers} />
       )}
       {line && request.answer && (
         <div className={styles.answerLine}>
