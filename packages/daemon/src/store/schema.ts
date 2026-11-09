@@ -57,6 +57,7 @@ export const tasks = State.SQLite.table({
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
+    partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -294,6 +295,17 @@ export const taskBriefs = State.SQLite.table({
   },
 })
 
+export const taskDescriptions = State.SQLite.table({
+  name: 'taskDescriptions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    version: State.SQLite.integer(),
+    text: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const sendBacks = State.SQLite.table({
   name: 'sendBacks',
   columns: {
@@ -449,6 +461,10 @@ export const pullRequests = State.SQLite.table({
     autoMerge: State.SQLite.text({ nullable: true }),
     waitingOn: State.SQLite.text({ nullable: true }),
     signedOffCommit: State.SQLite.text({ nullable: true }),
+    closedOnGitHubAt: State.SQLite.text({ nullable: true }),
+    previewUrl: State.SQLite.text({ nullable: true }),
+    previewSource: State.SQLite.text({ nullable: true }),
+    previewLabel: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -498,6 +514,13 @@ const runStartedFields = {
   cwd: Schema.String,
   startedAt: Schema.String,
 }
+
+const gitHubNotice = Schema.Struct({
+  key: Schema.String,
+  sig: Schema.String,
+  kind: Schema.String,
+  where: Schema.String,
+})
 
 export const events = {
   factoryAdded: Events.synced({
@@ -702,6 +725,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskEdited: Events.synced({
+    name: 'v1.TaskEdited',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      title: Schema.NullOr(Schema.String),
+      description: Schema.NullOr(Schema.String),
+      version: Schema.NullOr(Schema.Number),
+      previous: Schema.NullOr(Schema.String),
+      previousAt: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -882,6 +917,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestAutoMergeDisabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeDisabled',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
   pullRequestMerged: Events.synced({
     name: 'v1.PullRequestMerged',
     schema: Schema.Struct({
@@ -894,12 +933,71 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestClosedOnGitHub: Events.synced({
+    name: 'v1.PullRequestClosedOnGitHub',
+    schema: Schema.Struct({ taskId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  pullRequestReopenedV2: Events.synced({
+    name: 'v2.PullRequestReopened',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      state: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestPreviewFound: Events.synced({
+    name: 'v1.PullRequestPreviewFound',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      url: Schema.String,
+      source: Schema.String,
+      label: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  gitHubActivitySent: Events.synced({
+    name: 'v1.GitHubActivitySent',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runId: Schema.String,
+      notices: Schema.Array(gitHubNotice),
+      at: Schema.String,
+    }),
+  }),
+  gitHubActivityHeld: Events.synced({
+    name: 'v1.GitHubActivityHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      notices: Schema.Array(gitHubNotice),
+      at: Schema.String,
+    }),
+  }),
+  gitHubActivityQueued: Events.synced({
+    name: 'v1.GitHubActivityQueued',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      rank: Schema.Number,
+      notices: Schema.Array(gitHubNotice),
+      at: Schema.String,
+    }),
+  }),
   pullRequestSignedOff: Events.synced({
     name: 'v1.PullRequestSignedOff',
     schema: Schema.Struct({
       taskId: Schema.String,
       name: Schema.String,
       commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  mergeStoppedPartway: Events.synced({
+    name: 'v1.MergeStoppedPartway',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      merged: Schema.Array(Schema.String),
+      open: Schema.Array(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -912,6 +1010,14 @@ export const events = {
       onto: Schema.String,
       at: Schema.String,
     }),
+  }),
+  mergeStarted: Events.synced({
+    name: 'v1.MergeStarted',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  mergeCanceled: Events.synced({
+    name: 'v1.MergeCanceled',
+    schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
   }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
@@ -1055,6 +1161,24 @@ export const events = {
   localFolderSet: Events.synced({
     name: 'v1.LocalFolderSet',
     schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
+  }),
+  localFolderCleared: Events.synced({
+    name: 'v1.LocalFolderCleared',
+    schema: Schema.Struct({ repo: Schema.String, at: Schema.String }),
+  }),
+  factoryRenamed: Events.synced({
+    name: 'v1.FactoryRenamed',
+    schema: Schema.Struct({ factoryId: Schema.String, name: Schema.String, at: Schema.String }),
+  }),
+  factoryReposChanged: Events.synced({
+    name: 'v1.FactoryReposChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      at: Schema.String,
+    }),
   }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
@@ -1440,6 +1564,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -1500,7 +1625,16 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.PullRequestAutoMergeDisabled': (args) => task(args, { name: args.name }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
+  'v1.PullRequestSignedOff': (args) => task(args, { name: args.name, commit: args.commit }),
+  'v1.PullRequestClosedOnGitHub': (args) => task(args, { name: args.name }),
+  'v1.GitHubActivitySent': (args) => task(args, { runId: args.runId, notices: args.notices }),
+  'v1.GitHubActivityQueued': (args) => task(args, { notices: args.notices }),
+  'v1.GitHubActivityHeld': (args) => task(args, { notices: args.notices }),
+  'v1.MergeStarted': (args) => task(args),
+  'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1620,6 +1754,10 @@ const materializers = counted(
         taskQueue.delete().where({ taskId }),
         tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
       ],
+      'v1.GitHubActivitySent': () => [],
+      'v1.GitHubActivityHeld': () => [],
+      'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
@@ -1644,6 +1782,8 @@ const materializers = counted(
       ],
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -1664,6 +1804,35 @@ const materializers = counted(
       'v1.TaskRanked': ({ taskId, rank }) => [
         tasks.update({ rank }).where({ id: taskId }),
         taskQueue.update({ rank }).where({ taskId }),
+      ],
+      'v1.TaskEdited': ({ taskId, title, description, version, previous, previousAt, at }) => [
+        tasks
+          .update({
+            ...(title !== null && { title }),
+            ...(description !== null && { description }),
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        ...(description === null || version === null
+          ? []
+          : [
+              ...(previous === null || previousAt === null
+                ? []
+                : [
+                    taskDescriptions
+                      .insert({
+                        id: `${taskId}:${version - 1}`,
+                        taskId,
+                        version: version - 1,
+                        text: previous,
+                        at: previousAt,
+                      })
+                      .onConflict('id', 'ignore'),
+                  ]),
+              taskDescriptions
+                .insert({ id: `${taskId}:${version}`, taskId, version, text: description, at })
+                .onConflict('id', 'replace'),
+            ]),
       ],
       'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
@@ -1704,6 +1873,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
+        taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
@@ -1967,6 +2137,8 @@ const materializers = counted(
         pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
         pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeDisabled': ({ taskId, name }) =>
+        pullRequests.update({ autoMerge: null }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
         pullRequests
           .update({
@@ -1979,12 +2151,33 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
       'v1.PullRequestSignedOff': ({ taskId, name, commit }) =>
         pullRequests.update({ signedOffCommit: commit }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestClosedOnGitHub': ({ taskId, name, at }) =>
+        pullRequests
+          .update({ state: 'closed', closedOnGitHubAt: at, waitingOn: null })
+          .where({ id: `${taskId}:${name}` }),
+      'v2.PullRequestReopened': ({ taskId, name, state }) =>
+        pullRequests.update({ state, closedOnGitHubAt: null }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestPreviewFound': ({ taskId, name, url, source, label }) =>
+        pullRequests
+          .update({ previewUrl: url, previewSource: source, previewLabel: label })
+          .where({ id: `${taskId}:${name}` }),
+      'v1.MergeStoppedPartway': ({ taskId, at }) =>
+        tasks.update({ partlyMergedAt: at, changedAt: at }).where({ id: taskId }),
       'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
         pullRequests
           .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })
           .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+      'v1.LocalFolderCleared': ({ repo }) => localFolders.delete().where({ repo }),
+      'v1.FactoryRenamed': ({ factoryId, name }) =>
+        factories.update({ name }).where({ id: factoryId }),
+      'v1.FactoryReposChanged': ({ factoryId, repos }) => [
+        factoryRepos.delete().where({ factoryId }),
+        ...repos.map((repo, position) =>
+          factoryRepos.insert({ ...repo, id: `${factoryId}:${position}`, factoryId, position }),
+        ),
+      ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
           .insert({ layer, files, version, acceptedAt: at })
@@ -2046,6 +2239,7 @@ const state = State.SQLite.makeState({
     comments,
     taskLog,
     taskBriefs,
+    taskDescriptions,
     sendBacks,
     sendBackResets,
     checkRuns,

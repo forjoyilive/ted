@@ -10,8 +10,10 @@ import type {
 import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
+import type { CheckTries } from './check-tries.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
+import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
@@ -35,6 +37,8 @@ export interface Services {
   disk: DiskWatch
   storage: Storage
   factories: Factories
+  factorySettings: FactorySettings
+  checkTries: CheckTries
   conversations: Conversations
 }
 

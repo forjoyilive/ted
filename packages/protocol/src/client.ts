@@ -30,6 +30,17 @@ import type {
   Factory,
   RepoCheck,
 } from './factory.ts'
+import type {
+  CheckTry,
+  CheckTryOutput,
+  CheckTryRequest,
+  FactorySettingsChanges,
+  FactorySettingsView,
+  RenameFactoryRequest,
+  SaveSettingsRequest,
+  SaveSettingsResult,
+  SettingsPreview,
+} from './factory-settings.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
@@ -49,9 +60,12 @@ import type {
   AnswerRequest,
   ArchiveTaskRequest,
   Attachment,
+  CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -167,8 +181,21 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
   }
 
+  cancelMerge(ref: string, comment: string): Promise<Comment> {
+    const body: CancelMergeRequest = { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
+  }
+
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
+  }
+
+  editTask(ref: string, request: EditTaskRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}`, request)
+  }
+
+  taskDescriptions(ref: string): Promise<DescriptionVersion[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
   }
 
   setPriority(ref: string, priority: Priority): Promise<Task> {
@@ -421,6 +448,70 @@ export class DaemonClient {
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/factories', input)
+  }
+
+  factorySettings(factoryId: string): Promise<FactorySettingsView> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
+  }
+
+  previewFactorySettings(
+    factoryId: string,
+    changes: FactorySettingsChanges,
+  ): Promise<SettingsPreview> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/preview`,
+      changes,
+    )
+  }
+
+  saveFactorySettings(
+    factoryId: string,
+    request: SaveSettingsRequest,
+  ): Promise<SaveSettingsResult> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/save`,
+      request,
+    )
+  }
+
+  tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try`, request)
+  }
+
+  stopCheckTry(factoryId: string, name: string): Promise<void> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/checks/try/stop`, {
+      name,
+    })
+  }
+
+  checkTryOutput(factoryId: string, name: string): Promise<CheckTryOutput> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/checks/try/output?name=${encodeURIComponent(name)}`,
+    )
+  }
+
+  renameFactory(factoryId: string, name: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/name`, {
+      name,
+    } satisfies RenameFactoryRequest)
+  }
+
+  setRepoLocalFolder(factoryId: string, repoName: string, path: string): Promise<Factory> {
+    return this.#request(
+      'PUT',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+      { path },
+    )
+  }
+
+  clearRepoLocalFolder(factoryId: string, repoName: string): Promise<Factory> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
+    )
   }
 
   retryClone(factoryId: string): Promise<Factory> {

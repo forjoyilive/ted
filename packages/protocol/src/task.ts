@@ -1,4 +1,4 @@
-import type { ConversationTab } from './chat.ts'
+import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -24,6 +24,10 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
 export type ClarifyDepthChooser = 'human' | 'task-lead'
+
+export function clarifyIsOver(stage: StageId): boolean {
+  return stage !== 'backlog' && stage !== 'intake' && stage !== 'clarify'
+}
 
 export interface SetClarifyDepthRequest {
   depth: ClarifyDepth
@@ -79,6 +83,7 @@ export type CreatedBy = (typeof createdByKinds)[number]
 export type TaskEnding =
   | { kind: 'never-started' }
   | { kind: 'merged'; at: string }
+  | { kind: 'pull-request-closed'; at: string }
   | { kind: 'stopped'; stage: StageId }
 
 export interface TaskArchive {
@@ -111,7 +116,15 @@ export interface TrackStage {
   state: TrackState
 }
 
-export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done' | 'archived'
+export type CommentBox =
+  | 'live'
+  | 'paused'
+  | 'no-run'
+  | 'stopped'
+  | 'failed'
+  | 'done'
+  | 'merge-pending'
+  | 'archived'
 
 export interface TaskRun {
   id: string
@@ -203,6 +216,17 @@ export interface SetPriorityRequest {
   priority: Priority
 }
 
+export interface EditTaskRequest {
+  title?: string
+  description?: string
+}
+
+export interface DescriptionVersion {
+  version: number
+  text: string
+  at: string
+}
+
 export type WorktreeCommandOutcome = 'passed' | 'failed' | 'timed-out'
 
 export interface CopySkip {
@@ -255,6 +279,14 @@ export interface TaskPullRequest {
   autoMerge?: MergeMethod
   waiting?: GitHubWait
   signedOff?: string
+  closedOnGitHub?: string
+  preview?: PullRequestPreview
+}
+
+export interface PullRequestPreview {
+  url: string
+  source: 'deployment' | 'status'
+  label: string
 }
 
 export const blockedChoices = ['unblock', 'keep'] as const
@@ -341,6 +373,7 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
+  | { kind: 'withdrawn'; at: string; ciReported: true }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
@@ -355,12 +388,47 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
-  gate?: { approveLabel: string; caption?: string }
+  gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
   failed?: { runId: string }
+}
+
+export interface CommentGate {
+  approveLabel: string
+  caption?: string
+  pullRequests?: MergeRow[]
+  changes?: SignOffChanges
+}
+
+export interface MergeRow {
+  name: string
+  repo: string
+  number: number
+  title: string
+  url: string
+  checks: { passed: number; failed: number; pending: number }
+  mergeable: boolean
+  method: MergeMethod
+  reviewMissing: boolean
+}
+
+export interface SignOffChanges {
+  since: string
+  summary?: string
+  repos: { name: string; files: ChangedFile[]; unavailable?: boolean }[]
+}
+
+export interface ChangedFile {
+  path: string
+  added: number
+  removed: number
+}
+
+export interface CancelMergeRequest {
+  comment: string
 }
 
 export interface PermissionAsk {
@@ -382,6 +450,7 @@ export interface ThreadEvent {
   checkRunId?: string
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
+  changes?: ChatDiff
 }
 
 export interface Judgment {
@@ -420,7 +489,7 @@ export interface SetActivityRequest {
 }
 
 export type ReportOutcomeRequest =
-  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments }
+  | { outcome: 'advance'; skip?: boolean; judged?: ValidateJudgments; changes?: string }
   | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
   | { outcome: 'ask'; question: string; choices?: string[] }
 

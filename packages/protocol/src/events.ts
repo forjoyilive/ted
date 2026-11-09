@@ -3,6 +3,7 @@ import type { Banner } from './banner.ts'
 import type { CheckRun, SendBack } from './checks.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
+import type { CheckTry } from './factory-settings.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth } from './integrations.ts'
 import type { Run } from './run.ts'
@@ -32,3 +33,4 @@ export type DaemonEvent =
   | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
+  | { type: 'check-try-updated'; checkTry: CheckTry }

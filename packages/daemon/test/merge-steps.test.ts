@@ -19,6 +19,9 @@ const target: MergeTarget = {
 
 const pr = (over: Partial<RemotePullRequest> = {}): RemotePullRequest => ({
   id: 'PR_12',
+  title: 'Fix it',
+  url: 'https://github.com/acme/app/pull/12',
+  baseRefName: 'main',
   state: 'OPEN',
   isDraft: false,
   headRefOid: 'abc',
@@ -27,6 +30,9 @@ const pr = (over: Partial<RemotePullRequest> = {}): RemotePullRequest => ({
   reviewDecision: null,
   autoMerge: false,
   checks: [],
+  threads: [],
+  reviews: [],
+  deployments: [],
   allowed: ['squash', 'merge', 'rebase'],
   autoMergeAllowed: false,
   deleteBranchOnMerge: false,

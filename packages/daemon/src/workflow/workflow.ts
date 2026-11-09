@@ -54,7 +54,7 @@ export async function loopCheckInstructions(): Promise<string> {
 }
 
 export async function taskLeadPrompt(
-  task: Task,
+  task: Task & { original?: string },
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
   attachmentFile?: (attachment: Attachment) => string,
@@ -69,6 +69,11 @@ export async function taskLeadPrompt(
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
     ...(task.description !== '' ? [task.description] : []),
+    ...(task.original !== undefined
+      ? [
+          `# Original request\n\nThe human has edited the description since creating the Task. This is the description as first written; where it differs from the one above, the one above is current.\n\n${task.original.trim() || '(no description)'}`,
+        ]
+      : []),
     ...(task.source ? [sourceContext(task.source)] : []),
     ...(task.clarifyDepth !== 'auto'
       ? [

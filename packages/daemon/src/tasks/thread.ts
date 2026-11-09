@@ -2,18 +2,23 @@ import type {
   ClarifyDepth,
   Comment,
   CopySkip,
+  DescriptionVersion,
   Judgment,
+  LayerUse,
   ThreadEvent,
   ThreadEventTone,
 } from '@ted/protocol'
+import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
+import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
 
 export interface ThreadContext {
   comments: readonly Comment[]
   displayIdOf(taskId: string): string
   waitingFor: readonly string[]
+  descriptions?: readonly DescriptionVersion[]
 }
 
 export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
@@ -94,6 +99,26 @@ function leadFailedLine(data: Record<string, unknown>): string {
   return `${what} · starting a fresh Task Lead Run from the brief`
 }
 
+function settingsFallback(layers: unknown): string | undefined {
+  let parsed: unknown
+  try {
+    parsed = typeof layers === 'string' ? JSON.parse(layers) : layers
+  } catch {
+    return undefined
+  }
+  if (!Array.isArray(parsed)) return undefined
+  for (const use of parsed as LayerUse[]) {
+    if (use.status !== 'last-valid' && use.status !== 'skipped') continue
+    const error = use.problems?.find((p) => p.severity === 'error')
+    const file = error?.file ?? (use.layer === 'library' ? 'workflow.yaml' : '.ted/workflow.yaml')
+    const where = use.layer === 'library' ? 'Library ' : ''
+    return use.status === 'last-valid'
+      ? `Used last valid TED settings: ${where}${file} has an error`
+      : `Used the inherited TED settings: ${where}${file} has an error`
+  }
+  return undefined
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -114,7 +139,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -127,6 +152,7 @@ export function threadEvents(
       ...(extra?.judgments !== undefined &&
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
+      ...(extra?.changes !== undefined && { changes: extra.changes }),
     })
 
   for (const entry of log) {
@@ -137,6 +163,27 @@ export function threadEvents(
       case 'v2.TaskCreated':
         add(entry, 'done', 'You created this Task')
         break
+      case 'v1.TaskEdited': {
+        const title = text(data.title)
+        const version = typeof data.version === 'number' ? data.version : undefined
+        const renamed = title === '' ? '' : `renamed this Task to “${title}”`
+        const line =
+          version === undefined
+            ? `You ${renamed}`
+            : `You ${renamed === '' ? '' : `${renamed} and `}edited the description`
+        const versions = context.descriptions ?? []
+        const before = versions.find((v) => v.version === (version ?? 0) - 1)
+        const after = versions.find((v) => v.version === version)
+        add(
+          entry,
+          'edit',
+          line,
+          undefined,
+          undefined,
+          before && after ? { changes: diffTexts('Description', before.text, after.text) } : {},
+        )
+        break
+      }
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -304,6 +351,8 @@ export function threadEvents(
         judged = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
+          const fallback = settingsFallback(data.layers)
+          if (fallback) add(entry, 'quiet', fallback)
           break
         }
         const at = Date.parse(entry.at)
@@ -315,6 +364,8 @@ export function threadEvents(
           stage === 'done' ? 'done' : 'edit',
           approval !== undefined ? `You approved · ${moved}` : moved,
         )
+        const fallback = settingsFallback(data.layers)
+        if (fallback) add(entry, 'quiet', fallback)
         break
       }
       case 'v2.RunStarted':
@@ -419,6 +470,36 @@ export function threadEvents(
       case 'v1.PullRequestAutoMergeEnabled':
         add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
         break
+      case 'v1.PullRequestClosedOnGitHub':
+        add(entry, 'quiet', `The pull request for ${text(data.name)} was closed on GitHub`)
+        break
+      case 'v1.GitHubActivitySent':
+        add(entry, 'run', `GitHub: ${gitHubSummary(data.notices)} · sent to the Task Lead`)
+        break
+      case 'v1.GitHubActivityHeld':
+        add(
+          entry,
+          'quiet',
+          `GitHub: ${gitHubSummary(data.notices)} · not sent to the Task Lead (outside contributor)`,
+        )
+        break
+      case 'v1.GitHubActivityQueued':
+        add(
+          entry,
+          'run',
+          `GitHub: ${gitHubSummary(data.notices)} · a fresh Task Lead Run starts from the brief`,
+        )
+        break
+      case 'v1.MergeStoppedPartway': {
+        const merged = Array.isArray(data.merged) ? data.merged.map(String) : []
+        const open = Array.isArray(data.open) ? data.open.map(String) : []
+        add(
+          entry,
+          'failure',
+          `Merge stopped partway · ${joinAnd(merged)} merged, ${joinAnd(open)} didn’t. TED doesn’t revert a merged pull request.`,
+        )
+        break
+      }
       case 'v1.TaskBranchRebased':
         add(
           entry,
@@ -433,6 +514,18 @@ export function threadEvents(
     }
   }
   return lines
+}
+
+function gitHubSummary(notices: unknown): string {
+  const list = Array.isArray(notices) ? (notices as { kind?: unknown; where?: unknown }[]) : []
+  return summary(
+    list.flatMap((n) =>
+      (n.kind === 'ci' || n.kind === 'review' || n.kind === 'conflict' || n.kind === 'outside') &&
+      typeof n.where === 'string'
+        ? [{ kind: n.kind, where: n.where }]
+        : [],
+    ),
+  )
 }
 
 function joinAnd(items: readonly string[]): string {

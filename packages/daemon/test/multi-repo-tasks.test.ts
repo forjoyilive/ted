@@ -3,7 +3,14 @@ import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { type Factory, type Run, type Task, type TaskReposResult, tedPaths } from '@ted/protocol'
+import {
+  type Banner,
+  type Factory,
+  type Run,
+  type Task,
+  type TaskReposResult,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { openStore } from '../src/store/index.ts'
@@ -43,6 +50,20 @@ beforeEach(async () => {
   process.env.GIT_CONFIG_COUNT = '1'
   process.env.GIT_CONFIG_KEY_0 = `url.file://${scratch}/.insteadOf`
   process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/'
+  const ghState = path.join(scratch, 'gh.json')
+  const info = (repo: string) => ({
+    body: { full_name: repo, default_branch: 'main', permissions: { push: true } },
+  })
+  await writeFile(
+    ghState,
+    JSON.stringify({
+      paths: {
+        'repos/acme/api': info('acme/api'),
+        'repos/acme/api/commits?per_page=1': { body: [] },
+      },
+    }),
+  )
+  process.env.TED_STUB_GH = ghState
 })
 
 afterEach(async () => {
@@ -106,8 +127,14 @@ async function start(options: { home?: string } = {}) {
 
 type Client = Awaited<ReturnType<typeof start>>
 
-const addFactory = (client: Client) =>
-  client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+async function addFactory(client: Client): Promise<Factory> {
+  const added = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  for (const banner of await client.ok<Banner[]>('GET', '/banners')) {
+    if (banner.problem !== 'repo-in-workflow') continue
+    await client.ok('POST', `/banners/${encodeURIComponent(banner.id)}/action`, {})
+  }
+  return added
+}
 
 const createTask = (client: Client, title: string) =>
   client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })

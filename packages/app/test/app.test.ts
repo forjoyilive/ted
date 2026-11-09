@@ -1111,8 +1111,15 @@ describe('App Settings', () => {
 
     await nav.getByRole('button', { name: /widgets/ }).click()
 
-    await window.getByRole('heading', { name: 'widgets · Factory settings' }).waitFor()
+    await window.getByRole('heading', { name: /^widgets\s*\/\s*Settings$/, level: 1 }).waitFor()
     expect(await settingsNav(window).count()).toBe(0)
+    const card = window.getByRole('article', { name: 'acme/widgets' })
+    await card.getByText('Can’t be removed or moved').waitFor()
+    await card.getByRole('textbox', { name: /^Setup command/ }).fill('npm ci')
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+    await card.getByText('Edited').waitFor()
+    await window.getByRole('button', { name: 'Discard' }).click()
+    await window.getByText(/unsaved change/).waitFor({ state: 'detached' })
   })
 
   test('the terminal font size saves on this machine and applies at once', async () => {
@@ -2933,3 +2940,61 @@ async function waitFor(check: () => Promise<boolean>): Promise<void> {
     await sleep(100)
   }
 }
+
+describe('Factory settings sections', () => {
+  test('Workflow, Permissions and notes edits collect into one Save, and Bypass needs confirming', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml':
+        'version: 1\nstages:\n  validate:\n    checks:\n      - { name: Typecheck, run: npm run typecheck }\n',
+    })
+    await githubReady(['acme/widgets'])
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await sidebar(window).getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await window.getByRole('heading', { name: 'Workflow' }).waitFor()
+
+    const designGate = window.getByRole('switch', { name: 'Design Gate' })
+    expect(await designGate.getAttribute('aria-checked')).toBe('true')
+    expect(await window.getByRole('switch', { name: 'Work on' }).isDisabled()).toBe(true)
+    await designGate.click()
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+    expect(await window.getByRole('textbox', { name: 'Typecheck command' }).inputValue()).toBe(
+      'npm run typecheck',
+    )
+
+    await window.getByRole('radio', { name: 'Bypass' }).check()
+    await window.getByText('Bypass is on.').waitFor()
+    await window.getByRole('textbox', { name: 'Factory notes' }).fill('# Notebook\n')
+    await window.getByText('3 unsaved changes to 2 files in .ted/').waitFor()
+
+    await window.getByRole('button', { name: 'Review and save…' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Save TED settings' })
+    await dialog.getByRole('region', { name: 'Changes to .ted/notes.md' }).waitFor()
+    await dialog.getByRole('region', { name: 'Changes to .ted/workflow.yaml' }).waitFor()
+    await dialog.getByText('This save turns on Bypass.').waitFor()
+    const save = dialog.getByRole('button', { name: 'Save and merge' })
+    expect(await save.isDisabled()).toBe(true)
+    await dialog.getByRole('checkbox', { name: 'Turn on Bypass for widgets' }).check()
+    await waitFor(() => save.isEnabled())
+  })
+
+  test('a broken workflow.yaml shows the amber notice with the last valid version', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\n' })
+    await addFactory(origin, 'NB')
+    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\norder: [work]\n' })
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await sidebar(window).getByRole('button', { name: 'Settings', exact: true }).first().click()
+    const notice = window.getByRole('alert', { name: '.ted/workflow.yaml has an error' })
+    await notice.waitFor()
+    await notice.getByText('`order` must start with `intake`').waitFor()
+    await notice
+      .getByText(/TED is using the last valid version, from [0-9a-f]{7}, just now/)
+      .waitFor()
+  })
+})

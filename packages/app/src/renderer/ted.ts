@@ -11,6 +11,9 @@ import type {
   CheckOutput,
   CheckRepoRequest,
   CheckRun,
+  CheckTry,
+  CheckTryOutput,
+  CheckTryRequest,
   ClarifyDepth,
   CommandLineStatus,
   Comment,
@@ -19,9 +22,13 @@ import type {
   DaemonEvent,
   DataStatus,
   DeleteTaskRequest,
+  DescriptionVersion,
   Diagnostics,
+  EditTaskRequest,
   Factory,
   FactoryBoard,
+  FactorySettingsChanges,
+  FactorySettingsView,
   InboxItem,
   IntegrationsHealth,
   LinearLookup,
@@ -41,7 +48,10 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveSettingsRequest,
+  SaveSettingsResult,
   SetTaskReposRequest,
+  SettingsPreview,
   StageEntry,
   StorageSummary,
   Task,
@@ -74,6 +84,8 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  cancelMerge: (taskId: string, comment: string) =>
+    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
   postComment: (taskId: string, body: string) =>
     window.ted.request('postComment', taskId, body) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>
@@ -103,6 +115,10 @@ export const ted = {
     window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  editTask: (taskId: string, edit: EditTaskRequest) =>
+    window.ted.request('editTask', taskId, edit) as Promise<Task>,
+  taskDescriptions: (taskId: string) =>
+    window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
     window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
@@ -155,6 +171,25 @@ export const ted = {
     window.ted.request('checkRepo', request) as Promise<RepoCheck>,
   createFactory: (request: CreateFactoryRequest) =>
     window.ted.request('createFactory', request) as Promise<Factory>,
+  factorySettings: (factoryId: string) =>
+    window.ted.request('factorySettings', factoryId) as Promise<FactorySettingsView>,
+  previewFactorySettings: (factoryId: string, changes: FactorySettingsChanges) =>
+    window.ted.request('previewFactorySettings', factoryId, changes) as Promise<SettingsPreview>,
+  saveFactorySettings: (factoryId: string, request: SaveSettingsRequest) =>
+    window.ted.request('saveFactorySettings', factoryId, request) as Promise<SaveSettingsResult>,
+  tryCheck: (factoryId: string, request: CheckTryRequest) =>
+    window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
+  stopCheckTry: (factoryId: string, name: string) =>
+    window.ted.request('stopCheckTry', factoryId, name) as Promise<void>,
+  checkTryOutput: (factoryId: string, name: string) =>
+    window.ted.request('checkTryOutput', factoryId, name) as Promise<CheckTryOutput>,
+  renameFactory: (factoryId: string, name: string) =>
+    window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
+  setRepoLocalFolder: (factoryId: string, repoName: string, folder: string) =>
+    window.ted.request('setRepoLocalFolder', factoryId, repoName, folder) as Promise<Factory>,
+  clearRepoLocalFolder: (factoryId: string, repoName: string) =>
+    window.ted.request('clearRepoLocalFolder', factoryId, repoName) as Promise<Factory>,
+  openOnGitHub: (url: string) => window.ted.request('openOnGitHub', url) as Promise<void>,
   retryClone: (factoryId: string) =>
     window.ted.request('retryClone', factoryId) as Promise<Factory>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,

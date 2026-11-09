@@ -159,7 +159,7 @@ function Counts({ additions, deletions }: { additions: number; deletions: number
 
 const numbered = <T,>(value: T, n: number) => ({ ...value, n })
 
-function Diff({ diff, showPath }: { diff: ChatDiff; showPath: boolean }) {
+export function Diff({ diff, showPath }: { diff: ChatDiff; showPath: boolean }) {
   const marks = { context: ' ', added: '+', removed: '-' } as const
   return (
     <div className={styles.diff}>

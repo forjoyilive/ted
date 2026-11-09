@@ -19,6 +19,7 @@ import {
   type BannerActionInput,
   blockedChoices,
   type CheckRepoRequest,
+  type CheckTryRequest,
   type ClarifyDepth,
   type CreateFactoryRequest,
   type CreateTaskRequest,
@@ -26,6 +27,8 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type EditTaskRequest,
+  type FactorySettingsChanges,
   linearKeyPage,
   type MachineSettings,
   type MoveTaskRequest,
@@ -34,6 +37,7 @@ import {
   parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SaveSettingsRequest,
   tedHome,
   tedPaths,
   tedVersion,
@@ -80,12 +84,15 @@ import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
 
+const githubLink =
+  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
+  cancelMerge: (client, taskId, comment) => client.cancelMerge(String(taskId), String(comment)),
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
@@ -109,6 +116,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
+  editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
+  taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
@@ -185,6 +194,28 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
   createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
   retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
+  factorySettings: (client, factoryId) => client.factorySettings(String(factoryId)),
+  previewFactorySettings: (client, factoryId, changes) =>
+    client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
+  saveFactorySettings: (client, factoryId, request) =>
+    client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
+  renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  tryCheck: (client, factoryId, request) =>
+    client.tryCheck(String(factoryId), request as CheckTryRequest),
+  stopCheckTry: (client, factoryId, name) => client.stopCheckTry(String(factoryId), String(name)),
+  checkTryOutput: (client, factoryId, name) =>
+    client.checkTryOutput(String(factoryId), String(name)),
+  setRepoLocalFolder: (client, factoryId, repoName, folder) =>
+    client.setRepoLocalFolder(String(factoryId), String(repoName), String(folder)),
+  clearRepoLocalFolder: (client, factoryId, repoName) =>
+    client.clearRepoLocalFolder(String(factoryId), String(repoName)),
+  openOnGitHub: async (_, target) => {
+    const url = String(target)
+    if (!githubLink.test(url)) {
+      throw new Error('That isn’t a GitHub repo or pull request link')
+    }
+    await shell.openExternal(url)
+  },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
