@@ -203,5 +203,16 @@ describe('Task shell', () => {
       return text.split('\n').find((l) => l !== '')
     }, 'VS Code to open the file')
     expect(line).toBe(`code [${worktree}] [--goto] [${worktree}/README.md:2:1]`)
+
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+      .getByRole('button', { name: 'Shell' })
+      .click()
+    await window
+      .getByRole('region', { name: 'Shell' })
+      .getByText(worktree, { exact: true })
+      .waitFor()
+    await diff.waitFor({ state: 'detached' })
   })
 })

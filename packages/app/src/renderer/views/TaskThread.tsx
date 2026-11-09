@@ -335,6 +335,7 @@ export function TaskPanes({
     showChanges(undefined)
     setApp(undefined)
     setBriefFor(undefined)
+    setShell(undefined)
     setShown({ taskId: task.id, runId })
   }
   const openRun = (runId: string) => {
@@ -351,13 +352,22 @@ export function TaskPanes({
     shell?.taskId === task.id && liveRepos.some((r) => r.name === shell.repo)
       ? shell.repo
       : undefined
-  const openShell = (repo: string) => setShell({ taskId: task.id, repo })
+  const openShell = (repo: string) => {
+    setChangesView(undefined)
+    setBriefFor(undefined)
+    setApp(undefined)
+    setShell({ taskId: task.id, repo })
+  }
   useEffect(() => {
     const take = () => {
       const request = takeShellRequest(task.id)
       if (!request) return
       const name = request.repo ?? task.repos.find((r) => !r.removed)?.name
-      if (name !== undefined) setShell({ taskId: task.id, repo: name })
+      if (name === undefined) return
+      setChangesView(undefined)
+      setBriefFor(undefined)
+      setApp(undefined)
+      setShell({ taskId: task.id, repo: name })
     }
     take()
     window.addEventListener(openShellEvent, take)
@@ -566,7 +576,7 @@ export function TaskThread({
   const pin = (id: string) => setChosen({ from: requestId, id })
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
-  if (talk && shownRun !== undefined) {
+  if (talk && shownRun !== undefined && shownApp === undefined) {
     return (
       <section
         className={styles.pane}
