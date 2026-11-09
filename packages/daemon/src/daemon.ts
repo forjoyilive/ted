@@ -62,6 +62,7 @@ export interface DaemonOptions {
   settingsMergeWaitMs?: number
   stallAfterMs?: number
   apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
+  simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
@@ -312,6 +313,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
+        simulators: {
+          dir: paths.simulators,
+          ...(process.env.TED_XCRUN_BIN && { xcrun: process.env.TED_XCRUN_BIN }),
+          ...(process.env.TED_OPEN_BIN && { open: process.env.TED_OPEN_BIN }),
+          ...options.simulators,
+        },
+        saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
       })
       const automationOptions = options.automations ?? {}
       const automations = createAutomations({

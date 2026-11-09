@@ -6,13 +6,22 @@ export {
   workRunning,
 } from './activity.ts'
 export {
+  type AppCapture,
   type AppLog,
   type AppRef,
+  type AppSimulator,
   type AppStarter,
   type AppState,
   appEnvName,
   appStates,
+  type BootedSimulator,
   isLoopbackUrl,
+  type RecordAppRequest,
+  type SimulatorAsk,
+  type SimulatorSlots,
+  type StartAppRequest,
+  simulatorSlotLimits,
+  simulatorsLine,
   type TaskApp,
 } from './app.ts'
 export {

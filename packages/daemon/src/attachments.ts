@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { createWriteStream } from 'node:fs'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises'
 import type http from 'node:http'
 import path from 'node:path'
@@ -14,6 +14,7 @@ const mediaTypePattern = /^[\w.+-]+\/[\w.+-]+$/
 
 export interface Attachments {
   save(req: http.IncomingMessage): Promise<Attachment>
+  saveFile(source: string, name: string, mediaType: string): Promise<Attachment>
   find(input: { hash: string; name: string; mediaType: string }): Promise<Attachment>
   file(attachment: Pick<Attachment, 'hash' | 'name'>): string
   read(attachment: Pick<Attachment, 'hash' | 'name'>): Promise<AttachmentBytes>
@@ -55,6 +56,23 @@ export function createAttachments(dir: string): Attachments {
       } finally {
         await rm(temp, { force: true })
       }
+    },
+
+    async saveFile(source, name, mediaType) {
+      const clean = cleanName(name)
+      if (clean === '') throw new RequestError(400, 'an attachment needs a name')
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      const hash = createHash('sha256')
+      let size = 0
+      await pipeline(createReadStream(source), async (chunks: AsyncIterable<Buffer>) => {
+        for await (const chunk of chunks) {
+          size += chunk.length
+          hash.update(chunk)
+        }
+      })
+      const attachment = { hash: hash.digest('hex'), name: clean, size, mediaType }
+      await rename(source, file(attachment))
+      return attachment
     },
 
     async read({ hash, name }) {

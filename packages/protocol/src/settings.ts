@@ -20,6 +20,7 @@ export interface MachineSettings {
   profilePicture: string | null
   developerMode: boolean
   maxWorkingRuns: number
+  maxBootedSimulators: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
   startAtLogin: boolean
@@ -37,6 +38,7 @@ export const defaultMachineSettings: MachineSettings = {
   profilePicture: null,
   developerMode: false,
   maxWorkingRuns: 6,
+  maxBootedSimulators: 3,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
   startAtLogin: true,

@@ -779,7 +779,14 @@ function answerRequest(body: unknown): AnswerRequest {
     throw new HttpError(400, 'text must be a string')
   }
   if (request.action === 'approve') {
-    return { action: 'approve', ...(text !== undefined && { text }) }
+    if (request.simulator !== undefined && typeof request.simulator !== 'string') {
+      throw new HttpError(400, 'simulator must name a simulator')
+    }
+    return {
+      action: 'approve',
+      ...(text !== undefined && { text }),
+      ...(typeof request.simulator === 'string' && { simulator: request.simulator }),
+    }
   }
   if (request.action === 'request-changes') {
     return { action: 'request-changes', text: text ?? '' }

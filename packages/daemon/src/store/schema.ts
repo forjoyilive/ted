@@ -284,6 +284,7 @@ export const comments = State.SQLite.table({
     round: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
     permission: State.SQLite.text({ nullable: true }),
+    simulator: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     deliveredRunId: State.SQLite.text({ nullable: true }),
     deliveredAt: State.SQLite.text({ nullable: true }),
@@ -753,6 +754,30 @@ export const events = {
       name: Schema.String,
       code: Schema.NullOr(Schema.Number),
       signal: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  simulatorRequested: Events.synced({
+    name: 'v1.SimulatorRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      runId: Schema.String,
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.String,
+      body: Schema.String,
+      simulator: Schema.String,
+      createdAt: Schema.String,
+    }),
+  }),
+  simulatorShutDown: Events.synced({
+    name: 'v1.SimulatorShutDown',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      forTask: Schema.NullOr(Schema.String),
+      idle: Schema.Boolean,
       at: Schema.String,
     }),
   }),
@@ -1923,6 +1948,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { repo: args.repo, name: args.name, code: args.code, signal: args.signal }),
   'v1.AppStartFailed': (args) =>
     task(args, { repo: args.repo, name: args.name, problem: args.problem }),
+  'v1.SimulatorShutDown': (args) =>
+    task(args, { repo: args.repo, name: args.name, forTask: args.forTask, idle: args.idle }),
   'v1.TaskRunReleased': (args) => task(args),
   'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
   'v1.ValidateJudged': (args) =>
@@ -2039,6 +2066,15 @@ const materializers = counted(
       'v1.AppStopped': () => [],
       'v1.AppExited': () => [],
       'v1.AppStartFailed': () => [],
+      'v1.SimulatorShutDown': () => [],
+      'v1.SimulatorRequested': ({ runId, simulator, ...comment }) =>
+        comments.insert({
+          ...comment,
+          kind: 'permission',
+          authorKind: 'run',
+          authorRunId: runId,
+          simulator,
+        }),
       'v1.GitHubActivityQueued': ({ taskId, rank, at }) =>
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
       'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [

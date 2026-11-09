@@ -9,13 +9,17 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
+  type AnswerRequest,
   type AppLog,
   type AppRef,
   type AppStarter,
   appEnvName,
+  type Comment,
   type DaemonEvent,
+  type SimulatorSlots,
   type TaskApp,
 } from '@ted/protocol'
+import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -33,6 +37,12 @@ import {
   appLogBytes,
   parseAppRecords,
 } from './host-files.ts'
+import {
+  createSimulators,
+  createSimulatorTools,
+  type SimulatorApp,
+  type SimulatorTools,
+} from './simulators.ts'
 
 const hostMain = fileURLToPath(new URL('./host.ts', import.meta.url))
 const testMarkers = ['TED_EXIT_WITH_PID', 'TED_TEST_RUN', 'TED_TEST_FILE']
@@ -47,7 +57,25 @@ export interface AppRepo {
 
 export interface AppTask {
   displayId: string
+  factoryId: string
   repos: AppRepo[]
+}
+
+export interface SimulatorOptions {
+  dir: string
+  supported?: boolean
+  tools?: SimulatorTools
+  xcrun?: string
+  open?: string
+  banners?: Banners
+  pollMs?: number
+  idleMs?: number
+}
+
+export interface StartOptions {
+  runId?: string
+  shutDown?: string
+  reason?: string
 }
 
 export interface AppsOptions {
@@ -62,17 +90,27 @@ export interface AppsOptions {
   readyTimeoutMs?: number
   stopGraceMs?: number
   logBytes?: number
+  simulators?: SimulatorOptions
 }
 
 export interface Apps {
   list(taskId: string): Promise<TaskApp[]>
-  start(taskId: string, ref: AppRef, by: AppStarter, runId?: string): Promise<TaskApp>
+  start(taskId: string, ref: AppRef, by: AppStarter, options?: StartOptions): Promise<TaskApp>
   stop(taskId: string, ref: AppRef): Promise<TaskApp>
   restart(taskId: string, ref: AppRef, by: AppStarter, runId?: string): Promise<TaskApp>
   log(taskId: string, ref: AppRef): Promise<AppLog>
   envFor(taskId: string): Promise<Record<string, string>>
   stopRepo(taskId: string, repo: string): Promise<void>
   stopTask(taskId: string): Promise<void>
+  simulators(): SimulatorSlots
+  show(taskId: string, ref: AppRef): Promise<TaskApp>
+  screenshot(taskId: string, ref: AppRef): Promise<{ file: string; app: TaskApp }>
+  record(
+    taskId: string,
+    ref: AppRef,
+    action: 'start' | 'stop',
+  ): Promise<{ file?: string; app: TaskApp }>
+  answerSimulator(comment: Comment, request: AnswerRequest, text: string): Promise<Comment>
   close(): Promise<void>
 }
 
@@ -85,6 +123,9 @@ interface Instance {
   ready: 'url' | 'start'
   startedAt: string
   startedBy?: AppStarter
+  runId?: string
+  restart?: boolean
+  waitingFor?: string
   readyAt?: string
   ended?: {
     at: string
@@ -122,9 +163,10 @@ const processRunner: Runner = {
   },
 }
 
-const runners: Partial<Record<TaskApp['kind'], Runner>> = {
+const runners: Record<TaskApp['kind'], Runner> = {
   web: processRunner,
   command: processRunner,
+  'ios-simulator': processRunner,
 }
 
 function markers(): Record<string, string> {
@@ -157,6 +199,45 @@ export function createApps(options: AppsOptions): Apps {
     path.join(taskDir(taskId), repo, slug(name))
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
   const portsFile = (taskId: string) => path.join(taskDir(taskId), 'ports.json')
+
+  const simulatorOptions = options.simulators ?? {
+    dir: path.join(path.dirname(appsDir), 'simulators'),
+    supported: false,
+  }
+  const sims = createSimulators({
+    dir: simulatorOptions.dir,
+    store,
+    tools:
+      simulatorOptions.tools ??
+      createSimulatorTools({
+        ...(simulatorOptions.xcrun !== undefined && { xcrun: simulatorOptions.xcrun }),
+        ...(simulatorOptions.open !== undefined && { open: simulatorOptions.open }),
+        env: () => options.env?.() ?? process.env,
+      }),
+    supported: simulatorOptions.supported ?? process.platform === 'darwin',
+    ...(simulatorOptions.banners !== undefined && { banners: simulatorOptions.banners }),
+    ...(options.idle !== undefined && { idle: options.idle }),
+    ...(simulatorOptions.pollMs !== undefined && { pollMs: simulatorOptions.pollMs }),
+    ...(simulatorOptions.idleMs !== undefined && { idleMs: simulatorOptions.idleMs }),
+    emit: options.emit,
+    async appLive(taskId, repo, name) {
+      const state = stateOf(await readInstance(dirOf(taskId, repo, name)))
+      return state === 'running' || state === 'starting' || state === 'waiting'
+    },
+    async stopApp(taskId, repo, name) {
+      await serial(keyOf(taskId, repo, name), () => stopNow(taskId, repo, name))
+    },
+  })
+
+  const simApp = (taskId: string, task: AppTask, repo: string, app: AppDeclaration) =>
+    ({
+      taskId,
+      displayId: task.displayId,
+      factoryId: task.factoryId,
+      repo,
+      name: app.name,
+      device: app.device ?? 'iPhone 16',
+    }) satisfies SimulatorApp
 
   for (const taskId of safeDirs(appsDir)) {
     for (const [key, port] of Object.entries(readPortsSync(portsFile(taskId)))) {
@@ -206,13 +287,20 @@ export function createApps(options: AppsOptions): Apps {
           ? 'exited'
           : 'failed'
     }
+    if (instance.waitingFor !== undefined) return 'waiting'
     return instance.readyAt !== undefined || instance.ready === 'start' ? 'running' : 'starting'
   }
 
-  function toApp(repo: string, app: AppDeclaration, instance: Instance | undefined): TaskApp {
+  function toApp(
+    taskId: string,
+    repo: string,
+    app: AppDeclaration,
+    instance: Instance | undefined,
+  ): TaskApp {
     const state = stateOf(instance)
     const live = state === 'running' || state === 'starting'
     const ended = instance?.ended
+    const simulator = app.kind === 'ios-simulator' ? sims.info(taskId, repo, app.name) : undefined
     return {
       repo,
       name: app.name,
@@ -226,6 +314,9 @@ export function createApps(options: AppsOptions): Apps {
       ...(ended?.code !== undefined && { exitCode: ended.code }),
       ...(ended?.signal !== undefined && { signal: ended.signal }),
       ...(ended?.problem !== undefined && { problem: ended.problem }),
+      ...(state === 'waiting' &&
+        instance?.waitingFor !== undefined && { waitingFor: instance.waitingFor }),
+      ...(simulator !== undefined && { simulator }),
     }
   }
 
@@ -371,28 +462,27 @@ export function createApps(options: AppsOptions): Apps {
     await writeInstance(dir, instance)
     store.appStartFailed({ taskId, repo, name: app.name, problem })
     changed(taskId)
-    return toApp(repo, app, instance)
+    return toApp(taskId, repo, app, instance)
   }
 
   async function startNow(
     taskId: string,
     ref: AppRef,
     by: AppStarter,
-    runId: string | undefined,
+    start: StartOptions,
     restart: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
+    const { runId } = start
     const dir = dirOf(taskId, repo.name, app.name)
     const key = keyOf(taskId, repo.name, app.name)
     const existing = await readInstance(dir)
     const state = stateOf(existing)
-    if (state === 'running' || state === 'starting') return toApp(repo.name, app, existing)
-    const runner = runners[app.kind]
-    if (!runner) {
-      throw new RequestError(
-        409,
-        `TED can’t run ${app.name}: iOS simulator Apps aren’t supported yet`,
-      )
+    if (state === 'running' || state === 'starting' || state === 'waiting') {
+      return toApp(taskId, repo.name, app, existing)
+    }
+    if (app.kind === 'ios-simulator' && !sims.supported) {
+      throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
     }
     const hold = store.newWorkHold()
     if (hold !== undefined) {
@@ -400,6 +490,29 @@ export function createApps(options: AppsOptions): Apps {
         409,
         `The disk is almost full, so TED holds new Apps until there’s space`,
       )
+    }
+    if (app.kind === 'ios-simulator') {
+      const got = await sims.acquire(simApp(taskId, task, repo.name, app), by, start)
+      if ('waiting' in got) {
+        const instance: Instance = {
+          repo: repo.name,
+          name: app.name,
+          kind: app.kind,
+          ready: app.ready,
+          startedAt: new Date().toISOString(),
+          startedBy: by,
+          ...(runId !== undefined && { runId }),
+          ...(restart && { restart }),
+          waitingFor: got.waiting,
+        }
+        await writeInstance(dir, instance)
+        changed(taskId)
+        watch(taskId, key, dir)
+        return toApp(taskId, repo.name, app, instance)
+      }
+      return launch(taskId, task, repo, app, by, runId, restart, undefined, {
+        TED_SIMULATOR_UDID: got.udid,
+      })
     }
     const ports = await allocate(taskId, task, { repo: repo.name, app })
     const port = ports[`${repo.name}/${slug(app.name)}`] as number
@@ -411,8 +524,25 @@ export function createApps(options: AppsOptions): Apps {
         `Port ${port} is taken, so TED couldn’t start ${app.name}. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
       )
     }
-    const vars = appVars(task, ports)
-    const values = { ...vars, PORT: String(port) }
+    return launch(taskId, task, repo, app, by, runId, restart, port, {})
+  }
+
+  async function launch(
+    taskId: string,
+    task: AppTask,
+    repo: AppRepo,
+    app: AppDeclaration,
+    by: AppStarter,
+    runId: string | undefined,
+    restart: boolean,
+    port: number | undefined,
+    extra: Record<string, string>,
+  ): Promise<TaskApp> {
+    const dir = dirOf(taskId, repo.name, app.name)
+    const key = keyOf(taskId, repo.name, app.name)
+    const vars = appVars(task, await allocate(taskId, task))
+    const portVars: Record<string, string> = port === undefined ? {} : { PORT: String(port) }
+    const values = { ...vars, ...portVars, ...extra }
     const ownEnv = Object.fromEntries(
       Object.entries(app.env)
         .filter(([name]) => name.toUpperCase() !== 'PORT' && !isReservedEnvName(name))
@@ -420,15 +550,15 @@ export function createApps(options: AppsOptions): Apps {
     )
     const env = worktreeCommandEnv(
       repo.env,
-      { ...ownEnv, ...vars, PORT: String(port), TED_TASK: task.displayId },
+      { ...ownEnv, ...vars, ...portVars, ...extra, TED_TASK: task.displayId },
       options.env?.() ?? process.env,
     )
-    const url = app.kind === 'web' ? urlFor(app, port) : undefined
+    const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
     const instance: Instance = {
       repo: repo.name,
       name: app.name,
       kind: app.kind,
-      port,
+      ...(port !== undefined && { port }),
       ...(url !== undefined && { url }),
       ready: app.ready,
       startedAt: new Date().toISOString(),
@@ -436,7 +566,7 @@ export function createApps(options: AppsOptions): Apps {
     }
     await mkdir(dir, { recursive: true, mode: 0o700 })
     await writeInstance(dir, instance)
-    await runner.launch({
+    await runners[app.kind].launch({
       dir,
       run: app.run,
       cwd: repo.worktree,
@@ -447,7 +577,7 @@ export function createApps(options: AppsOptions): Apps {
       taskId,
       repo: repo.name,
       name: app.name,
-      port,
+      ...(port !== undefined && { port }),
       ...(url !== undefined && { url }),
       by,
       ...(runId !== undefined && { runId }),
@@ -455,7 +585,7 @@ export function createApps(options: AppsOptions): Apps {
     })
     changed(taskId)
     watch(taskId, key, dir)
-    return toApp(repo.name, app, instance)
+    return toApp(taskId, repo.name, app, instance)
   }
 
   async function hostAlive(dir: string): Promise<boolean> {
@@ -544,11 +674,72 @@ export function createApps(options: AppsOptions): Apps {
     watching.set(key, done)
   }
 
+  async function waitForSlot(
+    taskId: string,
+    dir: string,
+    instance: Instance & { waitingFor: string },
+  ): Promise<'waiting' | 'launched' | 'ended'> {
+    const found = await find(taskId, { repo: instance.repo, name: instance.name }).catch(
+      () => undefined,
+    )
+    const end = async (how: 'stopped' | 'failed', problem?: string) => {
+      instance.ended = {
+        at: new Date().toISOString(),
+        how,
+        ...(problem !== undefined && { problem }),
+      }
+      await writeInstance(dir, instance)
+      if (problem !== undefined) {
+        store.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
+      }
+      changed(taskId)
+      return 'ended' as const
+    }
+    if (!found) {
+      sims.withdraw(instance.waitingFor)
+      return end('stopped')
+    }
+    const { task, repo, app } = found
+    const got = await sims.wait(instance.waitingFor, simApp(taskId, task, repo.name, app))
+    if (got.state === 'pending') return 'waiting'
+    const current = await readInstance(dir)
+    if (!current || current.ended || current.waitingFor !== instance.waitingFor) return 'ended'
+    if (got.state === 'denied') {
+      return end(
+        'failed',
+        `No simulator slot: the human denied${got.text === undefined ? '' : `. They said: “${got.text}”`}`,
+      )
+    }
+    if (got.state === 'gone') return end('stopped')
+    await launch(
+      taskId,
+      task,
+      repo,
+      app,
+      instance.startedBy ?? 'human',
+      instance.runId,
+      instance.restart === true,
+      undefined,
+      { TED_SIMULATOR_UDID: got.udid },
+    )
+    return 'launched'
+  }
+
   async function follow(taskId: string, key: string, dir: string): Promise<void> {
-    const launchedAt = Date.now()
+    let launchedAt = Date.now()
     while (!closed) {
       const instance = await readInstance(dir)
       if (!instance || instance.ended) return
+      if (instance.waitingFor !== undefined) {
+        const waited = await waitForSlot(taskId, dir, {
+          ...instance,
+          waitingFor: instance.waitingFor,
+        })
+        if (waited === 'ended') return
+        if (waited === 'launched') launchedAt = Date.now()
+        else await sleep(pollMs)
+        continue
+      }
       const found = await records(dir)
       const exit = found.find((r) => r.t === 'exit')
       if (exit?.t === 'exit') {
@@ -595,7 +786,10 @@ export function createApps(options: AppsOptions): Apps {
     const apps: TaskApp[] = []
     for (const repo of task.repos) {
       for (const app of repo.apps) {
-        apps.push(toApp(repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))))
+        if (app.kind === 'ios-simulator' && !sims.supported) continue
+        apps.push(
+          toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
+        )
       }
     }
     return apps
@@ -606,6 +800,13 @@ export function createApps(options: AppsOptions): Apps {
     const key = keyOf(taskId, repo, name)
     const instance = await readInstance(dir)
     const state = stateOf(instance)
+    if (instance && state === 'waiting' && instance.waitingFor !== undefined) {
+      instance.ended = { at: new Date().toISOString(), how: 'stopped' }
+      await writeInstance(dir, instance)
+      sims.withdraw(instance.waitingFor)
+      changed(taskId)
+      return true
+    }
     if (!instance || (state !== 'running' && state !== 'starting')) return false
     await stopHost(key, dir)
     const after = await readInstance(dir)
@@ -615,6 +816,14 @@ export function createApps(options: AppsOptions): Apps {
     }
     changed(taskId)
     return true
+  }
+
+  async function simulatorApp(taskId: string, ref: AppRef) {
+    const found = await find(taskId, ref)
+    if (found.app.kind !== 'ios-simulator' || !sims.supported) {
+      throw new RequestError(409, `${found.app.name} isn’t an iOS simulator App`)
+    }
+    return found
   }
 
   async function stopAll(taskId: string, repo?: string): Promise<void> {
@@ -643,6 +852,7 @@ export function createApps(options: AppsOptions): Apps {
     for (const taskId of safeDirs(appsDir)) {
       if (!options.keep(taskId)) {
         await stopAll(taskId).catch(() => undefined)
+        await sims.remove(taskId).catch(() => undefined)
         await forget(taskId).catch(() => undefined)
         continue
       }
@@ -662,10 +872,10 @@ export function createApps(options: AppsOptions): Apps {
   return {
     list,
     envFor,
-    async start(taskId, ref, by, runId) {
+    async start(taskId, ref, by, start = {}) {
       const { repo, app } = await find(taskId, ref)
       return serial(keyOf(taskId, repo.name, app.name), () =>
-        startNow(taskId, { repo: repo.name, name: app.name }, by, runId, false),
+        startNow(taskId, { repo: repo.name, name: app.name }, by, start, false),
       )
     },
     async stop(taskId, ref) {
@@ -674,16 +884,53 @@ export function createApps(options: AppsOptions): Apps {
         if (await stopNow(taskId, repo.name, app.name)) {
           store.appStopped({ taskId, repo: repo.name, name: app.name })
         }
-        return toApp(repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
+        if (app.kind === 'ios-simulator') await sims.shutDown(taskId, repo.name, app.name)
+        return toApp(
+          taskId,
+          repo.name,
+          app,
+          await readInstance(dirOf(taskId, repo.name, app.name)),
+        )
       })
     },
     async restart(taskId, ref, by, runId) {
       const { repo, app } = await find(taskId, ref)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         const wasLive = await stopNow(taskId, repo.name, app.name)
-        return startNow(taskId, { repo: repo.name, name: app.name }, by, runId, wasLive)
+        return startNow(
+          taskId,
+          { repo: repo.name, name: app.name },
+          by,
+          runId === undefined ? {} : { runId },
+          wasLive,
+        )
       })
     },
+    simulators: () => sims.slots(),
+    async show(taskId, ref) {
+      const { repo, app } = await simulatorApp(taskId, ref)
+      await sims.show(taskId, repo.name, app.name)
+      return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
+    },
+    async screenshot(taskId, ref) {
+      const { repo, app } = await simulatorApp(taskId, ref)
+      const file = await sims.screenshot(taskId, repo.name, app.name)
+      const instance = await readInstance(dirOf(taskId, repo.name, app.name))
+      return { file, app: toApp(taskId, repo.name, app, instance) }
+    },
+    async record(taskId, ref, action) {
+      const { repo, app } = await simulatorApp(taskId, ref)
+      const file =
+        action === 'start'
+          ? await sims.startRecording(taskId, repo.name, app.name).then(() => undefined)
+          : await sims.stopRecording(taskId, repo.name, app.name)
+      const instance = await readInstance(dirOf(taskId, repo.name, app.name))
+      return {
+        ...(file !== undefined && { file }),
+        app: toApp(taskId, repo.name, app, instance),
+      }
+    },
+    answerSimulator: (comment, request, text) => sims.answer(comment, request, text),
     async log(taskId, ref) {
       const { repo, app } = await find(taskId, ref)
       const files = appFiles(dirOf(taskId, repo.name, app.name))
@@ -697,15 +944,20 @@ export function createApps(options: AppsOptions): Apps {
       const tail = both.subarray(Math.max(0, both.length - logViewBytes)).toString('utf8')
       return { text: redactSecrets(stripVTControlCharacters(tail)), truncated }
     },
-    stopRepo: (taskId, repo) => stopAll(taskId, repo),
+    async stopRepo(taskId, repo) {
+      await stopAll(taskId, repo)
+      await sims.remove(taskId, repo)
+    },
     async stopTask(taskId) {
       await stopAll(taskId)
+      await sims.remove(taskId)
       await forget(taskId)
       changed(taskId)
     },
     async close() {
       closed = true
       await Promise.all(watching.values())
+      await sims.close()
     },
   }
 }

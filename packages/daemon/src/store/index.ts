@@ -43,6 +43,7 @@ import {
   type MachineSettings,
   type MergeMethod,
   type PermissionMode,
+  type SimulatorAsk,
   type Priority,
   type PullRequestPreview,
   type Round,
@@ -497,6 +498,20 @@ export interface TedStore {
     signal?: string
   }): void
   appStartFailed(input: { taskId: string; repo: string; name: string; problem: string }): void
+  simulatorShutDown(input: {
+    taskId: string
+    repo: string
+    name: string
+    forTask?: string
+    idle: boolean
+  }): void
+  requestSimulator(input: {
+    taskId: string
+    runId: string
+    title: string
+    body: string
+    simulator: SimulatorAsk
+  }): Comment
   leadFailed(failure: LeadFailure): Task
   retryTask(taskId: string, options: { waitForBlockers: boolean }): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
@@ -1288,6 +1303,7 @@ export async function openStore({
     deliveredAt,
     readAt,
     permission,
+    simulator,
     answerHeld: _,
     failedRunId,
     ...row
@@ -1304,6 +1320,7 @@ export async function openStore({
     ...(round !== null && { round: JSON.parse(round) as Round }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(permission !== null && { permission: publicPermission(permission) }),
+    ...(simulator !== null && { simulator: JSON.parse(simulator) as SimulatorAsk }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
     ...(deliveredRunId !== null &&
       deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
@@ -1323,14 +1340,16 @@ export async function openStore({
       .filter(
         (row) =>
           row.answer === null &&
-          row.permission !== null &&
-          (requestId === undefined || storedPermission(row.permission).requestId === requestId),
+          (requestId === undefined
+            ? row.permission !== null || row.simulator !== null
+            : row.permission !== null && storedPermission(row.permission).requestId === requestId),
       )
 
   const permissionWait = (taskId: string, leadId: string | undefined) => {
     const asking = openRequestRows(taskId).filter((r) => r.kind === 'permission')
     if (asking.length === 0) return {}
     return {
+      ...(asking.some((r) => r.simulator !== null) && { waitingOnSimulator: true }),
       waitingOnPermission: asking.some((r) => r.authorRunId === leadId)
         ? ('lead' as const)
         : ('sub-agent' as const),
@@ -1989,6 +2008,47 @@ export async function openStore({
     appStartFailed({ taskId, repo, name, problem }) {
       commit(events.appStartFailed({ taskId, repo, name, problem, at: new Date().toISOString() }))
       updatedTask(taskId)
+    },
+    simulatorShutDown({ taskId, repo, name, forTask, idle }) {
+      commit(
+        events.simulatorShutDown({
+          taskId,
+          repo,
+          name,
+          forTask: forTask ?? null,
+          idle,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    requestSimulator({ taskId, runId, title, body, simulator }) {
+      const id = randomUUID()
+      const at = new Date().toISOString()
+      const run = runRow(runId)
+      const pause = run !== undefined && run.state === 'working'
+      commit(
+        events.simulatorRequested({
+          id,
+          taskId,
+          runId,
+          stage: taskRow(taskId)?.stage ?? null,
+          title,
+          body,
+          simulator: JSON.stringify(simulator),
+          createdAt: at,
+        }),
+        ...(pause ? [events.runStateChanged({ runId, state: 'waiting', at })] : []),
+      )
+      const comment = requireComment(id)
+      emit({ type: 'comment-posted', comment })
+      if (pause) {
+        const updated = runRow(runId)
+        if (updated) emit({ type: 'run-updated', run: toRun(updated) })
+        noteActivity()
+      }
+      updatedTask(taskId)
+      return comment
     },
     leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask }) {
       const at = new Date().toISOString()

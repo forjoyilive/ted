@@ -15,6 +15,7 @@ import type {
   StageEntry,
   StageId,
   Task,
+  SimulatorSlots,
   TaskApp,
   ThreadEvent,
 } from '@ted/protocol'
@@ -506,6 +507,14 @@ export function useTaskRuns(taskId: string): RunSummary[] {
         (event.type === 'task-updated' && event.task.id === taskId),
       taskId,
     ) ?? []
+  )
+}
+
+export function useSimulators(): SimulatorSlots | undefined {
+  return useReloading(
+    () => ted.simulators(),
+    (event) => event.type === 'simulators-changed' || event.type === 'settings-changed',
+    'simulators',
   )
 }
 

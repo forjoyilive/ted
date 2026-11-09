@@ -1,6 +1,7 @@
 import type { AppKind } from './factory-settings.ts'
+import type { Attachment } from './task.ts'
 
-export const appStates = ['stopped', 'starting', 'running', 'exited', 'failed'] as const
+export const appStates = ['stopped', 'waiting', 'starting', 'running', 'exited', 'failed'] as const
 export type AppState = (typeof appStates)[number]
 
 export type AppStarter = 'human' | 'task-lead' | 'sub-agent'
@@ -18,6 +19,55 @@ export interface TaskApp {
   signal?: string
   problem?: string
   startedBy?: AppStarter
+  waitingFor?: string
+  simulator?: AppSimulator
+}
+
+export interface AppSimulator {
+  device: string
+  booted: boolean
+  recording?: boolean
+  shutDown?: { at: string; for?: string }
+}
+
+export interface BootedSimulator {
+  udid: string
+  taskId: string
+  displayId: string
+  title: string
+  repo: string
+  app: string
+  device: string
+  lastUsedAt: string
+  recording: boolean
+}
+
+export interface SimulatorSlots {
+  supported: boolean
+  limit: number
+  booted: BootedSimulator[]
+}
+
+export interface SimulatorAsk {
+  app: string
+  repo: string
+  device: string
+  limit: number
+  booted: BootedSimulator[]
+}
+
+export interface StartAppRequest extends AppRef {
+  shutDown?: string
+  reason?: string
+}
+
+export interface RecordAppRequest extends AppRef {
+  action: 'start' | 'stop'
+}
+
+export interface AppCapture {
+  attachment?: Attachment
+  recording: boolean
 }
 
 export interface AppRef {
@@ -45,4 +95,11 @@ export function isLoopbackUrl(text: string): boolean {
   if (url.username !== '' || url.password !== '') return false
   const host = url.hostname.toLowerCase()
   return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host)
+}
+
+export const simulatorSlotLimits = { min: 1, max: 20 } as const
+
+export function simulatorsLine(slots: SimulatorSlots): string | undefined {
+  if (!slots.supported || slots.booted.length === 0) return undefined
+  return `Simulators ${slots.booted.length} of ${slots.limit} booted`
 }

@@ -64,6 +64,7 @@ import type {
   SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
+  SimulatorSlots,
   StageEntry,
   StorageSummary,
   Task,
@@ -188,8 +189,11 @@ export const ted = {
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
   listApps: (taskId: string) => window.ted.request('listApps', taskId) as Promise<TaskApp[]>,
-  startApp: (taskId: string, repo: string, name: string) =>
-    window.ted.request('startApp', taskId, repo, name) as Promise<TaskApp>,
+  startApp: (taskId: string, repo: string, name: string, shutDown?: string) =>
+    window.ted.request('startApp', taskId, repo, name, shutDown) as Promise<TaskApp>,
+  showApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('showApp', taskId, repo, name) as Promise<TaskApp>,
+  simulators: () => window.ted.request('simulators') as Promise<SimulatorSlots>,
   stopApp: (taskId: string, repo: string, name: string) =>
     window.ted.request('stopApp', taskId, repo, name) as Promise<TaskApp>,
   restartApp: (taskId: string, repo: string, name: string) =>

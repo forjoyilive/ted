@@ -1,3 +1,4 @@
+import type { SimulatorSlots } from './app.ts'
 import type { Activity } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { CheckRun, SendBack } from './checks.ts'
@@ -32,6 +33,7 @@ export type DaemonEvent =
   | { type: 'agent-health-changed'; health: AgentHealth }
   | { type: 'slots-changed'; slots: RunSlots }
   | { type: 'apps-changed'; taskId: string }
+  | { type: 'simulators-changed'; simulators: SimulatorSlots }
   | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
