@@ -18,6 +18,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { type TedEvent, ted } from './ted.ts'
 
@@ -60,6 +61,18 @@ export function useConnectionState(): Connection {
 }
 
 export const useConnection = () => useContext(ConnectionContext)
+
+export function useUpdateStatus(): UpdateStatus {
+  const [status, setStatus] = useState<UpdateStatus>({ state: 'idle' })
+  useEffect(() => {
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'update') setStatus(event.status)
+    })
+    ted.updateStatus().then(setStatus, (error: unknown) => console.error(error))
+    return unsubscribe
+  }, [])
+  return status
+}
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   const byId = new Map(current.map((item) => [item.id, item]))

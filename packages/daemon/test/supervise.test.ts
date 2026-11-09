@@ -1,16 +1,29 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import {
   type DaemonConnection,
   type DaemonSupervisor,
+  finishWork,
   superviseDaemon,
   withDaemon,
 } from '../src/launch.ts'
-import { isAlive, makeTempHome, waitUntil } from './helpers.ts'
+import {
+  api,
+  assistantTexts,
+  hostRecords,
+  isAlive,
+  killRunHosts,
+  makeTempHome,
+  stubClaudePath,
+  testAppToken,
+  waitUntil,
+} from './helpers.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -234,6 +247,104 @@ test('a server that answers 404 is not signalled unless it holds the daemon lock
 
   expect(await supervised.client.caller()).toMatchObject({ kind: 'app' })
   expect(isAlive(decoy.pid ?? 0)).toBe(true)
+})
+
+test('handing over for an update stops the daemon without a crash, and a Run keeps going into the next daemon', async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'ted-update-cwd-'))
+  const before = process.env.TED_CLAUDE_BIN
+  process.env.TED_CLAUDE_BIN = stubClaudePath
+  try {
+    const release = path.join(cwd, 'release')
+    const supervised = await supervise({ app: true, appToken: testAppToken })
+    const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
+    let client = api(info.port, { appKey: testAppToken })
+    const run = await client.startRun(
+      [
+        { lines: 20, everyMs: 50 },
+        { waitFor: release },
+        { say: 'after update' },
+        { endTurn: true },
+      ],
+      cwd,
+    )
+    await waitUntil(
+      async () =>
+        assistantTexts((await client.getRun(run.id)).conversation).length >= 3 || undefined,
+      'some output',
+    )
+
+    const seen: { checks: number; merges: number }[] = []
+    await supervised.handOver({ onWork: (work) => seen.push(work) })
+
+    expect(isAlive(info.pid)).toBe(false)
+    expect(states).toEqual([])
+    expect(seen).toEqual([{ checks: 0, merges: 0 }])
+    const host = (await hostRecords(home, run.id)).find((r) => r.t === 'start')
+    expect(isAlive(Number(host?.hostPid))).toBe(true)
+
+    supervisor = await supervise({ app: true, appToken: testAppToken })
+    const next = await waitUntil(() => readDaemonInfo(home), 'the new daemon.json')
+    expect(next.pid).not.toBe(info.pid)
+    client = api(next.port, { appKey: testAppToken })
+    await writeFile(release, '')
+    const done = await waitUntil(async () => {
+      const r = await client.getRun(run.id)
+      return r.run.state === 'idle' ? r : undefined
+    }, 'the Run to go idle in the new daemon')
+    const lines = Array.from({ length: 20 }, (_, i) => `line ${i + 1}`)
+    expect(assistantTexts(done.conversation)).toEqual([...lines, 'after update'])
+    expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(1)
+  } finally {
+    if (before === undefined) delete process.env.TED_CLAUDE_BIN
+    else process.env.TED_CLAUDE_BIN = before
+    await killRunHosts(home)
+    await rm(cwd, { recursive: true, force: true })
+  }
+})
+
+test('after a hand-over whose install failed, the supervisor starts a daemon again', async () => {
+  const supervised = await supervise({ app: true })
+  const old = await readDaemonInfo(home)
+  await supervised.handOver()
+  expect(isAlive(old?.pid ?? 0)).toBe(false)
+
+  await supervised.resume()
+
+  expect(supervised.connection.state).toBe('connected')
+  expect(states).toEqual(['reconnecting', 'connected'])
+  expect(await supervised.client.caller()).toMatchObject({ kind: 'app' })
+  expect((await readDaemonInfo(home))?.pid).not.toBe(old?.pid)
+})
+
+test('waiting before an update reports the work left and stops at the limit', async () => {
+  const reads = [
+    { checks: 2, merges: 1 },
+    { checks: 1, merges: 0 },
+    { checks: 0, merges: 0 },
+  ]
+  const seen: unknown[] = []
+  expect(
+    await finishWork({
+      read: async () => reads.shift() ?? { checks: 0, merges: 0 },
+      onWork: (work) => seen.push(work),
+      pollMs: 1,
+      maxWaitMs: 10_000,
+    }),
+  ).toBe('finished')
+  expect(seen).toEqual([
+    { checks: 2, merges: 1 },
+    { checks: 1, merges: 0 },
+    { checks: 0, merges: 0 },
+  ])
+
+  expect(
+    await finishWork({
+      read: async () => ({ checks: 1, merges: 0 }),
+      onWork: () => undefined,
+      pollMs: 5,
+      maxWaitMs: 30,
+    }),
+  ).toBe('timed-out')
 })
 
 test('the daemon writes its log to TED’s logs folder', async () => {

@@ -30,7 +30,13 @@ import { nodeEntry, shellScript } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
-import { forGeneration, type HostRecord, type LaunchFile, runFiles } from './host-files.ts'
+import {
+  forGeneration,
+  type HostRecord,
+  type LaunchFile,
+  oldestHostProtocol,
+  runFiles,
+} from './host-files.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -45,6 +51,7 @@ export interface RunManagerOptions {
   idle?: IdleTimer
   cliPath?: string
   env?: () => NodeJS.ProcessEnv
+  oldestHost?: number
 }
 
 export interface RunObserver {
@@ -118,6 +125,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const stopRequested = new Set<string>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
+  const outdated = new Set<string>()
+  const replacing = new Map<string, NodeJS.ProcessEnv>()
+  const oldestHost = options.oldestHost ?? oldestHostProtocol
   let closed = false
   let shuttingDown = false
   const refuseWhileShuttingDown = () => {
@@ -184,6 +194,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       agent.sessionContinuedFrom(line),
     )
     let awaitingStart = revived ? Date.now() + stopGraceMs : undefined
+    const last = await lastStartRecord(path.join(runsDir, runId))
+    if (last !== undefined && !(last.v >= oldestHost)) {
+      outdated.add(runId)
+      if (store.getRun(runId)?.state === 'idle') void replaceWhenIdle(runId)
+    }
     while (!closed) {
       const hostGone = offset > 0 && awaitingStart === undefined && !isLockHeld(files.lock)
       const batch = await readRecords(files.log, offset)
@@ -192,6 +207,22 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         (batch.records.some(({ record }) => record.t === 'start') || Date.now() > awaitingStart)
       ) {
         awaitingStart = undefined
+      }
+      const swapEnv = replacing.get(runId)
+      if (swapEnv && (batch.toOffset > offset || hostGone)) {
+        const exited = batch.records.some(({ record }) => record.t === 'exit')
+        const kept = batch.records.filter(({ record }) => record.t !== 'exit')
+        commitBatch(runId, { ...batch, records: kept }, false, generation)
+        offset = batch.toOffset
+        if (exited || hostGone) {
+          for (let waited = 0; isLockHeld(files.lock) && waited < stopGraceMs; waited += pollMs) {
+            await sleep(pollMs)
+          }
+          replacing.delete(runId)
+          spawnHost(path.join(runsDir, runId), swapEnv)
+          awaitingStart = Date.now() + stopGraceMs
+        }
+        continue
       }
       if (batch.toOffset > offset || hostGone) {
         const finished = commitBatch(runId, batch, hostGone && batch.atEnd, generation)
@@ -327,7 +358,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (boundary && state !== 'finished') {
       tellObservers(runId, (observer, run) => observer.boundary?.(run))
     }
-    if (state === 'idle') tellObservers(runId, (observer, run) => observer.settled?.(run))
+    if (state === 'idle') {
+      tellObservers(runId, (observer, run) => observer.settled?.(run))
+      if (outdated.has(runId)) void replaceWhenIdle(runId)
+    }
     if (authFailed) tell('authFailed', runId)
     if (state === 'finished') {
       heard.delete(runId)
@@ -351,6 +385,37 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       errorLines: generation.errors.map(oneLine),
       ...(generation.count > 1 && !generation.sessionSeen && { resumeFailed: true }),
       at: new Date().toISOString(),
+    }
+  }
+
+  async function replaceWhenIdle(runId: string): Promise<void> {
+    const run = store.getRun(runId)
+    if (closed || shuttingDown || run?.state !== 'idle' || run.sessionId === undefined) return
+    if (replacing.has(runId) || !outdated.delete(runId)) return
+    try {
+      const runDir = path.join(runsDir, runId)
+      const files = runFiles(runDir)
+      const start = await startRecord(runDir)
+      if (!start) return
+      const launch = agents.get(run.agent).launch({
+        prompt: '',
+        runDir,
+        env: runEnv(runId, await readRunEnv(files.env)),
+        resume: run.sessionId,
+        ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
+        ...(run.effort !== undefined && { effort: run.effort }),
+        permissions: run.permissions,
+        billing: billingOf(run.agent),
+      })
+      const inputFrom = await stat(files.input).then(
+        (info) => info.size,
+        () => 0,
+      )
+      await writeLaunch(runDir, run.cwd, launch, inputFrom)
+      replacing.set(runId, launch.env)
+      signal(await hostPid(runDir, start), 'SIGTERM')
+    } catch (error) {
+      console.error(`couldn’t replace Run ${runId}’s old host:`, error)
     }
   }
 
@@ -430,6 +495,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         billing: billingOf(kind),
       })
       await writeLaunch(runDir, cwd, launch)
+      await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
 
       refuseWhileShuttingDown()
       const run = store.startRun({
@@ -477,6 +543,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         () => 0,
       )
       await writeLaunch(runDir, run.cwd, launch, inputFrom)
+      await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
       refuseWhileShuttingDown()
       stopRequested.delete(runId)
       const revived = store.reviveRun(runId)
@@ -674,6 +741,20 @@ const errorLinesKept = 8
 function oneLine(text: string): string {
   const line = redactSecrets(text).replace(/\s+$/, '')
   return line.length > 300 ? `${line.slice(0, 299)}…` : line
+}
+
+async function readRunEnv(file: string): Promise<Record<string, string>> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, 'utf8'))
+    if (typeof parsed !== 'object' || parsed === null) return {}
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string',
+      ),
+    )
+  } catch {
+    return {}
+  }
 }
 
 const lastStartRecord = async (runDir: string) => (await startRecords(runDir)).at(-1)

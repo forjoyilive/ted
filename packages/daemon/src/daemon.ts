@@ -65,6 +65,7 @@ export interface DaemonOptions {
   limitProbeMs?: number
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
+  oldestHost?: number
 }
 
 export interface DaemonAutomationsOptions {
@@ -145,6 +146,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tokens: runTokens,
         env: environment.current,
         ...(idle && { idle }),
+        ...(options.oldestHost !== undefined && { oldestHost: options.oldestHost }),
       })
       const banners = createBanners({ store, emit })
       const diskOptions = options.disk ?? {}

@@ -109,6 +109,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { UpdateWork } from './update.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -563,6 +564,10 @@ export class DaemonClient {
 
   getActivity(): Promise<Activity> {
     return this.#request('GET', '/activity')
+  }
+
+  updateWork(): Promise<UpdateWork> {
+    return this.#request('GET', '/update/work')
   }
 
   shutdown(request: ShutdownRequest = {}): Promise<void> {

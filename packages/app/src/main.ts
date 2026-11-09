@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import {
@@ -58,6 +58,7 @@ import {
   nativeImage,
   nativeTheme,
   type OpenDialogOptions,
+  session,
   shell,
   Tray,
 } from 'electron'
@@ -88,6 +89,17 @@ import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
+import { testFeedSource } from './update-source.ts'
+import {
+  allowedUpdateUrl,
+  createUpdates,
+  electronUpdateSource,
+  failedUpdate,
+  type MakeSource,
+  type UpdateStatus,
+  type Updates,
+  updateMenuVersion,
+} from './updates.ts'
 
 const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
@@ -393,6 +405,12 @@ const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
 delete process.env.TED_APP_TOKEN
 const skipFirstLaunch = !app.isPackaged && process.env.TED_SKIP_FIRST_LAUNCH === '1'
 delete process.env.TED_SKIP_FIRST_LAUNCH
+const testUpdateFeed = app.isPackaged ? undefined : process.env.TED_UPDATE_FEED
+const testUpdateLog = process.env.TED_UPDATE_LOG
+delete process.env.TED_UPDATE_FEED
+delete process.env.TED_UPDATE_LOG
+const updateCheckEveryMs = 4 * 60 * 60_000
+const firstUpdateCheckMs = 10_000
 
 const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
@@ -410,6 +428,8 @@ let bannerTimer: NodeJS.Timeout | undefined
 let loginItem: LoginItem | undefined
 let loginItemApplied: boolean | undefined
 let loginItemWork: Promise<void> = Promise.resolve()
+let updates: Updates | undefined
+let updateStatus: UpdateStatus = { state: 'unavailable' }
 
 const loginItemsPane = 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'
 
@@ -495,7 +515,7 @@ function notifyMerged(task: Task): void {
 
 function run(command: MenuCommand): void {
   if (command.kind === 'quit') return void requestQuit()
-  if (command.kind === 'restart-to-update') return
+  if (command.kind === 'restart-to-update') return void restartToUpdate()
   showWindow()
   if (command.kind !== 'open-ted') sendToRenderer({ type: 'menu-command', command })
 }
@@ -571,6 +591,11 @@ const noticeFile = () => path.join(app.getPath('userData'), 'background-notice-s
 
 async function closeToBackground(): Promise<void> {
   window?.hide()
+  const status = updates?.status
+  if (status?.state === 'ready' && !status.asksPassword) {
+    await writeFile(backgroundMarker(), '')
+    return restartToUpdate()
+  }
   const notice = closeNotice(platform, existsSync(noticeFile()))
   if (!notice || hiddenWindow) return
   new Notification(notice).show()
@@ -580,6 +605,101 @@ async function closeToBackground(): Promise<void> {
 function keepRunningInBackground(): void {
   window?.hide()
   if (platform === 'darwin') app.dock?.hide()
+}
+
+const backgroundMarker = () => path.join(app.getPath('userData'), 'start-in-background')
+const pendingUpdateFile = () => path.join(app.getPath('userData'), 'pending-update')
+
+async function takeFile(file: string): Promise<string | undefined> {
+  const text = await readFile(file, 'utf8').catch(() => undefined)
+  if (text !== undefined) await rm(file, { force: true })
+  return text?.trim()
+}
+
+function packageType(): string | undefined {
+  if (!app.isPackaged || platform !== 'linux' || process.env.APPIMAGE) return undefined
+  try {
+    return readFileSync(path.join(process.resourcesPath, 'package-type'), 'utf8').trim()
+  } catch {
+    return undefined
+  }
+}
+
+async function updateSource(asksPassword: boolean): Promise<MakeSource | undefined> {
+  if (testUpdateFeed) {
+    return testFeedSource(testUpdateFeed, {
+      current: tedVersion,
+      log: testUpdateLog ?? path.join(tedHome(), 'update.log'),
+      exit: () => app.exit(0),
+    })
+  }
+  if (!app.isPackaged) return undefined
+  session
+    .fromPartition('electron-updater', { cache: false })
+    .webRequest.onBeforeRequest((details, callback) => {
+      const allowed = allowedUpdateUrl(details.url)
+      if (!allowed) console.error('TED’s updater refused a request to', details.url)
+      callback({ cancel: !allowed })
+    })
+  const { default: updater } = await import('electron-updater')
+  return electronUpdateSource(updater.autoUpdater, { installOnQuit: !asksPassword })
+}
+
+function showUpdate(status: UpdateStatus): void {
+  updateStatus = status
+  const version = updateMenuVersion(status)
+  const { updateReady: _, ...rest } = state
+  state = version === undefined ? rest : { ...rest, updateReady: version }
+  sendToRenderer({ type: 'update', status })
+  refresh()
+}
+
+async function startUpdates(supervised: DaemonSupervisor): Promise<void> {
+  const failed = failedUpdate(await takeFile(pendingUpdateFile()), tedVersion)
+  const kind = packageType()
+  const asksPassword = kind === 'deb' || kind === 'rpm'
+  const source = await updateSource(asksPassword)
+  if (!source) {
+    showUpdate(
+      failed !== undefined ? { state: 'failed', version: failed } : { state: 'unavailable' },
+    )
+    return
+  }
+  updates = createUpdates({
+    source: (emit) => {
+      const made = source(emit)
+      return {
+        check: made.check,
+        install: () => {
+          quitting = true
+          try {
+            made.install()
+          } catch (error) {
+            emit({ kind: 'error', message: error instanceof Error ? error.message : String(error) })
+          }
+        },
+      }
+    },
+    current: tedVersion,
+    asksPassword,
+    ...(failed !== undefined && { failed }),
+    onStatus: showUpdate,
+    handOver: (onWork) => supervised.handOver({ onWork }),
+    markPending: (version) => writeFile(pendingUpdateFile(), version),
+    installFailed: async () => {
+      quitting = false
+      await rm(pendingUpdateFile(), { force: true })
+      await supervised.resume()
+    },
+  })
+  showUpdate(updates.status)
+  const check = () => updates?.check().catch((error: unknown) => console.error(error))
+  setTimeout(check, testUpdateFeed ? 0 : firstUpdateCheckMs).unref()
+  setInterval(check, updateCheckEveryMs).unref()
+}
+
+async function restartToUpdate(): Promise<void> {
+  await updates?.restart().catch((error: unknown) => console.error('restart to update:', error))
 }
 
 async function quitCompletely(): Promise<void> {
@@ -676,7 +796,8 @@ function onConnection(connection: DaemonConnection): void {
 
 async function start(): Promise<void> {
   loginItem = makeLoginItem()
-  const background = startsInBackground(process.argv)
+  const background =
+    startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
   if (background) app.dock?.hide()
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
@@ -699,6 +820,12 @@ async function start(): Promise<void> {
       if (platform === 'darwin') await shell.openExternal(loginItemsPane)
     },
     restartDaemon: () => supervised.restart(),
+    updateStatus: async () => updateStatus,
+    checkForUpdates: async () => {
+      await updates?.check()
+      return updateStatus
+    },
+    restartToUpdate,
     async copyCrashReport() {
       const { connection } = supervised
       await clipboard.writeText(
@@ -732,6 +859,7 @@ async function start(): Promise<void> {
   app.on('activate', showWindow)
   app.on('second-instance', showWindow)
   refresh()
+  await startUpdates(supervised)
   if (background) return
   await createWindow()
 }

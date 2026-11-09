@@ -18,6 +18,7 @@ export interface SidebarFooter {
   paused?: string
   simulators?: string
   planChips?: readonly string[]
+  update?: { label: string; busy: boolean }
 }
 
 interface SidebarProps {
@@ -32,6 +33,7 @@ interface SidebarProps {
   onOpenRuns?: () => void
   onOpenFailed?: () => void
   onOpenPlanUsage?: () => void
+  onUpdate?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: (factoryId?: string) => void
   onSearch: () => void
@@ -136,6 +138,7 @@ export function Sidebar({
   onOpenRuns,
   onOpenFailed,
   onOpenPlanUsage,
+  onUpdate,
   dispatch,
   onNewTask,
   onSearch,
@@ -403,6 +406,16 @@ export function Sidebar({
               {chip}
             </button>
           ))}
+          {footer.update !== undefined && (
+            <button
+              type="button"
+              className={footer.update.busy ? styles.updateBusy : styles.updateChip}
+              disabled={footer.update.busy}
+              onClick={onUpdate}
+            >
+              {footer.update.label}
+            </button>
+          )}
         </footer>
       )}
     </nav>
