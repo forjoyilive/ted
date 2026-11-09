@@ -3975,5 +3975,11 @@ describe('Empty states', () => {
 
     await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
     await empty.waitFor({ state: 'detached' })
+
+    const box = main.getByRole('searchbox', { name: 'Filter by ID or title' })
+    await box.fill('no such task')
+    await empty.getByRole('button', { name: 'Clear filters' }).click()
+    await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+    expect(await box.inputValue()).toBe('')
   })
 })

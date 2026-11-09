@@ -52,6 +52,13 @@ describe('Board empty state', () => {
     expect(boardEmpty([task()], { priorities: ['urgent'] })).toBe('no-matches')
   })
 
+  test('a text filter that matches no Task says so too', () => {
+    const one = task({ displayId: 'NB-1', title: 'Sync notes' })
+    expect(boardEmpty([one], {}, 'zzz')).toBe('no-matches')
+    expect(boardEmpty([one], {}, 'sync')).toBeUndefined()
+    expect(boardEmpty([task()], {}, '')).toBeUndefined()
+  })
+
   test('a Board with Tasks showing has no empty state', () => {
     expect(boardEmpty([task()], {})).toBeUndefined()
     expect(boardEmpty([task({ priority: 'urgent' })], { priorities: ['urgent'] })).toBeUndefined()
