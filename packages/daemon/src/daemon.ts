@@ -7,6 +7,7 @@ import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
+import { createEnvironment } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
@@ -15,7 +16,6 @@ import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
-import { createEnvironment } from './health/environment.ts'
 import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
@@ -202,7 +202,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         emit,
         openTerminal,
-        loginShell: given.loginShell ?? false,
+        environment,
         ...(ghBin !== undefined && { ghBin }),
         ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
         ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
@@ -251,6 +251,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         scratchDir: paths.scratch,
         emit,
+        env: environment.current,
         ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
       })
       const factorySettings = createFactorySettings({
@@ -302,6 +303,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
+        env: environment.current,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),

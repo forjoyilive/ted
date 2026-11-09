@@ -7,6 +7,8 @@ import type {
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  AttachmentBytes,
+  AttachmentRef,
   Automation,
   AutomationDetail,
   AutomationRequest,
@@ -103,10 +105,10 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
-  cancelMerge: (taskId: string, comment: string) =>
-    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
-  postComment: (taskId: string, body: string) =>
-    window.ted.request('postComment', taskId, body) as Promise<Comment>,
+  cancelMerge: (taskId: string, comment: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('cancelMerge', taskId, comment, attachments) as Promise<Comment>,
+  postComment: (taskId: string, body: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('postComment', taskId, body, attachments) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>
     window.ted.request('markCommentsRead', taskId) as Promise<{ read: number }>,
   listThreadEvents: (taskId: string) =>
@@ -156,8 +158,8 @@ export const ted = {
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
   stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
-  resumeTask: (taskId: string, comment?: string) =>
-    window.ted.request('resumeTask', taskId, comment) as Promise<Task>,
+  resumeTask: (taskId: string, comment?: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('resumeTask', taskId, comment, attachments) as Promise<Task>,
   openTaskSource: (taskId: string) => window.ted.request('openTaskSource', taskId) as Promise<void>,
   moveTask: (taskId: string, request: MoveTaskRequest) =>
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
@@ -166,8 +168,8 @@ export const ted = {
   archiveTask: (taskId: string, options: ArchiveTaskRequest = {}) =>
     window.ted.request('archiveTask', taskId, options) as Promise<Task>,
   unarchiveTask: (taskId: string) => window.ted.request('unarchiveTask', taskId) as Promise<Task>,
-  followUpTask: (taskId: string, comment?: string) =>
-    window.ted.request('followUpTask', taskId, comment) as Promise<Task>,
+  followUpTask: (taskId: string, comment?: string, attachments: AttachmentRef[] = []) =>
+    window.ted.request('followUpTask', taskId, comment, attachments) as Promise<Task>,
   archiveDone: (factoryId: string) =>
     window.ted.request('archiveDone', factoryId) as Promise<ArchiveDoneResult>,
   deleteTask: (taskId: string, options: DeleteTaskRequest = {}) =>
@@ -185,6 +187,12 @@ export const ted = {
     window.ted.request('factoryBoard', factoryId) as Promise<FactoryBoard>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
+  readAttachment: (attachment: Pick<Attachment, 'hash' | 'name'>) =>
+    window.ted.request(
+      'readAttachment',
+      attachment.hash,
+      attachment.name,
+    ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>

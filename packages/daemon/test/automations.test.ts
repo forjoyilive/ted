@@ -17,10 +17,12 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   assistantTexts,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -53,6 +55,7 @@ async function startTed(options: { addFactory?: boolean } = {}) {
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     automations: { now: () => clock, checkEveryMs: 50 },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
   })
@@ -254,6 +257,46 @@ describe('Automations', () => {
       busy.id,
       (rows) => rows[1]?.result.kind === 'no-new-tasks',
       'the busy Run to finish',
+    )
+  })
+
+  test('an answer given before the asking turn ends still reaches the Run', async () => {
+    const client = await startTed()
+    const turnEnds = path.join(scratch, 'turn-ends')
+    const readsAnswer = path.join(scratch, 'reads-answer')
+    const automation = await create(client, {
+      name: 'Asking',
+      schedule: { kind: 'every', every: 15, unit: 'minutes' },
+      prompt: steps(
+        { everyMessage: [{ say: 'Got it' }, { endTurn: true }] },
+        { run: ['ted', 'comment', '--choice', 'Yes', '--choice', 'No', 'Create NB tasks?'] },
+        { readNextAfter: readsAnswer },
+        { waitFor: turnEnds },
+        { endTurn: true },
+      ),
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    const question = await waitUntil(
+      async () => (await detail(client, automation.id)).requests[0],
+      'the question',
+    )
+    const runId = question.runId ?? ''
+    const run = async () => (await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).run
+    expect((await run()).state).toBe('working')
+    await client.ok('POST', `/automation-requests/${question.id}/answer`, { choice: 'No' })
+    await writeFile(turnEnds, '')
+    await waitUntil(async () => (await run()).state !== 'working', 'the asking turn to end')
+    await writeFile(readsAnswer, '')
+    await waitUntil(
+      async () => (await said(client, runId)).includes('Got it'),
+      'the answer to reach the Run',
+      20_000,
+    )
+    await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'the answered Run to finish',
     )
   })
 
@@ -495,6 +538,38 @@ describe('Automations', () => {
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
+})
+
+test('Automation Runs use auto permissions even when the Factory is set to bypass', async () => {
+  await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\npermissions: bypass\n' })
+  const client = await startTed()
+  for (const agent of ['claude', 'codex'] as const) {
+    const automation = await create(client, { name: `Intake ${agent}`, agent })
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.runId !== undefined,
+      'the Run to start',
+    )
+    const { run } = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    expect(run.permissions).toBe('auto')
+    const { argv } = await waitUntil(
+      () =>
+        readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')
+          .then((s) => JSON.parse(s) as { argv: string[] })
+          .catch(() => undefined),
+      `the ${agent} stub to start`,
+    )
+    if (agent === 'claude') {
+      expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    } else {
+      expect(argv).toEqual(
+        expect.arrayContaining(['sandbox_mode="workspace-write"', 'approval_policy="on-request"']),
+      )
+      expect(argv.join(' ')).not.toContain('danger-full-access')
+    }
+  }
 })
 
 test('removing a Factory deletes its Automations and stops their Runs', async () => {

@@ -194,6 +194,7 @@ export interface TaskMerged {
 
 export interface FollowUpRequest {
   comment?: string
+  attachments?: AttachmentRef[]
 }
 
 export interface ArchiveDoneResult {
@@ -330,7 +331,7 @@ export interface CreateTaskRequest {
   clarifyDepth?: ClarifyDepth
   lead?: TaskLead
   blockedBy?: string[]
-  attachments?: Pick<Attachment, 'hash' | 'name' | 'mediaType'>[]
+  attachments?: AttachmentRef[]
   source?: string
   followUp?: string
   start?: boolean
@@ -338,6 +339,7 @@ export interface CreateTaskRequest {
 
 export interface ResumeTaskRequest {
   comment?: string
+  attachments?: AttachmentRef[]
 }
 
 export interface BlockTaskRequest {
@@ -415,6 +417,7 @@ export interface Comment {
   delivered?: { runId: string; at: string }
   readAt?: string
   failed?: { runId: string }
+  attachments?: Attachment[]
 }
 
 export interface CommentGate {
@@ -450,6 +453,7 @@ export interface ChangedFile {
 
 export interface CancelMergeRequest {
   comment: string
+  attachments?: AttachmentRef[]
 }
 
 export interface PermissionAsk {
@@ -498,11 +502,18 @@ export type AnswerRequest =
   | { action: 'answer-round'; answers: RoundAnswerInput[] }
   | { action: 'accept-recommended' }
 
+export type AttachmentRef = Pick<Attachment, 'hash' | 'name' | 'mediaType'>
+
 export interface PostCommentRequest {
   body?: string
   choices?: string[]
   round?: RoundInput
   supersedes?: string
+  attachments?: AttachmentRef[]
+}
+
+export interface AttachmentBytes {
+  data: string
 }
 
 export interface SetActivityRequest {

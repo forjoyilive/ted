@@ -645,7 +645,7 @@ function pullRequestBody(effects: string[], bypass: boolean): string {
     'TED settings changed from Factory settings.',
     ...(bypass
       ? [
-          '**This turns on Bypass:** every Run in this Factory runs without permission prompts. Only for Factories whose Runs happen in an isolated machine or VM.',
+          '**This turns on Bypass:** every Run in this Factory runs without permission prompts, except Automation Runs, which always run in Auto permissions. Only for Factories whose Runs happen in an isolated machine or VM.',
         ]
       : []),
     ...effects.map((e) => `- ${e}`),

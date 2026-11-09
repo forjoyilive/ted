@@ -82,12 +82,15 @@ import type {
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  AttachmentBytes,
+  AttachmentRef,
   CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
   DescriptionVersion,
   EditTaskRequest,
+  FollowUpRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -269,13 +272,19 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/stop`)
   }
 
-  resumeTask(ref: string, comment?: string): Promise<Task> {
-    const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
+  resumeTask(ref: string, comment?: string, attachments?: AttachmentRef[]): Promise<Task> {
+    const body: ResumeTaskRequest = {
+      ...(comment !== undefined && { comment }),
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
   }
 
-  cancelMerge(ref: string, comment: string): Promise<Comment> {
-    const body: CancelMergeRequest = { comment }
+  cancelMerge(ref: string, comment: string, attachments?: AttachmentRef[]): Promise<Comment> {
+    const body: CancelMergeRequest = {
+      comment,
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
   }
 
@@ -306,10 +315,12 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
   }
 
-  followUpTask(ref: string, comment?: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/follow-up`, {
+  followUpTask(ref: string, comment?: string, attachments?: AttachmentRef[]): Promise<Task> {
+    const body: FollowUpRequest = {
       ...(comment !== undefined && { comment }),
-    })
+      ...(attachments !== undefined && attachments.length > 0 && { attachments }),
+    }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/follow-up`, body)
   }
 
   archiveDone(factory: string): Promise<ArchiveDoneResult> {
@@ -409,11 +420,34 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-defaults`)
   }
 
-  async uploadAttachment(
+  uploadAttachment(
     file: { name: string; mediaType: string },
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<Attachment> {
-    const res = await this.#send('POST', '/attachments', bytes, undefined, {
+    return this.#upload('/attachments', file, bytes)
+  }
+
+  uploadTaskAttachment(
+    ref: string,
+    file: { name: string; mediaType: string },
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    return this.#upload(`/tasks/${encodeURIComponent(ref)}/attachments`, file, bytes)
+  }
+
+  readAttachment(attachment: Pick<Attachment, 'hash' | 'name'>): Promise<AttachmentBytes> {
+    return this.#request(
+      'GET',
+      `/attachments/${encodeURIComponent(attachment.hash)}/${encodeURIComponent(attachment.name)}`,
+    )
+  }
+
+  async #upload(
+    route: string,
+    file: { name: string; mediaType: string },
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    const res = await this.#send('POST', route, bytes, undefined, {
       'content-type': file.mediaType || 'application/octet-stream',
       'x-ted-name': encodeURIComponent(file.name),
     })
