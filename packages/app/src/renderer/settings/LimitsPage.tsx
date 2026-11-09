@@ -1,4 +1,4 @@
-import { workingRunLimits } from '@ted/protocol'
+import { workingRunLimits } from '@ted/protocol/settings'
 import { useSlots } from '../data.ts'
 import { nowLine } from '../slots.ts'
 import { ted } from '../ted.ts'
