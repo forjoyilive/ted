@@ -406,6 +406,7 @@ export function RequestCard({
         <>
           <textarea
             className={styles.box}
+            data-answer-box
             aria-label="Your answer"
             placeholder={
               request.permission
@@ -461,6 +462,7 @@ export function RequestCard({
                 </Button>
                 <Button
                   variant="primary"
+                  arm="approve"
                   disabled={sending}
                   onClick={() => void send({ action: 'approve', ...withText })}
                 >
@@ -470,6 +472,7 @@ export function RequestCard({
             ) : request.gate ? (
               <>
                 <Button
+                  data-request-changes
                   disabled={sending || !typed}
                   onClick={() => void send({ action: 'request-changes', text })}
                 >
@@ -477,6 +480,7 @@ export function RequestCard({
                 </Button>
                 <Button
                   variant="primary"
+                  arm="approve"
                   disabled={sending}
                   onClick={() => void send({ action: 'approve', ...withText })}
                 >

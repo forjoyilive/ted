@@ -67,3 +67,17 @@
   font-size: var(--text-12);
   font-weight: var(--weight-regular);
 }
+
+.armed {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 5px var(--focus-halo);
+}
+
+.confirm {
+  padding-left: 6px;
+  border-left: 1px solid currentColor;
+  font-size: var(--text-12);
+  font-weight: var(--weight-regular);
+  opacity: 0.85;
+}

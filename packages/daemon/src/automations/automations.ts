@@ -60,8 +60,8 @@ export interface AutomationsOptions {
 export interface Automations {
   templates(): readonly AutomationTemplate[]
   preview(schedule: AutomationSchedule, timeZone?: string): SchedulePreview
-  list(factory?: string): Promise<Automation[]>
-  detail(ref: string, factory?: string): Promise<AutomationDetail>
+  list(caller: Caller, factory?: string): Promise<Automation[]>
+  detail(ref: string, caller: Caller, factory?: string): Promise<AutomationDetail>
   create(input: CreateAutomationRequest, caller: Caller): Promise<Automation>
   edit(
     ref: string,
@@ -150,6 +150,29 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const all = store.listFactories()
     if (all.length === 1 && all[0]) return all[0]
     throw new RequestError(400, 'name the Factory with --factory <key>')
+  }
+
+  function readScope(caller: Caller, factory: string | undefined): string | undefined {
+    if (caller.kind !== 'run') return factory
+    const own = runOf(caller.runId)?.automation.factoryId ?? taskFactoryOf(caller.runId)
+    if (own === undefined) throw new RequestError(403, 'this Run can’t read Automations')
+    if (factory !== undefined) {
+      const named = store
+        .listFactories()
+        .find((f) => f.key.toLowerCase() === factory.toLowerCase() || f.id === factory)
+      if (named?.id !== own) {
+        throw new RequestError(403, 'a Run reads only its own Factory’s Automations')
+      }
+    }
+    return own
+  }
+
+  function taskFactoryOf(runId: string): string | undefined {
+    let run = store.getRun(runId)
+    while (run && run.taskId === undefined && run.parentRunId !== undefined) {
+      run = store.getRun(run.parentRunId)
+    }
+    return run?.taskId === undefined ? undefined : store.getTask(run.taskId)?.factoryId
   }
 
   function runOf(runId: string) {
@@ -771,15 +794,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
         ...(error !== undefined && { error }),
       }
     },
-    async list(factory) {
+    async list(caller, given) {
+      const factory = readScope(caller, given)
       const inFactory = factory === undefined ? undefined : factoryByRef(factory)
       const slots = await slotsNow()
       return live()
         .filter((a) => !inFactory || a.factoryId === inFactory.id)
         .map((a) => describe(a, slots))
     },
-    async detail(ref, factory) {
-      const automation = find(ref, factory)
+    async detail(ref, caller, factory) {
+      const automation = find(ref, readScope(caller, factory))
       const slots = await slotsNow()
       return {
         automation: describe(automation, slots),

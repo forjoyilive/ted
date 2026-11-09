@@ -307,6 +307,19 @@ export function neighbours(
   }
 }
 
+export function rankMove(
+  ordered: readonly Task[],
+  taskId: string,
+  direction: 'up' | 'down',
+): { after?: string; before?: string } | undefined {
+  const at = ordered.findIndex((t) => t.id === taskId)
+  const step = direction === 'up' ? -1 : 1
+  const task = ordered[at]
+  const past = ordered[at + step]
+  if (!task || !past || past.priority !== task.priority) return undefined
+  return neighbours(ordered, taskId, at + step)
+}
+
 export function dropTargets(group: ListGroup): readonly string[] {
   if (group === 'stage') return ['backlog', 'intake']
   if (group === 'status') return ['none', 'queued']
