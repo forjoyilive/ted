@@ -16,6 +16,7 @@ export {
   appStates,
   type BootedSimulator,
   isLoopbackUrl,
+  isSimulatorApp,
   type RecordAppRequest,
   type SimulatorAsk,
   type SimulatorSlots,
