@@ -10,7 +10,7 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 
 ## Steps
 
-1. The Checks already ran Typecheck and Lint. Run tests covering the changed behaviour. The full `pnpm test` suite failed on the setup baseline (73 failing tests); compare any failures with that baseline and report them. Before merging to `main`, run all three commands required by `AGENTS.md`; if the suite is still failing for reasons outside the Task, ask the human how to proceed.
+1. The Checks already ran Typecheck and Lint. GitHub CI runs these two commands too; it does not run the full test suite. Run tests covering the changed behaviour. The full `pnpm test` suite failed on the setup baseline (73 failing tests); compare any failures with that baseline and report them. Before merging to `main`, run all three commands required by `AGENTS.md`; if the suite is still failing for reasons outside the Task, ask the human how to proceed.
 2. Have the reviewer review the diff with no Work context: start it with `ted run start --reviewer --prompt-file <file>`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings with `ted run wait`. TED picks the reviewer’s agent, model and effort.
 3. Run `/codex-review` on the branch against `main`, every time. Include its confirmed Findings in the Validate result.
 4. Run `/security-review` when the change touches starting agents or running shell commands, messages between processes, credentials or tokens, network requests, or reading and writing files outside the repo. Include its confirmed Findings in the Validate result.

@@ -13,6 +13,7 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 
 ## Running it locally
 
+- GitHub CI runs Typecheck and Lint weekly or by hand; the full test suite is run locally under `AGENTS.md`, outside CI.
 - `pnpm install`, then `pnpm typecheck`, `pnpm lint` and `pnpm test`.
 - `pnpm app` builds the renderer and opens TED Dev from source; `pnpm ted <args>` runs the CLI from source.
 - For isolated CLI trials, use `env -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>`. Keep TED’s Task-control commands in the normal Run environment.
