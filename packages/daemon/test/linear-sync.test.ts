@@ -373,6 +373,26 @@ describe('Tasks an Automation made', () => {
     expect(await lines(client, task)).toContain('You let TED sync this Task with NOTE-1 in Linear')
   })
 
+  test('a Task made with the token in daemon.json waits for the human too', async () => {
+    const client = await startWithLinear()
+    const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
+
+    const made = await withFileToken.call('POST', '/tasks', {
+      title: 'Offline notes',
+      factory: 'NB',
+      source: url,
+    })
+    const byApp = await client.ok<Task>('POST', '/tasks', {
+      title: 'Offline notes again',
+      factory: 'NB',
+      source: 'https://linear.app/kriyadesign/issue/NOTE-2',
+    })
+
+    expect(made.status).toBe(201)
+    expect((made.body as Task).linearSync).toBe('ask')
+    expect(byApp.linearSync).toBe('on')
+  })
+
   test('in a team the human allowed for the Factory, TED syncs at once', async () => {
     const { client, task } = await fromAutomation()
     await client.ok('PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['note'] } })

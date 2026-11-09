@@ -325,7 +325,9 @@ export function threadEvents(
         }
         break
       case 'v1.LinearSyncAllowed':
-        add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
+        if (data.by === 'menu') {
+          add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
+        }
         break
       case 'v1.LinearPullRequestsLinked': {
         const count = Array.isArray(data.urls) ? data.urls.length : 0

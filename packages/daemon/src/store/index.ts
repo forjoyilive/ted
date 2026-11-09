@@ -289,6 +289,7 @@ export interface NewTask {
   automation?: { automationId: string; firingId: string }
   plan?: { planId: string; row: number }
   setup?: boolean
+  linearConsent?: boolean
 }
 
 export interface PlannedStage {
@@ -1302,7 +1303,7 @@ export async function openStore({
             : planLink
               ? 'planning'
               : 'human'
-    const linearSync = linearSyncOf(row, source, createdBy)
+    const linearSync = linearSyncOf(row, source)
     return {
       ...row,
       priority: row.priority as Priority,
@@ -1891,11 +1892,8 @@ export async function openStore({
   const linearSyncOf = (
     row: { id: string; factoryId: string },
     source: TaskSource | undefined,
-    createdBy: CreatedBy,
   ): 'on' | 'ask' | undefined => {
     if (!source || !parseLinearUrl(source.url)) return undefined
-    const byAutomation = store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
-    if (!byAutomation && (createdBy === 'human' || createdBy === 'follow-up')) return 'on'
     const record = linearRecord(row.id)
     if (record.allowed) return 'on'
     const teams = settings().linearSyncTeams[row.factoryId] ?? []
@@ -2102,6 +2100,7 @@ export async function openStore({
     getFactory: (id) => listFactories().find((f) => f.id === id),
     async createTask({
       title,
+      linearConsent = false,
       factoryId = placeholderFactory.id,
       description = '',
       priority = 'none',
@@ -2164,6 +2163,16 @@ export async function openStore({
               }),
               ...(source.sentry
                 ? [events.taskSourceSentrySet({ taskId: id, shortId: source.sentry.shortId, at })]
+                : []),
+              ...(linearConsent && parseLinearUrl(source.url)
+                ? [
+                    events.linearSyncAllowed({
+                      taskId: id,
+                      identifier: parseLinearUrl(source.url)?.identifier ?? '',
+                      by: 'created',
+                      at,
+                    }),
+                  ]
                 : []),
             ]
           : []),
@@ -2705,7 +2714,9 @@ export async function openStore({
       updatedTask(taskId)
     },
     linearSyncAllowed(taskId, identifier) {
-      commit(events.linearSyncAllowed({ taskId, identifier, at: new Date().toISOString() }))
+      commit(
+        events.linearSyncAllowed({ taskId, identifier, by: 'menu', at: new Date().toISOString() }),
+      )
       return updatedTask(taskId)
     },
     linearIssueMoved(taskId, identifier, step, state) {

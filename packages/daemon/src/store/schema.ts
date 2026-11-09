@@ -1048,7 +1048,12 @@ export const events = {
   }),
   linearSyncAllowed: Events.synced({
     name: 'v1.LinearSyncAllowed',
-    schema: Schema.Struct({ taskId: Schema.String, identifier: Schema.String, at: Schema.String }),
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      by: Schema.String,
+      at: Schema.String,
+    }),
   }),
   linearPullRequestsLinked: Events.synced({
     name: 'v1.LinearPullRequestsLinked',
@@ -2271,7 +2276,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       state: args.state,
       team: args.team,
     }),
-  'v1.LinearSyncAllowed': (args) => task(args, { identifier: args.identifier }),
+  'v1.LinearSyncAllowed': (args) => task(args, { identifier: args.identifier, by: args.by }),
   'v1.LinearIssueMoved': (args) =>
     task(args, { identifier: args.identifier, step: args.step, state: args.state }),
   'v1.LinearPullRequestsLinked': (args) =>

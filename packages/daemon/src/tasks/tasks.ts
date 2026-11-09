@@ -4911,6 +4911,7 @@ export function createTasks(options: {
       sourceUrl?: string
       factoryId?: string
       automation?: { name: string; link: { automationId: string; firingId: string } }
+      linearConsent: boolean
     },
   ): Promise<Task> {
     const original = find(ref)
@@ -4963,6 +4964,7 @@ export function createTasks(options: {
         : url !== undefined && { source: taskSource(url, undefined) }),
       followUpOf: original.id,
       ...(input.automation && { automation: input.automation.link }),
+      linearConsent: input.linearConsent,
     })
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
@@ -5626,6 +5628,7 @@ export function createTasks(options: {
           ...(sourceUrl !== undefined && { sourceUrl }),
           ...(factory && { factoryId: factory.id }),
           ...(automation && { automation: { name: automation.name, link: automation.link } }),
+          linearConsent: caller.kind === 'app',
         })
       }
       const refuseTracked = () => {
@@ -5667,6 +5670,7 @@ export function createTasks(options: {
         startRequested: startNow === true && !held,
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: automation.link }),
+        linearConsent: caller.kind === 'app',
       })
       if (!factory) return task
       if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
@@ -5840,6 +5844,7 @@ export function createTasks(options: {
         ...(original.source && { source: original.source }),
         followUpOf: original.id,
         ...(attachments.length > 0 && { attachments }),
+        linearConsent: true,
       })
       const carried = drafts(original.id)
       if (carried.length > 0) {
