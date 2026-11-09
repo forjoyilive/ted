@@ -22,6 +22,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   tokenFor,
   waitUntil,
 } from './helpers.ts'
@@ -58,12 +59,12 @@ function blobHash(text: string): string {
     .slice(0, 7)
 }
 
-async function start(options: { healthCheck?: boolean } = {}) {
+async function start(options: { healthCheck?: boolean; codex?: boolean } = {}) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    codexBin: path.join(scratch, 'no-codex-here'),
+    codexBin: options.codex ? stubCodexPath : path.join(scratch, 'no-codex-here'),
     ...(options.healthCheck && { checkAgentsOnStart: true }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -274,6 +275,19 @@ describe('Library settings', () => {
     const reset = await client.save({ agents: { reviewer: null } }, saved.version)
     expect(await libraryFile('workflow.yaml')).toBe('version: 1\n')
     expect(reset.agents.find((a) => a.role === 'reviewer')).toMatchObject({ from: 'ted' })
+  })
+
+  test('the Reviewer’s default follows the Library’s Task Lead', async () => {
+    const client = await start({ codex: true })
+    expect((await client.view()).agents.find((a) => a.role === 'reviewer')?.default).toEqual({
+      agent: 'codex',
+    })
+    const view = await client.view()
+    const saved = await client.save({ agents: { lead: { agent: 'codex' } } }, view.version)
+    expect(saved.agents.find((a) => a.role === 'reviewer')).toMatchObject({
+      from: 'ted',
+      default: { agent: 'claude' },
+    })
   })
 
   test('only the TED app can change the Library', async () => {

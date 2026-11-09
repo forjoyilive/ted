@@ -156,12 +156,17 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
   function agentRows(base: Base): LibraryAgentRow[] {
     const own = library(base.files).settings
     const defaults = base.defaults.settings
-    const resolved = resolveAgentChoices(defaults, {
+    const merged = resolveWorkflow([base.defaults, library(base.files)]).settings
+    const installed = {
       claude: options.installed('claude'),
       codex: options.installed('codex'),
-    })
+    }
     return agentRoles.map((role) => {
       const choice = own[role]
+      const resolved = resolveAgentChoices(
+        { ...merged, [role]: defaults[role] } as typeof merged,
+        installed,
+      )
       return {
         role,
         ...(choice && { own: choiceInput(choice) }),

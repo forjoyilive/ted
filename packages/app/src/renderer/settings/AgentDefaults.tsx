@@ -6,6 +6,7 @@ import type {
   LibraryView,
 } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import sections from '../views/FactorySettingsSections.module.css'
 import { FromChip } from '../views/FactorySettingsSections.tsx'
@@ -23,12 +24,18 @@ export function AgentDefaults() {
   const [view, setView] = useState<LibraryView>()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
     let active = true
     const load = () =>
       ted.library().then(
-        (next) => active && setView(next),
+        (next) => {
+          if (!active) return
+          setView(next)
+          setError(undefined)
+        },
         (failure: unknown) => active && setError(readableError(failure)),
       )
     void load()
@@ -39,7 +46,7 @@ export function AgentDefaults() {
       active = false
       unsubscribe()
     }
-  }, [])
+  }, [epoch])
 
   async function save(role: AgentRole, choice: AgentChoiceInput | null) {
     if (!view) return
