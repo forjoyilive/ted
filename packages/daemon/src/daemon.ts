@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
@@ -16,6 +17,8 @@ import { createEnvironment } from './health/environment.ts'
 import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
+import { createLibrarySettings } from './library-settings.ts'
+import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
@@ -23,6 +26,7 @@ import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
+import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage } from './storage.ts'
@@ -248,6 +252,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
       })
+      const library = createLibrarySettings({
+        store,
+        workflows,
+        libraryDir: paths.library,
+        installed: (kind) => agents.installed(kind),
+        emit,
+      })
+      const libraryWatch = await watchLibrary({ libraryDir: paths.library, workflows, emit })
       banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
         if (!factory) return
@@ -314,9 +326,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       started = tasks
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
-      if (options.checkAgentsOnStart) {
-        health.check().catch((error: unknown) => console.error('agent health check failed:', error))
-      }
       const conversations = createConversations({
         home: paths.home,
         store,
@@ -325,6 +334,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         disk,
       })
+      const versionRestarts = await restartOnNewVersions({
+        store,
+        health,
+        conversations,
+        versionsFile: path.join(paths.home, 'agent-versions.json'),
+      })
+      if (options.checkAgentsOnStart) {
+        health.check().catch((error: unknown) => console.error('agent health check failed:', error))
+      }
       return {
         runs,
         conversations,
@@ -338,7 +356,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         factories,
         factorySettings,
         checkTries,
+        library,
         async close() {
+          libraryWatch.close()
+          versionRestarts.close()
           await checkTries.close()
           stayAwake?.close()
           disk.close()

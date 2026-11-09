@@ -34,3 +34,4 @@ export type DaemonEvent =
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
   | { type: 'check-try-updated'; checkTry: CheckTry }
+  | { type: 'library-changed' }

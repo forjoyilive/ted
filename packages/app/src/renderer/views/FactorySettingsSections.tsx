@@ -9,6 +9,7 @@ import type {
   FactorySettingsView,
   InvalidSettings,
   LayerKind,
+  LibraryInvalid,
   StageId,
   StageRowView,
 } from '@ted/protocol'
@@ -54,7 +55,7 @@ function title(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1)
 }
 
-function Edited({ when }: { when: boolean }) {
+export function Edited({ when }: { when: boolean }) {
   return when ? <span className={base.edited}>Edited</span> : null
 }
 
@@ -97,7 +98,11 @@ export function Toggle({
   )
 }
 
-export function InvalidNotice({ invalid }: { invalid: InvalidSettings }) {
+export function InvalidNotice({
+  invalid,
+}: {
+  invalid: LibraryInvalid & Partial<Pick<InvalidSettings, 'url'>>
+}) {
   return (
     <section className={styles.invalid} role="alert" aria-label={`${invalid.file} has an error`}>
       <div className={styles.invalidHead}>
@@ -106,9 +111,11 @@ export function InvalidNotice({ invalid }: { invalid: InvalidSettings }) {
         </span>
         <span className={styles.invalidTitle}>{invalid.file} has an error</span>
         <span className={base.spacer} />
-        <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url)}>
-          Open on GitHub
-        </Button>
+        {invalid.url !== undefined && (
+          <Button size="small" onClick={() => void ted.openOnGitHub(invalid.url ?? '')}>
+            Open on GitHub
+          </Button>
+        )}
       </div>
       <p className={styles.invalidLine}>
         {invalid.line > 0 && (
@@ -904,7 +911,7 @@ export function NotesSection({
   )
 }
 
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   return (
     <>
       {keyed(markdownBlocks(text), (b) => `${b.kind}:${JSON.stringify(b)}`).map(({ key, item }) => (

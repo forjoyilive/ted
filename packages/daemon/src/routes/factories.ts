@@ -219,7 +219,7 @@ function fileText(given: unknown, field: string): string {
   return value
 }
 
-function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInput>> {
+export function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInput>> {
   const body = record(given)
   const stages: Partial<Record<StageId, StageSettingsInput>> = {}
   for (const [id, value] of Object.entries(body)) {
@@ -254,7 +254,7 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
   return stages
 }
 
-function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
+export function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
   const files: Partial<Record<AgentStageId, string | null>> = {}
   for (const [id, value] of Object.entries(record(given))) {
     if (!agentStageIds.includes(id as AgentStageId)) throw new HttpError(400, `unknown Stage ${id}`)
@@ -280,7 +280,7 @@ function checkInput(given: unknown): CheckInput {
   }
 }
 
-function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
+export function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
   if (given === null) return null
   const body = record(given)
   const agent = optionalText(body.agent, `${role}.agent`)
@@ -296,7 +296,7 @@ function agentChoice(given: unknown, role: string): AgentChoiceInput | null {
   }
 }
 
-function record(given: unknown): Record<string, unknown> {
+export function record(given: unknown): Record<string, unknown> {
   return typeof given === 'object' && given !== null && !Array.isArray(given)
     ? (given as Record<string, unknown>)
     : {}

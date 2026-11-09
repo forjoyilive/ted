@@ -13,8 +13,9 @@ import { StatusChip } from '../components/StatusChip.tsx'
 import { useAgentHealth } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
+import { AgentDefaults } from './AgentDefaults.tsx'
 import styles from './AgentsPage.module.css'
-import { Button, SettingsPage } from './controls.tsx'
+import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 
 export const fixCheckEveryMs = 5_000
@@ -361,6 +362,19 @@ export function AgentsPage({ settings }: SettingsPageProps) {
           />
         ))}
       </div>
+      <SettingsGroup>
+        <SettingRow
+          title="Restart idle Runs onto new agent versions"
+          help="When Claude Code or Codex updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle."
+        >
+          <Switch
+            label="Restart idle Runs onto new agent versions"
+            checked={settings.restartIdleRuns}
+            onChange={(restartIdleRuns) => void ted.updateSettings({ restartIdleRuns })}
+          />
+        </SettingRow>
+      </SettingsGroup>
+      <AgentDefaults />
     </SettingsPage>
   )
 }
