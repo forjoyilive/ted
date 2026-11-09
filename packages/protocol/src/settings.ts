@@ -37,6 +37,7 @@ export interface MachineSettings {
   editor: EditorChoice | null
   editorCommand: string
   linearSync: boolean
+  linearSyncTeams: Readonly<Record<string, readonly string[]>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -61,6 +62,7 @@ export const defaultMachineSettings: MachineSettings = {
   editor: null,
   editorCommand: '',
   linearSync: true,
+  linearSyncTeams: {},
 }
 
 export interface Profile {

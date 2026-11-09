@@ -236,6 +236,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     })
   },
   unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  allowLinearSync: (client, taskId) => client.allowLinearSync(String(taskId)),
   followUpTask: (client, taskId, comment, attachments) =>
     client.followUpTask(
       String(taskId),

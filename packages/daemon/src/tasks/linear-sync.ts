@@ -1,5 +1,10 @@
 import { type LinearUrl, parseLinearUrl, type Task } from '@ted/protocol'
-import type { Linear, LinearIssueState, LinearWorkflowState } from '../linear/linear.ts'
+import {
+  type Linear,
+  type LinearIssueState,
+  type LinearWorkflowState,
+  linearIssueKey,
+} from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import {
   type LinearStep,
@@ -131,7 +136,7 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
     if (!issues) return
     for (const item of list) {
       if (closed) return
-      const issue = issues.get(item.link.identifier)
+      const issue = issues.get(linearIssueKey(item.link.workspace, item.link.identifier))
       if (!issue) continue
       await syncOne(item, issue).catch((error: unknown) =>
         console.error(
@@ -146,21 +151,22 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
     const state = clean(issue.state.name, maxStateName)
     const stateType = issue.state.type
     const before = record.seen
-    if (before?.stateType !== stateType || before.state !== state) {
-      store.linearIssueSeen(task.id, identifier, { stateType, state })
+    const team = issue.teamKey
+    if (before?.stateType !== stateType || before.state !== state || before.team !== team) {
+      store.linearIssueSeen(task.id, identifier, { stateType, state, team })
     }
+    if (store.getTask(task.id)?.linearSync !== 'on') return
     const open = !task.archived && task.stage !== 'done'
-    if (open && isClosedType(stateType)) {
-      if (before !== undefined && !isClosedType(before.stateType)) {
-        await options.closed(task.id, { identifier, state, stateType })
-      }
-      return
+    const issueClosed = open && isClosedType(stateType)
+    if (issueClosed && before !== undefined && !isClosedType(before.stateType)) {
+      await options.closed(task.id, { identifier, state, stateType })
     }
     if (!open) options.settled(task.id, 'done')
-    else if (before !== undefined && isClosedType(before.stateType)) {
+    else if (!issueClosed && before !== undefined && isClosedType(before.stateType)) {
       options.settled(task.id, 'reopened')
     }
-    const target = targetStep(task, merged)
+    if (!merged && store.getTask(task.id)?.archived) return
+    const target = issueClosed ? undefined : targetStep(task, merged)
     if (target && stepRank(target) > stepRank(record.step)) {
       let moved: string | undefined
       if (rankOf(issue.state) < stepRank(target)) {

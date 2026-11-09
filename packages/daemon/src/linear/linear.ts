@@ -38,6 +38,7 @@ export interface LinearIssueState {
   id: string
   identifier: string
   teamId: string
+  teamKey: string
   state: LinearWorkflowState
 }
 
@@ -57,7 +58,7 @@ const validKey = /^[\x21-\x7e]{8,512}$/
 const maxDescription = 20_000
 const maxTitle = 500
 const issuesPerQuery = 50
-const issueStateFields = 'id identifier state { id name type position } team { id }'
+const issueStateFields = 'id identifier state { id name type position } team { id key }'
 
 const linearPriorities: Record<number, Priority> = {
   0: 'none',
@@ -292,10 +293,9 @@ export function createLinear(options: LinearOptions): Linear {
     if (!key) return undefined
     const found = new Map<string, LinearIssueState>()
     const { urlKey } = await viewerOf(key)
+    if (urlKey === '') return found
     const identifiers = [
-      ...new Set(
-        links.filter((l) => urlKey === '' || l.workspace === urlKey).map((l) => l.identifier),
-      ),
+      ...new Set(links.filter((l) => l.workspace === urlKey).map((l) => l.identifier)),
     ]
     for (let from = 0; from < identifiers.length; from += issuesPerQuery) {
       const chunk = identifiers.slice(from, from + issuesPerQuery)
@@ -310,7 +310,7 @@ export function createLinear(options: LinearOptions): Linear {
       )
       for (const alias of aliases) {
         const issue = issueStateFrom(data[alias])
-        if (issue) found.set(issue.identifier.toUpperCase(), issue)
+        if (issue) found.set(linearIssueKey(urlKey, issue.identifier), issue)
       }
     }
     return found
@@ -451,6 +451,10 @@ export function createLinear(options: LinearOptions): Linear {
   }
 }
 
+export function linearIssueKey(workspace: string, identifier: string): string {
+  return `${workspace.toLowerCase()}/${identifier.toUpperCase()}`
+}
+
 function workflowStateFrom(value: unknown): LinearWorkflowState | undefined {
   const state = value as Partial<LinearWorkflowState> | null | undefined
   if (
@@ -470,7 +474,12 @@ function workflowStateFrom(value: unknown): LinearWorkflowState | undefined {
 
 function issueStateFrom(value: unknown): LinearIssueState | undefined {
   const issue = value as
-    | { id?: unknown; identifier?: unknown; state?: unknown; team?: { id?: unknown } | null }
+    | {
+        id?: unknown
+        identifier?: unknown
+        state?: unknown
+        team?: { id?: unknown; key?: unknown } | null
+      }
     | null
     | undefined
   const state = workflowStateFrom(issue?.state)
@@ -478,11 +487,18 @@ function issueStateFrom(value: unknown): LinearIssueState | undefined {
     typeof issue?.id !== 'string' ||
     typeof issue.identifier !== 'string' ||
     typeof issue.team?.id !== 'string' ||
+    typeof issue.team.key !== 'string' ||
     !state
   ) {
     return undefined
   }
-  return { id: issue.id, identifier: issue.identifier, teamId: issue.team.id, state }
+  return {
+    id: issue.id,
+    identifier: issue.identifier,
+    teamId: issue.team.id,
+    teamKey: issue.team.key.toUpperCase(),
+    state,
+  }
 }
 
 function failedStatus(known: Pick<LinearStatus, 'keyring'>, error: unknown): LinearStatus {

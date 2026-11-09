@@ -103,7 +103,10 @@ export async function startStubLinear(
             id: stubLinearIssueId(issue.identifier),
             identifier: issue.identifier,
             state: stateOf(issue),
-            team: { id: `team-${issue.identifier.split('-')[0]}` },
+            team: {
+              id: `team-${issue.identifier.split('-')[0]}`,
+              key: issue.identifier.split('-')[0],
+            },
           }
         }
         return reply(200, { data, ...(errors.length > 0 && { errors }) })

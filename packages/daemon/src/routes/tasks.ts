@@ -232,6 +232,11 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/tasks\/([^/]+)\/linear-sync$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.allowLinearSync(ref)],
+  },
+  {
+    method: 'POST',
     path: /^\/tasks\/([^/]+)\/unarchive$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
   },
