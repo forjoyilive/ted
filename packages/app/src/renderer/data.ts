@@ -61,15 +61,18 @@ function useLive<T extends { id: string }>(
     void epoch
     if (loaded.current !== load) setItems([])
     loaded.current = load
-    const fresh: T[] = []
+    let fresh: T[] | undefined = []
     const unsubscribe = ted.onEvent((event) => {
       const item = pick(event)
       if (!item) return
-      fresh.push(item)
+      fresh?.push(item)
       setItems((current) => mergeById(current, [item]).sort(order))
     })
     void load().then(
-      (loaded) => setItems(mergeById(loaded, fresh).sort(order)),
+      (loaded) => {
+        setItems(mergeById(loaded, fresh ?? []).sort(order))
+        fresh = undefined
+      },
       () => undefined,
     )
     return unsubscribe
@@ -138,35 +141,27 @@ export function useBanners(): Banner[] {
 
   useEffect(() => {
     void epoch
-    let loading = true
-    const clearedWhileLoading = new Set<string>()
+    let whileLoading: Map<string, Banner | undefined> | undefined = new Map()
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'banner-raised' || event.type === 'banner-updated') {
-        clearedWhileLoading.delete(event.banner.id)
+        whileLoading?.set(event.banner.id, event.banner)
         setBanners((current) => mergeById(current, [event.banner]))
       } else if (event.type === 'banner-cleared') {
-        if (loading) clearedWhileLoading.add(event.id)
+        whileLoading?.set(event.id, undefined)
         setBanners((current) => current.filter((b) => b.id !== event.id))
-      }
-    })
-    const raisedWhileLoading = new Map<string, Banner>()
-    const unsubscribeRaised = ted.onEvent((event) => {
-      if (loading && (event.type === 'banner-raised' || event.type === 'banner-updated')) {
-        raisedWhileLoading.set(event.banner.id, event.banner)
       }
     })
     void ted.listBanners().then(
       (loaded) => {
-        loading = false
-        const kept = loaded.filter((b) => !clearedWhileLoading.has(b.id))
-        setBanners(mergeById(kept, [...raisedWhileLoading.values()]))
+        const changes = whileLoading ?? new Map<string, Banner | undefined>()
+        whileLoading = undefined
+        const kept = loaded.filter((b) => !changes.has(b.id))
+        const raised = [...changes.values()].filter((b) => b !== undefined)
+        setBanners(mergeById(kept, raised))
       },
       () => undefined,
     )
-    return () => {
-      unsubscribe()
-      unsubscribeRaised()
-    }
+    return unsubscribe
   }, [epoch])
 
   useEffect(() => {
