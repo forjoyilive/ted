@@ -299,12 +299,26 @@ describe('Offline', () => {
       'the offline banner to clear',
     )
     expect((await healthOf(client, 'claude'))?.state).toBe('ready')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(
+      (await linesOf(client, runId)).some((line) => line.includes('Carry on where you left off')),
+    ).toBe(false)
     await writeFile(go, '')
     await waitUntil(
       async () => (await getTask(client, task.id))?.status?.kind !== 'paused' || undefined,
       'the Task to carry on',
     )
     expect((await getTask(client, task.id))?.leadRunId).toBe(runId)
+    await waitUntil(
+      async () =>
+        (await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).run.state === 'idle' ||
+        undefined,
+      'the turn to end',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(
+      (await linesOf(client, runId)).some((line) => line.includes('Carry on where you left off')),
+    ).toBe(false)
   })
 })
 

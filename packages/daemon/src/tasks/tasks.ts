@@ -2853,7 +2853,7 @@ export function createTasks(options: {
         continue
       }
       interrupted.delete(runId)
-      if (run && run.state !== 'finished') {
+      if (run && run.state !== 'finished' && run.state !== 'working') {
         runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
       }
     }
