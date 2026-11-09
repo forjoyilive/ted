@@ -351,3 +351,7 @@
   background: var(--status-waiting-bg);
   color: var(--status-waiting-fg);
 }
+
+.confirmation {
+  display: flex;
+}

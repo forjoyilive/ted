@@ -159,7 +159,7 @@ function subAgentRequest(body: unknown): StartSubAgentRequest {
   const input = (body ?? {}) as Partial<Record<keyof StartSubAgentRequest, unknown>>
   const prompt = typeof input.prompt === 'string' ? input.prompt : ''
   if (prompt.trim() === '') throw new HttpError(400, 'the prompt file is empty')
-  const { agent, model, effort, name, ownWorktree } = input
+  const { agent, model, effort, name, ownWorktree, reviewer } = input
   if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
     throw new HttpError(400, 'agent must be claude or codex')
   }
@@ -173,6 +173,9 @@ function subAgentRequest(body: unknown): StartSubAgentRequest {
   if (ownWorktree !== undefined && typeof ownWorktree !== 'boolean') {
     throw new HttpError(400, 'ownWorktree must be true or false')
   }
+  if (reviewer !== undefined && typeof reviewer !== 'boolean') {
+    throw new HttpError(400, 'reviewer must be true or false')
+  }
   return {
     prompt,
     ...(agent !== undefined && { agent: agent as AgentKind }),
@@ -180,6 +183,7 @@ function subAgentRequest(body: unknown): StartSubAgentRequest {
     ...(effort !== undefined && { effort: effort as Effort }),
     ...(typeof name === 'string' && name.trim() !== '' && { name: oneLine(name) }),
     ...(ownWorktree === true && { ownWorktree }),
+    ...(reviewer === true && { reviewer }),
   }
 }
 

@@ -110,10 +110,11 @@ function EventRow({
         )
       }
     >
-      {checkRun && (
+      {(checkRun || event.judgments) && (
         <ChecksRow
-          checks={checkRun.checks}
-          onOpen={(position) => onOpenOutput(checkRun, position)}
+          checks={checkRun?.checks ?? []}
+          {...(event.judgments && { judgments: event.judgments })}
+          onOpen={(position) => checkRun && onOpenOutput(checkRun, position)}
         />
       )}
       {event.findings !== undefined && <Findings text={event.findings} />}

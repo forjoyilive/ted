@@ -43,6 +43,16 @@ export async function subAgentPrompt(displayId: string, instructions: string): P
   ].join('\n\n')
 }
 
+export async function tedSubAgentPrompt(instructions: string): Promise<string> {
+  return [await subAgentPreamble(), `# Your instructions from TED\n\n${instructions.trim()}`].join(
+    '\n\n',
+  )
+}
+
+export async function loopCheckInstructions(): Promise<string> {
+  return (await readFile(new URL('loop-check.md', defaults), 'utf8')).trim()
+}
+
 export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,

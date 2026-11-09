@@ -56,6 +56,7 @@ export interface StartSubAgentRequest {
   prompt: string
   name?: string
   ownWorktree?: boolean
+  reviewer?: boolean
 }
 
 export type SubAgentState = 'queued' | 'working' | 'waiting' | 'idle' | 'stopped' | 'failed'

@@ -1,4 +1,4 @@
-import type { Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
+import type { Comment, CopySkip, Judgment, ThreadEvent, ThreadEventTone } from '@ted/protocol'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 
@@ -32,6 +32,31 @@ function agentLine(data: Record<string, unknown>): string {
     .join(' · ')
 }
 
+function judgmentsIn(data: Record<string, unknown>): Judgment[] {
+  return (['review', 'visual'] as const).flatMap((key) => {
+    const value = data[key] as { passed?: unknown; notes?: unknown } | null | undefined
+    if (!value || typeof value.passed !== 'boolean') return []
+    const name: Judgment['name'] = key === 'review' ? 'Review' : 'Visual'
+    return [
+      {
+        name,
+        passed: value.passed,
+        ...(typeof value.notes === 'number' && value.notes > 0 && { notes: value.notes }),
+      },
+    ]
+  })
+}
+
+function reviewedBy(data: Record<string, unknown>): string {
+  const reviewer = data.reviewer as { agent?: unknown; unavailable?: unknown } | null | undefined
+  if (!reviewer) return ''
+  const agent = agentNames[text(reviewer.agent)] ?? text(reviewer.agent)
+  const unavailable = text(reviewer.unavailable)
+  return ` · Reviewed by ${agent}${
+    unavailable === '' ? '' : ` (${agentNames[unavailable] ?? unavailable} unavailable)`
+  }`
+}
+
 function copyLine(data: Record<string, unknown>): string | undefined {
   const name = text(data.name)
   const copied = Array.isArray(data.copied) ? data.copied.map(text) : []
@@ -57,12 +82,14 @@ export function threadEvents(
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
+  let judged: Record<string, unknown> | undefined
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
     line: string,
     findings?: string,
     checkRunId?: string,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -72,6 +99,9 @@ export function threadEvents(
       text: line,
       ...(findings !== undefined && findings !== '' && { findings }),
       ...(checkRunId !== undefined && { checkRunId }),
+      ...(extra?.judgments !== undefined &&
+        extra.judgments.length > 0 && { judgments: extra.judgments }),
+      ...(extra?.validate !== undefined && { validate: extra.validate }),
     })
 
   for (const entry of log) {
@@ -152,6 +182,9 @@ export function threadEvents(
         break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
+        const fromValidate = text(data.from) === 'validate'
+        const judgedNow = fromValidate ? judged : undefined
+        judged = undefined
         const round =
           typeof data.round !== 'number'
             ? ''
@@ -163,15 +196,58 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}`,
+          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
+            judgedNow ? reviewedBy(judgedNow) : ''
+          }`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
-          checkRunId,
+          checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
+          {
+            ...(judgedNow && { judgments: judgmentsIn(judgedNow) }),
+            ...(fromValidate && { validate: 'sent-back' as const }),
+          },
+        )
+        break
+      }
+      case 'v1.ValidateJudged':
+        if (data.outcome === 'sent-back') {
+          judged = data
+          break
+        }
+        judged = undefined
+        add(
+          entry,
+          'done',
+          `Validate passed${reviewedBy(data)}`,
+          undefined,
+          text(data.checkRunId) || undefined,
+          { judgments: judgmentsIn(data), validate: 'passed' },
+        )
+        break
+      case 'v1.LoopCheckStarted':
+        add(
+          entry,
+          'run',
+          typeof data.round === 'number'
+            ? `TED is checking whether Validate’s ${data.round} rounds are converging`
+            : 'TED is checking whether Validate’s rounds are converging',
+        )
+        break
+      case 'v1.LoopCheckFinished': {
+        const verdict = text(data.verdict)
+        const reason = text(data.reason)
+        add(
+          entry,
+          verdict === 'converging' ? 'done' : 'failure',
+          verdict === 'failed'
+            ? `Loop check gave no verdict · ${reason}`
+            : `Loop check: ${verdict} · ${reason}`,
         )
         break
       }
       case 'v1.TaskStageEntered':
       case 'v2.TaskStageEntered': {
         const stage = text(data.stage)
+        judged = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
           break
