@@ -10,6 +10,7 @@ import type {
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
+import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
@@ -165,6 +166,18 @@ export class DaemonClient {
 
   actOnBanner(id: string): Promise<void> {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
+  }
+
+  getIntegrations(): Promise<IntegrationsHealth> {
+    return this.#request('GET', '/integrations')
+  }
+
+  checkIntegrations(): Promise<IntegrationsHealth> {
+    return this.#request('POST', '/integrations/check')
+  }
+
+  runFix(input: RunFixRequest): Promise<RunFixResult> {
+    return this.#request('POST', '/integrations/fix', input)
   }
 
   getActivity(): Promise<Activity> {

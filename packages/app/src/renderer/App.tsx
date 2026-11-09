@@ -39,8 +39,9 @@ function sectionsStoppingWork(banners: readonly Banner[]) {
   const stopping: Partial<Record<SettingsSectionId, boolean>> = {}
   for (const banner of banners) {
     const place = banner.action?.opens
-    if (banner.severity !== 'stops-work' || place?.kind !== 'settings') continue
-    const section = settingsSectionIds.find((id) => id === place.section)
+    const named = place?.kind === 'settings' ? place.section : banner.action?.section
+    if (banner.severity !== 'stops-work' || named === undefined) continue
+    const section = settingsSectionIds.find((id) => id === named)
     if (section !== undefined) stopping[section] = true
   }
   return stopping

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process'
 import path from 'node:path'
-import { parseArgs, promisify, stripVTControlCharacters } from 'node:util'
+import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
@@ -13,7 +12,9 @@ import {
   type Effort,
   efforts,
   type Factory,
+  type IntegrationsHealth,
   isShowing,
+  minGhVersion,
   type RunWithConversation,
   readDaemonInfo,
   type TaskLead,
@@ -306,15 +307,46 @@ async function status(): Promise<void> {
 }
 
 async function doctor(): Promise<void> {
+  const health = await withDaemon(home, (client) => client.checkIntegrations())
   const { pid, banners, stops } = await problems()
   console.log(`✓ TED’s background process is running (pid ${pid ?? 'unknown'})`)
-  const git = await promisify(execFile)('git', ['--version']).then(
-    ({ stdout }) => stdout.trim().replace(/^git version /, ''),
-    () => undefined,
-  )
-  console.log(git === undefined ? '✗ git not found on PATH' : `✓ git ${git}`)
+  const lines = integrationLines(health)
+  console.log(lines.map((line) => printable(line)).join('\n'))
   console.log(banners.join('\n'))
-  if (stops || git === undefined) process.exitCode = 1
+  if (stops || health.git.state === 'not-installed') process.exitCode = 1
+}
+
+function integrationLines({ git, github }: IntegrationsHealth): string[] {
+  const identity = [git.name, git.email && `<${git.email}>`].filter(Boolean).join(' ')
+  const gitLine =
+    git.state === 'not-installed'
+      ? `✗ git not found · ${git.fix?.command ?? ''}`
+      : git.state === 'no-identity'
+        ? `! git ${git.version} has no name or email set · ${(git.copy ?? []).join(' && ')}`
+        : `✓ git ${git.version} · ${identity}`
+  const { cli } = github
+  const ghLine =
+    cli.state === 'ready'
+      ? `✓ gh ${cli.version} · ${cli.path}`
+      : cli.state === 'not-installed'
+        ? `✗ gh not found · ${cli.fix?.command ?? ''}`
+        : cli.state === 'too-old'
+          ? `✗ gh ${cli.version} is older than ${minGhVersion} · ${cli.fix?.command ?? ''}`
+          : `✗ gh isn’t working · ${cli.error ?? ''}`
+  const hostLines =
+    cli.state === 'ready'
+      ? github.hosts.map((host) => {
+          if (host.state === 'ready') return `✓ ${host.host} · signed in as ${host.login ?? '?'}`
+          if (host.state === 'missing-workflow-scope') {
+            return `! ${host.host} · can’t push changes to GitHub Actions workflows · ${host.fix?.command ?? ''}`
+          }
+          if (host.state === 'signed-out') {
+            return `✗ ${host.host} · signed out · ${host.fix?.command ?? ''}`
+          }
+          return `✗ ${host.host} · ${host.error ?? 'couldn’t check'}`
+        })
+      : []
+  return [gitLine, ghLine, ...hostLines]
 }
 
 function formatBanners(banners: Banner[], factories: Factory[]): string[] {
