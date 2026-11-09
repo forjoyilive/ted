@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { redactSecrets } from './redact.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -15,7 +16,7 @@ async function git(cwd: string, ...args: string[]): Promise<string> {
     return stdout.trim()
   } catch (error) {
     const stderr = (error as { stderr?: string }).stderr?.trim()
-    throw new GitError(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`, { cause: error })
+    throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
   }
 }
 

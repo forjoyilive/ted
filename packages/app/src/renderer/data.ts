@@ -1,5 +1,13 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
-import type { Banner, Comment, Factory, MachineSettings, Task } from '@ted/protocol'
+import type {
+  Banner,
+  Comment,
+  Factory,
+  MachineSettings,
+  StageEntry,
+  StageId,
+  Task,
+} from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { nextReturn } from './banners.ts'
 import { type AppEvent, ted } from './ted.ts'
@@ -132,6 +140,31 @@ export function useSettings(): MachineSettings | undefined {
   }, [epoch])
 
   return settings
+}
+
+export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
+  const [entries, setEntries] = useState<StageEntry[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let current = true
+    if (stage === 'backlog') {
+      setEntries([])
+      return
+    }
+    void ted.listStageEntries(taskId).then(
+      (loaded) => {
+        if (current) setEntries(loaded)
+      },
+      () => undefined,
+    )
+    return () => {
+      current = false
+    }
+  }, [taskId, stage, epoch])
+
+  return entries
 }
 
 export function useBanners(): Banner[] {

@@ -15,6 +15,7 @@ export interface ResolvedStageFile {
 
 export interface ResolvedWorkflow {
   stages: StageId[]
+  order: AgentStageId[]
   settings: WorkflowSettings
   notes?: string
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
@@ -52,14 +53,16 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
   }
 
   const enabled = (id: StageId) => settings.stages[id]?.enabled !== false
+  const order: AgentStageId[] = settings.order ?? ['intake', 'work']
   const stages: StageId[] = [
     ...(enabled('backlog') ? (['backlog'] as const) : []),
-    ...(settings.order ?? ['intake', 'work']).filter(enabled),
+    ...order.filter(enabled),
     'done',
   ]
 
   return {
     stages,
+    order,
     settings,
     ...(notes !== undefined && { notes }),
     stageFile: (id) => stageFiles.get(id),

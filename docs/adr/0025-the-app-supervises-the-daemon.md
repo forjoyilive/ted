@@ -14,9 +14,9 @@ This banner is the one exception to ADR 0021: it is built in the renderer from t
 
 ## Logs
 
-- The daemon writes its own log, everything it sends to `console`, to `~/.ted/logs/daemon.log`, rolling at 20 MB and keeping 7 files (`daemon.log`, `daemon.log.1` … `daemon.log.6`).
+- The daemon writes its own log, everything it sends to `console` after `redactSecrets` (ADR 0024), to `~/.ted/logs/daemon.log`, rolling at 20 MB and keeping 7 files (`daemon.log`, `daemon.log.1` … `daemon.log.6`).
 - The daemon’s stdout and stderr go to `~/.ted/logs/daemon-output.log`, which holds crash output that never reaches `console`: uncaught exceptions and fatal errors. The launcher writes a “starting” line before each start and rolls the file at start under the same limits.
-- **Copy report** puts the end of both logs (256 KB of each, reaching back into `.1` when the current file is short), the TED version, the OS and the crash times on the clipboard. Nothing is uploaded.
+- **Copy report** puts the end of both logs (256 KB of each, reaching back into `.1` when the current file is short), the TED version, the OS and the crash times on the clipboard, with secrets redacted, TED’s folder shown as `<TED home>` and the user’s home as `~`. Nothing is uploaded.
 
 ## Considered Options
 

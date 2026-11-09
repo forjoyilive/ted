@@ -3,6 +3,7 @@ import { open, stat } from 'node:fs/promises'
 import os from 'node:os'
 import { format } from 'node:util'
 import { tedPaths } from '@ted/protocol'
+import { redactSecrets } from './redact.ts'
 
 export interface LogLimits {
   maxBytes: number
@@ -97,7 +98,7 @@ export async function crashReport(
       ? `${name}: none`
       : `${name} (last ${maxBytesPerFile} bytes):\n${text}`
   }
-  return [
+  const text = [
     `TED ${version} crash report`,
     `${os.type()} ${os.release()} ${os.arch()}, Node ${process.versions.node}`,
     `Crashes: ${crashes.length === 0 ? 'none recorded' : crashes.join(', ')}`,
@@ -106,13 +107,14 @@ export async function crashReport(
     '',
     await section('daemon-output.log', paths.daemonOutput),
   ].join('\n')
+  return redactSecrets(text.replaceAll(home, '<TED home>').replaceAll(os.homedir(), '~'))
 }
 
 export function logConsoleTo(log: RollingLog): void {
   const line =
     (level: string) =>
     (...args: unknown[]) =>
-      log.write(`${new Date().toISOString()} ${level} ${format(...args)}\n`)
+      log.write(`${new Date().toISOString()} ${level} ${redactSecrets(format(...args))}\n`)
   console.log = line('info')
   console.info = line('info')
   console.warn = line('warn')

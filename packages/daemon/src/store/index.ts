@@ -3,24 +3,34 @@ import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb } from '@livestore/livestore'
 import {
   type AgentKind,
+  type AgentStageId,
   type Appearance,
+  type Attachment,
+  agentStageIds,
   type Banner,
   type BannerAction,
   type BannerSeverity,
   bannerOrder,
+  type ClarifyDepth,
   type Comment,
   type ConversationEntry,
   type DaemonEvent,
+  defaultMachineSettings,
+  type Effort,
   type Factory,
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type Priority,
   type Run,
   type RunState,
   type StageEntry,
   type StageId,
   type Task,
+  type TaskLead,
+  type TrackStage,
 } from '@ted/protocol'
+import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import {
   banners,
   comments,
@@ -28,9 +38,12 @@ import {
   events,
   factories,
   machineSettings,
+  machineSettingValues,
   runs,
   schema,
   stageEntries,
+  taskAttachments,
+  taskBlockers,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -50,9 +63,29 @@ export interface StoredFactory extends Factory {
 
 export interface StoredTask extends Task {
   worktree?: string
+  startRequested: boolean
 }
 
-export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
+export interface NewTask {
+  title: string
+  factoryId?: string
+  description?: string
+  priority?: Priority
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+  startRequested?: boolean
+  blockedBy?: string[]
+  attachments?: Attachment[]
+}
+
+export interface PlannedStage {
+  stage: AgentStageId
+  enabled: boolean
+}
+
+export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
+  order: PlannedStage[]
+}
 
 export interface AcceptedLayer {
   files: Record<string, string | null>
@@ -64,7 +97,7 @@ export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
-  createTask(input: { title: string; factoryId?: string }): Promise<Task>
+  createTask(input: NewTask): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   startTask(input: {
@@ -78,6 +111,7 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -104,9 +138,11 @@ export interface TedStore {
   close(): Promise<void>
 }
 
-export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
+function pick(values: Record<string, unknown>, names: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => names.includes(name)))
+}
 
-const defaultSettings: MachineSettings = { appearance: 'system' }
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
   const store = await createStorePromise({
@@ -126,22 +162,81 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       ? placeholderFactory.key
       : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
 
-  const leadRunId = (taskId: string) =>
-    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
+  const taskRuns = (taskId: string) =>
+    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
-  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
-    const lead = leadRunId(row.id)
+  const blockersOf = (taskId: string) =>
+    store
+      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+      .map((row) => row.blockerId)
+
+  const attachmentsOf = (taskId: string): Attachment[] =>
+    store
+      .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
+  const entryRows = (taskId: string) =>
+    store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+
+  const toTask = ({
+    branch,
+    worktree,
+    activity,
+    activityEntries,
+    leadAgent,
+    leadModel,
+    leadEffort,
+    ...row
+  }: typeof tasks.Type): StoredTask => {
+    const stage = row.stage as StageId
+    const all = taskRuns(row.id)
+    const lead = all.at(0)
+    const live = all.filter((r) => r.state !== 'finished')
+    const entries = entryRows(row.id)
+    const blockedBy = blockersOf(row.id)
+    const waitingOn = blockedBy.flatMap((id) => {
+      const blocker = taskRow(id)
+      return blocker && blocker.stage !== 'done'
+        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
+        : []
+    })
+    const facts: TaskFacts = {
+      stage,
+      runs: live.map((r) => r.state as RunState),
+      ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
+    }
+    const status = taskStatus(facts)
+    const shown = taskActivity(facts)
     return {
       ...row,
-      stage: row.stage as StageId,
+      priority: row.priority as Priority,
+      clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(leadAgent !== null && {
+        lead: {
+          agent: leadAgent as AgentKind,
+          ...(leadModel !== null && { model: leadModel }),
+          ...(leadEffort !== null && { effort: leadEffort as Effort }),
+        },
+      }),
+      blockedBy,
+      attachments: attachmentsOf(row.id),
+      stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
-      ...(lead !== undefined && { leadRunId: lead }),
+      ...(lead !== undefined && { leadRunId: lead.id }),
+      ...(status !== undefined && { status }),
+      markers: taskMarkers(facts, status),
+      ...(shown !== undefined && { activity: shown }),
+      track: track(stage, entries),
+      runs: live
+        .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
+        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
     }
   }
 
-  const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
+  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
   const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
     ...row,
@@ -158,13 +253,14 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEntered({
+    events.taskStageEnteredV2({
       id: randomUUID(),
       taskId,
       stage,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
+      order: JSON.stringify(entry.order),
       at,
     })
 
@@ -182,6 +278,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
+  const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
@@ -197,8 +294,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   }
 
   const settings = (): MachineSettings => {
-    const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
-    return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+    const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
+    const values = Object.fromEntries(
+      store
+        .query(queryDb(machineSettingValues.select()))
+        .map(({ name, value }) => [name, JSON.parse(value) as unknown]),
+    )
+    return {
+      ...defaultMachineSettings,
+      ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...pick(values, Object.keys(defaultMachineSettings)),
+    }
   }
 
   const toBanner = (row: typeof banners.Type): Banner => ({
@@ -232,18 +338,44 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
-    async createTask({ title, factoryId = placeholderFactory.id }) {
+    async createTask({
+      title,
+      factoryId = placeholderFactory.id,
+      description = '',
+      priority = 'none',
+      clarifyDepth = 'auto',
+      lead,
+      startRequested = false,
+      blockedBy = [],
+      attachments = [],
+    }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
-      const row = {
-        id: randomUUID(),
-        factoryId,
-        number,
-        title,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.taskCreated(row))
-      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
+      const id = randomUUID()
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskCreatedV2({
+          id,
+          factoryId,
+          number,
+          title,
+          description,
+          priority,
+          clarifyDepth,
+          leadAgent: lead?.agent ?? null,
+          leadModel: lead?.model ?? null,
+          leadEffort: lead?.effort ?? null,
+          startRequested,
+          createdAt: at,
+        }),
+        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...attachments.map((attachment) =>
+          events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+        ),
+      )
+      const row = taskRow(id)
+      if (!row) throw new Error(`no Task ${id}`)
+      const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
       return task
     },
@@ -266,7 +398,15 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (stage === 'done') {
+        for (const { taskId: waiting } of store.query(
+          queryDb(taskBlockers.where({ blockerId: taskId })),
+        )) {
+          updatedTask(waiting)
+        }
+      }
+      return task
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -289,6 +429,18 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           acceptedAt: row.acceptedAt,
         }
       )
+    },
+    setActivity(taskId, text, runId) {
+      store.commit(
+        events.taskActivitySet({
+          taskId,
+          text,
+          runId: runId ?? null,
+          stageEntries: entryRows(taskId).length,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {
@@ -318,6 +470,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         startedAt: new Date().toISOString(),
       }
       store.commit(events.runStartedV2(row))
+      if (taskId !== undefined) updatedTask(taskId)
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
     recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
@@ -332,6 +485,8 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),
       )
+      const taskId = taskIdOfRun(runId)
+      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
     },
     getRun(id) {
       const row = runRow(id)
@@ -344,9 +499,21 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
-    updateSettings({ appearance }) {
-      if (appearance !== undefined && appearance !== settings().appearance) {
-        store.commit(events.appearanceChanged({ appearance, at: new Date().toISOString() }))
+    updateSettings(changes) {
+      const current = settings()
+      const changed = Object.fromEntries(
+        Object.entries(changes).filter(
+          ([name, value]) =>
+            value !== undefined && current[name as keyof MachineSettings] !== value,
+        ),
+      )
+      if (Object.keys(changed).length > 0) {
+        store.commit(
+          events.machineSettingsChanged({
+            changes: JSON.stringify(changed),
+            at: new Date().toISOString(),
+          }),
+        )
         emit({ type: 'settings-changed', settings: settings() })
       }
       return settings()
@@ -393,4 +560,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
     close: () => store.shutdownPromise(),
   }
+}
+
+function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
+  const saved = entries.findLast((e) => e.order !== null)?.order
+  const plan: PlannedStage[] = saved
+    ? (JSON.parse(saved) as PlannedStage[])
+    : agentStageIds.map((id) => ({ stage: id, enabled: true }))
+  const order: StageId[] = plan.map((p) => p.stage)
+  const entered = new Set(entries.map((e) => e.stage))
+  const inOrder = order.includes(stage)
+  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
+  return plan.map(({ stage: id, enabled }) => {
+    if (id === stage) return { stage: id, state: 'current' }
+    if (!enabled) return { stage: id, state: 'skipped' }
+    if (stage === 'backlog') return { stage: id, state: 'future' }
+    if (stage === 'done' || rank(id) < rank(stage)) {
+      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
+    }
+    return { stage: id, state: 'future' }
+  })
+}
+
+function builtInRank(id: StageId): number {
+  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
 }

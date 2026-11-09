@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./task": "./src/task.ts",
+    "./run": "./src/run.ts",
     "./banner": "./src/banner.ts"
   }
 }

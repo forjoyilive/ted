@@ -1,21 +1,41 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentKind, AgentStageId, Comment, Outcome, Task } from '@ted/protocol'
+import type {
+  AgentKind,
+  AgentStageId,
+  Attachment,
+  Comment,
+  Outcome,
+  Task,
+  TaskDefaults,
+} from '@ted/protocol'
+import { clarifyDepths } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { StoredTask, TedStore } from '../store/index.ts'
+import type { NewTask, StoredTask, TedStore } from '../store/index.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 
 export type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
 
+export interface CreateTaskInput
+  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy'> {
+  title?: string
+  factory?: string
+  blockedBy?: string[]
+  attachments?: Attachment[]
+  start?: boolean
+}
+
 export interface Tasks {
-  create(input: { title: string; factory?: string }): Promise<Task>
+  create(input: CreateTaskInput): Promise<Task>
+  defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   comment(ref: string, caller: Caller, body: string): Comment
+  setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
   close(): Promise<void>
 }
@@ -29,9 +49,11 @@ export function createTasks(options: {
   banners: Banners
   reposDir: string
   worktreesDir: string
-  leadAgent: (task: Task) => AgentKind
+  defaultLead: () => AgentKind
+  attachmentFile: (attachment: Attachment) => string
 }): Tasks {
-  const { store, runs, workflows, banners, reposDir, worktreesDir, leadAgent } = options
+  const { store, runs, workflows, banners, reposDir, worktreesDir, defaultLead, attachmentFile } =
+    options
   const starting = new Set<string>()
   const advancing = new Set<string>()
   const finishing = new Set<Promise<void>>()
@@ -77,7 +99,22 @@ export function createTasks(options: {
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
     const file = stage === 'done' ? undefined : workflow.stageFile(stage)
-    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers }
+    const order = workflow.order.map((id) => ({
+      stage: id,
+      enabled: workflow.stages.includes(id),
+    }))
+    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
+  }
+
+  function factoryLead({ workflow }: WorkflowResolution): TaskDefaults['lead'] {
+    const { agent, model, effort } = workflow.settings.lead ?? {}
+    return {
+      agent: (agent as AgentKind | undefined) ?? defaultLead(),
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && {
+        effort: effort as NonNullable<TaskDefaults['lead']['effort']>,
+      }),
+    }
   }
 
   async function start(ref: string): Promise<Task> {
@@ -94,7 +131,7 @@ export function createTasks(options: {
       const stage = resolution.workflow.next('backlog') as AgentStageId
       const branch = await branchFor(clone, task)
       const worktree = path.join(worktreesDir, task.displayId, factory.name)
-      const prompt = await taskLeadPrompt(task, resolution.workflow, stage)
+      const prompt = await taskLeadPrompt(task, resolution.workflow, stage, attachmentFile)
       await mkdir(path.dirname(worktree), { recursive: true })
       await git.addWorktree(clone, {
         path: worktree,
@@ -109,7 +146,7 @@ export function createTasks(options: {
         entry: entryFor(resolution, stage),
       })
       await runs.start({
-        agent: leadAgent(task),
+        agent: task.lead?.agent ?? factoryLead(resolution).agent,
         prompt,
         cwd: worktree,
         taskId: task.id,
@@ -123,11 +160,22 @@ export function createTasks(options: {
   }
 
   return {
-    async create({ title, factory: key }) {
-      if (key === undefined) return store.createTask({ title })
-      const factory = store.listFactories().find((f) => f.key === key)
-      if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
-      const task = await store.createTask({ title, factoryId: factory.id })
+    async create({ title, factory: key, blockedBy = [], start: startNow, ...fields }) {
+      const name = title?.trim() || firstLine(fields.description ?? '')
+      if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
+      const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
+      const factory =
+        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
+      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      const task = await store.createTask({
+        ...fields,
+        ...(fields.description !== undefined && { description: fields.description.trim() }),
+        title: name,
+        blockedBy: blockers,
+        startRequested: startNow === true,
+        ...(factory && { factoryId: factory.id }),
+      })
+      if (!factory) return task
       const resolution = await workflows.resolve(factory).catch((error: unknown) => {
         console.error(
           `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
@@ -135,7 +183,20 @@ export function createTasks(options: {
         )
         return undefined
       })
-      return !resolution || resolution.workflow.stages.includes('backlog') ? task : start(task.id)
+      if (!resolution || blockers.length > 0) return task
+      const hasBacklog = resolution.workflow.stages.includes('backlog')
+      return hasBacklog && startNow !== true ? task : start(task.id)
+    },
+
+    async defaults(factoryId) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
+      const resolution = await workflows.resolve(factory, { fetch: false })
+      const depth = resolution.workflow.settings.stages.clarify?.depth
+      return {
+        lead: factoryLead(resolution),
+        clarifyDepth: clarifyDepths.find((d) => d === depth) ?? 'auto',
+      }
     },
 
     start,
@@ -143,6 +204,11 @@ export function createTasks(options: {
     comment(ref, caller, body) {
       const { task, runId } = ownTask(ref, caller)
       return store.postComment({ taskId: task.id, body, authorRunId: runId })
+    },
+
+    setActivity(ref, caller, text) {
+      const { task, runId } = ownTask(ref, caller)
+      return store.setActivity(task.id, text, runId)
     },
 
     async reportOutcome(ref, caller, _outcome) {
@@ -176,6 +242,15 @@ export function createTasks(options: {
       await Promise.all(finishing)
     },
   }
+}
+
+function firstLine(text: string): string {
+  return (
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '') ?? ''
+  )
 }
 
 function slug(title: string): string {

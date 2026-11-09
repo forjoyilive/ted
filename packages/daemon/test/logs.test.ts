@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { crashReport, openRollingLog, rollLog } from '../src/logs.ts'
+import { crashReport, logConsoleTo, openRollingLog, rollLog } from '../src/logs.ts'
 import { makeTempHome } from './helpers.ts'
 
 let dir: string
@@ -96,4 +96,39 @@ test('a crash report says so when a log is missing', async () => {
 
   expect(report).toContain('daemon.log: none')
   expect(report).toContain('daemon-output.log: none')
+})
+
+test('a crash report hides secrets and TED’s folder', async () => {
+  const logs = path.join(dir, 'logs')
+  await mkdir(logs)
+  await writeFile(
+    path.join(logs, 'daemon-output.log'),
+    `fetch https://user:hunter2@example.com failed\nAuthorization: Bearer abcdef123456\nat ${dir}/store\n`,
+  )
+
+  const report = await crashReport(dir, { version: '0.1.0', crashes: [] })
+
+  expect(report).not.toContain('hunter2')
+  expect(report).not.toContain('abcdef123456')
+  expect(report).not.toContain(dir)
+  expect(report).toContain('<TED home>/store')
+})
+
+test('the daemon’s console lines are timestamped and have secrets removed', async () => {
+  const file = path.join(dir, 'daemon.log')
+  const log = openRollingLog(file, { maxBytes: 1_000, keep: 2 })
+  const saved = { ...console }
+  try {
+    logConsoleTo(log)
+    console.error('clone failed: https://x:ghp_abcdefghijklmnopqrstuvwxyz0123@github.com/a/b')
+  } finally {
+    Object.assign(console, saved)
+    log.close()
+  }
+
+  const text = await read('daemon.log')
+  expect(text).toMatch(
+    /^\d{4}-\d\d-\d\dT\S+ error clone failed: https:\/\/\[redacted\]@github\.com/,
+  )
+  expect(text).not.toContain('ghp_')
 })
