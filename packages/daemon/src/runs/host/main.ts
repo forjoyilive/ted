@@ -3,6 +3,7 @@ import { once } from 'node:events'
 import { closeSync, openSync, readFileSync, readSync, writeSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
+import { watchExitWith } from '../../exit-with.ts'
 import { tryLock } from '../../lock.ts'
 import {
   type DriveAgent,
@@ -108,10 +109,12 @@ const forwardInput = () => {
 }
 const inputTimer = setInterval(forwardInput, 150)
 
-process.on('SIGTERM', () => {
+const stop = () => {
   restartWanted = false
   current?.agent.kill('SIGTERM')
-})
+}
+process.on('SIGTERM', stop)
+watchExitWith(stop)
 process.on('SIGHUP', () => {
   restartWanted = true
   restarting = true
