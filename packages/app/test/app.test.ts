@@ -3434,12 +3434,15 @@ describe('setup Tasks', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText(/WD-1\s+·\s+Created by TED/).waitFor()
     await thread.getByText('Setup', { exact: true }).waitFor()
-    await window
-      .getByRole('complementary', { name: 'Task details' })
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details
       .getByText(
         'The Design and Review Gates are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
       )
       .waitFor()
+    await expect(details.locator(':scope > *').first().textContent()).resolves.toContain(
+      'always on for a setup Task',
+    )
     await thread.getByText('Tutorial', { exact: true }).first().waitFor()
 
     const card = thread.getByRole('region', { name: 'Design review' })
