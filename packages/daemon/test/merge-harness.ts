@@ -79,7 +79,34 @@ export interface GhMerge {
   origin?: string
   mergeState?: string
   reviewDecision?: string | null
-  checks?: { name: string; status?: string; conclusion?: string | null; required?: boolean }[]
+  checks?: {
+    name: string
+    status?: string
+    conclusion?: string | null
+    required?: boolean
+    url?: string
+    app?: string
+  }[]
+  mergeable?: string
+  closed?: boolean
+  threads?: {
+    id: string
+    resolved?: boolean
+    path?: string
+    line?: number
+    comments: {
+      id: string
+      author: { login: string; bot?: boolean; association?: string }
+      body: string
+    }[]
+  }[]
+  reviews?: {
+    id: string
+    state: string
+    author: { login: string; bot?: boolean; association?: string }
+    body: string
+  }[]
+  deployments?: { environment: string; state: string; url?: string }[]
   allowed?: string[]
   autoMergeAllowed?: boolean
   rebaseConflict?: boolean
@@ -196,7 +223,12 @@ export const getTask = async (client: Client, id: string) => {
 
 export async function approve(client: Client, signoff: Comment) {
   await writeFile(client.mergingFile, '')
-  await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+  await waitUntil(async () => {
+    const res = await client.call('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    if (res.status < 300) return true
+    if (res.status === 409 && JSON.stringify(res.body).includes('already moving')) return false
+    throw new Error(`approve: ${JSON.stringify(res.body)}`)
+  }, 'the approval')
 }
 
 export const waitForStage = (client: Client, task: Task, stage: string) =>
@@ -209,7 +241,9 @@ export const ghCalls = async () =>
   (await readFile(ctx.ghLog, 'utf8').catch(() => ''))
     .split('\n')
     .filter((line) => line !== '')
-    .map((line) => JSON.parse(line) as { args: string[]; stdin?: string })
+    .map(
+      (line) => JSON.parse(line) as { args: string[]; stdin?: string; env: Record<string, string> },
+    )
 
 export const merges = async () =>
   (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge').map((c) => c.args)

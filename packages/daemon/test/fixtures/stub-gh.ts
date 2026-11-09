@@ -9,10 +9,16 @@ interface StubState {
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
   paths?: Record<string, { status?: number; message?: string; body?: unknown }>
-  pr?: { number?: number; numbers?: Record<string, number>; createFails?: string }
+  pr?: {
+    number?: number
+    numbers?: Record<string, number>
+    createFails?: string
+    numbered?: boolean
+  }
   heads?: Record<string, string>
   prRepos?: Record<string, string>
   merge?: StubMerge
+  logs?: Record<string, string>
 }
 
 interface StubCheck {
@@ -21,6 +27,14 @@ interface StubCheck {
   conclusion?: string | null
   state?: string
   required?: boolean
+  url?: string
+  app?: string
+}
+
+interface StubAuthor {
+  login: string
+  bot?: boolean
+  association?: string
 }
 
 interface StubMerge {
@@ -42,8 +56,18 @@ interface StubMerge {
   rebaseChangesMode?: boolean
   isDraft?: boolean
   merged?: boolean
+  closed?: boolean
   autoMerge?: string
   mergedWith?: string
+  threads?: {
+    id: string
+    resolved?: boolean
+    path?: string
+    line?: number
+    comments: { id: string; author: StubAuthor; body: string; url?: string }[]
+  }[]
+  reviews?: { id: string; state: string; author: StubAuthor; body: string; url?: string }[]
+  deployments?: { environment: string; state: string; url?: string }[]
   updateBase?: boolean
 }
 
@@ -112,15 +136,25 @@ if (logPath) {
 
 function checkNode(c: StubCheck) {
   return c.state !== undefined
-    ? { __typename: 'StatusContext', context: c.name, state: c.state, isRequired: !!c.required }
+    ? {
+        __typename: 'StatusContext',
+        context: c.name,
+        state: c.state,
+        targetUrl: c.url ?? null,
+        isRequired: !!c.required,
+      }
     : {
         __typename: 'CheckRun',
         name: c.name,
         status: c.status ?? 'COMPLETED',
         conclusion: c.conclusion ?? null,
+        detailsUrl: c.url ?? null,
+        checkSuite: { app: { slug: c.app ?? 'github-actions' } },
         isRequired: !!c.required,
       }
 }
+
+const author = (a: StubAuthor) => ({ __typename: a.bot ? 'Bot' : 'User', login: a.login })
 
 function pullRequests(variables: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
@@ -136,17 +170,53 @@ function pullRequests(variables: Record<string, unknown>) {
       pullRequest: {
         id: `PR_${number}`,
         title: merge.title ?? 'Stub pull request',
-        state: merge.merged ? 'MERGED' : 'OPEN',
+        url: `https://github.com/${String(variables[`o${i}`])}/${String(variables[`n${i}`])}/pull/${number}`,
+        baseRefName: 'main',
+        state: merge.merged ? 'MERGED' : merge.closed ? 'CLOSED' : 'OPEN',
         isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),
         mergeable: merge.mergeable ?? 'MERGEABLE',
         mergeStateStatus: merge.mergeState ?? 'CLEAN',
         reviewDecision: merge.reviewDecision ?? null,
         autoMergeRequest: merge.autoMerge ? { enabledAt: '2026-11-09T00:00:00Z' } : null,
+        reviewThreads: {
+          nodes: (merge.threads ?? []).map((t) => ({
+            id: t.id,
+            isResolved: t.resolved ?? false,
+            path: t.path ?? '',
+            line: t.line ?? null,
+            comments: {
+              nodes: t.comments.map((c) => ({
+                id: c.id,
+                body: c.body,
+                url: c.url ?? '',
+                authorAssociation: c.author.association ?? 'COLLABORATOR',
+                author: author(c.author),
+              })),
+            },
+          })),
+        },
+        reviews: {
+          nodes: (merge.reviews ?? []).map((r) => ({
+            id: r.id,
+            state: r.state,
+            body: r.body,
+            url: r.url ?? '',
+            authorAssociation: r.author.association ?? 'COLLABORATOR',
+            author: author(r.author),
+          })),
+        },
         commits: {
           nodes: [
             {
               commit: {
+                deployments: {
+                  nodes: (merge.deployments ?? []).map((d) => ({
+                    environment: d.environment,
+                    state: d.state,
+                    latestStatus: { state: d.state, environmentUrl: d.url ?? null },
+                  })),
+                },
                 statusCheckRollup: { contexts: { nodes: (merge.checks ?? []).map(checkNode) } },
               },
             },
@@ -251,6 +321,14 @@ if (args[0] === '--version') {
   process.stdout.write(
     `${JSON.stringify({ data: { updatePullRequestBranch: { pullRequest: { headRefOid: head } } } })}\n`,
   )
+} else if (args[0] === 'api' && /\/actions\/jobs\/\d+\/logs$/.test(args[1] ?? '')) {
+  const job = /\/jobs\/(\d+)\/logs$/.exec(args[1] ?? '')?.[1] ?? ''
+  const log = state.logs?.[job]
+  if (log === undefined) {
+    process.stderr.write('gh: Not Found (HTTP 404)\n')
+    process.exit(1)
+  }
+  process.stdout.write(log)
 } else if (args[0] === 'api' && state.paths) {
   const route = args.find((arg, i) => i > 0 && !arg.startsWith('-') && args[i - 1] !== '--method')
   const answer = route === undefined ? undefined : state.paths[route]
@@ -273,7 +351,9 @@ if (args[0] === '--version') {
   process.stdout.write(`${JSON.stringify(state.api?.body ?? {})}\n`)
 } else if (args[0] === 'pr') {
   const repo = args[args.indexOf('--repo') + 1] ?? 'acme/widgets'
-  const number = state.pr?.numbers?.[repo] ?? state.pr?.number ?? 7
+  const number = state.pr?.numbered
+    ? 7 + Object.keys(state.heads ?? {}).length
+    : (state.pr?.numbers?.[repo] ?? state.pr?.number ?? 7)
   if (args[1] === 'create' && state.pr?.createFails) {
     process.stderr.write(`${state.pr.createFails}\n`)
     process.exit(1)

@@ -31,6 +31,7 @@ export function asksForFreshRun(entry: LoggedEvent): boolean {
     entry.name === 'v1.TaskResumed' ||
     entry.name === 'v1.TaskRequeuedAfterBlockers' ||
     entry.name === 'v1.TaskRetried' ||
+    entry.name === 'v1.GitHubActivityQueued' ||
     (entry.name === 'v1.TaskUnarchived' && entry.data.queued === true) ||
     (entry.name === 'v1.TaskLeadFailed' && entry.data.recovery === 'fresh')
   )
