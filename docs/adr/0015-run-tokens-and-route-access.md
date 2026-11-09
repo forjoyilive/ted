@@ -1,6 +1,6 @@
 # Run tokens are HMACs, and every route is closed to Run tokens unless marked open
 
-Changed by ADR NNNN-the-app-holds-the-human-token-in-memory: the token in `daemon.json` may no longer call every route; the app holds its own token in memory.
+Changed by ADR 0054-the-app-holds-the-human-token-in-memory: the token in `daemon.json` may no longer call every route; the app holds its own token in memory.
 
 Each Run gets `TED_RUN_TOKEN` = `<run-id>.<hex HMAC-SHA256 of the run ID>`, keyed with `TED_HOME/run-token.key` (32 random bytes, mode 0600, created once). The daemon checks a Run token by recomputing the HMAC. Run tokens survive daemon restarts, because a running agent keeps the token it started with, and nothing token-related goes in the event log, which will sync between machines later.
 
