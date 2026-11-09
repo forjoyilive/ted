@@ -3,7 +3,7 @@ import type { Banner } from './banner.ts'
 import type { CheckRun, SendBack } from './checks.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
-import type { CheckTry } from './factory-settings.ts'
+import type { CheckTry, DriftCounts } from './factory-settings.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth } from './integrations.ts'
 import type { Run } from './run.ts'
@@ -38,3 +38,4 @@ export type DaemonEvent =
   | { type: 'automation-updated'; automationId: string }
   | { type: 'automation-deleted'; automationId: string }
   | { type: 'library-changed' }
+  | { type: 'drift-changed'; drift: DriftCounts }

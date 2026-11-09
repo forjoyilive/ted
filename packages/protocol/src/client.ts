@@ -49,6 +49,7 @@ import type {
   CheckTry,
   CheckTryOutput,
   CheckTryRequest,
+  DriftCounts,
   FactorySettingsChanges,
   FactorySettingsView,
   LibraryChanges,
@@ -86,6 +87,7 @@ import type {
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
+  AgentStageId,
   AnswerRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
@@ -674,6 +676,17 @@ export class DaemonClient {
 
   saveLibrary(request: SaveLibraryRequest): Promise<LibraryView> {
     return this.#request('POST', '/library/save', request)
+  }
+
+  drift(): Promise<DriftCounts> {
+    return this.#request('GET', '/drift')
+  }
+
+  mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/stages/${encodeURIComponent(stage)}/merge-inherited`,
+    )
   }
 
   tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {

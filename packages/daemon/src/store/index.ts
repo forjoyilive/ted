@@ -109,6 +109,7 @@ import {
   sendBackResets,
   sendBacks,
   stageEntries,
+  stageFileTexts,
   subAgentRequests,
   taskAttachments,
   taskBlockers,
@@ -208,10 +209,20 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
+  forcedGates: AgentStageId[]
+  changesSettings: boolean
   worktree?: string
   startRequested: boolean
   waitsForBlockers: boolean
   stopped: boolean
+}
+
+export interface SeenStageFile {
+  hash: string
+  layer: LayerKind
+  stage: AgentStageId
+  text: string
+  tedVersion: string
 }
 
 export type StopReason = 'human' | 'blockers-removed'
@@ -239,6 +250,8 @@ export interface NewTask {
   attachments?: Attachment[]
   source?: TaskSource
   followUpOf?: string
+  forcedGates?: AgentStageId[]
+  changesSettings?: boolean
   automation?: { automationId: string; firingId: string }
 }
 
@@ -483,6 +496,8 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  rememberStageFileText(seen: SeenStageFile): void
+  seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setClarifyDepth(
     taskId: string,
@@ -1003,6 +1018,8 @@ export async function openStore({
     stoppedWhy,
     failedAt,
     followUpOf,
+    forcedGates,
+    changesSettings,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1154,6 +1171,8 @@ export async function openStore({
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
+      forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
+      changesSettings,
       repos,
       chosenRepos:
         chosenRepos !== null
@@ -1213,6 +1232,8 @@ export async function openStore({
   }
 
   const toPublicTask = ({
+    forcedGates: _____,
+    changesSettings: ______,
     worktree: _,
     startRequested: __,
     waitsForBlockers: ___,
@@ -1672,6 +1693,8 @@ export async function openStore({
       attachments = [],
       source,
       followUpOf,
+      forcedGates = [],
+      changesSettings = false,
       automation,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
@@ -1715,6 +1738,10 @@ export async function openStore({
               }),
             ]
           : []),
+        ...(forcedGates.length > 0
+          ? [events.taskGatesForced({ taskId: id, stages: forcedGates, at })]
+          : []),
+        ...(changesSettings ? [events.taskChangesSettings({ taskId: id, at })] : []),
         ...(followUpOf !== undefined
           ? [
               events.taskFollowsUp({ taskId: id, originalId: followUpOf, at }),
@@ -2275,6 +2302,22 @@ export async function openStore({
           version,
           at: new Date().toISOString(),
         }),
+      )
+    },
+    rememberStageFileText(seen) {
+      if (store.query(queryDb(stageFileTexts.where({ hash: seen.hash }))).length > 0) return
+      commit(events.stageFileTextSeen({ ...seen, at: new Date().toISOString() }))
+    },
+    seenStageFileText(hash) {
+      const row = store.query(queryDb(stageFileTexts.where({ hash }))).at(0)
+      return (
+        row && {
+          hash: row.hash,
+          layer: row.layer as LayerKind,
+          stage: row.stage as AgentStageId,
+          text: row.text,
+          tedVersion: row.tedVersion,
+        }
       )
     },
     lastValidWorkflowLayer(layer) {

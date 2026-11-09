@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   mkdir,
   mkdtemp,
@@ -3134,6 +3135,79 @@ describe('Factory settings sections', () => {
     await notice
       .getByText(/TED is using the last valid version, from [0-9a-f]{7}, just now/)
       .waitFor()
+  })
+})
+
+function blobHash(text: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest('hex')
+    .slice(0, 7)
+}
+
+async function writeLibrary(files: Record<string, string>): Promise<void> {
+  for (const [name, text] of Object.entries(files)) {
+    const file = path.join(home, 'library', name)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, text)
+  }
+}
+
+describe('Drift', () => {
+  test('a changed inherited Stage file turns its row amber with Keep mine, Use inherited and Merge with an agent', async () => {
+    const v1 = '# Review\n\n- Check the diff against the Design brief.\n'
+    const v2 = '# Review\n\n- Check the diff against the Design brief and the Decisions.\n'
+    await writeLibrary({ 'stages/review.md': v1 })
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml': `version: 1\nstages:\n  review: { based_on: ${blobHash(v1)} }\n`,
+      '.ted/stages/review.md': `${v1}- Also check the docs.\n`,
+    })
+    await addFactory(origin, 'NB')
+    await writeLibrary({ 'stages/review.md': v2 })
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const settings = sidebar(window).getByRole('button', { name: /^Settings 1$/ })
+    await settings.waitFor()
+    await settings.click()
+    await window.getByRole('button', { name: 'Workflow 1' }).waitFor()
+
+    const drift = window.getByRole('region', { name: 'Review drift' })
+    await drift
+      .getByText(
+        `Inherited version changed. Your Library’s review.md changed. Your copy is based on ${blobHash(v1)}.`,
+      )
+      .waitFor()
+    await drift.getByText('- Check the diff against the Design brief and the Decisions.').waitFor()
+    await drift.getByRole('button', { name: 'Use inherited' }).waitFor()
+    await drift.getByRole('button', { name: 'Merge with an agent' }).waitFor()
+    await drift.getByRole('button', { name: 'Keep mine' }).click()
+    await drift.waitFor({ state: 'detached' })
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+  })
+
+  test('a Library copy of a changed default shows Keep mine and Use default only', async () => {
+    await writeLibrary({
+      'workflow.yaml': 'version: 1\nstages:\n  review:\n    based_on: abcdef0\n',
+      'stages/review.md': 'My review steps\n',
+    })
+    const window = await launchApp()
+    await openSettings(window)
+    const library = settingsNav(window).getByRole('button', { name: 'Library 1' })
+    await library.waitFor()
+    await library.click()
+    const drift = window.getByRole('region', { name: 'Review drift' })
+    await drift
+      .getByText(
+        /Default version changed\. TED’s default review\.md changed in TED .+\. Your copy is based on abcdef0\./,
+      )
+      .waitFor()
+    await drift.getByRole('button', { name: 'Use default' }).waitFor()
+    expect(await drift.getByRole('button', { name: 'Merge with an agent' }).count()).toBe(0)
+    await drift.getByRole('button', { name: 'Keep mine' }).click()
+    await window.getByText('1 unsaved change to the Library').waitFor()
   })
 })
 

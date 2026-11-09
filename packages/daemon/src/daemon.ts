@@ -12,6 +12,7 @@ import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
+import { RequestError } from './errors.ts'
 import { ensureClone } from './factories.ts'
 import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
@@ -225,6 +226,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         libraryDir: paths.library,
         reposDir: paths.repos,
+        tedVersion: options.version,
+        onDrift: (drift) => emit({ type: 'drift-changed', drift }),
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
@@ -271,6 +274,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         health: async () => integrations.current() ?? (await integrations.check()),
         factories,
+        createTask: async (input) => {
+          if (!started) throw new RequestError(503, 'TED is still starting')
+          return started.create(input)
+        },
         ...(options.settingsMergeWaitMs !== undefined && {
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
@@ -295,6 +302,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         if (factory.clonedAt === undefined) continue
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
+      await workflows.inherited().catch(() => undefined)
       const tasks = createTasks({
         store,
         runs,

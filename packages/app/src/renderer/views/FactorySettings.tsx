@@ -129,6 +129,16 @@ export function FactorySettings({
     void ted.homeFolder().then(setHome, () => undefined)
   }, [load, epoch, restart])
 
+  const drifted = view?.stages.filter((s) => s.drift !== undefined).length ?? 0
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type !== 'drift-changed') return
+        if ((event.drift.factories[factory.id] ?? 0) !== drifted) void load()
+      }),
+    [factory.id, drifted, load],
+  )
+
   const loaded = base?.draft.repos ?? []
   const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }
   const count = unsaved.count
@@ -202,6 +212,11 @@ export function FactorySettings({
           {sections.map(([id, label]) => (
             <button key={id} type="button" className={styles.navItem} onClick={() => scrollTo(id)}>
               {label}
+              {id === 'workflow' && drifted > 0 && (
+                <span className={styles.navCount} title="Inherited Stage files that changed">
+                  {drifted}
+                </span>
+              )}
             </button>
           ))}
         </nav>

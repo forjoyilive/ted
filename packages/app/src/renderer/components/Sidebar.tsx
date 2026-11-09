@@ -10,6 +10,7 @@ export interface FactoryBadges {
   waiting?: number
   failed?: boolean
   stopsWork?: boolean
+  drift?: number
 }
 
 export interface SidebarFooter {
@@ -302,6 +303,11 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'settings' && (badge.drift ?? 0) > 0 && (
+                      <span className={styles.subCount} title="Inherited Stage files that changed">
+                        {badge.drift}
+                      </span>
+                    )}
                   </button>
                 )
               })}

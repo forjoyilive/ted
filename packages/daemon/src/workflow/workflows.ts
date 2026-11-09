@@ -1,10 +1,11 @@
 import { stat } from 'node:fs/promises'
-import type { LayerKind, LayerUse } from '@ted/protocol'
+import type { DriftCounts, LayerKind, LayerUse } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
+import { findDrift, rememberLayer } from './drift.ts'
 import { contentVersion, readDefaultLayer, readGitLayer, readLayerDirectory } from './layers.ts'
 import { type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
 
@@ -16,6 +17,7 @@ export interface WorkflowResolution {
 export interface Workflows {
   resolve(factory: StoredFactory, options?: { fetch?: boolean }): Promise<WorkflowResolution>
   inherited(): Promise<CheckedLayer[]>
+  drift(): DriftCounts
 }
 
 export const invalidSettingsProblem = 'workflow-invalid'
@@ -25,12 +27,42 @@ export function createWorkflows(options: {
   banners: Banners
   libraryDir: string
   reposDir: string
+  tedVersion?: string
+  onDrift?: (drift: DriftCounts) => void
   onFactorySettings?: (
     factory: StoredFactory,
     settings: WorkflowSettings | undefined,
   ) => Promise<void>
 }): Workflows {
   const { store, banners, libraryDir, reposDir } = options
+  const factoryLayers = new Map<string, CheckedLayer | undefined>()
+  const counts = new Map<string, number>()
+  let libraryCount = 0
+
+  function remember(layers: readonly CheckedLayer[]): void {
+    for (const layer of layers) {
+      rememberLayer(layer, options.tedVersion ?? '', (seen) => store.rememberStageFileText(seen))
+    }
+  }
+
+  function drift(): DriftCounts {
+    const ids = new Set(store.listFactories().map((f) => f.id))
+    return {
+      factories: Object.fromEntries([...counts].filter(([id]) => ids.has(id))),
+      library: libraryCount,
+    }
+  }
+
+  function countDrift(defaults: CheckedLayer, library: CheckedLayer | undefined): void {
+    const before = JSON.stringify(drift())
+    const inherited = [defaults, ...(library ? [library] : [])]
+    libraryCount = library ? findDrift([defaults], library).length : 0
+    for (const [id, layer] of factoryLayers) {
+      counts.set(id, layer ? findDrift(inherited, layer).length : 0)
+    }
+    const after = drift()
+    if (JSON.stringify(after) !== before) options.onDrift?.(after)
+  }
 
   function reportChecks(factory: StoredFactory, workflow: ResolvedWorkflow): void {
     const ref = { problem: 'no-checks', factoryId: factory.id }
@@ -111,8 +143,13 @@ export function createWorkflows(options: {
   return {
     async inherited() {
       const library = await libraryLayer()
-      return [await readDefaultLayer(), ...(library.layer ? [library.layer] : [])]
+      const defaults = await readDefaultLayer()
+      const layers = [defaults, ...(library.layer ? [library.layer] : [])]
+      remember(layers)
+      countDrift(defaults, library.layer)
+      return layers
     },
+    drift,
     async resolve(factory, { fetch = true } = {}) {
       const clone = clonePath(reposDir, factory)
       if (fetch) {
@@ -130,6 +167,9 @@ export function createWorkflows(options: {
           : undefined,
         factory.repo,
       )
+      remember([defaults, ...(library.layer ? [library.layer] : [])])
+      factoryLayers.set(factory.id, factoryLayer.layer)
+      countDrift(defaults, library.layer)
       await options.onFactorySettings?.(factory, factoryLayer.layer?.settings)
       const chosen = [library, factoryLayer]
       const workflow = resolveWorkflow([

@@ -108,6 +108,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.subCount {
+  margin-left: auto;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
 .section {
   margin: 0;
   padding: 18px 10px 6px;

@@ -158,6 +158,15 @@ export const factoryRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/factories\/([^/]+)\/stages\/([^/]+)\/merge-inherited$/,
+    async handle({ params: [id = '', stage = ''] }, { factorySettings }) {
+      const found = agentStageIds.find((s) => s === stage)
+      if (found === undefined) throw new HttpError(404, `unknown Stage ${stage}`)
+      return [201, await factorySettings.mergeInherited(id, found)]
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/factories\/([^/]+)\/checks\/try$/,
     async handle({ req, params: [id = ''] }, { checkTries }) {
       return [200, await checkTries.start(id, tryRequest(await readJson(req)))]
@@ -291,6 +300,14 @@ export function stageSettings(given: unknown): Partial<Record<StageId, StageSett
   return stages
 }
 
+export function keepStageFiles(given: unknown): AgentStageId[] {
+  return list(given, 'keepStageFiles').map((id) => {
+    const found = agentStageIds.find((s) => s === id)
+    if (found === undefined) throw new HttpError(400, `unknown Stage ${String(id)}`)
+    return found
+  })
+}
+
 export function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
   const files: Partial<Record<AgentStageId, string | null>> = {}
   for (const [id, value] of Object.entries(record(given))) {
@@ -370,6 +387,9 @@ function settingsChanges(given: unknown): FactorySettingsChanges {
   const changes: FactorySettingsChanges = { repos: repos.map(settingsRepo) }
   if (body.stages !== undefined) changes.stages = stageSettings(body.stages)
   if (body.stageFiles !== undefined) changes.stageFiles = stageFiles(body.stageFiles)
+  if (body.keepStageFiles !== undefined) {
+    changes.keepStageFiles = keepStageFiles(body.keepStageFiles)
+  }
   if (body.checks !== undefined) changes.checks = list(body.checks, 'checks').map(checkInput)
   if (body.agents !== undefined) {
     const given = record(body.agents)

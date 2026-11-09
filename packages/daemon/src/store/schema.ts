@@ -66,6 +66,8 @@ export const tasks = State.SQLite.table({
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
+    forcedGates: State.SQLite.text({ nullable: true }),
+    changesSettings: State.SQLite.boolean({ default: false }),
     partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -425,6 +427,18 @@ export const workflowLayers = State.SQLite.table({
   },
 })
 
+export const stageFileTexts = State.SQLite.table({
+  name: 'stageFileTexts',
+  columns: {
+    hash: State.SQLite.text({ primaryKey: true }),
+    layer: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    text: State.SQLite.text(),
+    tedVersion: State.SQLite.text(),
+    seenAt: State.SQLite.text(),
+  },
+})
+
 export const banners = State.SQLite.table({
   name: 'banners',
   columns: {
@@ -748,6 +762,29 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskGatesForced: Events.synced({
+    name: 'v1.TaskGatesForced',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stages: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskChangesSettings: Events.synced({
+    name: 'v1.TaskChangesSettings',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  stageFileTextSeen: Events.synced({
+    name: 'v1.StageFileTextSeen',
+    schema: Schema.Struct({
+      hash: Schema.String,
+      layer: Schema.String,
+      stage: Schema.String,
+      text: Schema.String,
+      tedVersion: Schema.String,
+      at: Schema.String,
+    }),
   }),
   taskFollowedUp: Events.synced({
     name: 'v1.TaskFollowedUp',
@@ -2014,6 +2051,12 @@ const materializers = counted(
           .onConflict('id', 'ignore'),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskGatesForced': ({ taskId, stages }) =>
+        tasks.update({ forcedGates: JSON.stringify(stages) }).where({ id: taskId }),
+      'v1.TaskChangesSettings': ({ taskId }) =>
+        tasks.update({ changesSettings: true }).where({ id: taskId }),
+      'v1.StageFileTextSeen': ({ at, ...seen }) =>
+        stageFileTexts.insert({ ...seen, seenAt: at }).onConflict('hash', 'ignore'),
       'v1.TaskFollowedUp': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
@@ -2536,6 +2579,7 @@ const state = State.SQLite.makeState({
     checkResults,
     stageEntries,
     workflowLayers,
+    stageFileTexts,
     taskRepos,
     pullRequests,
     localFolders,

@@ -22,6 +22,7 @@ import { readableError, ted } from '../ted.ts'
 import base from '../views/FactorySettings.module.css'
 import sections from '../views/FactorySettingsSections.module.css'
 import {
+  DriftNotice,
   Edited,
   FromChip,
   InvalidNotice,
@@ -166,6 +167,17 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
                     setFile(row.id, null)
                     if (editing === row.id) setEditing(undefined)
                   }}
+                  onKeep={() => {
+                    if (!isAgentStage(row.id)) return
+                    const id = row.id
+                    setDraft(
+                      (d) =>
+                        d &&
+                        (d.keepStageFiles.includes(id)
+                          ? d
+                          : { ...d, keepStageFiles: [...d.keepStageFiles, id] }),
+                    )
+                  }}
                 />
               ))}
             </div>
@@ -251,6 +263,7 @@ function StageLine({
   onStage,
   onOverride,
   onReset,
+  onKeep,
 }: {
   row: LibraryStageRow
   draft: SettingsDraft
@@ -258,6 +271,7 @@ function StageLine({
   onStage: (fields: Partial<StageDraft>) => void
   onOverride: () => void
   onReset: () => void
+  onKeep: () => void
 }) {
   const stage = draft.stages[row.id]
   const name = title(row.id)
@@ -266,91 +280,111 @@ function StageLine({
   const holding = <span className={styles.holding}>holding</span>
   const dash = <span className={sections.dash}>—</span>
   const fixed = row.id === 'intake' || row.id === 'work'
+  const drift =
+    agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)
+      ? row.drift
+      : undefined
   return (
-    <div className={`${styles.row} ${styles.line}`}>
-      <span className={sections.stageName}>
-        {name} <Edited when={edited} />
-      </span>
-      <span>
-        {row.id === 'done' ? (
-          holding
-        ) : row.id === 'backlog' ? (
-          <Toggle
-            label="Backlog on"
-            checked={stage?.enabled ?? row.enabled}
-            onChange={(enabled) => onStage({ enabled })}
-          />
-        ) : (
-          <Toggle
-            label={`${name} on`}
-            checked={stage?.enabled ?? row.enabled}
-            disabled={fixed || !row.inOrder}
-            {...(fixed && { title: `${name} can’t be turned off` })}
-            onChange={(enabled) => onStage({ enabled })}
-          />
-        )}
-      </span>
-      <span>
-        {agent ? (
-          <Toggle
-            label={`${name} Gate`}
-            checked={stage?.gate ?? row.gate}
-            onChange={(gate) => onStage({ gate })}
-          />
-        ) : (
-          dash
-        )}
-      </span>
-      <span>
-        {agent ? (
-          <input
-            aria-label={`${name} send-backs`}
-            className={sections.numberInput}
-            inputMode="numeric"
-            value={stage?.maxBack ?? ''}
-            placeholder="—"
-            onChange={(event) => {
-              const text = event.target.value.replace(/\D/g, '')
-              if (text !== '') onStage({ maxBack: Number(text) })
-            }}
-          />
-        ) : (
-          dash
-        )}
-      </span>
-      <span>
-        {row.id === 'clarify' ? (
-          <select
-            aria-label="Clarify depth"
-            className={sections.cellSelect}
-            value={stage?.depth ?? 'auto'}
-            onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
-          >
-            {Object.entries(depthNames).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          dash
-        )}
-      </span>
-      <span>{agent && <FromChip layer={file !== null ? 'library' : 'ted'} />}</span>
-      <span className={sections.actions}>
-        {row.id === 'backlog' && <span className={sections.always}>Always first</span>}
-        {row.id === 'done' && <span className={sections.always}>Always last</span>}
-        {agent && file === null && (
-          <Button size="small" onClick={onOverride}>
-            Override in Library
-          </Button>
-        )}
-        {agent && file !== null && (
-          <Button size="small" onClick={onReset}>
-            Reset to default
-          </Button>
-        )}
-      </span>
+    <div className={drift ? sections.stageDrift : undefined}>
+      <div className={`${styles.row} ${styles.line}`}>
+        <span className={sections.stageName}>
+          {name}
+          {drift && (
+            <span className={sections.driftDot} role="img" aria-label="Default version changed" />
+          )}{' '}
+          <Edited when={edited} />
+        </span>
+        <span>
+          {row.id === 'done' ? (
+            holding
+          ) : row.id === 'backlog' ? (
+            <Toggle
+              label="Backlog on"
+              checked={stage?.enabled ?? row.enabled}
+              onChange={(enabled) => onStage({ enabled })}
+            />
+          ) : (
+            <Toggle
+              label={`${name} on`}
+              checked={stage?.enabled ?? row.enabled}
+              disabled={fixed || !row.inOrder}
+              {...(fixed && { title: `${name} can’t be turned off` })}
+              onChange={(enabled) => onStage({ enabled })}
+            />
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <Toggle
+              label={`${name} Gate`}
+              checked={stage?.gate ?? row.gate}
+              onChange={(gate) => onStage({ gate })}
+            />
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <input
+              aria-label={`${name} send-backs`}
+              className={sections.numberInput}
+              inputMode="numeric"
+              value={stage?.maxBack ?? ''}
+              placeholder="—"
+              onChange={(event) => {
+                const text = event.target.value.replace(/\D/g, '')
+                if (text !== '') onStage({ maxBack: Number(text) })
+              }}
+            />
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {row.id === 'clarify' ? (
+            <select
+              aria-label="Clarify depth"
+              className={sections.cellSelect}
+              value={stage?.depth ?? 'auto'}
+              onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
+            >
+              {Object.entries(depthNames).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          ) : (
+            dash
+          )}
+        </span>
+        <span>{agent && <FromChip layer={file !== null ? 'library' : 'ted'} />}</span>
+        <span className={sections.actions}>
+          {row.id === 'backlog' && <span className={sections.always}>Always first</span>}
+          {row.id === 'done' && <span className={sections.always}>Always last</span>}
+          {agent && file === null && (
+            <Button size="small" onClick={onOverride}>
+              Override in Library
+            </Button>
+          )}
+          {agent && file !== null && (
+            <Button size="small" onClick={onReset}>
+              Reset to default
+            </Button>
+          )}
+        </span>
+      </div>
+      {drift && (
+        <DriftNotice
+          stage={row.id as AgentStageId}
+          drift={drift}
+          label="Default"
+          useLabel="Use default"
+          onKeep={onKeep}
+          onUse={onReset}
+        />
+      )}
     </div>
   )
 }

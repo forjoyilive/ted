@@ -199,30 +199,36 @@ export function FileDiff({ file, label }: { file: FileChange; label?: string }) 
           <span className={styles.addedCount}>+{file.added}</span>
         </span>
       </div>
-      <div className={styles.diffLines}>
-        {keyedLines(file.lines).map(({ key, line }) => (
-          <div
-            key={key}
-            className={
-              line.kind === 'added'
-                ? styles.addedLine
-                : line.kind === 'removed'
-                  ? styles.removedLine
-                  : line.kind === 'gap'
-                    ? styles.gapLine
-                    : styles.sameLine
-            }
-          >
-            <span className={styles.diffMark} aria-hidden>
-              {line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}
-            </span>
-            <span className={styles.diffText}>
-              {line.kind === 'gap' ? `… ${line.text}` : line.text}
-            </span>
-          </div>
-        ))}
-      </div>
+      <DiffLines lines={file.lines} />
     </section>
+  )
+}
+
+export function DiffLines({ lines }: { lines: readonly DiffLine[] }) {
+  return (
+    <div className={styles.diffLines}>
+      {keyedLines(lines).map(({ key, line }) => (
+        <div
+          key={key}
+          className={
+            line.kind === 'added'
+              ? styles.addedLine
+              : line.kind === 'removed'
+                ? styles.removedLine
+                : line.kind === 'gap'
+                  ? styles.gapLine
+                  : styles.sameLine
+          }
+        >
+          <span className={styles.diffMark} aria-hidden>
+            {line.kind === 'added' ? '+' : line.kind === 'removed' ? '−' : ''}
+          </span>
+          <span className={styles.diffText}>
+            {line.kind === 'gap' ? `… ${line.text}` : line.text}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
