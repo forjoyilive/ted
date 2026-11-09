@@ -33,6 +33,7 @@ import type {
   FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
+  FileDiff,
   InboxItem,
   IntegrationsHealth,
   LibraryChanges,
@@ -66,6 +67,7 @@ import type {
   StageEntry,
   StorageSummary,
   Task,
+  TaskChanges,
   TaskDefaults,
   TaskLead,
   TaskReposResult,
@@ -185,6 +187,10 @@ export const ted = {
     ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  taskChanges: (taskId: string) =>
+    window.ted.request('taskChanges', taskId) as Promise<TaskChanges>,
+  fileDiffs: (taskId: string, repo: string, path?: string) =>
+    window.ted.request('fileDiffs', taskId, repo, path) as Promise<FileDiff[]>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>

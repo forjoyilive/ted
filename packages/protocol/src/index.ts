@@ -51,6 +51,16 @@ export {
   isShowing,
   type RaiseBanner,
 } from './banner.ts'
+export {
+  type ChangeFile,
+  changeKey,
+  type DiffHunk,
+  type DiffRow,
+  type DiffRowKind,
+  type FileDiff,
+  type RepoChanges,
+  type TaskChanges,
+} from './changes.ts'
 export type {
   ChatDiff,
   ChatDiffLine,

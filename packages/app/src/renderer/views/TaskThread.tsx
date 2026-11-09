@@ -13,16 +13,19 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
+import { type ChangedFile, useTaskChanges } from '../changes.ts'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { ChangesSection } from '../components/ChangesSection.tsx'
 import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
+import { AllChanges, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
@@ -240,12 +243,23 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
   useEffect(() => {
-    if (answeredId !== undefined) setShown(undefined)
+    if (answeredId !== undefined) {
+      setShown(undefined)
+      setChangesView(undefined)
+    }
   }, [answeredId])
+  const changes = useTaskChanges(task)
+  const view = changesView?.taskId === task.id ? changesView.view : undefined
+  const showChanges = (next: ChangesView | undefined) =>
+    setChangesView(next && { taskId: task.id, view: next })
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
-  const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
+  const show = (runId: string | undefined) => {
+    showChanges(undefined)
+    setShown({ taskId: task.id, runId })
+  }
   const openRun = (runId: string) => {
     show(runId)
     void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
@@ -254,8 +268,22 @@ export function TaskPanes({
     if (visibleRun === runId) show(undefined)
     void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
+  const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file })
+  const all = view?.kind === 'all' && changes !== undefined
   return (
     <>
+      {all && (
+        <AllChanges taskId={task.id} changes={changes} onCollapse={() => showChanges(undefined)} />
+      )}
+      {view?.kind === 'diff' && (
+        <DiffView
+          taskId={task.id}
+          changes={changes}
+          file={view.file}
+          onBack={() => showChanges(undefined)}
+          onOpen={openFile}
+        />
+      )}
       <TaskThread
         task={task}
         backLink={backLink}
@@ -268,11 +296,28 @@ export function TaskPanes({
         onShowRun={show}
         onOpenRun={openRun}
         onCloseRun={closeRun}
+        hidden={all || view?.kind === 'diff'}
       />
-      <TaskDetails task={task} tasks={tasks} factories={factories} onOpenRun={openRun} />
+      <TaskDetails
+        task={task}
+        tasks={tasks}
+        factories={factories}
+        onOpenRun={openRun}
+        hidden={all}
+        changes={
+          <ChangesSection
+            changes={changes}
+            selected={view?.kind === 'diff' ? view.file : undefined}
+            onOpen={openFile}
+            onExpandAll={() => showChanges({ kind: 'all' })}
+          />
+        }
+      />
     </>
   )
 }
+
+type ChangesView = { kind: 'diff'; file: ChangedFile } | { kind: 'all' }
 
 export function TaskThread({
   task,
@@ -286,6 +331,7 @@ export function TaskThread({
   onShowRun,
   onOpenRun,
   onCloseRun,
+  hidden = false,
 }: {
   task: Task
   backLink: string | undefined
@@ -298,6 +344,7 @@ export function TaskThread({
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
+  hidden?: boolean
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -339,7 +386,11 @@ export function TaskThread({
   const pin = (id: string) => setChosen({ from: requestId, id })
 
   return (
-    <section className={styles.pane} aria-label="Task thread">
+    <section
+      className={styles.pane}
+      aria-label="Task thread"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       {backLink !== undefined && (
         <button type="button" className={styles.back} onClick={onBack}>
           {backLink}
@@ -562,11 +613,15 @@ export function TaskDetails({
   tasks,
   factories,
   onOpenRun,
+  changes,
+  hidden = false,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
+  changes?: ReactNode
+  hidden?: boolean
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -578,7 +633,11 @@ export function TaskDetails({
   const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
-    <aside className={styles.detailsPane} aria-label="Task details">
+    <aside
+      className={styles.detailsPane}
+      aria-label="Task details"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       <dl className={styles.details}>
         <dt>Priority</dt>
         <dd>
@@ -696,6 +755,7 @@ export function TaskDetails({
         </p>
       )}
       <CodeSection task={task} />
+      {changes}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <TaskBriefSection task={task} />
     </aside>
