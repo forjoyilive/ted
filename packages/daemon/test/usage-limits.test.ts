@@ -360,7 +360,7 @@ describe('Billing and credentials', () => {
   })
 
   test('a Run that reports an API key under Subscription pauses its kind until billing changes', async () => {
-    await setStub('claude', { apiKeySource: 'apiKeyHelper' })
+    await setStub('claude', { apiKeySource: 'apiKeyHelper', interruptEndsAfterMs: 1500 })
     const client = await start()
     const go = path.join(scratch, 'go')
     const task = await startTask(

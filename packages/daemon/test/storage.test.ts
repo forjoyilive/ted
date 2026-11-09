@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
 import { type Factory, type StorageSummary, type Task, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { excludeFromTimeMachine } from '../src/disk.ts'
@@ -15,8 +13,6 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
-
-const run = promisify(execFile)
 
 let home: string
 let cleanup: () => Promise<void>
@@ -147,14 +143,12 @@ describe('Settings → Storage', () => {
     expect(excluded).toEqual([[paths.worktrees, paths.repos, paths.simulators, paths.scratch]])
   })
 
-  test.runIf(process.platform === 'darwin')(
-    'excluding a folder marks it for Time Machine',
-    async () => {
-      const dir = path.join(scratch, 'worktrees')
-      await mkdir(dir)
-      await excludeFromTimeMachine([dir])
-      const { stdout } = await run('tmutil', ['isexcluded', dir])
-      expect(stdout).toContain('[Excluded]')
-    },
-  )
+  test('the exclusion runs tmutil addexclusion on macOS only', async () => {
+    const calls: [string, string[]][] = []
+    const record = async (file: string, args: string[]) => void calls.push([file, args])
+    await excludeFromTimeMachine(['/a', '/b'], 'darwin', record)
+    await excludeFromTimeMachine(['/a'], 'linux', record)
+    await excludeFromTimeMachine([], 'darwin', record)
+    expect(calls).toEqual([['tmutil', ['addexclusion', '/a', '/b']]])
+  })
 })

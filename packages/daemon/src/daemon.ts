@@ -241,8 +241,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       wake = () => tasks.wake()
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
+      const excludeFromBackups =
+        diskOptions.excludeFromBackups ??
+        (process.env.TED_TIME_MACHINE === 'off' ? async () => undefined : excludeFromTimeMachine)
       Promise.all(backupless.map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })))
-        .then(() => (diskOptions.excludeFromBackups ?? excludeFromTimeMachine)(backupless))
+        .then(() => excludeFromBackups(backupless))
         .catch((error: unknown) =>
           console.error('couldn’t exclude folders from Time Machine:', error),
         )

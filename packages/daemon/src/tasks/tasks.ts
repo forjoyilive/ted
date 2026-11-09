@@ -226,6 +226,8 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
+  const turnEnding = new Set<string>()
+  const readyMidTurn = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Map<string, string>()
@@ -2790,9 +2792,14 @@ export function createTasks(options: {
     }
   }
 
+  const stoppedMidTurn = (runId: string) => {
+    interrupted.add(runId)
+    turnEnding.add(runId)
+  }
+
   runs.observe({
     authFailed(run) {
-      if (run.state !== 'finished') interrupted.add(run.id)
+      if (run.state !== 'finished') stoppedMidTurn(run.id)
       health.authFailed(run.agent)
     },
     usage(run, signal) {
@@ -2800,16 +2807,22 @@ export function createTasks(options: {
         if (store.agentPauses()[run.agent] !== undefined) health.usable(run.agent)
         return
       }
-      if (run.state !== 'finished') interrupted.add(run.id)
+      if (run.state !== 'finished') stoppedMidTurn(run.id)
       health.limited(run.agent, signal.resetsAt)
     },
     credential(run, report) {
       if (!health.credentialReported(run.agent, report) || run.state === 'finished') return
-      interrupted.add(run.id)
+      stoppedMidTurn(run.id)
       runs.interrupt(run.id).catch((error: unknown) => console.error(error))
     },
     planUsage(run, windows) {
       health.planUsage(run.agent, windows)
+    },
+    settled(run) {
+      turnEnding.delete(run.id)
+      if (!readyMidTurn.delete(run.id) || store.agentPauses()[run.agent] !== undefined) return
+      if (!interrupted.delete(run.id)) return
+      runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
     },
     accepted(run, texts) {
       markAccepted(run, texts)
@@ -2824,6 +2837,8 @@ export function createTasks(options: {
     },
     finished(run) {
       interrupted.delete(run.id)
+      turnEnding.delete(run.id)
+      readyMidTurn.delete(run.id)
       inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
     },
   })
@@ -2833,8 +2848,12 @@ export function createTasks(options: {
     for (const runId of [...interrupted]) {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished' && run.agent !== agent) continue
+      if (run?.state === 'working' && turnEnding.has(runId)) {
+        readyMidTurn.add(runId)
+        continue
+      }
       interrupted.delete(runId)
-      if (run && run.state !== 'finished' && run.state !== 'working') {
+      if (run && run.state !== 'finished') {
         runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
       }
     }
