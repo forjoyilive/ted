@@ -52,6 +52,7 @@ describe('machine settings in the store', () => {
       maxWorkingRuns: 6,
       quitWithWorkRunning: 'ask',
       showTrayIcon: true,
+      listViews: {},
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })

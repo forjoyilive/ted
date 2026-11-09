@@ -19,7 +19,9 @@ import {
   defaultMachineSettings,
   downloadUrl,
   type MachineSettings,
+  type MoveTaskRequest,
   noActivity,
+  type Priority,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
@@ -74,6 +76,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  moveTask: (client, taskId, request) =>
+    client.moveTask(String(taskId), request as MoveTaskRequest),
+  setPriority: (client, taskId, priority) =>
+    client.setPriority(String(taskId), String(priority) as Priority),
+  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
   getSlots: (client) => client.getSlots(),
   uploadAttachment: (client, name, mediaType, bytes) => {
     if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')

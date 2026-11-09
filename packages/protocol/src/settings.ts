@@ -1,3 +1,5 @@
+import type { ListView } from './list-view.ts'
+
 export const appearances = ['system', 'light', 'dark'] as const
 
 export type Appearance = (typeof appearances)[number]
@@ -18,6 +20,7 @@ export interface MachineSettings {
   maxWorkingRuns: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
+  listViews: Readonly<Record<string, ListView>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -28,6 +31,7 @@ export const defaultMachineSettings: MachineSettings = {
   maxWorkingRuns: 6,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
+  listViews: {},
 }
 
 export interface Profile {

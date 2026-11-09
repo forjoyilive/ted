@@ -1,4 +1,4 @@
-import type { Banner, Task } from '@ted/protocol'
+import { allTasksScope, type Banner, type Task } from '@ted/protocol'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
@@ -23,6 +23,7 @@ import {
   useTasks,
 } from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
+import { queueView } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
@@ -37,8 +38,9 @@ import { ted } from './ted.ts'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { Stub } from './views/OtherViews.tsx'
+import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
-import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
+import { Board, factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
   plans: 'Plans',
@@ -253,10 +255,13 @@ export function App() {
       case 'all-tasks':
         return (
           <TaskList
+            scope={allTasksScope}
             title="All Tasks"
             tasks={tasks}
             factories={factories}
+            settings={settings}
             onOpen={openTask}
+            onOpenTask={openTaskByRef}
             onNewTask={openNewTask}
           />
         )
@@ -273,7 +278,23 @@ export function App() {
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         if (screen.view === 'board') return <Board {...view} onOpenTask={openTaskByRef} />
-        if (screen.view === 'list') return <TaskList {...view} />
+        if (screen.view === 'list') {
+          return (
+            <TaskList
+              {...view}
+              scope={screen.factoryId}
+              breadcrumb="List"
+              settings={settings}
+              onOpenTask={openTaskByRef}
+              onPlan={() =>
+                dispatch({
+                  type: 'open',
+                  screen: { kind: 'factory', factoryId: screen.factoryId, view: 'plans' },
+                })
+              }
+            />
+          )
+        }
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
       default:
@@ -346,6 +367,11 @@ export function App() {
             onClose={closeRuns}
             onOpenList={() => {
               setRunsOpen(false)
+              saveListView(
+                settings,
+                allTasksScope,
+                queueView(allTasksScope, settings?.listViews),
+              ).catch((error: unknown) => console.error(error))
               dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
             }}
           />

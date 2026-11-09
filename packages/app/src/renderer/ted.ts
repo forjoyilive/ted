@@ -14,6 +14,8 @@ import type {
   IntegrationsHealth,
   LogText,
   MachineSettings,
+  MoveTaskRequest,
+  Priority,
   Profile,
   RestoreBackupResult,
   Run,
@@ -62,6 +64,11 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  moveTask: (taskId: string, request: MoveTaskRequest) =>
+    window.ted.request('moveTask', taskId, request) as Promise<Task>,
+  setPriority: (taskId: string, priority: Priority) =>
+    window.ted.request('setPriority', taskId, priority) as Promise<Task>,
+  archiveTask: (taskId: string) => window.ted.request('archiveTask', taskId) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,

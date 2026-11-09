@@ -8,7 +8,9 @@ import type {
   CommentAnswer,
   DaemonEvent,
   InboxItem,
+  MoveTaskRequest,
   OutcomeResult,
+  Priority,
   ReportOutcomeRequest,
   Run,
   RunSlots,
@@ -47,6 +49,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { placeBetween } from './order.ts'
 import { type SlotUse, startsNow } from './queue.ts'
 import {
   type CommandResult,
@@ -72,6 +75,9 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  move(ref: string, request: MoveTaskRequest): Task
+  setPriority(ref: string, priority: Priority): Task
+  archive(ref: string): Task
   slots(): Promise<RunSlots>
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(ref: string, caller: Caller, input: { body: string; choices?: string[] }): Comment
@@ -584,7 +590,8 @@ export function createTasks(options: {
   async function resumeTask(taskId: string): Promise<void> {
     const task = find(taskId)
     const repo = task.repos.find((r) => !r.removed)
-    if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
+    if (!repo || task.leadRunId || task.archived) return
+    if (task.stage === 'backlog' || task.stage === 'done') return
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, { fetch: false })
     const recorded = store.recordedSetup(task.id, repo.name)
@@ -728,8 +735,23 @@ export function createTasks(options: {
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
   }
 
-  async function start(ref: string): Promise<Task> {
+  function live(ref: string): StoredTask {
     const task = find(ref)
+    if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
+    return task
+  }
+
+  async function clearAway(taskId: string): Promise<void> {
+    await beginning.get(taskId)?.catch(() => undefined)
+    const task = find(taskId)
+    await Promise.all(task.runs.map((run) => runs.stop(run.id)))
+    if (!task.repos.some((r) => !r.removed) && !task.worktree) return
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    await finish(find(taskId), resolution)
+  }
+
+  async function start(ref: string): Promise<Task> {
+    const task = live(ref)
     const factory = factoryOf(task)
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
@@ -806,7 +828,9 @@ export function createTasks(options: {
   }
 
   for (const task of store.listTasks()) {
-    if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
+    if (task.archived && task.repos.some((r) => !r.removed)) {
+      inBackground(`finish archiving ${task.displayId}`, () => clearAway(task.id))
+    } else if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
@@ -886,6 +910,37 @@ export function createTasks(options: {
       return store.moveToBacklog(task.id)
     },
 
+    move(ref, { after, before }) {
+      const task = live(ref)
+      if (after === undefined && before === undefined) {
+        throw new RequestError(400, 'a move needs a Task to go after or before')
+      }
+      const neighbour = (other: string | undefined) => {
+        if (other === undefined) return undefined
+        const found = find(other)
+        if (found.id === task.id) throw new RequestError(400, 'a Task can’t move next to itself')
+        return found
+      }
+      const below = neighbour(after)
+      const above = neighbour(before)
+      const placed = placeBetween(task.priority, {
+        ...(below && { after: below }),
+        ...(above && { before: above }),
+      })
+      return store.rankTask(task.id, placed.rank, placed.priority)
+    },
+
+    setPriority(ref, priority) {
+      return store.setPriority(live(ref).id, priority)
+    },
+
+    archive(ref) {
+      const task = live(ref)
+      const archived = store.archiveTask(task.id)
+      inBackground(`archive ${task.displayId}`, () => clearAway(task.id))
+      return archived
+    },
+
     slots,
 
     subscribe(listener) {
@@ -931,7 +986,7 @@ export function createTasks(options: {
         .listOpenRequests()
         .flatMap((request) => {
           const task = tasks.get(request.taskId)
-          return task ? [{ request, task }] : []
+          return task && !task.archived ? [{ request, task }] : []
         })
         .sort(
           (a, b) =>

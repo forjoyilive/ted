@@ -36,6 +36,7 @@ import {
   type StageId,
   type Task,
   type TaskBrief,
+  type TaskEnding,
   type TaskLead,
   type TaskRepo,
   type TrackStage,
@@ -43,7 +44,13 @@ import {
 } from '@ted/protocol'
 import { Effect } from 'effect'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
-import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
+import {
+  type TaskFacts,
+  taskActivity,
+  taskMarkers,
+  taskStatus,
+  taskStatuses,
+} from '../tasks/status.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
@@ -181,6 +188,9 @@ export interface TedStore {
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
+  rankTask(taskId: string, rank: number, priority: Priority): Task
+  setPriority(taskId: string, priority: Priority): Task
+  archiveTask(taskId: string): Task
   queue(): QueuedTask[]
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
@@ -352,6 +362,9 @@ export async function openStore({
     leadAgent,
     leadModel,
     leadEffort,
+    rank,
+    changedAt,
+    archivedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -367,8 +380,10 @@ export async function openStore({
         ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
         : []
     })
-    const place = queue().findIndex((q) => q.id === row.id) + 1
+    const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
+    const place = queued ? queue().findIndex((q) => q.id === row.id) + 1 : 0
     const facts: TaskFacts = {
+      ...(archivedAt !== null && { archived: true }),
       stage,
       ...(place > 0 && { queue: { place } }),
       runs: live.map((r) => r.state as RunState),
@@ -379,6 +394,25 @@ export async function openStore({
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
+    const updatedAt = [
+      row.createdAt,
+      changedAt,
+      queued?.queuedAt,
+      entries.at(-1)?.at,
+      ...all.map((r) => r.startedAt),
+      lastCommentAt(row.id),
+      briefRows(row.id).at(-1)?.createdAt,
+    ].reduce<string>((a, b) => (b && b > a ? b : a), row.createdAt)
+    const ended = (): TaskEnding => {
+      if (all.length === 0 && repos.length === 0) return { kind: 'never-started' }
+      if (stage === 'done') {
+        return {
+          kind: 'merged',
+          at: entries.findLast((e) => e.stage === 'done')?.at ?? row.createdAt,
+        }
+      }
+      return { kind: 'stopped', stage }
+    }
     return {
       ...row,
       priority: row.priority as Priority,
@@ -394,17 +428,22 @@ export async function openStore({
       repos,
       attachments: attachmentsOf(row.id),
       stage,
+      rank: rank ?? row.number,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
       ...(lead !== undefined && { leadRunId: lead.id }),
       ...(status !== undefined && { status }),
+      statuses: taskStatuses(facts),
       markers: taskMarkers(facts, status),
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
         .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
+      createdBy: 'human',
+      updatedAt,
+      ...(archivedAt !== null && { archived: { at: archivedAt, ended: ended() } }),
     }
   }
 
@@ -498,6 +537,15 @@ export async function openStore({
   })
 
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
+  const lastCommentAt = (taskId: string) =>
+    store
+      .query(queryDb(comments.where({ taskId })))
+      .flatMap((c) => [
+        c.createdAt,
+        ...(c.answer === null ? [] : [(JSON.parse(c.answer) as CommentAnswer).at]),
+      ])
+      .reduce<string | undefined>((a, b) => (a === undefined || b > a ? b : a), undefined)
+  const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
   const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
@@ -629,6 +677,7 @@ export async function openStore({
           startRequested,
           createdAt: at,
         }),
+        events.taskRanked({ taskId: id, rank: nextRank(), at }),
         ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
         ...attachments.map((attachment) =>
           events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
@@ -659,14 +708,41 @@ export async function openStore({
       return task
     },
     queueTask(taskId, stage) {
-      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
-      store.commit(events.taskQueued({ taskId, stage, rank, at: new Date().toISOString() }))
+      const rank = nextRank()
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskRanked({ taskId, rank, at }),
+        events.taskQueued({ taskId, stage, rank, at }),
+      )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
     },
     moveToBacklog(taskId) {
       store.commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    rankTask(taskId, rank, priority) {
+      const at = new Date().toISOString()
+      const changed = taskRow(taskId)?.priority !== priority
+      store.commit(
+        events.taskRanked({ taskId, rank, at }),
+        ...(changed ? [events.taskPriorityChanged({ taskId, priority, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    setPriority(taskId, priority) {
+      store.commit(events.taskPriorityChanged({ taskId, priority, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    archiveTask(taskId) {
+      store.commit(events.taskArchived({ taskId, at: new Date().toISOString() }))
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       return task
