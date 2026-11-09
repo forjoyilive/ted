@@ -58,6 +58,7 @@ const config: Configuration = {
   extraResources: [{ from: path.join(buildDir, 'bin'), to: 'bin' }],
   mac: {
     category: 'public.app-category.developer-tools',
+    icon: path.join(buildDir, 'icon.icns'),
     target: ['dmg', 'zip'],
     hardenedRuntime: signs,
     entitlements: path.join(buildDir, 'entitlements.mac.plist'),
@@ -67,6 +68,7 @@ const config: Configuration = {
   },
   linux: {
     executableName: 'ted-app',
+    icon: path.join(buildDir, 'icons'),
     target: ['AppImage', 'deb', 'rpm'],
     category: 'Development',
     synopsis: 'Runs software factories',
