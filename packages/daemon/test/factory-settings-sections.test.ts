@@ -1,6 +1,15 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -72,7 +81,12 @@ const workflowYaml = [
 ].join('\n')
 
 async function start(
-  options: { workflow?: string; files?: Record<string, string>; scratchMaxAgeMs?: number } = {},
+  options: {
+    workflow?: string
+    files?: Record<string, string>
+    scratchMaxAgeMs?: number
+    freeBytes?: number
+  } = {},
 ) {
   await writeFile(ghState, JSON.stringify({ merge: { origin, updateBase: true } }))
   await commitToOrigin(scratch, {
@@ -85,6 +99,9 @@ async function start(
     version: '9.9.9',
     claudeBin: stubClaudePath,
     ...(options.scratchMaxAgeMs !== undefined && { scratchMaxAgeMs: options.scratchMaxAgeMs }),
+    ...(options.freeBytes !== undefined && {
+      disk: { freeBytes: async () => options.freeBytes ?? 0, checkEveryMs: 20 },
+    }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -388,7 +405,7 @@ describe('Factory settings: Checks', () => {
   })
 
   test('a scratch worktree older than its time limit is deleted and made again', async () => {
-    const client = await start({ scratchMaxAgeMs: 300 })
+    const client = await start({ scratchMaxAgeMs: 1500 })
     const id = client.factory.id
     const finished = (name: string) =>
       until(async () =>
@@ -426,6 +443,41 @@ describe('Factory settings: Checks', () => {
       `/factories/${id}/checks/try/output?name=A`,
     )
     expect(output.text).toContain('no-npm')
+  })
+
+  test('Run now is refused while a full disk holds new work', async () => {
+    const client = await start({ freeBytes: 1e9 })
+    await until(async () => (await client.ok<Banner[]>('GET', '/banners')).length > 0)
+    const res = await client.call('POST', `/factories/${client.factory.id}/checks/try`, {
+      name: 'A',
+      run: 'true',
+    })
+    expect(res.status).toBe(409)
+    expect(JSON.stringify(res.body)).toContain('isn’t starting new work')
+  })
+
+  test('cleaning up scratch worktrees never follows a link out of the scratch folder', async () => {
+    const outside = path.join(scratch, 'outside')
+    await mkdir(path.join(outside, 'worktrees', 'app'), { recursive: true })
+    await writeFile(path.join(outside, 'worktrees', 'app', 'keep.txt'), 'keep')
+    await writeFile(
+      path.join(outside, 'state.json'),
+      JSON.stringify({
+        worktrees: [{ repo: 'acme/widgets', name: 'app', createdAt: '2020', usedAt: '2020' }],
+        tries: [],
+      }),
+    )
+    await mkdir(path.join(home, 'scratch'), { recursive: true })
+    await symlink(outside, path.join(home, 'scratch', 'linked'))
+    const client = await start({ scratchMaxAgeMs: 100 })
+    await client.ok('POST', `/factories/${client.factory.id}/checks/try`, {
+      name: 'A',
+      run: 'true',
+    })
+    await until(
+      async () => !(await readdir(path.join(home, 'scratch'))).includes(client.factory.id),
+    )
+    expect(await readFile(path.join(outside, 'worktrees', 'app', 'keep.txt'), 'utf8')).toBe('keep')
   })
 
   test('only the TED app can run a Check', async () => {

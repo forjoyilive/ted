@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { CheckTry, CheckTryOutput, CheckTryRequest, DaemonEvent } from '@ted/protocol'
 import type { Banners } from './banners.ts'
@@ -9,7 +9,8 @@ import { clonePath } from './factories.ts'
 import * as git from './git.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import { defaultCheckTimeout, loginShell, readOutput } from './tasks/checks.ts'
-import { type FactoryRepoEntry, factoryRepos, findRepo } from './tasks/repos.ts'
+import { removeInside } from './tasks/remove-files.ts'
+import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
 import { copyFiles, durationMs, runWorktreeCommand } from './tasks/worktree.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
@@ -36,6 +37,7 @@ interface ScratchState {
 
 export const scratchMaxAgeMs = 24 * 60 * 60 * 1000
 const safeId = /^[A-Za-z0-9_-]+$/
+const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
 
 export function createCheckTries(options: {
   store: TedStore
@@ -94,10 +96,25 @@ export function createCheckTries(options: {
     emit({ type: 'check-try-updated', checkTry })
   }
 
-  async function removeWorktree(factory: StoredFactory | undefined, dir: string, repo: string) {
-    const clone = clonePath(reposDir, { repo })
-    if (factory) await git.removeWorktree(clone, dir).catch(() => undefined)
-    await rm(dir, { recursive: true, force: true })
+  async function worktreesDir(factoryId: string, create: boolean): Promise<string | undefined> {
+    const dirs = [factoryDir(factoryId), path.join(factoryDir(factoryId), 'worktrees')]
+    for (const dir of dirs) {
+      if (create) await mkdir(dir, { mode: 0o700 }).catch(() => undefined)
+      const entry = await lstat(dir).catch(() => undefined)
+      if (!entry?.isDirectory()) return undefined
+    }
+    return dirs[1]
+  }
+
+  async function removeWorktree(factoryId: string, name: string, repo: string): Promise<void> {
+    const root = await worktreesDir(factoryId, false)
+    if (root === undefined || !safeName.test(name)) return
+    if (isSafeRepo(repo)) {
+      await git
+        .removeWorktree(clonePath(reposDir, { repo }), path.join(root, name))
+        .catch(() => undefined)
+    }
+    await removeInside(root, name)
   }
 
   async function sweepFactory(factoryId: string, now: number): Promise<void> {
@@ -108,16 +125,11 @@ export function createCheckTries(options: {
     for (const worktree of state.worktrees) {
       const old = now - Date.parse(worktree.usedAt) >= maxAgeMs
       if (factory && !old) kept.push(worktree)
-      else
-        await removeWorktree(
-          factory,
-          path.join(factoryDir(factoryId), worktree.name),
-          worktree.repo,
-        )
+      else await removeWorktree(factoryId, worktree.name, worktree.repo)
     }
     if (kept.length === 0) {
       states.delete(factoryId)
-      await rm(factoryDir(factoryId), { recursive: true, force: true })
+      await removeInside(scratchDir, factoryId)
       return
     }
     if (kept.length !== state.worktrees.length) {
@@ -132,7 +144,7 @@ export function createCheckTries(options: {
       const dirs = await readdir(scratchDir).catch(() => [] as string[])
       for (const dir of dirs) {
         if (!safeId.test(dir)) continue
-        if (!(await stat(path.join(scratchDir, dir)).catch(() => undefined))?.isDirectory())
+        if (!(await lstat(path.join(scratchDir, dir)).catch(() => undefined))?.isDirectory())
           continue
         await sweepFactory(dir, now).catch((error: unknown) =>
           console.error(`couldn’t clean up scratch worktrees for ${dir}:`, error),
@@ -151,19 +163,19 @@ export function createCheckTries(options: {
     const clone = clonePath(reposDir, entry)
     if (!entry.primary) await git.fetch(clone).catch(() => undefined)
     const base = entry.baseBranch ?? (await git.defaultBranch(clone))
-    const worktree = path.join(factoryDir(factory.id), entry.name)
+    const root = await worktreesDir(factory.id, true)
+    if (root === undefined) throw new Error('the scratch folder isn’t a plain folder')
+    const worktree = path.join(root, entry.name)
     const state = await load(factory.id)
     const known = state.worktrees.find((w) => w.name === entry.name)
-    const exists = (await stat(worktree).catch(() => undefined))?.isDirectory() === true
+    const exists = (await lstat(worktree).catch(() => undefined))?.isDirectory() === true
     if (known && exists && known.repo.toLowerCase() === entry.repo.toLowerCase()) {
       await git.resetScratchWorktree(worktree, `origin/${base}`)
       known.usedAt = new Date().toISOString()
       await save(factory.id, state)
       return { worktree }
     }
-    if (known) await removeWorktree(factory, worktree, known.repo)
-    else await rm(worktree, { recursive: true, force: true })
-    await mkdir(path.dirname(worktree), { recursive: true, mode: 0o700 })
+    await removeWorktree(factory.id, entry.name, known?.repo ?? entry.repo)
     await git.addScratchWorktree(clone, worktree, `origin/${base}`)
     const now = new Date().toISOString()
     state.worktrees = [
@@ -181,7 +193,7 @@ export function createCheckTries(options: {
         signal,
       })
       if (result.outcome !== 'passed') {
-        await removeWorktree(factory, worktree, entry.repo)
+        await removeWorktree(factory.id, entry.name, entry.repo)
         state.worktrees = state.worktrees.filter((w) => w.name !== entry.name)
         await save(factory.id, state)
         return {
@@ -273,6 +285,10 @@ export function createCheckTries(options: {
       if (!factory) throw new RequestError(404, 'no such Factory')
       if (factory.clonedAt === undefined) {
         throw new RequestError(409, `${factory.name} is still being cloned`)
+      }
+      const held = store.newWorkHold()
+      if (held !== undefined) {
+        throw new RequestError(409, `TED isn’t starting new work right now: ${held}.`)
       }
       if (running.has(factoryId)) {
         throw new RequestError(409, 'A Check is already running here. Stop it first.')
