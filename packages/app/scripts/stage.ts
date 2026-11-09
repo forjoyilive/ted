@@ -36,6 +36,7 @@ export async function stage(): Promise<string> {
       entries,
     )
   }
+  await markRelease(stageDir)
   await cp(
     path.join(appDir, 'dist', 'renderer'),
     path.join(stageDir, 'packages', 'app', 'dist', 'renderer'),
@@ -81,6 +82,14 @@ export async function stage(): Promise<string> {
     await thirdPartyLicenses(repoRoot),
   )
   return stageDir
+}
+
+export async function markRelease(dir: string): Promise<void> {
+  const file = path.join(dir, 'packages', 'protocol', 'src', 'edition.js')
+  const code = await readFile(file, 'utf8')
+  const devLine = /^export const edition = 'dev'/m
+  if (!devLine.test(code)) throw new Error(`No dev edition line to replace in ${file}`)
+  await writeFile(file, code.replace(devLine, "export const edition = 'release'"))
 }
 
 async function copySource(from: string, to: string, entries: Map<string, string>): Promise<void> {

@@ -32,7 +32,9 @@ afterEach(async () => {
   await cleanup()
 })
 
-async function packagedCopy(resources: string): Promise<{ appRoot: string; cliPath: string }> {
+async function packagedCopy(
+  resources: string,
+): Promise<{ appRoot: string; cliPath: string; edition: 'release' }> {
   const appRoot = path.join(resources, 'app')
   const cliPath = path.join(appRoot, 'packages', 'cli', 'src', 'main.js')
   await mkdir(path.dirname(cliPath), { recursive: true })
@@ -42,7 +44,7 @@ async function packagedCopy(resources: string): Promise<{ appRoot: string; cliPa
   )
   await mkdir(path.join(resources, 'bin'))
   await writeFile(path.join(resources, 'bin', 'ted'), '#!/bin/sh\n', { mode: 0o755 })
-  return { appRoot, cliPath }
+  return { appRoot, cliPath, edition: 'release' }
 }
 
 describe('installing the ted command on macOS', () => {
@@ -81,6 +83,16 @@ describe('installing the ted command on macOS', () => {
     expect(await commandLine.status()).toEqual({ state: 'not-installed', path: target })
     expect(await commandLine.install()).toEqual({ state: 'installed', path: target })
     expect(await readlink(target)).toBe(source)
+    expect(adminCalls).toEqual([])
+  })
+
+  test('TED Dev never installs a command, so it can’t replace the release’s ted', async () => {
+    await mkdir(options.systemBinDir as string)
+    const commandLine = createCommandLine({ ...options, edition: 'dev' })
+
+    expect(await commandLine.status()).toEqual({ state: 'unavailable' })
+    await expect(commandLine.install()).rejects.toMatchObject({ status: 409 })
+    expect(await lstat(target).catch(() => undefined)).toBeUndefined()
     expect(adminCalls).toEqual([])
   })
 

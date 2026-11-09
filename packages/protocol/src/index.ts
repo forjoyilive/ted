@@ -137,6 +137,7 @@ export type {
   RunDiagnostics,
   TokenUse,
 } from './diagnostics.ts'
+export { type Edition, edition, type Identity, identity } from './edition.ts'
 export type { DaemonEvent } from './events.ts'
 export {
   type AddFactoryRequest,

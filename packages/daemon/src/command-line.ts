@@ -14,7 +14,7 @@ import {
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { CommandLineStatus } from '@ted/protocol'
+import { edition as builtEdition, type CommandLineStatus, type Edition } from '@ted/protocol'
 import { readLoginShellPath } from './cli-env.ts'
 import { RequestError } from './errors.ts'
 import { exists } from './files.ts'
@@ -22,6 +22,7 @@ import { nodeEntry, shellScript } from './node-entry.ts'
 
 export interface CommandLineOptions {
   platform?: NodeJS.Platform
+  edition?: Edition
   appRoot?: string
   cliPath?: string
   env?: NodeJS.ProcessEnv
@@ -56,8 +57,10 @@ export function createCommandLine(options: CommandLineOptions = {}): CommandLine
   const systemBinDir = options.systemBinDir ?? '/usr/local/bin'
   const loginPath = options.loginPath ?? (() => readLoginShellPath())
   const runAsAdmin = options.runAsAdmin ?? linkAsAdmin
+  const edition = options.edition ?? builtEdition
 
   async function layout(): Promise<Layout> {
+    if (edition !== 'release') return { kind: 'unavailable' }
     const resources = path.dirname(appRoot)
     const source = path.join(resources, 'bin', 'ted')
     if (path.basename(appRoot) !== 'app' || !(await exists(source))) return { kind: 'unavailable' }

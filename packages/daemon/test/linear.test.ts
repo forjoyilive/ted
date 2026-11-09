@@ -12,6 +12,7 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { keyringService, linearKeyAccount } from '../src/linear/keyring.ts'
 import { readStubKeyring, stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from './fixtures/stub-linear.ts'
 import {
@@ -109,6 +110,11 @@ async function filesContaining(dir: string, text: string): Promise<string[]> {
   }
   return found
 }
+
+test('TED Dev keeps its Linear key under its own keyring service', () => {
+  expect(keyringService).toBe('TED Dev')
+  expect(linearKeyAccount).toBe('linear-api-key')
+})
 
 describe('Linear URLs', () => {
   test('an issue URL is found in text and its workspace and identifier read', () => {
