@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import path from 'node:path'
-import { parseArgs } from 'node:util'
+import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { type RunWithConversation, tedHome } from '@ted/protocol'
 
@@ -81,5 +81,14 @@ function summarize(line: string): string {
     b.type === 'text' ? b.text : b.name ? `${b.type} ${b.name}` : b.type,
   )
   const kind = [message.type, message.subtype, message.hook_name].filter(Boolean).join(' ')
-  return parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind
+  return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
+}
+
+function printable(text: string): string {
+  return [...stripVTControlCharacters(text)].filter((c) => !isControl(c)).join('')
+}
+
+function isControl(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0
+  return (code < 0x20 && char !== '\t' && char !== '\n') || (code >= 0x7f && code <= 0x9f)
 }

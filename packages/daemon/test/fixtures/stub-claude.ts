@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 type Step =
   | { say: string }
   | { hook: string }
-  | { lines: number; everyMs: number }
+  | { lines: number; everyMs: number; pad?: number }
   | { waitFor: string }
   | { run: string[] }
   | { endTurn: true }
@@ -45,7 +45,7 @@ async function runStep(step: Step): Promise<void> {
   else if ('hook' in step) hook(step.hook)
   else if ('lines' in step) {
     for (let i = 1; i <= step.lines; i++) {
-      say(`line ${i}`)
+      say(`line ${i}${'x'.repeat(step.pad ?? 0)}`)
       await sleep(step.everyMs)
     }
   } else if ('waitFor' in step) {
@@ -57,7 +57,7 @@ async function runStep(step: Step): Promise<void> {
   } else if ('endTurn' in step) {
     hook('Stop')
     emit({ type: 'result', subtype: 'success', stop_reason: 'end_turn' })
-  } else if ('exit' in step) process.exit(step.exit)
+  } else if ('exit' in step) process.stdout.write('', () => process.exit(step.exit))
 }
 
 for await (const line of createInterface({ input: process.stdin })) {

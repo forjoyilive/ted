@@ -59,11 +59,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const hostGone = offset > 0 && !isLockHeld(files.lock)
       const batch = await readRecords(files.log, offset)
       if (batch.toOffset > offset || hostGone) {
-        const finished = commitBatch(runId, batch, hostGone)
+        const finished = commitBatch(runId, batch, hostGone && batch.atEnd)
         offset = batch.toOffset
         if (finished) return
       }
-      await sleep(pollMs)
+      if (batch.atEnd) await sleep(pollMs)
     }
   }
 
@@ -132,10 +132,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 interface RecordBatch {
   records: { offset: number; record: HostRecord }[]
   toOffset: number
+  atEnd: boolean
 }
 
 async function readRecords(file: string, offset: number): Promise<RecordBatch> {
-  const none = { records: [], toOffset: offset }
+  const none = { records: [], toOffset: offset, atEnd: true }
   const handle = await open(file, 'r').catch((error: NodeJS.ErrnoException) => {
     if (error.code === 'ENOENT') return undefined
     throw error
@@ -148,7 +149,7 @@ async function readRecords(file: string, offset: number): Promise<RecordBatch> {
       const buffer = Buffer.alloc(length)
       const { bytesRead } = await handle.read(buffer, 0, length, offset)
       const end = buffer.lastIndexOf(10, bytesRead - 1)
-      if (end >= 0) return parseRecords(buffer, end, offset)
+      if (end >= 0) return parseRecords(buffer, end, offset, offset + length >= size)
       if (offset + length >= size) break
       length = Math.min(size - offset, length * 2)
     }
@@ -158,7 +159,7 @@ async function readRecords(file: string, offset: number): Promise<RecordBatch> {
   }
 }
 
-function parseRecords(buffer: Buffer, end: number, offset: number): RecordBatch {
+function parseRecords(buffer: Buffer, end: number, offset: number, atEnd: boolean): RecordBatch {
   const records: RecordBatch['records'] = []
   for (let pos = 0; pos <= end; ) {
     const newline = buffer.indexOf(10, pos)
@@ -168,7 +169,7 @@ function parseRecords(buffer: Buffer, end: number, offset: number): RecordBatch 
     })
     pos = newline + 1
   }
-  return { records, toOffset: offset + end + 1 }
+  return { records, toOffset: offset + end + 1, atEnd }
 }
 
 async function writeTedShim(binDir: string, cliPath: string): Promise<void> {

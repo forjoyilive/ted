@@ -141,6 +141,26 @@ describe('ted dev run', () => {
     expect(lines).toContain('system hook_started Stop')
   })
 
+  test('show strips terminal control characters from agent output', async () => {
+    const hostile = 'a\u001b]0;pwned\u0007b\u001b[31mc\u009bd'
+    const prompt = JSON.stringify({ steps: [{ say: hostile }, { endTurn: true }, { exit: 0 }] })
+    const id = (await ted(['dev', 'run', 'start', prompt])).stdout
+      .trim()
+      .replace(/^Started Run /, '')
+
+    let shown = ''
+    for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
+      shown = (await ted(['dev', 'run', 'show', id])).stdout
+      await sleep(100)
+    }
+    expect(shown).toContain('assistant: abcd')
+    const controls = [...shown].filter((c) => {
+      const code = c.codePointAt(0) ?? 0
+      return (code < 0x20 && c !== '\n') || (code >= 0x7f && code <= 0x9f)
+    })
+    expect(controls).toEqual([])
+  })
+
   test('show refuses an unknown Run', async () => {
     await expect(ted(['dev', 'run', 'show', 'nope'])).rejects.toMatchObject({
       code: 1,

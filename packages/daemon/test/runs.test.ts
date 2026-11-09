@@ -214,6 +214,36 @@ describe('Runs', () => {
       'finished',
     )
   })
+  test('a host that exits while the daemon is stopped keeps its whole backlog', async () => {
+    let client = await startWithStub()
+    const gate = path.join(cwd, 'go')
+    const lines = 1_500
+    const run = await client.startRun(
+      [{ say: 'ready' }, { waitFor: gate }, { lines, everyMs: 0, pad: 1_000 }, { exit: 0 }],
+      cwd,
+    )
+    await waitUntil(
+      async () =>
+        assistantTexts((await client.getRun(run.id)).conversation).includes('ready') || undefined,
+      'the daemon to read the first line',
+    )
+    await daemon?.stop()
+    daemon = undefined
+
+    await writeFile(gate, '')
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).some((r) => r.t === 'exit') || undefined,
+      'the host to exit',
+      20_000,
+    )
+
+    client = await startWithStub()
+    const done = await waitUntil(async () => {
+      const r = await client.getRun(run.id)
+      return r.run.state === 'finished' ? r : undefined
+    }, 'the Run to finish')
+    expect(assistantTexts(done.conversation)).toHaveLength(lines + 1)
+  })
 })
 
 describe('Runs across daemon restarts', () => {
