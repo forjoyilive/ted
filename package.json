@@ -15,6 +15,7 @@
     "ted": "node packages/cli/src/main.ts",
     "app": "pnpm --filter @ted/app start",
     "package": "pnpm --filter @ted/app package",
+    "check": "node scripts/check.ts",
     "release": "node scripts/release.ts"
   },
   "devDependencies": {
