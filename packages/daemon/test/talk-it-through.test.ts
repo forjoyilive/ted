@@ -338,4 +338,41 @@ describe('Talk it through', () => {
     const stopped = await client.call('POST', `/comments/${item.request.id}/talk`)
     expect(stopped.status).toBe(409)
   })
+
+  test('after the Task Lead is replaced, Done talking asks for a fresh talk and the new Run can’t close the old one', async () => {
+    const client = await start()
+    const task = await startTask(client, advance, few, ask(client.storageFile), reply, {
+      endTurn: true,
+    })
+    const item = await openRound(client, 1)
+    const first = await leadId(client, task)
+    await client.ok('POST', `/comments/${item.request.id}/talk`)
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const second = await waitUntil(async () => {
+      const id = (await getTask(client, task.id)).leadRunId
+      return id !== undefined && id !== first ? id : undefined
+    }, 'a fresh Task Lead Run')
+    await waitUntil(
+      async () => (await client.getRun(second)).run.state !== 'working' || undefined,
+      'the fresh Run to settle',
+    )
+
+    const stale = await client.call('POST', `/comments/${item.request.id}/done-talking`)
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toMatch(/restarted since this talk began/)
+
+    await client.ok('POST', `/runs/${second}/messages`, {
+      text: steps(close(client.summaryFile), { endTurn: true }),
+    })
+    const refused = await waitUntil(
+      async () =>
+        (await commandResults(client, task)).find((r) => /earlier Task Lead Run/.test(r.stderr)),
+      'the close to be refused',
+    )
+    expect(refused.code).toBe(1)
+
+    const again = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
+    expect(again.talk?.runId).toBe(second)
+  })
 })

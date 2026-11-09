@@ -3029,7 +3029,12 @@ export function createTasks(options: {
     const { task, round } = openTalkRound(commentId)
     if (!round.talk) throw new RequestError(409, 'this round isn’t being talked through')
     if (round.talk.doneAt !== undefined) return round
-    talkLead(task)
+    if (talkLead(task).id !== round.talk.runId) {
+      throw new RequestError(
+        409,
+        'The Task Lead has restarted since this talk began; click Talk it through to talk with the new one',
+      )
+    }
     const done = store.roundTalkDone(round.id)
     await deliver(
       task,
@@ -3054,6 +3059,12 @@ export function createTasks(options: {
         throw new RequestError(
           409,
           'no round is being talked through; `ted ask --close` closes a round after the human clicks Talk it through',
+        )
+      }
+      if (round.talk.runId !== runId) {
+        throw new RequestError(
+          409,
+          `the human talked Round ${round.round?.number ?? ''} through with an earlier Task Lead Run; ask them to click Talk it through again, or ask a new round`,
         )
       }
       const note = store.postComment({
