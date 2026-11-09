@@ -13,7 +13,7 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import type { PermissionPrompt, PermissionReply } from '../agents/agent.ts'
+import { hidesText, type PermissionPrompt, type PermissionReply } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -163,7 +163,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const startedWith = generation.count
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
-        entries.push({ offset, line: record.line })
+        entries.push({
+          offset,
+          line: record.line,
+          ...(record.at !== undefined && { at: record.at }),
+        })
         const text = agent.acceptedTextFrom(record.line)
         if (text !== undefined) accepted.push(text)
         state = agent.stateFrom(record.line) ?? state
@@ -178,7 +182,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           }
           return store.conversation(runId).findLast((entry) => matches(entry.line))?.line
         })
-        if (prompt) prompts.push({ ...prompt, generation: generation.count })
+        if (prompt) {
+          prompts.push({
+            ...prompt,
+            generation: generation.count,
+            ...(hidesText(prompt) && { refuse: true }),
+          })
+        }
         const closed = agent.permissionClosedFrom(record.line)
         if (closed !== undefined) closedPermissions.push(closed)
       } else if (record.t === 'start') generation.count += 1

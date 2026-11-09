@@ -22,8 +22,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest
 import {
   commitToOrigin,
   hostRecords,
-  killRunHosts,
+  isAlive,
   makeOriginRepo,
+  stopDaemonIn,
+  waitForExit,
 } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
@@ -51,12 +53,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await closeApp(app)
   app = undefined
-  const info = await readDaemonInfo(home)
-  if (info && isAlive(info.pid)) {
-    process.kill(info.pid, 'SIGTERM')
-    await waitForExit(info.pid)
-  }
-  await killRunHosts(home)
+  await stopDaemonIn(home)
   await rm(home, { recursive: true, force: true })
 }, 30_000)
 
@@ -126,23 +123,6 @@ async function daemonPid(): Promise<number> {
 async function commandOf(pid: number): Promise<string> {
   const { stdout } = await run('ps', ['-o', 'command=', '-p', String(pid)])
   return stdout.trim()
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForExit(pid: number): Promise<void> {
-  const deadline = Date.now() + 10_000
-  while (isAlive(pid)) {
-    if (Date.now() > deadline) throw new Error(`pid ${pid} still running`)
-    await sleep(50)
-  }
 }
 
 describe('TED app', () => {
@@ -231,6 +211,95 @@ describe('TED app', () => {
       })
       .toBe(true)
   })
+
+  test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const edit = {
+      emit: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 't1',
+              name: 'Edit',
+              input: {
+                file_path: 'notes.ts',
+                old_string: 'by updated\n',
+                new_string: 'by pinned\n',
+              },
+            },
+          ],
+        },
+      },
+    }
+    const done = {
+      emit: {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+        },
+      },
+    }
+    const steps = [
+      { everyMessage: [{ say: 'Noted.' }, { endTurn: true }] },
+      edit,
+      done,
+      { say: 'Pinned notes now sort first.' },
+      { endTurn: true },
+    ]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('idle')
+
+    let window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Pinned notes now sort first.').waitFor()
+    await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
+    await chat.getByRole('button', { name: /^Edit/ }).click()
+    await chat.getByText('by pinned').waitFor()
+    expect(await chat.getByRole('button', { name: 'Restart' }).isEnabled()).toBe(true)
+
+    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    await box.fill('Keep pinned notes in the order they were pinned.')
+    await box.press('Enter')
+    await chat.getByText(/to this Run only/).waitFor()
+    await chat.getByText('Noted.').waitFor()
+    expect(await client.listComments('NB-1')).toEqual([])
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
+    await thread.getByRole('button', { name: 'View message' }).click()
+    await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
+
+    await app?.close()
+    app = undefined
+    window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window
+      .getByRole('region', { name: 'Run chat' })
+      .getByText('Pinned notes now sort first.')
+      .waitFor()
+    await window.getByRole('button', { name: 'Close Task Lead' }).click()
+    await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
+  }, 90_000)
 
   test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
     await ted('task', 'create', 'Fix login')
@@ -326,6 +395,60 @@ describe('TED app', () => {
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
   })
+
+  test('Validate’s ✓ row shows each Check’s state, the Blocking findings box, and opens the output', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    const flag = path.join(home, 'failed-once')
+    await commitToOrigin(parent, {
+      '.gitignore': 'stub-*\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; echo 'SearchPanel hangs'; exit 1; fi" }`,
+        '      - { name: Lint, run: "echo linted" }',
+        '',
+      ].join('\n'),
+    })
+    const advance = { run: ['ted', 'outcome', 'advance'] }
+    const steps = JSON.stringify({
+      steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await ted('task', 'start', 'NB-1')
+
+    const sentBack = thread.getByRole('listitem').filter({
+      hasText: 'Validate sent this back to Work (round 1 of 5)',
+    })
+    await sentBack.waitFor({ timeout: 40_000 })
+    const row = sentBack.getByRole('list', { name: 'Checks' })
+    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
+    await row.getByRole('button', { name: '✗ Tests' }).waitFor()
+    await row.getByRole('listitem').filter({ hasText: 'Lint · not run' }).waitFor()
+    await sentBack
+      .getByRole('region', { name: 'Blocking findings' })
+      .getByText(/The Check “Tests”/)
+      .waitFor()
+    await thread.getByText('Checks passed at Validate').waitFor({ timeout: 40_000 })
+
+    await row.getByRole('button', { name: '✗ Tests' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Tests output' })
+    await dialog.getByText('SearchPanel hangs', { exact: true }).waitFor()
+    await dialog.getByRole('tab', { name: 'Typecheck' }).click()
+    await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
+    await window.getByRole('button', { name: 'Close' }).click()
+    await dialog.waitFor({ state: 'detached' })
+  }, 90_000)
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
@@ -1858,7 +1981,14 @@ describe('Permission requests', () => {
     await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
 
     await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
-    await card.getByRole('button', { name: 'Approve' }).click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText(/You denied · /).waitFor()
+    await chat.getByRole('button', { name: 'Approve' }).click()
+    await chat.getByText(/You approved · /).waitFor()
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
     await thread.getByText('You approved · this request only').waitFor()
     await expect.poll(() => card.count()).toBe(0)
   })
@@ -2019,6 +2149,142 @@ describe('List and All Tasks', () => {
     await main.getByRole('columnheader', { name: 'Archived' }).waitFor()
     expect((await rowIds(window)).sort()).toEqual(['MS-1', 'NB-1'])
     await main.locator('tr[data-task="NB-1"]').getByText('Archived', { exact: true }).waitFor()
+  })
+})
+
+describe('Board', () => {
+  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+
+  async function boardOf(workflow?: string): Promise<Page> {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    if (workflow !== undefined) await commitToOrigin(parent, { '.ted/workflow.yaml': workflow })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    return launchApp()
+  }
+
+  async function openBoard(window: Page) {
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const board = window.getByRole('region', { name: 'widgets' })
+    await board.getByRole('region', { name: 'Backlog' }).waitFor()
+    return board
+  }
+
+  const cardIds = (column: ReturnType<Page['getByRole']>) =>
+    column
+      .locator('[data-task]')
+      .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-task')))
+
+  const columnNames = (board: ReturnType<Page['getByRole']>) =>
+    board
+      .locator('[data-stage]')
+      .evaluateAll((columns) => columns.map((column) => column.getAttribute('aria-label')))
+
+  test('columns follow the Factory’s Workflow, with Gated Stages marked', async () => {
+    const window = await boardOf(
+      'version: 1\norder: [intake, work, review]\nstages:\n  review: { gate: true }\n',
+    )
+    const board = await openBoard(window)
+
+    await waitFor(async () => (await columnNames(board)).length === 5)
+    expect(await columnNames(board)).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
+    await board.getByRole('region', { name: 'Review' }).getByText('Gate').waitFor()
+    expect(await board.getByRole('region', { name: 'Work' }).getByText('Gate').count()).toBe(0)
+    await board.getByRole('heading', { name: /widgets\s*\/\s*Board/ }).waitFor()
+    await board.getByRole('button', { name: 'Filter' }).waitFor()
+    await board.getByRole('button', { name: 'Plan' }).waitFor()
+  })
+
+  test('dragging Backlog → Intake starts a Task, Queued → Backlog un-starts it, other drops are refused', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.updateSettings({ maxWorkingRuns: 1 })
+    await ted('task', 'create', '--factory', 'NB', forever())
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    await ted('task', 'start', 'NB-1')
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    const intake = board.getByRole('region', { name: 'Intake' })
+    await backlog.locator('[data-task="NB-2"]').waitFor()
+
+    await backlog.locator('[data-task="NB-2"]').dragTo(board.getByRole('region', { name: 'Work' }))
+    await sleep(300)
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.stage).toBe('backlog')
+
+    await backlog.locator('[data-task="NB-2"]').dragTo(intake)
+    await intake.locator('[data-task="NB-2"]').getByText('Queued · 1st').waitFor()
+    await intake.locator('[data-task="NB-2"]').getByText('Waiting for a free Run slot').waitFor()
+
+    await intake.locator('[data-task="NB-2"]').dragTo(backlog)
+    await backlog.locator('[data-task="NB-2"]').waitFor()
+    expect((await client.getSlots()).queued).toBe(0)
+  })
+
+  test('the drag shows the drop slot in Intake and dims the columns it can’t go to', async () => {
+    const window = await boardOf()
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    const board = await openBoard(window)
+    const card = board.getByRole('region', { name: 'Backlog' }).locator('[data-task="NB-1"]')
+    await card.waitFor()
+
+    await card.hover()
+    await window.mouse.down()
+    const intake = board.getByRole('region', { name: 'Intake' })
+    const box = await intake.boundingBox()
+    if (!box) throw new Error('no Intake column')
+    await window.mouse.move(box.x + 100, box.y + 60, { steps: 5 })
+    await window.mouse.move(box.x + 110, box.y + 70, { steps: 5 })
+
+    await intake.getByText('Drop to Start').waitFor()
+    await intake.getByText('Joins the queue as Queued · 1st').waitFor()
+    expect(await board.getByRole('region', { name: 'Work' }).getAttribute('data-drop')).toBe('no')
+    await window.mouse.up()
+  })
+
+  test('dragging up a column changes rank, and across Priority groups the Priority', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
+    await client.createTask({ factory: 'NB', title: 'Export notes' })
+    await client.createTask({ factory: 'NB', title: 'Note history' })
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    await waitFor(async () => (await cardIds(backlog)).length === 3)
+    expect(await cardIds(backlog)).toEqual(['NB-1', 'NB-2', 'NB-3'])
+
+    await backlog
+      .locator('[data-task="NB-3"]')
+      .dragTo(backlog.locator('[data-task="NB-2"]'), { targetPosition: { x: 40, y: 4 } })
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-1,NB-3,NB-2')
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-3')?.priority).toBe('none')
+
+    await backlog
+      .locator('[data-task="NB-2"]')
+      .dragTo(backlog.locator('[data-task="NB-1"]'), { targetPosition: { x: 40, y: 4 } })
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-2,NB-1,NB-3')
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.priority).toBe('high')
+  })
+
+  test('Start on a Backlog card starts it; a blocked card has no Start; Filter narrows the cards', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
+    await client.createTask({ factory: 'NB', title: 'Export notes', blockedBy: ['NB-1'] })
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    await backlog.locator('[data-task="NB-2"]').getByText('Starts when NB-1 merges').waitFor()
+    expect(await backlog.getByRole('button', { name: 'Start NB-2' }).count()).toBe(0)
+
+    await board.getByRole('button', { name: 'Filter' }).click()
+    expect(await board.getByRole('menuitem', { name: 'Stage' }).count()).toBe(0)
+    expect(await board.getByRole('menuitemradio', { name: 'Only' }).count()).toBe(0)
+    await board.getByRole('menuitem', { name: 'Priority' }).hover()
+    await board.getByRole('menuitemcheckbox', { name: /High/ }).click()
+    await window.keyboard.press('Escape')
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-1')
+
+    await backlog.getByRole('button', { name: 'Start NB-1' }).click()
+    await board.getByRole('region', { name: 'Intake' }).locator('[data-task="NB-1"]').waitFor()
   })
 })
 

@@ -65,7 +65,7 @@ async function startAgent(): Promise<Started> {
   const stdout = createInterface({ input: agent.stdout, crlfDelay: Number.POSITIVE_INFINITY })
   const stderr = createInterface({ input: agent.stderr, crlfDelay: Number.POSITIVE_INFINITY })
   stdout.on('line', (line) => {
-    write({ t: 'out', line })
+    write({ t: 'out', line, at: new Date().toISOString() })
     driver?.onLine(line)
   })
   stderr.on('line', (line) => write({ t: 'err', line }))

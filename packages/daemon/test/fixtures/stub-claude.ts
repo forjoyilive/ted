@@ -20,6 +20,7 @@ type Step =
       noWait?: true
     }
   | { cancelPermission: true }
+  | { emit: Record<string, unknown> }
 
 const argv = process.argv.slice(2)
 
@@ -97,6 +98,7 @@ const permissionMode = () => {
 
 async function runStep(step: Step): Promise<void> {
   if ('everyMessage' in step) everyMessage = step.everyMessage
+  else if ('emit' in step) emit(step.emit)
   else if ('authError' in step) {
     emit({
       type: 'assistant',

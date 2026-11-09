@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
@@ -12,7 +11,7 @@ import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
 import { readStubKeyring, stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
-import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import { makeOriginRepo, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
@@ -53,24 +52,10 @@ beforeEach(async () => {
 afterEach(async () => {
   await closeApp(app)
   app = undefined
-  const info = await readDaemonInfo(home)
-  if (info && isAlive(info.pid)) {
-    process.kill(info.pid, 'SIGTERM')
-    while (isAlive(info.pid)) await sleep(50)
-  }
-  await killRunHosts(home)
+  await stopDaemonIn(home)
   await linear.close()
   await rm(home, { recursive: true, force: true })
 }, 30_000)
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
 
 const env = () => ({
   ...process.env,

@@ -14,9 +14,11 @@ type Step =
   | { approval: 'command'; command?: string; cwd?: string; extra?: Record<string, unknown> }
   | { approval: 'fileChange'; changes?: { path: string; diff: string }[] }
   | { approval: 'permissions'; permissions: Record<string, unknown> }
+  | { legacyApproval: unknown[]; extra?: Record<string, unknown> }
   | { endTurn: true }
   | { exit: number }
   | { authError: true }
+  | { notify: string; params: Record<string, unknown> }
 
 interface Message {
   id?: number | string
@@ -87,7 +89,8 @@ const status = (status: Record<string, unknown>) =>
   notify('thread/status/changed', { threadId, status })
 
 async function runStep(step: Step): Promise<void> {
-  if ('authError' in step) {
+  if ('notify' in step) notify(step.notify, { threadId, turnId: 'turn-1', ...step.params })
+  else if ('authError' in step) {
     notify('error', {
       threadId,
       turnId: 'turn-1',
@@ -106,6 +109,25 @@ async function runStep(step: Step): Promise<void> {
     const [command = '', ...args] = step.run
     const result = spawnSync(command, args, { encoding: 'utf8' })
     say(JSON.stringify({ code: result.status, stdout: result.stdout, stderr: result.stderr }))
+  } else if ('legacyApproval' in step) {
+    const id = nextRequest++
+    const answered = new Promise<Message>((resolve) => answers.set(id, resolve))
+    send({
+      id,
+      method: 'execCommandApproval',
+      params: {
+        conversationId: threadId,
+        callId: `call-${id}`,
+        approvalId: null,
+        command: step.legacyApproval,
+        cwd: process.cwd(),
+        reason: null,
+        parsedCmd: [],
+        ...step.extra,
+      },
+    })
+    const answer = await answered
+    say(JSON.stringify(answer.result ?? answer.error))
   } else if ('approval' in step) {
     const id = nextRequest++
     const answered = new Promise<Message>((resolve) => answers.set(id, resolve))

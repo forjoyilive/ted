@@ -457,4 +457,56 @@ describe('who can answer, and what an answer covers', () => {
     ])
     expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
   })
+
+  test('a legacy Codex command shows quoted arguments; one with unknown fields or odd arguments is denied', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      [
+        { legacyApproval: ['sh', '-c', "echo 'hi' && rm -rf build"] },
+        { legacyApproval: ['ls'], extra: { escalate: true } },
+        { legacyApproval: ['ls', 7] },
+        { endTurn: true },
+      ],
+      { agent: 'codex' },
+    )
+    const request = await permissionOf(client, task)
+    expect(request.permission?.command).toBe(`sh -c 'echo '\\''hi'\\'' && rm -rf build'`)
+    const run = await leadRun(client, task)
+    await client.ok('POST', `/comments/${request.id}/answer`, { action: 'approve' })
+    const replies = await waitUntil(async () => {
+      const texts = (await said(client, run.id)).filter((t) => t.includes('decision'))
+      return texts.length === 3 ? texts : undefined
+    }, 'Codex to get all three answers')
+    expect(replies.map((t) => JSON.parse(t).decision)).toEqual([
+      'approved',
+      { denied: { rejection: 'The human denied this request' } },
+      { denied: { rejection: 'The human denied this request' } },
+    ])
+    expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
+  })
+
+  test('a command whose directory only looks like the worktree gets no repo label', async () => {
+    const client = await start()
+    const outside = `${home}/worktrees/NB-1/widgets/../../../evil`
+    const task = await startTask(
+      client,
+      [{ approval: 'command', command: 'ls', cwd: outside }, { endTurn: true }],
+      { agent: 'codex' },
+    )
+    const request = await permissionOf(client, task)
+    expect(request.permission).toEqual({ command: 'ls', details: `Runs in ${outside}` })
+  })
+
+  test('a prompt with hidden or direction-changing characters is denied without asking', async () => {
+    const client = await start()
+    const task = await startTask(client, [
+      { ...bash('ls \u202e fr- mr', 'List files'), noWait: true },
+      bash('npm test', 'Run the tests'),
+      { endTurn: true },
+    ])
+    const request = await permissionOf(client, task)
+    expect(request.permission?.command).toBe('npm test')
+    expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
+  })
 })

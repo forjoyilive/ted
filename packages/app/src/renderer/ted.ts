@@ -7,7 +7,9 @@ import type {
   BackupsSummary,
   Banner,
   BannerActionInput,
+  CheckOutput,
   CheckRepoRequest,
+  CheckRun,
   CommandLineStatus,
   Comment,
   CreateFactoryRequest,
@@ -16,6 +18,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  FactoryBoard,
   InboxItem,
   IntegrationsHealth,
   LinearLookup,
@@ -29,9 +32,12 @@ import type {
   RepoCheck,
   RestoreBackupResult,
   Run,
+  RunChat,
   RunFixRequest,
   RunFixResult,
+  RunMessage,
   RunSlots,
+  RunSummary,
   StageEntry,
   StorageSummary,
   Task,
@@ -73,12 +79,27 @@ export const ted = {
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
+  sendRunMessage: (runId: string, text: string) =>
+    window.ted.request('sendRunMessage', runId, text) as Promise<RunMessage>,
+  restartRun: (runId: string) => window.ted.request('restartRun', runId) as Promise<RunSummary>,
+  stopRun: (runId: string) => window.ted.request('stopRun', runId) as Promise<RunSummary>,
+  listTaskRuns: (taskId: string) =>
+    window.ted.request('listTaskRuns', taskId) as Promise<RunSummary[]>,
+  openRunTab: (taskId: string, runId: string) =>
+    window.ted.request('openRunTab', taskId, runId) as Promise<Task>,
+  closeRunTab: (taskId: string, runId: string) =>
+    window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
+  listCheckRuns: (taskId: string) =>
+    window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
+  checkOutput: (checkRunId: string, position: number) =>
+    window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
@@ -96,6 +117,8 @@ export const ted = {
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
+  factoryBoard: (factoryId: string) =>
+    window.ted.request('factoryBoard', factoryId) as Promise<FactoryBoard>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>

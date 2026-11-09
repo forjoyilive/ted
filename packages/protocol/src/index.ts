@@ -19,6 +19,31 @@ export {
   isShowing,
   type RaiseBanner,
 } from './banner.ts'
+export type {
+  ChatDiff,
+  ChatDiffLine,
+  ChatItem,
+  ChatToolStatus,
+  ConversationTab,
+  RunChat,
+  RunMessage,
+  RunRole,
+  RunSummary,
+  SendRunMessageRequest,
+} from './chat.ts'
+export {
+  type CheckOutput,
+  type CheckResult,
+  type CheckRun,
+  type CheckRunOutcome,
+  type CheckRunReport,
+  type CheckRunTrigger,
+  type CheckState,
+  checkFailed,
+  checkLabel,
+  type RunChecksRequest,
+  type SendBack,
+} from './checks.ts'
 export {
   DaemonClient,
   DaemonRequestError,
@@ -211,4 +236,11 @@ export {
   type WriteBriefRequest,
 } from './task.ts'
 export { tedVersion } from './version.ts'
-export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'
+export type {
+  BoardStage,
+  FactoryBoard,
+  LayerKind,
+  LayerUse,
+  StageEntry,
+  WorkflowProblem,
+} from './workflow.ts'

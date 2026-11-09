@@ -7,11 +7,13 @@ export function EventLine({
   tone,
   text,
   at,
+  action,
   children,
 }: {
   tone: ThreadEventTone
   text: string
   at: string
+  action?: ReactNode
   children?: ReactNode
 }) {
   const now = useNow()
@@ -20,7 +22,10 @@ export function EventLine({
       <span className={`${styles.dot} ${styles[tone]}`} aria-hidden />
       <div className={styles.body}>
         <div className={styles.row}>
-          <span className={styles.text}>{text}</span>
+          <span className={styles.text}>
+            {text}
+            {action ? <> · {action}</> : null}
+          </span>
           <time className={styles.time} dateTime={at}>
             {ago(at, now)}
           </time>
@@ -33,8 +38,8 @@ export function EventLine({
 
 export function Findings({ text }: { text: string }) {
   return (
-    <section className={styles.findings} aria-label="Findings">
-      <h3 className={styles.findingsHeading}>Findings</h3>
+    <section className={styles.findings} aria-label="Blocking findings">
+      <h3 className={styles.findingsHeading}>Blocking findings</h3>
       <p className={styles.findingsText}>{text}</p>
     </section>
   )

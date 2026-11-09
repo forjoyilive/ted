@@ -17,6 +17,7 @@ export interface TaskFacts {
   paused?: string
   tedWorking?: boolean
   settingUp?: boolean
+  checking?: { name: string; index: number; total: number }
   stopped?: boolean
   blockedBy?: readonly string[]
   queue?: { place: number } | { hold: string }
@@ -88,6 +89,10 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
+  if (facts.checking) {
+    const { name, index, total } = facts.checking
+    return `Running Checks · ${name} (${index} of ${total})`
+  }
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {

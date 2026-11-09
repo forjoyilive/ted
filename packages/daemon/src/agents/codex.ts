@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { type PermissionMode, type RunState, tedVersion } from '@ted/protocol'
 import type { Agent, AuthCheck, EarlierLine, PermissionPrompt } from './agent.ts'
+import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
@@ -147,6 +148,24 @@ const commandFields = new Set([
   'proposedNetworkPolicyAmendments',
 ])
 
+const legacyCommandFields = new Set([
+  'conversationId',
+  'callId',
+  'approvalId',
+  'command',
+  'cwd',
+  'reason',
+  'parsedCmd',
+])
+
+const plainArg = /^[A-Za-z0-9_\-./=:@%+,]+$/
+
+function shellLine(argv: readonly string[]): string {
+  return argv
+    .map((arg) => (plainArg.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`))
+    .join(' ')
+}
+
 function commandPrompt(
   base: PermissionPrompt,
   cwd: string | undefined,
@@ -205,10 +224,20 @@ function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt 
       )
     }
     case 'execCommandApproval': {
-      const command = Array.isArray(params.command) ? params.command.join(' ') : undefined
+      const argv = params.command
       const title = 'Run a command outside the sandbox'
-      if (command === undefined) return { ...ask(title, 'a command TED can’t show'), refuse: true }
-      return commandPrompt(ask(title, command), text(params.cwd), undefined)
+      const unknown = Object.keys(params).some(
+        (key) => !legacyCommandFields.has(key) && !isEmpty(params[key]),
+      )
+      if (
+        unknown ||
+        !Array.isArray(argv) ||
+        argv.length === 0 ||
+        argv.some((arg) => typeof arg !== 'string')
+      ) {
+        return { ...ask(title, 'a command TED can’t show'), refuse: true }
+      }
+      return commandPrompt(ask(title, shellLine(argv as string[])), text(params.cwd), undefined)
     }
     case 'item/fileChange/requestApproval':
       return changePrompt(
@@ -346,6 +375,7 @@ export function codexAgent(binary: string): Agent {
         ...(text !== undefined ? [JSON.stringify({ text })] : []),
       ]
     },
+    chat: codexChat,
     stateFrom(line) {
       const message = parse(line)
       if (typeof message?.method !== 'string') return undefined

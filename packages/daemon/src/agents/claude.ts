@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { RunState } from '@ted/protocol'
 import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
+import { claudeChat } from './claude-chat.ts'
 
 const stateByHook: Record<string, RunState> = {
   UserPromptSubmit: 'working',
@@ -168,6 +169,7 @@ export function claudeAgent(binary: string): Agent {
         ...(approved && text !== undefined ? [userMessage(text)] : []),
       ]
     },
+    chat: claudeChat,
     stateFrom(line) {
       const message = parse(line)
       if (message === undefined) return undefined

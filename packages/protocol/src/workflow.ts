@@ -24,3 +24,13 @@ export interface StageEntry {
   layers: LayerUse[]
   at: string
 }
+
+export interface BoardStage {
+  id: StageId
+  enabled: boolean
+  gate: boolean
+}
+
+export interface FactoryBoard {
+  stages: BoardStage[]
+}

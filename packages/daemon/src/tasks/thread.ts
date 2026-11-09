@@ -55,7 +55,13 @@ export function threadEvents(
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
-  const add = (entry: LoggedEvent, tone: ThreadEventTone, line: string, findings?: string) =>
+  const add = (
+    entry: LoggedEvent,
+    tone: ThreadEventTone,
+    line: string,
+    findings?: string,
+    checkRunId?: string,
+  ) =>
     lines.push({
       id: entry.id,
       taskId,
@@ -63,6 +69,7 @@ export function threadEvents(
       tone,
       text: line,
       ...(findings !== undefined && findings !== '' && { findings }),
+      ...(checkRunId !== undefined && { checkRunId }),
     })
 
   for (const entry of log) {
@@ -120,6 +127,25 @@ export function threadEvents(
           text(data.findings).trim(),
         )
         break
+      case 'v2.TaskSentBack': {
+        sentBackTo = text(data.to)
+        const round =
+          typeof data.round !== 'number'
+            ? ''
+            : typeof data.limit === 'number'
+              ? ` (round ${data.round} of ${data.limit})`
+              : ` (round ${data.round})`
+        const checkRunId = text(data.checkRunId) || undefined
+        const findings = text(data.findings).trim()
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}`,
+          checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
+          checkRunId,
+        )
+        break
+      }
       case 'v1.TaskStageEntered':
       case 'v2.TaskStageEntered': {
         const stage = text(data.stage)
@@ -190,6 +216,16 @@ export function threadEvents(
           'quiet',
           'Claude Code’s auto mode isn’t available, so every permission prompt comes to you',
         )
+        break
+      case 'v1.RunMessageSent':
+        lines.push({
+          id: entry.id,
+          taskId,
+          at: entry.at,
+          tone: 'edit',
+          text: 'You steered the Task Lead in its Conversation',
+          runId: text(data.runId),
+        })
         break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')
