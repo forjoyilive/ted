@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import {
   type BackupsSummary,
   type Banner,
@@ -59,6 +60,14 @@ const storeFiles = (dir = storeDir()) => storeDbFiles(dir)
 const pretendTheStateSchemaChanged = () => pretendStateSchemaChanged(home)
 const editEventlog = (sql: string) => editEventlogOf(home, sql)
 
+async function loggedEvents(): Promise<number> {
+  const file = (await storeFiles()).find((f) => f.startsWith('eventlog')) ?? ''
+  const db = new DatabaseSync(path.join(storeDir(), file))
+  const { count } = db.prepare('SELECT COUNT(*) AS count FROM eventlog').get() as { count: number }
+  db.close()
+  return count
+}
+
 describe('store migrations', () => {
   test('a schema change backs up the store, then rebuilds state from the log with progress', async () => {
     let ted = await start('1.0.0')
@@ -66,6 +75,7 @@ describe('store migrations', () => {
     await ted.call('POST', '/tasks', { title: 'Add dark mode' })
     const before = (await ted.call('GET', '/tasks')).body as Task[]
     await stop()
+    const logged = await loggedEvents()
     await pretendTheStateSchemaChanged()
 
     const statuses: DataStatus[] = []
@@ -73,7 +83,7 @@ describe('store migrations', () => {
 
     const updates = statuses.filter((s) => s.state === 'updating')
     expect(updates.length).toBeGreaterThan(0)
-    expect(updates.at(-1)).toMatchObject({ version: '1.1.0', done: 4, total: 4 })
+    expect(updates.at(-1)).toMatchObject({ version: '1.1.0', done: logged, total: logged })
     expect(statuses.at(-1)).toEqual({ state: 'ready' })
     expect((await ted.call('GET', '/tasks')).body).toEqual(before)
     expect((await ted.call('GET', '/data-status')).body).toEqual({ state: 'ready' })
@@ -125,6 +135,7 @@ describe('store migrations', () => {
     await ted.call('POST', '/tasks', { title: 'Fix login' })
     await ted.call('POST', '/tasks', { title: 'Add dark mode' })
     await stop()
+    const logged = await loggedEvents()
     await pretendTheStateSchemaChanged()
     await editEventlog(
       `UPDATE eventlog SET argsJson = '{}' WHERE seqNumGlobal = (SELECT MAX(seqNumGlobal) FROM eventlog)`,
@@ -133,7 +144,7 @@ describe('store migrations', () => {
     ted = await start('1.1.0')
 
     const status = (await ted.call('GET', '/data-status')).body as DataStatus
-    expect(status).toMatchObject({ state: 'failed', version: '1.1.0', total: 4 })
+    expect(status).toMatchObject({ state: 'failed', version: '1.1.0', total: logged })
     if (status.state !== 'failed') throw new Error('not failed')
     expect(status.error).toBe('v1.TaskRanked: Missing key at ["taskId"]')
     expect(status.restore).toMatchObject({ kind: 'pre-update', dataFrom: '1.0.0' })
