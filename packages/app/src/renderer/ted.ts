@@ -125,6 +125,10 @@ export const ted = {
   listAnswered: () => window.ted.request('listAnswered') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
+  talkThrough: (commentId: string) =>
+    window.ted.request('talkThrough', commentId) as Promise<Comment>,
+  doneTalking: (commentId: string) =>
+    window.ted.request('doneTalking', commentId) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
   sendRunMessage: (runId: string, text: string, interrupt = false) =>

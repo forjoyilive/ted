@@ -119,6 +119,13 @@ function settingsFallback(layers: unknown): string | undefined {
   return undefined
 }
 
+function inTalk(comments: readonly Comment[], runId: string, at: string): boolean {
+  return comments.some(
+    ({ talk, answer }) =>
+      talk?.runId === runId && talk.startedAt <= at && (answer === undefined || at <= answer.at),
+  )
+}
+
 export function threadEvents(
   taskId: string,
   log: readonly LoggedEvent[],
@@ -453,6 +460,7 @@ export function threadEvents(
         break
       case 'v1.RunMessageSent':
       case 'v1.RunMessageDelivered':
+        if (inTalk(context.comments, text(data.runId), entry.at)) break
         lines.push({
           id: entry.id,
           taskId,

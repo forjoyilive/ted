@@ -513,6 +513,8 @@ export interface TedStore {
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
+  startRoundTalk(id: string, runId: string): Comment
+  roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
   taskLog(taskId: string): LoggedEvent[]
@@ -1292,6 +1294,9 @@ export async function openStore({
     permission,
     answerHeld: _,
     failedRunId,
+    talkRunId,
+    talkStartedAt,
+    talkDoneAt,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -1304,6 +1309,14 @@ export async function openStore({
     ...(title !== null && { title }),
     ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
     ...(round !== null && { round: JSON.parse(round) as Round }),
+    ...(talkRunId !== null &&
+      talkStartedAt !== null && {
+        talk: {
+          runId: talkRunId,
+          startedAt: talkStartedAt,
+          ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
+        },
+      }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(permission !== null && { permission: publicPermission(permission) }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
@@ -2419,6 +2432,14 @@ export async function openStore({
       if (ids.length === 0) return
       commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
+    },
+    startRoundTalk(id, runId) {
+      commit(events.roundTalkStarted({ id, runId, at: new Date().toISOString() }))
+      return emitComment(id)
+    },
+    roundTalkDone(id) {
+      commit(events.roundTalkDone({ id, at: new Date().toISOString() }))
+      return emitComment(id)
     },
     holdAnswer(id) {
       commit(events.commentAnswerHeld({ id, at: new Date().toISOString() }))

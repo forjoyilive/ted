@@ -127,6 +127,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listAnswered: (client) => client.listAnswered(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
+  talkThrough: (client, commentId) => client.talkThrough(String(commentId)),
+  doneTalking: (client, commentId) => client.doneTalking(String(commentId)),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   getRunChat: (client, runId) => client.getRunChat(String(runId)),
   sendRunMessage: (client, runId, text, interrupt) =>

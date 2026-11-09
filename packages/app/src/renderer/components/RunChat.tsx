@@ -461,6 +461,7 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
+  header?: ((run: RunSummary) => ReactNode) | undefined
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
@@ -615,7 +616,9 @@ export function ChatBody({
 
   return (
     <>
-      {options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
+      {options.header
+        ? options.header(run)
+        : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
       <div
         ref={list}
         className={styles.items}
@@ -641,15 +644,16 @@ export function ChatBody({
 export function RunChat({
   runId,
   onStopTask,
+  ...options
 }: {
   runId: string
   onStopTask?: (() => void) | undefined
-}) {
+} & ChatOptions) {
   const chat = useRunChat(runId)
   return (
     <section className={styles.chat} aria-label="Run chat">
       {chat ? (
-        <ChatBody chat={chat} onStopTask={onStopTask} />
+        <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
       ) : (
         <p className={styles.loading}>Loading the Run…</p>
       )}

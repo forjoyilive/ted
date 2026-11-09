@@ -10,6 +10,7 @@ import {
   type BlockTaskRequest,
   blockedChoices,
   type CancelMergeRequest,
+  type CloseRoundRequest,
   type CreateTaskRequest,
   clarifyDepths,
   type EditTaskRequest,
@@ -423,6 +424,27 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/inbox\/answered$/,
     handle: async (_, { tasks }) => [200, tasks.answered()],
+  },
+  {
+    method: 'POST',
+    path: /^\/comments\/([^/]+)\/talk$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.talkThrough(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/comments\/([^/]+)\/done-talking$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.doneTalking(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/rounds\/close$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<CloseRoundRequest> | null
+      const summary = typeof body?.summary === 'string' ? body.summary.trim() : ''
+      if (summary === '') throw new HttpError(400, 'summary is required')
+      return [200, await tasks.closeRound(ref, caller, summary)]
+    },
   },
   {
     method: 'POST',

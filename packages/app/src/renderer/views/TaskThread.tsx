@@ -34,6 +34,7 @@ import {
 import { Diff, RunChat } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
+import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
@@ -372,6 +373,15 @@ export function TaskThread({
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
   const pin = (id: string) => setChosen({ from: requestId, id })
+  const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
+
+  if (talk && shownRun !== undefined) {
+    return (
+      <section className={styles.pane} aria-label="Task thread">
+        <TalkThrough request={talk} task={task} onBack={() => onShowRun(undefined)} />
+      </section>
+    )
+  }
 
   return (
     <section className={styles.pane} aria-label="Task thread">
@@ -509,6 +519,7 @@ export function TaskThread({
                       task={task}
                       newer={newer}
                       expanded={comment.id === answeredId}
+                      onOpenRun={onOpenRun}
                     />
                   </li>
                 )

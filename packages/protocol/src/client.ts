@@ -95,6 +95,7 @@ import type {
   AttachmentBytes,
   AttachmentRef,
   CancelMergeRequest,
+  CloseRoundRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
@@ -400,6 +401,18 @@ export class DaemonClient {
 
   answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
+  }
+
+  talkThrough(commentId: string): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`)
+  }
+
+  doneTalking(commentId: string): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/done-talking`)
+  }
+
+  closeRound(ref: string, request: CloseRoundRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/rounds/close`, request)
   }
 
   writeBrief(ref: string, text: string): Promise<TaskBrief> {
