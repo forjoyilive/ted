@@ -1,4 +1,11 @@
 export {
+  type Activity,
+  noActivity,
+  type OpenAppResult,
+  type RunCounts,
+  workRunning,
+} from './activity.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerPlace,
@@ -18,6 +25,16 @@ export {
   type Subscription,
 } from './client.ts'
 export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export {
+  type Backup,
+  type BackupKind,
+  type BackupsSummary,
+  backupKinds,
+  type DataStatus,
+  downloadUrl,
+  type RestoreBackupRequest,
+  type RestoreBackupResult,
+} from './data.ts'
 export type {
   Diagnostics,
   LogText,
@@ -26,13 +43,14 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
-export type { AddFactoryRequest, Factory } from './factory.ts'
+export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,
   agentKinds,
   type ConversationEntry,
   type Run,
+  type RunProblem,
   type RunState,
   type RunWithConversation,
   type StartDevRunRequest,
@@ -43,6 +61,8 @@ export {
   defaultMachineSettings,
   type MachineSettings,
   type Profile,
+  type QuitChoice,
+  quitChoices,
   terminalFontSizes,
 } from './settings.ts'
 export {
@@ -51,6 +71,7 @@ export {
   agentStageIds,
   type ClarifyDepth,
   type Comment,
+  type CopySkip,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
@@ -62,15 +83,18 @@ export {
   priorities,
   type ReportOutcomeRequest,
   type SetActivityRequest,
+  type SetTaskLeadRequest,
   type StageId,
   type Task,
   type TaskDefaults,
   type TaskLead,
   type TaskMarker,
+  type TaskRepo,
   type TaskRun,
   type TaskStatus,
   type TrackStage,
   type TrackState,
+  type WorktreeCommandOutcome,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

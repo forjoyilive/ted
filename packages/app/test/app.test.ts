@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -41,13 +41,14 @@ afterEach(async () => {
   }
   await killRunHosts(home)
   await rm(home, { recursive: true, force: true })
-})
+}, 30_000)
 
 const env = () => ({
   ...process.env,
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
+  TED_HIDDEN_WINDOW: '1',
 })
 
 async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
@@ -169,6 +170,49 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
+  test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
+    await ted('task', 'create', 'Fix login')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'DEV-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await expect.poll(() => details.getByLabel('Agent').inputValue()).toBe('claude')
+
+    await details.getByLabel('Agent').selectOption('codex')
+    await details.getByLabel('Model').fill('gpt-6-mini')
+    await details.getByLabel('Effort').selectOption('low')
+    await details.getByRole('button', { name: 'Save' }).click()
+
+    await details.getByText('Codex · gpt-6-mini · low').waitFor()
+
+    await ted('task', 'lead', 'DEV-1', 'claude', '--model', 'opus')
+    await expect.poll(() => details.getByLabel('Model').inputValue()).toBe('opus')
+    expect(await details.getByLabel('Agent').inputValue()).toBe('claude')
+    expect(await details.getByLabel('Effort').inputValue()).toBe('')
+  })
+
+  test('a model the plan doesn’t include shows Model unavailable until the human picks the default', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    await ted('task', 'lead', 'NB-1', 'claude', '--model', 'unavailable-9')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Backlog').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await details.getByText('Model unavailable').waitFor()
+    await window
+      .getByRole('region', { name: 'Task thread' })
+      .getByText(/won’t switch models on its own/)
+      .waitFor()
+    await details.getByRole('button', { name: 'Use the default model' }).click()
+    await details.getByText('Model unavailable').waitFor({ state: 'detached' })
+  })
+
   test('the thread header shows the status, the live activity line and the Stage track', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const go = (n: number) => path.join(home, `go-${n}`)
@@ -221,19 +265,48 @@ describe('TED app', () => {
     ).toBeNull()
   })
 
-  test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {
+  test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const code = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+    await code.getByText('No worktree yet').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await code.getByText(/^ted\/nb-1/).waitFor()
+    await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
+  })
+
+  test('a missing local folder raises a Factory banner with Locate', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const folder = path.join(home, 'local')
+    await mkdir(folder)
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
+    await rm(folder, { recursive: true })
+
+    const window = await launchApp()
+
+    const banner = window.getByRole('alert')
+    await banner.getByText('Local folder for widgets not found').waitFor()
+    await banner.getByRole('button', { name: 'Locate' }).waitFor()
+  })
+
+  test('quitting with nothing running ends the app and TED’s background process', async () => {
     await launchApp()
     const pid = await daemonPid()
+    const electronPid = app?.process().pid ?? 0
 
     await app?.close()
     app = undefined
-    expect(isAlive(pid)).toBe(true)
 
-    await ted('task', 'create', 'Fix login')
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'DEV-1').waitFor()
-    expect(await daemonPid()).toBe(pid)
+    await waitForExit(pid)
+    expect(isAlive(electronPid)).toBe(false)
   })
 
   test('the app connects to a daemon that ted started instead of starting another', async () => {
@@ -855,21 +928,16 @@ describe('daemon crashes', () => {
     await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
   })
 
-  test('three crashes in ten minutes stop restarts and raise one banner and one notification; its menu copies a report and restarts TED', async () => {
+  test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
-    await app?.evaluate(({ clipboard, Notification }) => {
-      const record = globalThis as unknown as { shown: string[]; copied: string[] }
-      record.shown = []
+    await app?.evaluate(({ clipboard }) => {
+      const record = globalThis as unknown as { copied: string[] }
       record.copied = []
-      Notification.prototype.show = function (this: Electron.Notification) {
-        record.shown.push(this.body)
-      }
       clipboard.writeText = async (text: string) => {
         record.copied.push(text)
       }
     })
-    const recorded = () =>
-      app?.evaluate(() => globalThis as unknown as { shown: string[]; copied: string[] })
+    const recorded = () => app?.evaluate(() => globalThis as unknown as { copied: string[] })
 
     await waitForNewDaemon(await killDaemon())
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
@@ -883,7 +951,6 @@ describe('daemon crashes', () => {
     expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
     await sleep(500)
     expect(await daemonPid()).toBe(last)
-    expect((await recorded())?.shown).toEqual(['TED’s background process keeps stopping'])
 
     await banner.getByRole('button', { name: 'Restart' }).click()
     await window.getByRole('menuitem', { name: 'Copy report' }).click()
@@ -913,6 +980,120 @@ async function runHostPids(): Promise<number[]> {
   }
   return pids
 }
+
+describe('running in the background', () => {
+  async function startRun(steps: unknown[]): Promise<string> {
+    const client = await daemonClient()
+    const { id } = await client.startDevRun({ prompt: JSON.stringify({ steps }), cwd: home })
+    await expect.poll(async () => (await client.getActivity()).runs.active).toBe(1)
+    return id
+  }
+
+  const never = () => ({ waitFor: path.join(home, 'never') })
+
+  const menuLabels = () =>
+    (app as ElectronApplication).evaluate(({ Menu }) => {
+      const walk = (menu: Electron.Menu): string[] =>
+        menu.items.flatMap((item) => [item.label, ...(item.submenu ? walk(item.submenu) : [])])
+      const menu = Menu.getApplicationMenu()
+      return menu ? walk(menu) : []
+    })
+
+  test('closing the window keeps TED running, and the window still gets updates', async () => {
+    const window = await launchApp()
+    await openAllTasks(window)
+
+    await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.close())
+    await ted('task', 'create', 'Fix login')
+
+    expect(await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1)
+    await taskRow(window, 'DEV-1').waitFor()
+  })
+
+  test('with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all', async () => {
+    await launchApp()
+    const client = await daemonClient()
+    const pid = await daemonPid()
+    const electronPid = app?.process().pid ?? 0
+    await client.updateSettings({ quitWithWorkRunning: 'keep-running' })
+    const runId = await startRun([never()])
+    await sleep(300)
+
+    await app?.evaluate(({ app }) => app.quit())
+    await sleep(1_000)
+
+    expect(isAlive(electronPid)).toBe(true)
+    expect((await client.getRun(runId)).run.state).not.toBe('finished')
+
+    await client.updateSettings({ quitWithWorkRunning: 'stop' })
+    await sleep(300)
+    await app?.close()
+    app = undefined
+
+    await waitForExit(pid)
+    expect(isAlive(electronPid)).toBe(false)
+    expect((await hostRecords(home, runId)).some((r) => r.t === 'exit')).toBe(true)
+  })
+
+  test('the app menu shows what’s waiting and running, and its items open the right place', async () => {
+    const window = await launchApp()
+    await startRun([{ hook: 'PermissionRequest:Bash' }, never()])
+
+    await expect
+      .poll(menuLabels, { timeout: 10_000 })
+      .toEqual(
+        expect.arrayContaining([
+          '1 waiting on you',
+          '0 of 1 Run working',
+          'Open TED',
+          'New Task…',
+          'Settings…',
+          'Quit TED completely',
+        ]),
+      )
+    if (process.platform === 'linux') expect(await window.title()).toBe('TED (1)')
+
+    await app?.evaluate(({ Menu }) => {
+      const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
+        for (const item of menu.items) {
+          const found = item.label === 'Settings…' ? item : item.submenu && find(item.submenu)
+          if (found) return found
+        }
+        return undefined
+      }
+      const menu = Menu.getApplicationMenu()
+      const settings = menu && find(menu)
+      settings?.click()
+    })
+
+    await window.getByRole('radiogroup', { name: 'Appearance' }).waitFor()
+  })
+
+  test('the quit choice is a setting in the app', async () => {
+    const window = await launchApp()
+    await sidebar(window)
+      .getByRole('button', { name: /^Settings/ })
+      .last()
+      .click()
+
+    await window
+      .getByLabel('When you quit with work running')
+      .selectOption({ label: 'Keep running in the background' })
+
+    await expect
+      .poll(async () => (await daemonClient()).getSettings())
+      .toMatchObject({ quitWithWorkRunning: 'keep-running' })
+  })
+
+  test('opening TED again while it runs hands over to the running app', async () => {
+    await launchApp()
+    const electronPid = app?.process().pid ?? 0
+
+    await run(electronPath, [appDir], { env: env(), timeout: 20_000 })
+
+    expect(isAlive(electronPid)).toBe(true)
+  })
+})
 
 async function channelsOf(pid: number): Promise<string[]> {
   const dir = `/proc/${pid}/fd`

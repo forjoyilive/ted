@@ -1,11 +1,26 @@
+import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
+import type {
+  BackupsSummary,
+  DataStatus,
+  RestoreBackupRequest,
+  RestoreBackupResult,
+} from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
-import type { Attachment, Comment, CreateTaskRequest, Outcome, Task, TaskDefaults } from './task.ts'
+import type {
+  Attachment,
+  Comment,
+  CreateTaskRequest,
+  Outcome,
+  SetTaskLeadRequest,
+  Task,
+  TaskDefaults,
+} from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -41,6 +56,14 @@ export class DaemonClient {
 
   startTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  }
+
+  setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  useDefaultModel(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
   }
 
   listComments(ref: string): Promise<Comment[]> {
@@ -83,6 +106,18 @@ export class DaemonClient {
     return (await res.json()) as Attachment
   }
 
+  setLocalFolder(key: string, path: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
+  }
+
+  async setupLog(ref: string, repo: string): Promise<string> {
+    const { text } = await this.#request<{ text: string }>(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
+    )
+    return text
+  }
+
   getSettings(): Promise<MachineSettings> {
     return this.#request('GET', '/settings')
   }
@@ -123,6 +158,18 @@ export class DaemonClient {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
   }
 
+  getActivity(): Promise<Activity> {
+    return this.#request('GET', '/activity')
+  }
+
+  shutdown(): Promise<void> {
+    return this.#request('POST', '/shutdown')
+  }
+
+  openApp(): Promise<OpenAppResult> {
+    return this.#request('POST', '/app/open')
+  }
+
   addFactory(input: AddFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/dev/factories', input)
   }
@@ -135,12 +182,25 @@ export class DaemonClient {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
   }
 
+  getDataStatus(): Promise<DataStatus> {
+    return this.#request('GET', '/data-status')
+  }
+
+  listBackups(): Promise<BackupsSummary> {
+    return this.#request('GET', '/backups')
+  }
+
+  restoreBackup(input: RestoreBackupRequest): Promise<RestoreBackupResult> {
+    return this.#request('POST', '/backups/restore', input)
+  }
+
   async subscribe(
     onEvent: (event: DaemonEvent) => void,
-    onClose?: () => void,
+    { app = false, onClose }: { app?: boolean; onClose?: () => void } = {},
   ): Promise<Subscription> {
     const controller = new AbortController()
-    const res = await this.#fetch('GET', '/events', undefined, controller.signal)
+    const route = app ? '/events?app=1' : '/events'
+    const res = await this.#fetch('GET', route, undefined, controller.signal)
     if (!res.ok || !res.body) throw await requestError(res)
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
 

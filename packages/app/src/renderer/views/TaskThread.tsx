@@ -1,11 +1,13 @@
 import type { AgentStageId, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
-import { AgentAvatar } from '../components/Avatar.tsx'
+import { CodeSection } from '../CodeSection.tsx'
+import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useComments, useStageEntries } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
-import { clarifyDepthLabels, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
+import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
+import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
@@ -68,10 +70,16 @@ export function TaskThread({
       <ol className={styles.thread}>
         {shown.map((comment) => (
           <li key={comment.id} className={styles.comment}>
-            <AgentAvatar agent="claude" />
+            {comment.author.kind === 'ted' ? (
+              <PersonAvatar name="TED" />
+            ) : (
+              <AgentAvatar agent={task.lead?.agent ?? 'claude'} />
+            )}
             <div>
               <div className={styles.commentHead}>
-                <span className={styles.author}>Task Lead</span>
+                <span className={styles.author}>
+                  {comment.author.kind === 'ted' ? 'TED' : 'Task Lead'}
+                </span>
                 <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
               </div>
               <p className={styles.commentBody}>{comment.body}</p>
@@ -102,12 +110,10 @@ export function TaskDetails({
         <dd>{stageName(task.stage)}</dd>
         <dt>Priority</dt>
         <dd>{priorityLabels[task.priority]}</dd>
-        {task.lead && (
-          <>
-            <dt>Task Lead</dt>
-            <dd>{leadSummary(task.lead)}</dd>
-          </>
-        )}
+        <dt>Task Lead</dt>
+        <dd>
+          <TaskLeadField key={task.id} task={task} />
+        </dd>
         <dt>Clarify depth</dt>
         <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
         {blockers.length > 0 && (
@@ -138,6 +144,7 @@ export function TaskDetails({
           </>
         )}
       </dl>
+      <CodeSection task={task} />
     </aside>
   )
 }

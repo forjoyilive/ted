@@ -1,6 +1,7 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type { Banner, Task } from '@ted/protocol'
-import { type ReactNode, useEffect, useReducer, useState } from 'react'
+import { type ReactNode, useEffect, useReducer, useRef, useState } from 'react'
+import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
 import {
   appWideBanners,
@@ -12,6 +13,7 @@ import { type BannerMenuItem, BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { useBanners, useConnection, useFactories, useSettings, useTasks } from './data.ts'
+import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
   currentFactoryId,
@@ -125,10 +127,31 @@ export function App() {
   const banners = useBanners()
   const { connection } = useConnection()
   const offline = connection.state !== 'connected'
+
+  useEffect(() => {
+    if (!offline) return
+    const block = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('[role="menu"], [aria-label="Problems"]')) return
+      event.stopImmediatePropagation()
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', block, { capture: true })
+    return () => window.removeEventListener('keydown', block, { capture: true })
+  }, [offline])
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
 
+  const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
+
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'menu-command') onMenuCommand.current(event.command)
+      }),
+    [],
+  )
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (newTaskOpen || settingsOpen || event.altKey || event.shiftKey) return
@@ -162,6 +185,17 @@ export function App() {
       })
     } else {
       dispatch({ type: 'open-task', taskId: place.taskId })
+    }
+  }
+
+  onMenuCommand.current = (command) => {
+    if (offline) return
+    if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
+    if (command.kind === 'new-task') setNewTaskOpen(true)
+    if (command.kind === 'settings') dispatch({ type: 'open-settings' })
+    if (command.kind === 'banner') {
+      const banner = banners.find((b) => b.id === command.bannerId)
+      if (banner) void act(banner)
     }
   }
 
@@ -274,6 +308,9 @@ export function App() {
         />
       </Offline>
       <main className={styles.main}>
+        <Offline when={offline}>
+          <FactoryBanners />
+        </Offline>
         {problems}
         <Offline when={offline}>
           <div className={styles.panes}>{main()}</div>

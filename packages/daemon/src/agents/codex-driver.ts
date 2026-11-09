@@ -1,16 +1,26 @@
+import { type Effort, efforts } from '@ted/protocol'
 import type { DriveAgent } from '../runs/host-files.ts'
 
 export interface CodexPlan {
   thread: { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> }
   prompt: string
   clientVersion: string
+  model?: string
+  effort?: Effort
 }
 
 interface RpcMessage {
   id?: number | string
   method?: string
-  result?: { thread?: { id?: unknown } }
+  result?: { thread?: { id?: unknown }; data?: unknown }
   error?: unknown
+}
+
+interface ListedModel {
+  id?: unknown
+  model?: unknown
+  isDefault?: unknown
+  supportedReasoningEfforts?: { reasoningEffort?: unknown }[]
 }
 
 const declined: Record<string, unknown> = {
@@ -28,6 +38,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
   let nextId = 0
   let threadId: string | undefined
   const pending: string[] = []
+  let effort: Effort | undefined
+  let model = plan.model
 
   const request = (method: string, params: unknown) => {
     const id = ++nextId
@@ -42,12 +54,23 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     })
     if (init.error !== undefined) return stop()
     send(JSON.stringify({ method: 'initialized' }))
-    const opened = await request(plan.thread.method, plan.thread.params)
+    const resumingOnDefault = plan.thread.method === 'thread/resume' && model === undefined
+    if (plan.effort !== undefined || resumingOnDefault) {
+      const models = listedModels(await request('model/list', {}))
+      if (resumingOnDefault) model = defaultModel(models)
+      effort = clampEffort(models, model, plan.effort)
+    }
+    const opened = await request(plan.thread.method, {
+      ...plan.thread.params,
+      ...(model !== undefined && { model }),
+    })
     const openedId = opened.result?.thread?.id
     if (opened.error !== undefined || typeof openedId !== 'string') return stop()
     threadId = openedId
-    const turn = await startTurn(plan.prompt)
-    if (turn.error !== undefined) return stop()
+    if (plan.prompt !== '') {
+      const turn = await startTurn(plan.prompt)
+      if (turn.error !== undefined) return stop()
+    }
     for (const text of pending.splice(0)) void startTurn(text)
   })()
 
@@ -55,6 +78,8 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     return request('turn/start', {
       threadId,
       input: [{ type: 'text', text, text_elements: [] }],
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort }),
     })
   }
 
@@ -94,4 +119,31 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       )
     },
   }
+}
+
+function listedModels(listed: RpcMessage): ListedModel[] {
+  return Array.isArray(listed.result?.data) ? (listed.result.data as ListedModel[]) : []
+}
+
+function defaultModel(models: ListedModel[]): string | undefined {
+  const found = models.find((m) => m.isDefault === true)?.model
+  return typeof found === 'string' ? found : undefined
+}
+
+function clampEffort(
+  models: ListedModel[],
+  name: string | undefined,
+  wanted: Effort | undefined,
+): Effort | undefined {
+  if (wanted === undefined) return undefined
+  const model = models.find((m) =>
+    name === undefined ? m.isDefault === true : m.model === name || m.id === name,
+  )
+  const supported = (model?.supportedReasoningEfforts ?? [])
+    .map((e) => e.reasoningEffort)
+    .filter((e): e is Effort => efforts.includes(e as Effort))
+  if (supported.length === 0 || supported.includes(wanted)) return wanted
+  const rank = (e: Effort) => efforts.indexOf(e)
+  const sorted = [...supported].sort((a, b) => rank(a) - rank(b))
+  return sorted.filter((e) => rank(e) < rank(wanted)).at(-1) ?? sorted[0]
 }

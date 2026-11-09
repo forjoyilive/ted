@@ -93,7 +93,33 @@ export interface Task {
   activity?: string
   track: TrackStage[]
   runs: TaskRun[]
+  repos: TaskRepo[]
   createdAt: string
+}
+
+export type WorktreeCommandOutcome = 'passed' | 'failed' | 'timed-out'
+
+export interface CopySkip {
+  path: string
+  reason: 'no-local-folder' | 'local-folder-missing' | 'missing' | 'outside' | 'not-a-file'
+}
+
+export interface TaskRepo {
+  name: string
+  repo: string
+  branch: string
+  worktree: string
+  copied: string[]
+  skipped: CopySkip[]
+  setup?: {
+    command: string
+    state: 'running' | WorktreeCommandOutcome
+    exitCode?: number
+  }
+  removed?: {
+    at: string
+    teardown?: { command: string; outcome: WorktreeCommandOutcome }
+  }
 }
 
 export interface CreateTaskRequest {
@@ -113,9 +139,9 @@ export type Outcome = 'advance'
 export interface Comment {
   id: string
   taskId: string
-  kind: 'note'
+  kind: 'note' | 'question'
   body: string
-  author: { kind: 'run'; runId: string }
+  author: { kind: 'run'; runId: string } | { kind: 'ted' }
   createdAt: string
 }
 
@@ -130,3 +156,5 @@ export interface SetActivityRequest {
 export interface ReportOutcomeRequest {
   outcome: Outcome
 }
+
+export type SetTaskLeadRequest = TaskLead

@@ -26,5 +26,6 @@ This banner is the one exception to ADR 0021: it is built in the renderer from t
 
 ## Consequences
 
-- A deliberate stop of the daemon while the app is open, such as an update (KRI-123), looks like a crash to the supervisor unless that ticket tells it first.
+- Quit (ADR 0028) closes the supervisor before it calls `POST /shutdown`, so quitting is not a crash. Any other stop of the daemon while the app is open, such as an update (KRI-123) or a `/shutdown` from another client, looks like a crash and the app starts the daemon again, unless that ticket tells the supervisor first.
+- Under `TED_HIDDEN_WINDOW=1` the app shows no notification (ADR 0028), so the tests check the banner but not the notification.
 - `TED_RESTART_DELAYS_MS` (comma-separated) overrides the restart delays, for tests.

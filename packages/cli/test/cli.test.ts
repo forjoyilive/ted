@@ -5,11 +5,12 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
+import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
@@ -117,6 +118,33 @@ describe('ted task', () => {
     expect(await readDaemonInfo(home)).toBeUndefined()
   })
 
+  test('lead sets the Task Lead’s agent, model and effort, and checks them', async () => {
+    await ted(['task', 'create', 'Fix login'])
+
+    const set = await ted([
+      'task',
+      'lead',
+      'DEV-1',
+      'codex',
+      '--model',
+      'gpt-6-mini',
+      '--effort',
+      'low',
+    ])
+    expect(set.stdout.trim()).toBe('DEV-1’s Task Lead is codex · gpt-6-mini · low')
+    const plain = await ted(['task', 'lead', 'DEV-1', 'claude'])
+    expect(plain.stdout.trim()).toBe('DEV-1’s Task Lead is claude · default model · default effort')
+
+    await expect(ted(['task', 'lead', 'DEV-1', 'gemini'])).rejects.toMatchObject({ code: 2 })
+    await expect(
+      ted(['task', 'lead', 'DEV-1', 'claude', '--effort', 'huge']),
+    ).rejects.toMatchObject({ code: 2 })
+    await expect(ted(['task', 'lead', 'DEV-1', '--default-model'])).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining('isn’t waiting on its model'),
+    })
+  })
+
   test('list says so when there are no Tasks', async () => {
     const listed = await ted(['task', 'list'])
     expect(listed.stdout.trim()).toBe('No Tasks yet.')
@@ -204,6 +232,72 @@ describe('ted dev run', () => {
   })
 })
 
+function tedWithInput(args: string[], input: string) {
+  return new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve) => {
+    const child = execFile(
+      process.execPath,
+      [cliPath, ...args],
+      {
+        env: {
+          ...process.env,
+          TED_HOME: home,
+          TED_IDLE_EXIT_MS: '30000',
+          TED_CLAUDE_BIN: stubClaudePath,
+        },
+        cwd: home,
+      },
+      (error, stdout, stderr) =>
+        resolve({ code: error ? (error.code as number) : 0, stdout, stderr }),
+    )
+    child.stdin?.end(input)
+  })
+}
+
+describe('ted backup', () => {
+  test('list shows the daily backup taken when TED starts', async () => {
+    await ted(['task', 'create', 'Fix login'])
+
+    const listed = await ted(['backup', 'list'])
+
+    expect(listed.stdout).toMatch(/^daily-\d{8} {2}daily {2}\d{1,2} \w{3} \d{4}, \d{2}:\d{2}\n$/)
+  })
+
+  test('restore asks to stop running Runs, saves current data, and restores', async () => {
+    await ted(['task', 'create', 'After the backup'])
+    const daily = (await ted(['backup', 'list'])).stdout.split(' ')[0] ?? ''
+    const prompt = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+    await ted(['dev', 'run', 'start', prompt])
+
+    const declined = await tedWithInput(['backup', 'restore', daily], 'n\n')
+    expect(declined.code).toBe(1)
+    expect(declined.stdout).toBe('Restoring stops 1 Run. Stop it and restore? [y/N] ')
+    expect(declined.stderr).toBe('ted: nothing restored\n')
+    expect((await ted(['task', 'list'])).stdout).toContain('After the backup')
+
+    const accepted = await tedWithInput(['backup', 'restore', daily], 'y\n')
+    expect(accepted.code).toBe(0)
+    const lines = accepted.stdout.split('\n')
+    expect(lines[0]).toBe('Restoring stops 1 Run. Stop it and restore? [y/N] Stopped 1 Run.')
+    expect(lines[1]).toBe(`Restored ${daily}.`)
+    expect(lines[2]).toMatch(
+      /^Your data from before the restore is in backup before-restore-\d{8}-\d{6}\.$/,
+    )
+    expect((await ted(['task', 'list'])).stdout).toBe('No Tasks yet.\n')
+  })
+
+  test('restore --yes doesn’t ask, and an unknown backup fails', async () => {
+    await ted(['task', 'create', 'Fix login'])
+    const daily = (await ted(['backup', 'list'])).stdout.split(' ')[0] ?? ''
+
+    const restored = await ted(['backup', 'restore', daily, '--yes'])
+    expect(restored.stdout.split('\n')[0]).toBe(`Restored ${daily}.`)
+
+    await expect(ted(['backup', 'restore', 'daily-19990101'])).rejects.toMatchObject({
+      stderr: 'ted: no backup daily-19990101\n',
+    })
+  })
+})
+
 describe('ted help', () => {
   test('lists the commands a Task Lead uses', async () => {
     const { stdout } = await ted(['help'])
@@ -240,9 +334,67 @@ describe('ted dev factory and ted task start', () => {
     expect(listed).toMatch(/^NB-1 {2}Done {2}/)
   })
 
+  test('a Factory remembers its local folder, given when added or set later', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const first = path.join(home, 'first')
+    const second = path.join(home, 'second')
+    await mkdir(first)
+    await mkdir(second)
+
+    await ted(['dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', first])
+    const set = await ted(['dev', 'factory', 'local-folder', 'NB', second])
+
+    expect(set.stdout.trim()).toBe(`NB copies files from ${second}`)
+    await expect(
+      ted(['dev', 'factory', 'local-folder', 'NB', path.join(home, 'missing')]),
+    ).rejects.toMatchObject({ code: 1 })
+  })
+
   test('comment, status and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
     await expect(ted(['status', 'Reading'])).rejects.toMatchObject({ code: 2 })
+  })
+})
+
+describe('ted open', () => {
+  test('asks the open app to show its window', async () => {
+    await ted(['task', 'list'])
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const seen: unknown[] = []
+    const app = await new DaemonClient(info).subscribe((event) => seen.push(event), { app: true })
+
+    const { stdout } = await ted(['open'])
+
+    expect(stdout.trim()).toBe('Opened TED')
+    await expect.poll(() => seen).toContainEqual({ type: 'open-requested' })
+    app.close()
+  })
+
+  test('inside a Run, ted open is refused like every route closed to Runs', async () => {
+    await ted(['task', 'list'])
+    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
+
+    await expect(
+      run(process.execPath, [cliPath, 'open'], {
+        env: { ...process.env, TED_HOME: home, TED_RUN_TOKEN: runToken },
+      }),
+    ).rejects.toMatchObject({ code: 1, stderr: 'ted: Not allowed from inside a Run\n' })
+  })
+
+  test('says so and fails when the app isn’t open', async () => {
+    await ted(['task', 'list'])
+
+    await expect(ted(['open'])).rejects.toMatchObject({
+      code: 1,
+      stderr: 'ted: TED isn’t open. Open it from your app launcher.\n',
+    })
+  })
+
+  test('doesn’t start TED’s background process just to open the app', async () => {
+    await expect(ted(['open'])).rejects.toMatchObject({ code: 1 })
+
+    expect(await readDaemonInfo(home)).toBeUndefined()
   })
 })
 

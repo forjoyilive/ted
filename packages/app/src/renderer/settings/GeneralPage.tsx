@@ -1,8 +1,16 @@
-import { type Appearance, terminalFontSizes } from '@ted/protocol'
+import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protocol/settings'
 import { useEffect, useState } from 'react'
 import { PersonAvatar } from '../components/Avatar.tsx'
 import { ted } from '../ted.ts'
-import { Button, Segmented, Select, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
+import {
+  Button,
+  Segmented,
+  Select,
+  SettingRow,
+  SettingsGroup,
+  SettingsPage,
+  Switch,
+} from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
@@ -10,6 +18,14 @@ const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
 ]
+
+const quitOptions: { value: QuitChoice; label: string }[] = [
+  { value: 'ask', label: 'Ask each time' },
+  { value: 'keep-running', label: 'Keep running in the background' },
+  { value: 'stop', label: 'Stop it and quit' },
+]
+
+const onLinux = navigator.userAgent.includes('Linux')
 
 const fontSizeOptions = Array.from(
   { length: terminalFontSizes.max - terminalFontSizes.min + 1 },
@@ -81,6 +97,34 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(terminalFontSize) => void ted.updateSettings({ terminalFontSize })}
           />
         </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup label="Startup and quitting">
+        <SettingRow
+          title="When you quit with work running"
+          labelFor="quit-with-work-running"
+          help="Work running means Runs going or Automations on. Keeping TED running in the background lets them carry on with no window open."
+        >
+          <Select
+            id="quit-with-work-running"
+            value={settings.quitWithWorkRunning}
+            options={quitOptions}
+            width={240}
+            onChange={(quitWithWorkRunning) => void ted.updateSettings({ quitWithWorkRunning })}
+          />
+        </SettingRow>
+        {onLinux && (
+          <SettingRow
+            title="Show tray icon"
+            help="Shows TED’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons."
+          >
+            <Switch
+              label="Show tray icon"
+              checked={settings.showTrayIcon}
+              onChange={(showTrayIcon) => void ted.updateSettings({ showTrayIcon })}
+            />
+          </SettingRow>
+        )}
       </SettingsGroup>
     </SettingsPage>
   )

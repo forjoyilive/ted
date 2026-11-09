@@ -1,25 +1,34 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   Attachment,
+  BackupsSummary,
   Banner,
   Comment,
   CreateTaskRequest,
   DaemonEvent,
+  DataStatus,
   Diagnostics,
   Factory,
   LogText,
   MachineSettings,
   Profile,
+  RestoreBackupResult,
+  Run,
   StageEntry,
   Task,
   TaskDefaults,
+  TaskLead,
 } from '@ted/protocol'
+import type { MenuCommand } from '../background.ts'
 
-export type AppEvent = DaemonEvent | { type: 'connection'; connection: DaemonConnection }
+export type TedEvent =
+  | DaemonEvent
+  | { type: 'menu-command'; command: MenuCommand }
+  | { type: 'connection'; connection: DaemonConnection }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
-  onEvent(listener: (event: AppEvent) => void): () => void
+  onEvent(listener: (event: TedEvent) => void): () => void
 }
 
 declare global {
@@ -32,6 +41,11 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  setTaskLead: (taskId: string, lead: TaskLead) =>
+    window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  pickDefaultModel: (taskId: string) =>
+    window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
@@ -41,9 +55,20 @@ export const ted = {
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
+  setupLog: (taskId: string, repo: string) =>
+    window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  locateLocalFolder: (key: string) =>
+    window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
+  getDataStatus: () => window.ted.request('getDataStatus') as Promise<DataStatus>,
+  listBackups: () => window.ted.request('listBackups') as Promise<BackupsSummary>,
+  restoreBackup: (name: string) =>
+    window.ted.request('restoreBackup', name) as Promise<RestoreBackupResult>,
+  copyText: (text: string) => window.ted.request('copyText', text) as Promise<void>,
+  downloadTed: () => window.ted.request('downloadTed') as Promise<void>,
+  quit: () => window.ted.request('quit') as Promise<void>,
   getProfile: () => window.ted.request('getProfile') as Promise<Profile>,
   chooseProfilePicture: () =>
     window.ted.request('chooseProfilePicture') as Promise<MachineSettings>,
@@ -59,5 +84,5 @@ export const ted = {
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
-  onEvent: (listener: (event: AppEvent) => void) => window.ted.onEvent(listener),
+  onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }

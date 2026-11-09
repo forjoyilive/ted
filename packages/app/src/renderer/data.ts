@@ -2,6 +2,7 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   Banner,
   Comment,
+  DataStatus,
   Factory,
   MachineSettings,
   StageEntry,
@@ -10,7 +11,7 @@ import type {
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { nextReturn } from './banners.ts'
-import { type AppEvent, ted } from './ted.ts'
+import { type TedEvent, ted } from './ted.ts'
 
 export interface Connection {
   connection: DaemonConnection
@@ -39,6 +40,9 @@ export function useConnectionState(): Connection {
       }))
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'connection') update(event.connection)
+      if (event.type === 'data-status' && event.status.state === 'ready') {
+        setCurrent((previous) => ({ ...previous, epoch: previous.epoch + 1 }))
+      }
     })
     void ted.connection().then(update)
     return unsubscribe
@@ -57,7 +61,7 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
 
 function useLive<T extends { id: string }>(
   load: () => Promise<T[]>,
-  pick: (event: AppEvent) => T | undefined,
+  pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
 ): T[] {
   const [items, setItems] = useState<T[]>([])
@@ -92,10 +96,10 @@ function useLive<T extends { id: string }>(
 const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
   a.createdAt.localeCompare(b.createdAt)
 
-const taskFrom = (event: AppEvent) =>
+const taskFrom = (event: TedEvent) =>
   event.type === 'task-created' || event.type === 'task-updated' ? event.task : undefined
 
-const factoryFrom = (event: AppEvent) =>
+const factoryFrom = (event: TedEvent) =>
   event.type === 'factory-added' ? event.factory : undefined
 
 export function useTasks(): Task[] {
@@ -109,7 +113,7 @@ export function useFactories(): Factory[] {
 export function useComments(taskId: string): Comment[] {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
-    (event: AppEvent) =>
+    (event: TedEvent) =>
       event.type === 'comment-posted' && event.comment.taskId === taskId
         ? event.comment
         : undefined,
@@ -140,6 +144,30 @@ export function useSettings(): MachineSettings | undefined {
   }, [epoch])
 
   return settings
+}
+
+export function useDataStatus(): DataStatus | undefined {
+  const [status, setStatus] = useState<DataStatus>()
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let changed = false
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type !== 'data-status') return
+      changed = true
+      setStatus(event.status)
+    })
+    void ted.getDataStatus().then(
+      (loaded) => {
+        if (!changed) setStatus(loaded)
+      },
+      () => undefined,
+    )
+    return unsubscribe
+  }, [epoch])
+
+  return status
 }
 
 export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {

@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
-import { createStorePromise, queryDb } from '@livestore/livestore'
+import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import {
+  type Activity,
   type AgentKind,
   type AgentStageId,
   type Appearance,
@@ -14,6 +17,7 @@ import {
   type ClarifyDepth,
   type Comment,
   type ConversationEntry,
+  type CopySkip,
   type DaemonEvent,
   defaultMachineSettings,
   type Effort,
@@ -23,20 +27,27 @@ import {
   type MachineSettings,
   type Priority,
   type Run,
+  type RunProblem,
   type RunState,
   type StageEntry,
   type StageId,
   type Task,
   type TaskLead,
+  type TaskRepo,
   type TrackStage,
+  type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { Effect } from 'effect'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
+import { eventCount, eventlogFile, storeId } from './files.ts'
+import { countMaterialized } from './progress.ts'
 import {
   banners,
   comments,
   conversationEntries,
   events,
   factories,
+  localFolders,
   machineSettings,
   machineSettingValues,
   runs,
@@ -44,6 +55,7 @@ import {
   stageEntries,
   taskAttachments,
   taskBlockers,
+  taskRepos,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -55,6 +67,13 @@ export interface RunOutput {
   entries: ConversationEntry[]
   state?: RunState
   sessionId?: string
+  problem?: RunProblem
+}
+
+export interface RunFlags {
+  model?: string
+  effort?: Effort
+  usesDefaultModel?: boolean
 }
 
 export interface StoredFactory extends Factory {
@@ -87,6 +106,19 @@ export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
   order: PlannedStage[]
 }
 
+export interface NewWorktree {
+  name: string
+  repo: string
+  copied: string[]
+  skipped: CopySkip[]
+}
+
+export interface RecordedSetup {
+  command: string
+  timeoutMs: number
+  env: Record<string, string>
+}
+
 export interface AcceptedLayer {
   files: Record<string, string | null>
   version: string
@@ -106,13 +138,30 @@ export interface TedStore {
     branch: string
     worktree: string
     entry: NewStageEntry
+    repo: NewWorktree
   }): Task
+  worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
+  recordedSetup(taskId: string, name: string): RecordedSetup | undefined
+  worktreeSetupFinished(
+    taskId: string,
+    name: string,
+    result: { outcome: WorktreeCommandOutcome; exitCode?: number },
+  ): void
+  worktreeRemoved(
+    taskId: string,
+    name: string,
+    teardown?: { command: string; outcome: WorktreeCommandOutcome },
+  ): void
+  setLocalFolder(repo: string, path: string): void
+  localFolder(repo: string): string | undefined
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setTaskLead(taskId: string, lead: TaskLead): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
+  postTedComment(input: { taskId: string; kind: Comment['kind']; body: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
   startRun(input: {
@@ -122,19 +171,24 @@ export interface TedStore {
     prompt: string
     cwd: string
     taskId?: string
+    model?: string
+    effort?: Effort
   }): Run
   recordRunOutput(runId: string, output: RunOutput): void
+  restartRun(runId: string, flags: RunFlags): Run
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
   settings(): MachineSettings
+  activity(): Activity
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
   clearBanner(id: string): void
   getBanner(id: string): Banner | undefined
   listBanners(): Banner[]
+  exportEventlog(): { fileName: string; data: Uint8Array }
   close(): Promise<void>
 }
 
@@ -144,13 +198,32 @@ function pick(values: Record<string, unknown>, names: string[]): Record<string, 
 
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
-export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
+export interface OpenProgress {
+  done: number
+  total: number
+}
+
+export async function openStore({
+  directory,
+  onProgress,
+}: {
+  directory: string
+  onProgress?: (progress: OpenProgress) => void
+}): Promise<TedStore> {
+  const total = onProgress ? await eventCount(directory) : 0
+  let done = 0
+  countMaterialized(onProgress && (() => onProgress({ done: Math.min(++done, total), total })))
   const store = await createStorePromise({
     schema,
-    storeId: 'ted',
+    storeId,
     adapter: makeAdapter({ storage: { type: 'fs', baseDirectory: directory } }),
     disableDevtools: true,
   })
+    .catch((error: unknown) => {
+      throw new Error(describeOpenError(error), { cause: error })
+    })
+    .finally(() => countMaterialized(undefined))
+  const eventlogName = path.basename((await eventlogFile(directory)) ?? 'eventlog.db')
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
@@ -164,6 +237,38 @@ export async function openStore({ directory }: { directory: string }): Promise<T
 
   const taskRuns = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
+
+  const toTaskRepo = (row: typeof taskRepos.Type): TaskRepo => ({
+    name: row.name,
+    repo: row.repo,
+    branch: row.branch,
+    worktree: row.worktree,
+    copied: JSON.parse(row.copied) as string[],
+    skipped: JSON.parse(row.skipped) as CopySkip[],
+    ...(row.setupCommand !== null &&
+      row.setupState !== null && {
+        setup: {
+          command: row.setupCommand,
+          state: row.setupState as NonNullable<TaskRepo['setup']>['state'],
+          ...(row.setupExitCode !== null && { exitCode: row.setupExitCode }),
+        },
+      }),
+    ...(row.removedAt !== null && {
+      removed: {
+        at: row.removedAt,
+        ...(row.teardownCommand !== null &&
+          row.teardownOutcome !== null && {
+            teardown: {
+              command: row.teardownCommand,
+              outcome: row.teardownOutcome as WorktreeCommandOutcome,
+            },
+          }),
+      },
+    }),
+  })
+
+  const reposOf = (taskId: string) =>
+    store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
   const blockersOf = (taskId: string) =>
     store
@@ -194,6 +299,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
+    const repos = reposOf(row.id)
     const waitingOn = blockedBy.flatMap((id) => {
       const blocker = taskRow(id)
       return blocker && blocker.stage !== 'done'
@@ -204,6 +310,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       stage,
       runs: live.map((r) => r.state as RunState),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
@@ -220,6 +327,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         },
       }),
       blockedBy,
+      repos,
       attachments: attachmentsOf(row.id),
       stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
@@ -238,18 +346,31 @@ export async function openStore({ directory }: { directory: string }): Promise<T
 
   const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
-  const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
+  const toRun = ({
+    readOffset: _,
+    taskId,
+    sessionId,
+    model,
+    effort,
+    usesDefaultModel,
+    problem,
+    ...row
+  }: typeof runs.Type): Run => ({
     ...row,
     agent: row.agent as AgentKind,
     state: row.state as RunState,
     ...(sessionId !== '' && { sessionId }),
+    ...(model !== null && { model }),
+    ...(effort !== null && { effort: effort as Effort }),
+    ...(usesDefaultModel && { usesDefaultModel }),
+    ...(problem !== null && { problem: problem as RunProblem }),
     ...(taskId !== null && { taskId }),
   })
 
   const toComment = ({ authorRunId, ...row }: typeof comments.Type): Comment => ({
     ...row,
-    kind: 'note',
-    author: { kind: 'run', runId: authorRunId },
+    kind: row.kind as Comment['kind'],
+    author: authorRunId === null ? { kind: 'ted' } : { kind: 'run', runId: authorRunId },
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
@@ -305,6 +426,26 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...pick(values, Object.keys(defaultMachineSettings)),
     }
+  }
+
+  const activity = (): Activity => {
+    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    return {
+      waitingOnYou: active.filter((run) => run.state === 'waiting').length,
+      runs: {
+        working: active.filter((run) => run.state === 'working').length,
+        active: active.length,
+        queued: 0,
+      },
+      automationsOn: 0,
+    }
+  }
+  let lastActivity = activity()
+  const noteActivity = () => {
+    const next = activity()
+    if (isDeepStrictEqual(next, lastActivity)) return
+    lastActivity = next
+    emit({ type: 'activity-changed', activity: next })
   }
 
   const toBanner = (row: typeof banners.Type): Banner => ({
@@ -384,14 +525,66 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       const row = taskRow(ref)
       return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
     },
-    startTask({ taskId, stage, branch, worktree, entry }) {
+    startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
       store.commit(
         events.taskStarted({ taskId, stage, branch, worktree, at }),
+        events.taskWorktreeCreated({ taskId, ...repo, branch, worktree, at }),
         stageEntered(taskId, stage, entry, at),
       )
       return updatedTask(taskId)
     },
+    worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
+      store.commit(
+        events.taskWorktreeSetupStarted({
+          taskId,
+          name,
+          command,
+          timeoutMs,
+          env: JSON.stringify(env),
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    recordedSetup(taskId, name) {
+      const row = store.query(queryDb(taskRepos.where({ id: `${taskId}:${name}` }))).at(0)
+      if (!row?.setupCommand || row.setupTimeoutMs === null || row.setupEnv === null)
+        return undefined
+      return {
+        command: row.setupCommand,
+        timeoutMs: row.setupTimeoutMs,
+        env: JSON.parse(row.setupEnv) as Record<string, string>,
+      }
+    },
+    worktreeSetupFinished(taskId, name, { outcome, exitCode }) {
+      store.commit(
+        events.taskWorktreeSetupFinished({
+          taskId,
+          name,
+          outcome,
+          exitCode: exitCode ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    worktreeRemoved(taskId, name, teardown) {
+      store.commit(
+        events.taskWorktreeRemoved({
+          taskId,
+          name,
+          teardownCommand: teardown?.command ?? null,
+          teardownOutcome: teardown?.outcome ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    setLocalFolder(repo, path) {
+      store.commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
       store.commit(
@@ -430,6 +623,18 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         }
       )
     },
+    setTaskLead(taskId, { agent, model, effort }) {
+      store.commit(
+        events.taskLeadSet({
+          taskId,
+          agent,
+          model: model ?? null,
+          effort: effort ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
     setActivity(taskId, text, runId) {
       store.commit(
         events.taskActivitySet({
@@ -441,6 +646,13 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         }),
       )
       return updatedTask(taskId)
+    },
+    postTedComment({ taskId, kind, body }) {
+      const row = { id: randomUUID(), taskId, kind, body, createdAt: new Date().toISOString() }
+      store.commit(events.tedCommentPosted(row))
+      const comment = toComment({ ...row, authorRunId: null })
+      emit({ type: 'comment-posted', comment })
+      return comment
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {
@@ -462,31 +674,72 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun({ taskId, sessionId, ...input }) {
+    startRun({ taskId, sessionId, model, effort, ...input }) {
       const row = {
         ...input,
         sessionId: sessionId ?? '',
         taskId: taskId ?? null,
+        model: model ?? null,
+        effort: effort ?? null,
         startedAt: new Date().toISOString(),
       }
-      store.commit(events.runStartedV2(row))
+      store.commit(events.runStartedV3(row))
+      const run = toRun({
+        ...row,
+        usesDefaultModel: false,
+        problem: null,
+        state: 'working',
+        readOffset: 0,
+      })
+      emit({ type: 'run-updated', run })
       if (taskId !== undefined) updatedTask(taskId)
-      return toRun({ ...row, state: 'working', readOffset: 0 })
+      noteActivity()
+      return run
     },
-    recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
+    recordRunOutput(runId, { toOffset, entries, state, sessionId, problem }) {
       const current = runRow(runId)
       if (!current) throw new Error(`no Run ${runId}`)
+      const at = new Date().toISOString()
+      const newProblem = problem !== undefined && current.problem === null
+      const holding = (current.problem !== null || newProblem) && state === 'idle'
+      const target = holding ? 'waiting' : state
+      const stateChanged = target !== undefined && target !== current.state
       store.commit(
         events.runOutputRead({ runId, toOffset, entries }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
-        ...(state && state !== current.state
-          ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
+        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+        ...(stateChanged && target !== undefined
+          ? [events.runStateChanged({ runId, state: target, at })]
           : []),
       )
+      if (newProblem || stateChanged) {
+        const row = runRow(runId)
+        if (row) emit({ type: 'run-updated', run: toRun(row) })
+        const taskId = taskIdOfRun(runId)
+        if (taskId !== undefined) updatedTask(taskId)
+      }
+      if (stateChanged) noteActivity()
+    },
+    restartRun(runId, { model, effort, usesDefaultModel = false }) {
+      store.commit(
+        events.runRestarted({
+          runId,
+          model: model ?? null,
+          effort: effort ?? null,
+          usesDefaultModel,
+          at: new Date().toISOString(),
+        }),
+      )
+      const row = runRow(runId)
+      if (!row) throw new Error(`no Run ${runId}`)
+      const run = toRun(row)
+      emit({ type: 'run-updated', run })
       const taskId = taskIdOfRun(runId)
-      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
+      noteActivity()
+      if (taskId !== undefined) updatedTask(taskId)
+      return run
     },
     getRun(id) {
       const row = runRow(id)
@@ -499,6 +752,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
+    activity,
     updateSettings(changes) {
       const current = settings()
       const changed = Object.fromEntries(
@@ -558,8 +812,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     getBanner,
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
+    exportEventlog: () => ({
+      fileName: eventlogName,
+      data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),
+    }),
     close: () => store.shutdownPromise(),
   }
+}
+
+function describeOpenError(error: unknown): string {
+  let event: string | undefined
+  let message = ''
+  for (let at: unknown = error; at !== undefined && at !== null; ) {
+    const current = at as { message?: unknown; note?: unknown; cause?: unknown }
+    const note = typeof current.note === 'string' ? current.note : ''
+    event ??= /event definition "([^"]+)"/.exec(note)?.[1]
+    if (typeof current.message === 'string' && current.message.trim() !== '') {
+      message = current.message
+    }
+    at = current.cause
+  }
+  const text = message.replace(/\s+/g, ' ').trim() || 'unknown error'
+  return event ? `${event}: ${text}` : text
 }
 
 function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {

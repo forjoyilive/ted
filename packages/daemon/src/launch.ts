@@ -38,7 +38,7 @@ export async function withDaemon<T>(
       }
     }
     if (!child) child = await startDaemon(home)
-    else if (child.exitCode !== null || child.signalCode !== null) {
+    else if (exited(child) && !(await anotherDaemonStarting(home))) {
       throw new DaemonDidNotStartError(
         `TED's daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
       )
@@ -49,6 +49,17 @@ export async function withDaemon<T>(
       )
     }
     await sleep(retryDelayMs)
+  }
+}
+
+const exited = (child: ChildProcess) => child.exitCode !== null || child.signalCode !== null
+
+async function anotherDaemonStarting(home: string): Promise<boolean> {
+  try {
+    const { isLockHeld } = await import('./lock.ts')
+    return isLockHeld(tedPaths(home).daemonLock)
+  } catch {
+    return false
   }
 }
 
@@ -88,6 +99,7 @@ export interface DaemonSupervisor {
 export interface SuperviseOptions {
   onEvent: (event: DaemonEvent) => void
   onConnection: (connection: DaemonConnection) => void
+  app?: boolean
   restartDelaysMs?: readonly number[]
   crashWindowMs?: number
   crashLimit?: number
@@ -101,6 +113,7 @@ export async function superviseDaemon(
   {
     onEvent,
     onConnection,
+    app = false,
     restartDelaysMs = daemonRestartDelaysMs,
     crashWindowMs = 10 * 60_000,
     crashLimit = 3,
@@ -124,7 +137,7 @@ export async function superviseDaemon(
   async function connect(timeoutMs?: number): Promise<void> {
     ;[client, subscription] = await withDaemon(
       home,
-      async (c) => [c, await c.subscribe(onEvent, onCrash)] as const,
+      async (c) => [c, await c.subscribe(onEvent, { app, onClose: onCrash })] as const,
       timeoutMs === undefined ? {} : { startTimeoutMs: timeoutMs },
     )
   }

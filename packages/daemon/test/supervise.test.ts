@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
+import { DaemonClient, type DaemonEvent, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type DaemonConnection, type DaemonSupervisor, superviseDaemon } from '../src/launch.ts'
 import { makeTempHome, waitUntil } from './helpers.ts'
@@ -50,6 +50,7 @@ async function supervise(options: Partial<Parameters<typeof superviseDaemon>[1]>
 async function crash(): Promise<number> {
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
+  await new DaemonClient(info).listTasks()
   process.kill(info.pid, 'SIGKILL')
   await waitUntil(() => !isAlive(info.pid), 'the daemon to die')
   return info.pid
@@ -126,7 +127,11 @@ test('a daemon that won’t start is tried at once, then after each delay, then 
 test('the daemon writes its log to TED’s logs folder', async () => {
   await supervise()
 
-  const log = await readFile(tedPaths(home).daemonLog, 'utf8')
-
-  expect(log).toMatch(/info TED daemon .* listening on 127\.0\.0\.1:\d+/)
+  await waitUntil(
+    async () =>
+      /info TED daemon .* listening on 127\.0\.0\.1:\d+/.test(
+        await readFile(tedPaths(home).daemonLog, 'utf8'),
+      ),
+    'the listening line in daemon.log',
+  )
 })
