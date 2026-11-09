@@ -1,13 +1,19 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { isModelName, type PlanWindow, type PlanWindowKind, type RunState } from '@ted/protocol'
+import {
+  type Billing,
+  isModelName,
+  type PlanWindow,
+  type PlanWindowKind,
+  type RunState,
+} from '@ted/protocol'
 import {
   type Agent,
   type AuthCheck,
   fromEpoch,
   type PermissionPrompt,
   type UsageSignal,
-  withoutKeys,
+  withoutCredentials,
 } from './agent.ts'
 import { claudeChat } from './claude-chat.ts'
 
@@ -24,51 +30,12 @@ const stateByHook: Record<string, RunState> = {
 const boundaryGate =
   '[ -e "$TED_HOME/runs/$TED_RUN/queued" ] && ted run boundary >/dev/null 2>&1; exit 0'
 
-const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
+const apiKeyEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
-const credentialWords = new Set([
-  'TOKEN',
-  'KEY',
-  'APIKEY',
-  'SECRET',
-  'PASSWORD',
-  'PASSWD',
-  'PASS',
-  'AUTH',
-  'CREDENTIALS',
-])
-
-const keptEnv = new Set([
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'CLAUDE_CONFIG_DIR',
-  'GITHUB_TOKEN',
-  'GH_TOKEN',
-  'GH_ENTERPRISE_TOKEN',
-  'GITHUB_ENTERPRISE_TOKEN',
-])
-
-const proxyName = /^(https?|all|no)_proxy$/i
-
-function looksLikeCredential(name: string, value: string | undefined): boolean {
-  if (keptEnv.has(name) || proxyName.test(name) || name.startsWith('GIT_CONFIG_')) return false
-  if (
-    name
-      .toUpperCase()
-      .split('_')
-      .some((word) => credentialWords.has(word))
-  )
-    return true
-  if (value === undefined) return false
-  return (
-    /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i.test(value) ||
-    /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/.test(value)
-  )
-}
-
-function withoutCredentials(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(env).filter(([name, value]) => !looksLikeCredential(name, value)),
-  )
+function claudeEnvironment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv {
+  return billing === 'api-key'
+    ? { ...withoutCredentials(env, apiKeyEnv), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }
+    : withoutCredentials(env)
 }
 
 const planWindowByType: Record<string, PlanWindowKind> = {
@@ -268,11 +235,7 @@ export function claudeAgent(binary: string): Agent {
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
-        env: {
-          ...(billing === 'api-key'
-            ? { ...env, CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }
-            : withoutCredentials(env)),
-        },
+        env: claudeEnvironment(env, billing ?? 'subscription'),
         input: prompt === '' ? '' : userMessage(prompt),
         files: {
           'settings.json': JSON.stringify(
@@ -366,7 +329,7 @@ export function claudeAgent(binary: string): Agent {
         authFailure.test(message.result)
       )
     },
-    environment: (env, billing) => withoutKeys(env, removedEnv, billing),
+    environment: claudeEnvironment,
     usageFrom,
     retryingFrom(line) {
       const message = parse(line)

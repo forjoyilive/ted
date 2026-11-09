@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import {
+  type Billing,
   isModelName,
   type PermissionMode,
   type PlanWindow,
@@ -15,7 +16,7 @@ import {
   fromEpoch,
   type PermissionPrompt,
   type UsageSignal,
-  withoutKeys,
+  withoutCredentials,
 } from './agent.ts'
 import { codexChat } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
@@ -38,6 +39,10 @@ const environmentPolicy = [
   'shell_environment_policy.ignore_default_excludes=true',
   `shell_environment_policy.exclude=${JSON.stringify(removedEnv)}`,
 ]
+
+function codexEnvironment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv {
+  return withoutCredentials(env, billing === 'api-key' ? removedEnv : [])
+}
 
 const stateByMethod: Record<string, RunState> = {
   'turn/started': 'working',
@@ -448,7 +453,7 @@ export function codexAgent(binary: string): Agent {
           'app-server',
           ...[...sandbox[permissions], ...environmentPolicy].flatMap((c) => ['-c', c]),
         ],
-        env: withoutKeys(env, removedEnv, billing),
+        env: codexEnvironment(env, billing ?? 'subscription'),
         input: JSON.stringify(plan),
         files: {},
         driver,
@@ -533,7 +538,7 @@ export function codexAgent(binary: string): Agent {
       if (message?.method === 'turn/completed') return isUnauthorized(message.params?.turn?.error)
       return false
     },
-    environment: (env, billing) => withoutKeys(env, removedEnv, billing),
+    environment: codexEnvironment,
     usageFrom(line) {
       const message = parse(line)
       if (message?.method === 'error') return usageLimitIn(message.params?.error)
