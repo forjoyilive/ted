@@ -109,6 +109,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const iso = (ms: number) => new Date(ms).toISOString()
   const starting = new Set<string>()
   const limited = new Set<string>()
+  const unread = new Map<string, string[]>()
   let timer: NodeJS.Timeout | undefined
   let releaseIdle: (() => void) | undefined
   let closed = false
@@ -414,6 +415,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (run?.state !== 'idle') return
     if (limited.has(runId) || store.agentPauses()[run.agent] !== undefined) return
     if (openQuestion(own.firing.id)) return
+    if ((unread.get(runId)?.length ?? 0) > 0) return
     const message = finalMessage(runId)
     saved.ended(own.firing.id, { outcome: 'finished', ...(message !== undefined && { message }) })
     noteFailures(own.automation)
@@ -422,6 +424,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   function ended(runId: string, stopped: boolean, lastLines: readonly string[]): void {
     if (closed) return
+    unread.delete(runId)
     const own = runOf(runId)
     if (own?.firing.state !== 'started') return
     limited.delete(runId)
@@ -448,6 +451,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     authFailed(run) {
       if (!closed && runOf(run.id)) limited.add(run.id)
+    },
+    accepted(run, texts) {
+      const waiting = unread.get(run.id)
+      if (!waiting) return
+      for (const text of texts) {
+        const at = waiting.indexOf(text.trim())
+        if (at !== -1) waiting.splice(at, 1)
+      }
+      if (waiting.length === 0) unread.delete(run.id)
     },
     settled(run) {
       setImmediate(() => settle(run.id))
@@ -908,10 +920,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (!run || run.state === 'finished') {
         throw new RequestError(409, 'this Run has stopped, so it can’t get your answer')
       }
-      await runs.send(
-        run.id,
-        `The human answered your question “${firstLine(comment.body, 200)}”:\n\n${answer}`,
-      )
+      const message = `The human answered your question “${firstLine(comment.body, 200)}”:\n\n${answer}`
+      unread.set(run.id, [...(unread.get(run.id) ?? []), message.trim()])
+      try {
+        await runs.send(run.id, message)
+      } catch (error) {
+        const waiting = unread.get(run.id)?.filter((text) => text !== message.trim()) ?? []
+        if (waiting.length > 0) unread.set(run.id, waiting)
+        else unread.delete(run.id)
+        throw error
+      }
       saved.answerComment(id, answer)
       return toRequest(id)
     },
