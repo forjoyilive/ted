@@ -308,7 +308,18 @@ const routes: Route[] = [
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       const choices = choiceList(body?.choices)
-      return [201, tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
+      const supersedes = body?.supersedes
+      if (supersedes !== undefined && (typeof supersedes !== 'string' || supersedes === '')) {
+        throw new HttpError(400, 'supersedes must be a request’s ID')
+      }
+      return [
+        201,
+        await tasks.comment(ref, caller, {
+          body: text,
+          ...(choices && { choices }),
+          ...(supersedes !== undefined && { supersedes }),
+        }),
+      ]
     },
   },
   {

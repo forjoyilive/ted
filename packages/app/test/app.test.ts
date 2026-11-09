@@ -1648,4 +1648,102 @@ describe('Inbox and Gates', () => {
       .getByRole('button', { name: 'Approve and merge' })
       .waitFor()
   })
+
+  test('two open requests show “2 waiting on you”; chips and the Inbox pick the pinned card', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          {
+            run: [
+              'ted',
+              'outcome',
+              'ask',
+              '--choice',
+              'In the note’s header',
+              'Where should the sync status show?',
+            ],
+          },
+          { run: ['ted', 'comment', '--choice', 'Yes', 'Can the queue retry offline?'] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const second = inbox
+      .getByRole('button')
+      .filter({ has: window.getByText('Can the queue retry offline?', { exact: true }) })
+    await second.waitFor()
+    await second.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
+    await pinned.getByText('Can the queue retry offline?').waitFor()
+    const waiting = thread.getByRole('group', { name: '2 waiting on you' })
+    await waiting.getByText('2 waiting on you').waitFor()
+    const chips = waiting.getByRole('button')
+    expect(await chips.allTextContents()).toEqual(['Question · now', 'Question · now'])
+    expect(await chips.nth(1).getAttribute('aria-pressed')).toBe('true')
+
+    const lines = thread.getByRole('button', { name: /^Question from the Task Lead · waiting/ })
+    await expect.poll(() => lines.count()).toBe(2)
+    expect(await lines.nth(1).textContent()).toContain('shown below')
+
+    await chips.nth(0).click()
+    await pinned.getByText('Where should the sync status show?').waitFor()
+    expect(await chips.nth(0).getAttribute('aria-pressed')).toBe('true')
+    expect(await thread.getByRole('region', { name: 'Question', exact: true }).count()).toBe(1)
+  })
+
+  test('answered and superseded requests collapse to grey cards; Show request opens the card read-only', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const supersede =
+      'id=$(ted outcome ask "Should an empty search show recent notes or nothing?" | sed -n "s/.*(request \\([^)]*\\)).*/\\1/p"); ted ask --supersedes "$id" --choice "The 5 most recent notes" --choice "A hint" "Empty search: show the 5 most recent notes, or a hint?"'
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ run: ['sh', '-c', supersede] }, { endTurn: true }] }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const headline = (text: string) =>
+      inbox.getByRole('button').filter({ has: window.getByText(text, { exact: true }) })
+    const row = headline('Empty search: show the 5 most recent notes, or a hint?')
+    await row.waitFor()
+    expect(await inbox.getByRole('listitem').count()).toBe(1)
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const superseded = thread.getByRole('region', { name: 'Question, superseded' })
+    await superseded.getByText('Superseded by a newer question from the Task Lead').waitFor()
+    expect(await thread.getByRole('group', { name: /waiting on you/ }).count()).toBe(0)
+
+    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
+    await pinned.getByRole('button', { name: 'The 5 most recent notes' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Question, answered' })
+    await answered.getByText('You answered: The 5 most recent notes').waitFor()
+    await expect.poll(() => pinned.count()).toBe(0)
+
+    await answered.getByRole('button', { name: 'Show request' }).click()
+    const full = answered.getByRole('region', { name: 'Question, read-only' })
+    await full.getByText('Empty search: show the 5 most recent notes, or a hint?').waitFor()
+    expect(await full.getByRole('textbox').count()).toBe(0)
+    expect(await full.getByRole('button', { name: 'A hint' }).isDisabled()).toBe(true)
+    await answered.getByRole('button', { name: 'Hide request' }).click()
+    await expect.poll(() => full.count()).toBe(0)
+  })
 })

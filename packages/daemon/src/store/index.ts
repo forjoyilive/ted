@@ -254,6 +254,7 @@ export interface TedStore {
   listComments(taskId: string): Comment[]
   getComment(id: string): Comment | undefined
   answerComment(id: string, answer: CommentAnswer): Comment
+  supersedeComment(id: string, input: NewComment): Comment
   listOpenRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
   latestBrief(taskId: string): TaskBrief | undefined
@@ -657,6 +658,26 @@ export async function openStore({
     if (!comment) throw new Error(`no Comment ${id}`)
     return comment
   }
+  const commentPosted = (
+    { taskId, body, author, kind = 'note', title, choices, gate }: NewComment,
+    createdAt: string,
+  ) => {
+    const id = randomUUID()
+    const event = events.commentPostedV2({
+      id,
+      taskId,
+      kind,
+      body,
+      authorKind: author.kind,
+      authorRunId: author.kind === 'run' ? author.runId : null,
+      stage: taskRow(taskId)?.stage ?? null,
+      title: title ?? null,
+      choices: choices ?? null,
+      gate: gate === undefined ? null : JSON.stringify(gate),
+      createdAt,
+    })
+    return { id, event }
+  }
   const emitComment = (id: string) => {
     const comment = requireComment(id)
     emit({ type: 'comment-updated', comment })
@@ -1020,26 +1041,23 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
-    postComment({ taskId, body, author, kind = 'note', title, choices, gate }) {
-      const id = randomUUID()
-      store.commit(
-        events.commentPostedV2({
-          id,
-          taskId,
-          kind,
-          body,
-          authorKind: author.kind,
-          authorRunId: author.kind === 'run' ? author.runId : null,
-          stage: taskRow(taskId)?.stage ?? null,
-          title: title ?? null,
-          choices: choices ?? null,
-          gate: gate === undefined ? null : JSON.stringify(gate),
-          createdAt: new Date().toISOString(),
-        }),
-      )
+    postComment(input) {
+      const { id, event } = commentPosted(input, new Date().toISOString())
+      store.commit(event)
       const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
-      if (kind !== 'note') updatedTask(taskId)
+      if (comment.kind !== 'note') updatedTask(input.taskId)
+      return comment
+    },
+    supersedeComment(oldId, input) {
+      const at = new Date().toISOString()
+      const { id, event } = commentPosted(input, at)
+      const answer: CommentAnswer = { kind: 'superseded', at, by: id }
+      store.commit(event, events.commentAnswered({ id: oldId, answer: JSON.stringify(answer), at }))
+      const comment = requireComment(id)
+      emit({ type: 'comment-posted', comment })
+      emitComment(oldId)
+      updatedTask(input.taskId)
       return comment
     },
     listComments: (taskId) =>

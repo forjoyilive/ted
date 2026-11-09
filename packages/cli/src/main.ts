@@ -34,6 +34,8 @@ const usage = `Usage:
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
+  ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
+                                             Replace your own unanswered request with a new one
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
@@ -90,6 +92,7 @@ function parse() {
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
+        supersedes: { type: 'string' },
         skip: { type: 'boolean' },
         task: { type: 'string' },
         to: { type: 'string' },
@@ -141,7 +144,21 @@ try {
       client.postComment(ref, { body, ...(choices.length > 0 && { choices }) }),
     )
     console.log(
-      comment.kind === 'question' ? 'Asked the human. TED sends you their answer.' : 'Posted',
+      comment.kind === 'question'
+        ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+        : 'Posted',
+    )
+  } else if (group === 'ask' && options.supersedes !== undefined) {
+    const ref = taskRef()
+    const supersedes = options.supersedes
+    const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
+    if (body.trim() === '') throw new UsageError('give the new request as text or on stdin')
+    const choices = options.choice ?? []
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, { body, supersedes, ...(choices.length > 0 && { choices }) }),
+    )
+    console.log(
+      `Replaced request ${supersedes} with request ${request.id}. TED sends you their answer.`,
     )
   } else if (group === 'status' && command !== undefined) {
     const ref = taskRef()
