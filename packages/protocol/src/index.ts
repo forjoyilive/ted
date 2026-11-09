@@ -314,6 +314,8 @@ export {
   type RunProblem,
   type RunState,
   type RunWithConversation,
+  runTokenEnv,
+  runTokenFrom,
   type SendSubAgentRequest,
   type StartDevRunRequest,
   type StartSubAgentRequest,

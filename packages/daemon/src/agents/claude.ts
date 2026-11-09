@@ -127,6 +127,8 @@ function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): 
 
 const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
 
+const tedCommand = ['Bash(ted *)']
+
 const toolTitles: Record<string, string> = {
   Bash: 'Run a command',
   Edit: 'Edit a file',
@@ -221,9 +223,18 @@ export function claudeAgent(binary: string): Agent {
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
-        env: { ...withoutKeys(env, removedEnv, billing), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+        env: {
+          ...withoutKeys(env, removedEnv, billing),
+          ...(billing === 'api-key' && { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' }),
+        },
         input: prompt === '' ? '' : userMessage(prompt),
-        files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
+        files: {
+          'settings.json': JSON.stringify(
+            { ...(permissions === 'auto' && { permissions: { allow: tedCommand } }), hooks },
+            null,
+            2,
+          ),
+        },
         sessionId,
       }
     },
@@ -247,14 +258,12 @@ export function claudeAgent(binary: string): Agent {
         ? message.request_id
         : undefined
     },
-    autoModeUnavailableFrom(line) {
+    autoModeFrom(line) {
       const message = parse(line)
-      return (
-        message?.type === 'system' &&
-        message.subtype === 'init' &&
-        typeof message.permissionMode === 'string' &&
-        !['auto', 'bypassPermissions'].includes(message.permissionMode)
-      )
+      if (message?.type !== 'system' || message.subtype !== 'init') return undefined
+      if (typeof message.permissionMode !== 'string') return undefined
+      if (message.permissionMode === 'bypassPermissions') return undefined
+      return message.permissionMode === 'auto' ? 'on' : 'unavailable'
     },
     permissionReply({ requestId, approved, input, text }) {
       const response = approved

@@ -35,6 +35,34 @@ describe('agent kinds', () => {
     expect(codex.join(' ')).not.toContain('on-request')
   })
 
+  test('auto: Claude Code may run the ted command without asking; bypass needs no rule', () => {
+    const settings = (permissions: 'auto' | 'bypass') =>
+      JSON.parse(
+        agents.get('claude').launch({ ...run, permissions }).files['settings.json'] ?? '{}',
+      ) as { permissions?: { allow?: string[] }; hooks?: unknown }
+
+    expect(settings('auto').permissions).toEqual({ allow: ['Bash(ted *)'] })
+    expect(settings('auto').hooks).toBeDefined()
+    expect(settings('bypass').permissions).toBeUndefined()
+  })
+
+  test('Codex keeps network access in its sandbox, so ted reaches the daemon without asking', () => {
+    const codex = agents.get('codex').launch(run).args
+    expect(codex).toContain('sandbox_workspace_write.network_access=true')
+    expect(codex.join(' ')).not.toContain('danger-full-access')
+  })
+
+  test('Claude Code’s init line says whether auto mode took effect', () => {
+    const claude = agents.get('claude')
+    const init = (permissionMode: string) =>
+      JSON.stringify({ type: 'system', subtype: 'init', permissionMode })
+    expect(claude.autoModeFrom(init('default'))).toBe('unavailable')
+    expect(claude.autoModeFrom(init('auto'))).toBe('on')
+    expect(claude.autoModeFrom(init('bypassPermissions'))).toBeUndefined()
+    expect(claude.autoModeFrom(JSON.stringify({ type: 'assistant' }))).toBeUndefined()
+    expect(agents.get('codex').autoModeFrom(init('default'))).toBeUndefined()
+  })
+
   test('Claude Code resumes its session with --resume and the same per-Run flags', () => {
     const fresh = agents.get('claude').launch(run)
     const resumed = agents.get('claude').launch({ ...run, resume: 'session-1' })
@@ -212,7 +240,7 @@ describe('usage, credentials and cost', () => {
     expect(codex.launch({ ...run, env, billing: 'api-key' }).env.CODEX_API_KEY).toBe('c')
   })
 
-  test('an API key reaches the agent process but not the commands it runs', () => {
+  test('an API key reaches the agent process but not the commands it runs; Subscription has no key to scrub', () => {
     const env = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', CODEX_API_KEY: 'c' }
     const codexArgs = codex.launch({ ...run, env, billing: 'api-key' }).args
     expect(codexArgs).toContain(
@@ -220,6 +248,6 @@ describe('usage, credentials and cost', () => {
     )
     const claudeLaunch = claude.launch({ ...run, env, billing: 'api-key' })
     expect(claudeLaunch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
-    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
   })
 })

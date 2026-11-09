@@ -474,7 +474,7 @@ export function codexAgent(binary: string): Agent {
       const id = (message.params as { requestId?: unknown } | undefined)?.requestId
       return typeof id === 'number' || typeof id === 'string' ? String(id) : undefined
     },
-    autoModeUnavailableFrom: () => false,
+    autoModeFrom: () => undefined,
     permissionReply({ requestId, approved, input, text }) {
       return [
         JSON.stringify({

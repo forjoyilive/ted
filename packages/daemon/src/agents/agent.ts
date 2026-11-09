@@ -107,6 +107,8 @@ export type AgentChatEntry =
       endedAt?: string
     }
 
+export type AutoModeSignal = 'on' | 'unavailable'
+
 export interface Agent {
   kind: AgentKind
   binary: string
@@ -127,7 +129,7 @@ export interface Agent {
   stateFrom(line: string): RunState | undefined
   permissionPromptFrom(line: string, earlier: EarlierLine): PermissionPrompt | undefined
   permissionClosedFrom(line: string): string | undefined
-  autoModeUnavailableFrom(line: string): boolean
+  autoModeFrom(line: string): AutoModeSignal | undefined
   permissionReply(reply: PermissionReply): string[]
   chat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[]
   acceptedTextFrom(line: string): string | undefined
