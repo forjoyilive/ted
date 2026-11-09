@@ -1,10 +1,11 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
+import { cp } from 'node:fs/promises'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { releaseRepo } from '@ted/protocol'
 import { build, type Configuration } from 'electron-builder'
-import { appDir, stage } from './stage.ts'
+import { appDir, stage, stageDir } from './stage.ts'
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -52,8 +53,17 @@ const config: Configuration = {
     enableNodeCliInspectArguments: false,
     enableCookieEncryption: true,
   },
-  npmRebuild: false,
   nodeGypRebuild: false,
+  // electron-builder's pnpm collector rebuilds node_modules from the workspace and drops peer
+  // dependencies. beforeBuild returning false turns it off; afterPack copies the staged ones.
+  beforeBuild: async () => false,
+  afterPack: async ({ appOutDir, packager }) => {
+    await cp(
+      path.join(stageDir, 'node_modules'),
+      path.join(packager.getResourcesDir(appOutDir), 'app', 'node_modules'),
+      { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false },
+    )
+  },
   files: ['**/*'],
   extraResources: [{ from: path.join(buildDir, 'bin'), to: 'bin' }],
   mac: {
