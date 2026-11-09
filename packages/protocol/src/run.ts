@@ -1,11 +1,13 @@
-export type AgentKind = 'claude'
+export type AgentKind = 'claude' | 'codex'
+
+export const agentKinds: readonly AgentKind[] = ['claude', 'codex']
 
 export type RunState = 'working' | 'idle' | 'waiting' | 'finished'
 
 export interface Run {
   id: string
   agent: AgentKind
-  sessionId: string
+  sessionId?: string
   prompt: string
   cwd: string
   taskId?: string
@@ -26,4 +28,5 @@ export interface RunWithConversation {
 export interface StartDevRunRequest {
   prompt: string
   cwd: string
+  agent?: AgentKind
 }

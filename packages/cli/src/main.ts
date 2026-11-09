@@ -2,7 +2,7 @@
 import path from 'node:path'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
-import { type RunWithConversation, tedHome } from '@ted/protocol'
+import { type AgentKind, agentKinds, type RunWithConversation, tedHome } from '@ted/protocol'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -13,7 +13,8 @@ const usage = `Usage:
   ted task start <id>                        Start a Task from Backlog
   ted dev factory add <owner/repo | git URL> --key <key>
                                              Add a one-repo Factory (development only)
-  ted dev run start [--cwd <dir>] "<prompt>"  Start a Claude Code Run (development only)
+  ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
+                                             Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
@@ -26,6 +27,7 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
+        agent: { type: 'string' },
         cwd: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
@@ -99,7 +101,17 @@ try {
   } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
     const cwd = path.resolve(options.cwd ?? process.cwd())
     const prompt = rest.slice(1).join(' ')
-    const run = await withDaemon(home, (client) => client.startDevRun({ prompt, cwd }))
+    const agent = options.agent
+    if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
+      throw new UsageError('--agent must be claude or codex')
+    }
+    const run = await withDaemon(home, (client) =>
+      client.startDevRun({
+        prompt,
+        cwd,
+        ...(agent !== undefined && { agent: agent as AgentKind }),
+      }),
+    )
     console.log(`Started Run ${run.id}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'show' && rest.length === 2) {
     const id = rest[1] ?? ''
@@ -119,8 +131,8 @@ try {
 
 function formatRun({ run, conversation }: RunWithConversation): string {
   return [
-    `Run ${run.id}  ${run.state}`,
-    `Session ${run.sessionId}`,
+    `Run ${run.id}  ${run.agent}  ${run.state}`,
+    `Session ${run.sessionId ?? 'not known yet'}`,
     ...conversation.map((entry) => summarize(entry.line)),
   ].join('\n')
 }
@@ -133,10 +145,21 @@ interface ContentBlock {
 
 function summarize(line: string): string {
   const message = JSON.parse(line) as {
-    type: string
+    type?: string
     subtype?: string
     hook_name?: string
     message?: { content?: string | ContentBlock[] }
+    id?: unknown
+    method?: string
+    params?: { item?: { type?: string; text?: string } }
+  }
+  if (message.method === undefined && message.id !== undefined) {
+    return printable(`response ${String(message.id)}`)
+  }
+  if (message.method !== undefined) {
+    const item = message.params?.item
+    const detail = item?.text !== undefined ? `: ${item.text}` : item?.type ? ` ${item.type}` : ''
+    return printable(`${message.method}${detail}`)
   }
   const content = message.message?.content
   const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : (content ?? [])

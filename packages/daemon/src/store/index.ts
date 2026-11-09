@@ -20,6 +20,7 @@ export interface RunOutput {
   toOffset: number
   entries: ConversationEntry[]
   state?: RunState
+  sessionId?: string
 }
 
 export interface StoredFactory extends Factory {
@@ -45,7 +46,7 @@ export interface TedStore {
   startRun(input: {
     id: string
     agent: AgentKind
-    sessionId: string
+    sessionId?: string
     prompt: string
     cwd: string
     taskId?: string
@@ -93,10 +94,11 @@ export async function openStore({ directory }: { directory: string }): Promise<T
 
   const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
 
-  const toRun = ({ readOffset: _, taskId, ...row }: typeof runs.Type): Run => ({
+  const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
     ...row,
     agent: row.agent as AgentKind,
     state: row.state as RunState,
+    ...(sessionId !== '' && { sessionId }),
     ...(taskId !== null && { taskId }),
   })
 
@@ -181,16 +183,24 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    startRun({ taskId, ...input }) {
-      const row = { ...input, taskId: taskId ?? null, startedAt: new Date().toISOString() }
+    startRun({ taskId, sessionId, ...input }) {
+      const row = {
+        ...input,
+        sessionId: sessionId ?? '',
+        taskId: taskId ?? null,
+        startedAt: new Date().toISOString(),
+      }
       store.commit(events.runStartedV2(row))
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
-    recordRunOutput(runId, { toOffset, entries, state }) {
+    recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
       const current = runRow(runId)
       if (!current) throw new Error(`no Run ${runId}`)
       store.commit(
         events.runOutputRead({ runId, toOffset, entries }),
+        ...(sessionId !== undefined && sessionId !== current.sessionId
+          ? [events.runSessionIdentified({ runId, sessionId })]
+          : []),
         ...(state && state !== current.state
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),

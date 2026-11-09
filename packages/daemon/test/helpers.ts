@@ -59,6 +59,7 @@ export async function tokenFor(home: string): Promise<string> {
 }
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))
+export const stubCodexPath = fileURLToPath(new URL('./fixtures/stub-codex.ts', import.meta.url))
 
 export async function waitUntil<T>(
   check: () => Promise<T | undefined> | T | undefined,
@@ -106,8 +107,12 @@ export function api(port: number, token: string) {
   }
   return {
     call,
-    async startRun(steps: unknown[], cwd: string): Promise<Run> {
-      const res = await call('POST', '/dev/runs', { prompt: JSON.stringify({ steps }), cwd })
+    async startRun(steps: unknown[], cwd: string, agent?: string): Promise<Run> {
+      const res = await call('POST', '/dev/runs', {
+        prompt: JSON.stringify({ steps }),
+        cwd,
+        ...(agent !== undefined && { agent }),
+      })
       if (res.status !== 201) throw new Error(`start failed: ${JSON.stringify(res.body)}`)
       return res.body as Run
     },
@@ -122,8 +127,14 @@ export function api(port: number, token: string) {
 export function assistantTexts(conversation: ConversationEntry[]): string[] {
   return conversation.flatMap((e) => {
     const message = JSON.parse(e.line) as {
-      type: string
+      type?: string
       message?: { content?: { type: string; text?: string }[] }
+      method?: string
+      params?: { item?: { type: string; text?: string } }
+    }
+    const item = message.params?.item
+    if (message.method === 'item/completed' && item?.type === 'agentMessage') {
+      return item.text === undefined ? [] : [item.text]
     }
     if (message.type !== 'assistant') return []
     return (message.message?.content ?? []).flatMap((c) => (c.text === undefined ? [] : [c.text]))

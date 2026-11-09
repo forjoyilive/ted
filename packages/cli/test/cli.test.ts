@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
-import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
@@ -40,6 +40,7 @@ function ted(args: string[], idleExitMs = 30_000) {
       TED_HOME: home,
       TED_IDLE_EXIT_MS: String(idleExitMs),
       TED_CLAUDE_BIN: stubClaudePath,
+      TED_CODEX_BIN: stubCodexPath,
     },
     cwd: home,
   })
@@ -142,10 +143,37 @@ describe('ted dev run', () => {
       await sleep(100)
     }
     const lines = shown.trim().split('\n')
-    expect(lines[0]).toBe(`Run ${id}  finished`)
+    expect(lines[0]).toBe(`Run ${id}  claude  finished`)
     expect(lines[1]).toMatch(/^Session [0-9a-f-]{36}$/)
     expect(lines).toContain('assistant: hi from the stub')
     expect(lines).toContain('system hook_started Stop')
+  })
+
+  test('start --agent codex runs Codex, and show prints its thread and messages', async () => {
+    const prompt = JSON.stringify({
+      steps: [{ say: 'hi from Codex' }, { endTurn: true }, { exit: 0 }],
+    })
+
+    const started = await ted(['dev', 'run', 'start', '--agent', 'codex', prompt])
+    const id = started.stdout.trim().replace(/^Started Run /, '')
+
+    let shown = ''
+    for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
+      shown = (await ted(['dev', 'run', 'show', id])).stdout
+      await sleep(100)
+    }
+    const lines = shown.trim().split('\n')
+    expect(lines[0]).toBe(`Run ${id}  codex  finished`)
+    expect(lines[1]).toMatch(/^Session 0199a000-/)
+    expect(lines).toContain('item/completed: hi from Codex')
+    expect(lines).toContain('turn/completed')
+  })
+
+  test('start refuses an unknown agent kind', async () => {
+    await expect(ted(['dev', 'run', 'start', '--agent', 'gemini', 'x'])).rejects.toMatchObject({
+      code: 2,
+      stderr: 'ted: --agent must be claude or codex\n',
+    })
   })
 
   test('show strips terminal control characters from agent output', async () => {
