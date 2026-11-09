@@ -16,6 +16,11 @@
     "isolatedModules": true,
     "resolveJsonModule": true
   },
-  "include": ["packages/*/src", "packages/*/test", "vitest.config.ts"],
+  "include": [
+    "packages/*/src",
+    "packages/*/test",
+    "packages/*/vitest.config.ts",
+    "vitest.config.ts"
+  ],
   "exclude": ["packages/app"]
 }
