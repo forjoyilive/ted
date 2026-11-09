@@ -288,6 +288,33 @@ describe('Plan in chat from a Task', () => {
     expect(after.activity).not.toBe('Planning in chat')
   })
 
+  test('a chat that ends while no Task Lead Run is live tells the next Run', async () => {
+    const client = await start()
+    const { task, sizeCheck } = await tooBigTask(client)
+    const { planId } = await planInChat(client, sizeCheck, { say: 'Let us plan' }, { endTurn: true })
+    await waitForPlan(client, planId, (d) => d.plan.status === 'idle', 'the planner to idle')
+    const stoppedRun = (await getTask(client, task.id)).leadRunId
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await waitUntil(async () => {
+      const run = await client.getRun(stoppedRun ?? '')
+      return run.run.state === 'finished' || undefined
+    }, 'the Task Lead to stop')
+    await client.ok('POST', `/plans/${planId}/stop`)
+    await waitForPlan(client, planId, (d) => d.plan.status === 'stopped', 'the chat to stop')
+
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const told = await waitUntil(
+      async () => {
+        const now = await getTask(client, task.id)
+        if (!now.leadRunId || now.leadRunId === stoppedRun) return undefined
+        return (await leadMessages(client, now)).find((m) => m.includes('without an approved plan'))
+      },
+      'the next Run to hear the chat ended',
+      20_000,
+    )
+    expect(told).toContain('ted clarify too-big')
+  })
+
   test('archiving the Task mid-plan unlocks row 1 and notes why; approval then creates every row', async () => {
     const client = await start()
     const { task, sizeCheck } = await tooBigTask(client)

@@ -2972,6 +2972,16 @@ export function createTasks(options: {
         line: withLines(`- ${c.createdAt}: ${flat(plainText(c))}`, c),
       })),
       ...answers.flatMap((c) => {
+        const task = store.getTask(taskId)
+        const planNote = task && heldPlanNote(task, c)
+        if (planNote !== undefined) {
+          return [
+            {
+              at: c.answer?.at ?? c.createdAt,
+              line: `- ${c.answer?.at ?? c.createdAt}: ${planNote}`,
+            },
+          ]
+        }
         const answer = answerText(c)
         return answer === undefined
           ? []
@@ -3368,10 +3378,43 @@ export function createTasks(options: {
     })
   }
 
-  async function tellLeadAboutPlan(taskId: string, text: string): Promise<void> {
+  function planSizeCheck(taskId: string, planId: string): Comment | undefined {
+    return store
+      .listComments(taskId)
+      .findLast((c) => c.sizeCheck && c.answer?.kind === 'answered' && c.answer.planId === planId)
+  }
+
+  function heldPlanNote(task: StoredTask, comment: Comment): string | undefined {
+    if (comment.answer?.kind !== 'answered' || comment.answer.planId === undefined) return undefined
+    const planId = comment.answer.planId
+    const plan = store.plans.get(planId)
+    if (plan && plan.state !== 'ended') return undefined
+    const planTitle = plan?.title ?? `Plan: ${task.title}`
+    const approved = store.plans
+      .requests(planId)
+      .findLast((r) => r.kind === 'proposal' && r.answer?.kind === 'approved')?.answer
+    if (approved?.kind === 'approved' && approved.created) {
+      return planApprovedLeadMessage({
+        displayId: task.displayId,
+        planTitle,
+        narrowed: { title: task.title, description: task.description },
+        created: approved.created,
+        text: approved.text ?? '',
+      })
+    }
+    const outcome = !plan ? 'deleted' : plan.outcome === 'failed' ? 'failed' : 'stopped'
+    return planEndedLeadMessage({ planTitle, outcome })
+  }
+
+  async function tellLeadAboutPlan(taskId: string, planId: string, text: string): Promise<void> {
     const task = store.getTask(taskId)
-    const run = task && liveLead(task)
-    if (!run) return
+    if (!task) return
+    const run = liveLead(task)
+    if (!run) {
+      const sizeCheck = planSizeCheck(taskId, planId)
+      if (sizeCheck) store.holdAnswer(sizeCheck.id)
+      return
+    }
     await runs.send(run.id, text).catch((error: unknown) => {
       console.error(
         `couldn’t tell the Task Lead of ${task.displayId} about its planning chat:`,
@@ -3394,6 +3437,7 @@ export function createTasks(options: {
     store.taskPlanEnded(task.id, input.planId, 'approved')
     await tellLeadAboutPlan(
       task.id,
+      input.planId,
       planApprovedLeadMessage({ displayId: task.displayId, ...input }),
     )
   }
@@ -3402,7 +3446,7 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
     store.taskPlanEnded(task.id, input.planId, input.outcome)
-    await tellLeadAboutPlan(task.id, planEndedLeadMessage(input))
+    await tellLeadAboutPlan(task.id, input.planId, planEndedLeadMessage(input))
   }
 
   function planOutside(task: StoredTask, comment: Comment): void {
