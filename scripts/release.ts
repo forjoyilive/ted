@@ -52,40 +52,6 @@ function setVersion(version: string): void {
   }
 }
 
-function linuxCi(): void {
-  console.log('\n== GitHub CI on main (Linux)')
-  const before = git('rev-parse', 'HEAD')
-  step('Start GitHub CI', 'gh', ['workflow', 'run', 'CI', '--ref', 'main'])
-  let id = ''
-  for (let tries = 0; tries < 30 && id === ''; tries++) {
-    spawnSync('sleep', ['5'])
-    id = execFileSync(
-      'gh',
-      [
-        'run',
-        'list',
-        '--workflow',
-        'CI',
-        '--branch',
-        'main',
-        '--event',
-        'workflow_dispatch',
-        '--commit',
-        before,
-        '--limit',
-        '1',
-        '--json',
-        'databaseId',
-        '--jq',
-        '.[0].databaseId // ""',
-      ],
-      { cwd: root, encoding: 'utf8' },
-    ).trim()
-  }
-  if (id === '') fail('couldn’t find the GitHub CI run it started')
-  step('Wait for GitHub CI', 'gh', ['run', 'watch', id, '--exit-status', '--interval', '60'])
-}
-
 const installed = '/Applications/TED.app'
 const built = path.join(root, 'packages/app/dist/release/mac-arm64/TED.app')
 
@@ -107,10 +73,9 @@ function main(): void {
     return
   }
   const args = process.argv.slice(2)
-  const linux = args.includes('--linux')
   const version = args.find((arg) => !arg.startsWith('--'))
   const current = currentVersion()
-  if (version === undefined) fail(`usage: pnpm release <version> [--linux] (now ${current})`)
+  if (version === undefined) fail(`usage: pnpm release <version> (now ${current})`)
   if (parseVersion(version) === undefined) fail(`“${version}” isn’t a version like 1.2.3`)
 
   if (git('branch', '--show-current') !== 'main') fail('switch to main first')
@@ -129,7 +94,6 @@ function main(): void {
   } else if (!checkAndRecord()) {
     fail('checks failed')
   }
-  if (linux) linuxCi()
 
   if (version !== current) {
     setVersion(version)
@@ -141,6 +105,9 @@ function main(): void {
   step('Smoke test the build', 'pnpm', ['--filter', '@ted/app', 'smoke'])
   install()
   console.log(`\nTED ${version} is tagged, pushed and installed in ${installed}.`)
+  console.log(
+    'GitHub is running the full test suite on Linux for this tag: gh run list --workflow CI --limit 1',
+  )
 }
 
 if (import.meta.main) main()

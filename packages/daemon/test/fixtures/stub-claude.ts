@@ -130,7 +130,17 @@ let lastRequest: string | undefined
 const answers = new Map<string, (response: unknown) => void>()
 const permissionMode = () => {
   const asked = flag('--permission-mode') ?? 'default'
-  return asked === 'auto' && stubHealth().autoUnavailable ? 'default' : asked
+  const scrubbed = process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB === '1'
+  return asked === 'auto' && (stubHealth().autoUnavailable || scrubbed) ? 'default' : asked
+}
+
+const credentialName = /TOKEN|KEY|SECRET|PASSWORD|AUTH/
+
+function commandEnv(): NodeJS.ProcessEnv {
+  if (process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB !== '1') return process.env
+  return Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !credentialName.test(name)),
+  )
 }
 
 async function runStep(step: Step): Promise<void> {
@@ -217,7 +227,7 @@ async function runStep(step: Step): Promise<void> {
     inputGate = step.readNextAfter
   } else if ('run' in step) {
     const [command = '', ...args] = step.run
-    const result = spawnSync(command, args, { encoding: 'utf8' })
+    const result = spawnSync(command, args, { encoding: 'utf8', env: commandEnv() })
     say(JSON.stringify({ code: result.status, stdout: result.stdout, stderr: result.stderr }))
   } else if ('endTurn' in step) {
     hook('Stop')

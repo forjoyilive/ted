@@ -2,6 +2,12 @@ import type { Effort } from './task.ts'
 
 export type AgentKind = 'claude' | 'codex'
 
+export const runTokenEnv = 'TED_RUN_CAPABILITY'
+
+export function runTokenFrom(env: NodeJS.ProcessEnv): string | undefined {
+  return env[runTokenEnv] || env.TED_RUN_TOKEN || undefined
+}
+
 export const agentKinds: readonly AgentKind[] = ['claude', 'codex']
 
 export type RunState = 'working' | 'idle' | 'waiting' | 'finished'

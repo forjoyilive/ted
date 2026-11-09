@@ -256,7 +256,7 @@ describe('Comments into the Task Lead’s Run', () => {
     const record = JSON.parse(
       await readFile(path.join(home, 'worktrees', 'NB-1', 'widgets', 'stub-record.json'), 'utf8'),
     ) as { env: Record<string, string> }
-    const asRun = api(daemon?.port ?? 0, record.env.TED_RUN_TOKEN ?? '')
+    const asRun = api(daemon?.port ?? 0, record.env.TED_RUN_CAPABILITY ?? '')
 
     const posted = await asRun.call('POST', `/tasks/${task.id}/comments`, { body: 'from the Run' })
     expect(posted.body.author.kind).toBe('run')

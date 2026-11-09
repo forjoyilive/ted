@@ -98,7 +98,7 @@ const runToken = async (task: Task) => {
       'utf8',
     ),
   ) as { env: Record<string, string> }
-  return record.env.TED_RUN_TOKEN ?? ''
+  return record.env.TED_RUN_CAPABILITY ?? ''
 }
 
 const uploadAs = (token: string, route: string, name: string, body: string) =>
