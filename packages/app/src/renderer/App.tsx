@@ -19,7 +19,7 @@ import {
   useAgentHealth,
   useBanners,
   useConnection,
-  useFactories,
+  useFactoryList,
   useInbox,
   useSettings,
   useSlots,
@@ -42,6 +42,7 @@ import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { Board } from './views/Board.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
+import { NoFactories } from './views/NoFactories.tsx'
 import { Stub } from './views/OtherViews.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
@@ -89,17 +90,17 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
   )
 }
 
-export function App() {
+export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
-  const factories = useFactories()
+  const { factories, loaded: factoriesLoaded } = useFactoryList()
   const settings = useSettings()
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
-  const [addFactoryOpen, setAddFactoryOpen] = useState(false)
+  const [addFactoryOpen, setAddFactoryOpen] = useState(addFactoryFirst)
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen = newTaskOpen || addFactoryOpen
   const openNewTask = () => setNewTaskOpen(true)
@@ -260,6 +261,10 @@ export function App() {
       />
     )
     const { screen } = navigation
+    const noFactories = factoriesLoaded && factories.length === 0 && tasks.length === 0
+    if (screen.kind === 'inbox' && noFactories && !opened && inbox.length === 0) {
+      return <NoFactories onAddFactory={() => setAddFactoryOpen(true)} />
+    }
     if (screen.kind === 'inbox') {
       return (
         <Inbox

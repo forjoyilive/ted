@@ -290,6 +290,8 @@ process.on('uncaughtException', (error) => {
 
 const testAppToken = app.isPackaged ? undefined : process.env.TED_APP_TOKEN
 delete process.env.TED_APP_TOKEN
+const skipFirstLaunch = !app.isPackaged && process.env.TED_SKIP_FIRST_LAUNCH === '1'
+delete process.env.TED_SKIP_FIRST_LAUNCH
 
 const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
@@ -315,7 +317,9 @@ const sendToRenderer = (event: unknown) => window?.webContents.send('ted:event',
 function applySettings(next: MachineSettings): void {
   settings = next
   nativeTheme.themeSource = next.appearance
-  if (next.startAtLogin !== loginItemApplied) void applyLoginItem(next.startAtLogin)
+  if (next.firstLaunchDone && next.startAtLogin !== loginItemApplied) {
+    void applyLoginItem(next.startAtLogin)
+  }
 }
 
 function applyLoginItem(enabled: boolean): Promise<void> {
@@ -519,7 +523,12 @@ async function createWindow(): Promise<void> {
 
 async function loadState(): Promise<void> {
   if (!client) return
-  applySettings(await client.getSettings())
+  const loaded = await client.getSettings()
+  applySettings(
+    skipFirstLaunch && !loaded.firstLaunchDone
+      ? await client.updateSettings({ firstLaunchDone: true })
+      : loaded,
+  )
   const [activity, banners]: [Activity, Banner[]] = await Promise.all([
     client.getActivity(),
     client.listBanners(),

@@ -55,6 +55,8 @@ describe('machine settings in the store', () => {
       startAtLogin: true,
       stayAwake: true,
       listViews: {},
+      firstLaunchDone: false,
+      billing: {},
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -194,6 +196,10 @@ describe('settings and Factories over the daemon API', () => {
     ],
     ['Start at login that is not true or false', { startAtLogin: 'on' }],
     ['Stay Awake that is not true or false', { stayAwake: 1 }],
+    ['first launch done that is not true or false', { firstLaunchDone: 'yes' }],
+    ['billing that is not an object', { billing: 'api-key' }],
+    ['billing for an unknown agent', { billing: { gemini: 'api-key' } }],
+    ['an unknown kind of billing', { billing: { claude: 'free' } }],
     ['one bad setting among good ones', { developerMode: true, terminalFontSize: 30 }],
     ['no settings', {}],
     ['a body that is not an object', ['dark']],
@@ -237,6 +243,19 @@ describe('settings and Factories over the daemon API', () => {
     expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: false })
     await ted.updateSettings({ stayAwake: true })
     expect(await ted.getSettings()).toMatchObject({ startAtLogin: false, stayAwake: true })
+  })
+
+  test('a client marks first launch done and chooses billing per agent kind', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+
+    await ted.updateSettings({ firstLaunchDone: true, billing: { claude: 'api-key' } })
+    expect(await ted.getSettings()).toMatchObject({
+      firstLaunchDone: true,
+      billing: { claude: 'api-key' },
+    })
+    await ted.updateSettings({ billing: { claude: 'api-key', codex: 'subscription' } })
+    expect((await ted.getSettings()).billing).toEqual({ claude: 'api-key', codex: 'subscription' })
   })
 
   test('the profile gives a name for the human’s initials', async () => {

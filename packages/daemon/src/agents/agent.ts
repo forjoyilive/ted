@@ -69,6 +69,7 @@ export interface TokenCount {
 export interface AuthCheck {
   signedIn: boolean
   account?: string
+  credential?: 'subscription' | 'api-key'
 }
 
 export interface AgentHealthSpec {
@@ -79,6 +80,7 @@ export interface AgentHealthSpec {
   signIn: string
   update: string
   install: string
+  keyVariables: string[]
 }
 
 export type AgentChatEntry =

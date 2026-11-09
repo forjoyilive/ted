@@ -47,7 +47,11 @@ function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): 
     ...(plan ? [plan] : []),
     billing,
   ]
-  return { signedIn: true, account: parts.join(' · ') }
+  return {
+    signedIn: true,
+    account: parts.join(' · '),
+    credential: billing === 'subscription' ? 'subscription' : 'api-key',
+  }
 }
 
 const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
@@ -242,6 +246,7 @@ export function claudeAgent(binary: string): Agent {
       signIn: 'claude auth login',
       update: 'claude update',
       install: 'curl -fsSL https://claude.ai/install.sh | bash',
+      keyVariables: removedEnv,
     },
     tokensFrom(line) {
       let message: { type?: unknown; usage?: Record<string, unknown> }

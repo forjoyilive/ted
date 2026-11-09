@@ -2,6 +2,7 @@ import {
   type AgentHealth,
   type AgentHealthState,
   type AgentKind,
+  agentDisplayNames,
   agentKinds,
   agentProblem,
   bannerId,
@@ -73,17 +74,18 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   async function inspect(kind: AgentKind): Promise<AgentHealth> {
     const agent = agents.get(kind)
     const spec = agent.health
-    const env = agent.environment(options.runEnv())
+    const shellEnv = options.runEnv()
+    const env = agent.environment(shellEnv)
     const base = { agent: kind, minimumVersion: spec.minimumVersion, pausedRuns: 0 }
     const done = (state: AgentHealthState, extra: Partial<AgentHealth> = {}): AgentHealth => {
       const reason = pausedReason(kind, state)
       const fix = fixFor(kind, state)
       return {
         ...base,
+        ...(fix && { fix }),
         ...extra,
         state,
         ...(reason !== undefined && { reason }),
-        ...(fix && { fix }),
         checkedAt: new Date().toISOString(),
       }
     }
@@ -97,7 +99,20 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
       return done('too-old', found)
     const auth = spec.auth(await cli(spec.authArgs))
     if (!auth.signedIn) return done('signed-out', found)
-    return done('ready', { ...found, ...(auth.account !== undefined && { account: auth.account }) })
+    const keyVariable = spec.keyVariables.find((name) => (shellEnv[name] ?? '') !== '')
+    const apiKey =
+      auth.credential === 'api-key'
+        ? `${agentDisplayNames[kind]} is signed in with an API key`
+        : keyVariable !== undefined
+          ? `${keyVariable} is set in your shell`
+          : undefined
+    return done('ready', {
+      ...found,
+      ...(auth.account !== undefined && { account: auth.account }),
+      ...(auth.credential !== undefined && { credential: auth.credential }),
+      ...(apiKey !== undefined && { apiKey }),
+      ...(auth.credential === 'api-key' && { fix: { label: 'Sign in', command: spec.signIn } }),
+    })
   }
 
   function showBanner(health: AgentHealth): void {

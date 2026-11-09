@@ -107,6 +107,7 @@ export {
   suggestRepoName,
 } from './factory.ts'
 export {
+  type AgentCredential,
   type AgentHealth,
   type AgentHealthState,
   agentDisplayNames,
@@ -180,6 +181,8 @@ export {
 export {
   type Appearance,
   appearances,
+  type Billing,
+  billingKinds,
   defaultMachineSettings,
   type MachineSettings,
   type Profile,

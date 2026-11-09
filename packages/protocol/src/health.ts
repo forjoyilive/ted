@@ -13,6 +13,8 @@ export const agentHealthStates = [
 
 export type AgentHealthState = (typeof agentHealthStates)[number]
 
+export type AgentCredential = 'subscription' | 'api-key'
+
 export interface AgentHealth {
   agent: AgentKind
   state: AgentHealthState
@@ -20,6 +22,8 @@ export interface AgentHealth {
   version?: string
   path?: string
   account?: string
+  credential?: AgentCredential
+  apiKey?: string
   reason?: string
   fix?: FixCommand
   pausedRuns: number

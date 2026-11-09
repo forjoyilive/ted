@@ -71,7 +71,16 @@ function useLive<T extends { id: string }>(
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
 ): T[] {
+  return useLiveList(load, pick, order).items
+}
+
+function useLiveList<T extends { id: string }>(
+  load: () => Promise<T[]>,
+  pick: (event: TedEvent) => T | undefined,
+  order: (a: T, b: T) => number,
+): { items: T[]; loaded: boolean } {
   const [items, setItems] = useState<T[]>([])
+  const [done, setDone] = useState(false)
   const { epoch } = useConnection()
 
   const loaded = useRef(load)
@@ -90,6 +99,7 @@ function useLive<T extends { id: string }>(
     void load().then(
       (loaded) => {
         setItems(mergeById(loaded, fresh ?? []).sort(order))
+        setDone(true)
         fresh = undefined
       },
       () => undefined,
@@ -97,7 +107,7 @@ function useLive<T extends { id: string }>(
     return unsubscribe
   }, [load, pick, order, epoch])
 
-  return items
+  return { items, loaded: done }
 }
 
 const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
@@ -115,6 +125,11 @@ export function useTasks(): Task[] {
 
 export function useFactories(): Factory[] {
   return useLive(ted.listFactories, factoryFrom, byCreatedAt)
+}
+
+export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
+  const { items, loaded } = useLiveList(ted.listFactories, factoryFrom, byCreatedAt)
+  return { factories: items, loaded }
 }
 
 export function useComments(taskId: string): Comment[] {

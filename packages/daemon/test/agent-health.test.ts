@@ -38,8 +38,10 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-const setStub = (agent: 'claude' | 'codex', state: { version?: string; signedIn?: boolean }) =>
-  writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
+const setStub = (
+  agent: 'claude' | 'codex',
+  state: { version?: string; signedIn?: boolean; authMethod?: string },
+) => writeFile(path.join(home, `stub-${agent}.json`), JSON.stringify(state))
 
 async function start(options: { codex?: boolean } = {}) {
   daemon = await startDaemon({
@@ -110,6 +112,39 @@ describe('Agent health', () => {
       fix: { label: 'Install', command: 'npm install -g @openai/codex' },
     })
     expect(await agentBanner(client, 'codex')).toBeUndefined()
+  })
+
+  test('an agent signed in with an API key is Ready, says so, and offers a subscription sign-in', async () => {
+    await setStub('claude', { authMethod: 'console' })
+    const client = await start()
+
+    const claude = await waitUntil(() => healthOf(client, 'claude'), 'Claude Code’s health')
+    expect(claude).toMatchObject({
+      state: 'ready',
+      credential: 'api-key',
+      apiKey: 'Claude Code is signed in with an API key',
+      fix: { label: 'Sign in', command: 'claude auth login' },
+    })
+    expect(await agentBanner(client, 'claude')).toBeUndefined()
+
+    await client.ok('POST', '/agents/claude/fix')
+    expect(opened).toEqual(['claude auth login'])
+  })
+
+  test('a key variable in the shell counts as an API key even when the CLI uses a subscription', async () => {
+    process.env.ANTHROPIC_API_KEY = 'sk-test'
+    try {
+      const client = await start()
+      const claude = await waitUntil(() => healthOf(client, 'claude'), 'Claude Code’s health')
+      expect(claude).toMatchObject({
+        state: 'ready',
+        credential: 'subscription',
+        apiKey: 'ANTHROPIC_API_KEY is set in your shell',
+      })
+      expect(claude.fix).toBeUndefined()
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY
+    }
   })
 
   test('an agent below the minimum version is too old and offers its update command', async () => {

@@ -29,6 +29,7 @@ const argv = process.argv.slice(2)
 interface StubHealth {
   version?: string
   signedIn?: boolean
+  authMethod?: string
   autoUnavailable?: boolean
   resumeFails?: boolean
   resumeWaitsFor?: string
@@ -51,7 +52,9 @@ function healthReply(): { text: string; code: number } | undefined {
   if (argv[0] === 'auth' && argv[1] === 'status') {
     const loggedIn = health.signedIn !== false
     const status = loggedIn
-      ? { loggedIn, authMethod: 'claude.ai', email: 'stub@example.com', subscriptionType: 'max' }
+      ? health.authMethod !== undefined && health.authMethod !== 'claude.ai'
+        ? { loggedIn, authMethod: health.authMethod, email: 'stub@example.com' }
+        : { loggedIn, authMethod: 'claude.ai', email: 'stub@example.com', subscriptionType: 'max' }
       : { loggedIn }
     return { text: `${JSON.stringify(status)}\n`, code: loggedIn ? 0 : 1 }
   }

@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react'
 import { App } from './App.tsx'
 import { ConnectionNotice } from './ConnectionNotice.tsx'
-import { useDataStatus } from './data.ts'
+import { useDataStatus, useSettings } from './data.ts'
 import { DataScreen } from './views/DataScreen.tsx'
+import { FirstLaunch } from './views/FirstLaunch.tsx'
+
+function Opened() {
+  const settings = useSettings()
+  const [addFactoryFirst, setAddFactoryFirst] = useState(false)
+  if (!settings) return null
+  if (!settings.firstLaunchDone) {
+    return <FirstLaunch settings={settings} onFinish={setAddFactoryFirst} />
+  }
+  return <App addFactoryFirst={addFactoryFirst} />
+}
 
 export function Root() {
   const status = useDataStatus()
@@ -16,7 +27,7 @@ export function Root() {
   }, [state])
 
   if (status?.state === 'ready' || (status?.state === 'opening' && opened)) {
-    return <App key={generation} />
+    return <Opened key={generation} />
   }
   return (
     <>

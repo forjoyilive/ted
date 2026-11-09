@@ -50,8 +50,14 @@ function codexAuth({
   const text = `${stdout}\n${stderr}`
   if (code !== 0 || /not logged in/i.test(text)) return { signedIn: false }
   if (/chatgpt/i.test(text))
-    return { signedIn: true, account: 'Signed in with ChatGPT · subscription' }
-  if (/api key/i.test(text)) return { signedIn: true, account: 'Signed in with an API key' }
+    return {
+      signedIn: true,
+      account: 'Signed in with ChatGPT · subscription',
+      credential: 'subscription',
+    }
+  if (/api key/i.test(text)) {
+    return { signedIn: true, account: 'Signed in with an API key', credential: 'api-key' }
+  }
   return { signedIn: true }
 }
 
@@ -453,6 +459,7 @@ export function codexAgent(binary: string): Agent {
       signIn: 'codex login',
       update: 'codex update',
       install: 'npm install -g @openai/codex',
+      keyVariables: ['CODEX_API_KEY'],
     },
     problemFrom(line) {
       const message = parse(line)
