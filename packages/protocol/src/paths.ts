@@ -12,6 +12,6 @@ export function tedPaths(home: string) {
     logs: path.join(home, 'logs'),
     daemonLog: path.join(home, 'logs', 'daemon.log'),
     daemonInfo: path.join(home, 'daemon.json'),
-    daemonLock: path.join(home, 'daemon.lock'),
+    daemonLock: path.join(home, 'daemon-lock.db'),
   }
 }

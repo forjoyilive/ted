@@ -20,9 +20,9 @@ export interface RunningDaemon {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
-  const lock = await acquireLock(paths.daemonLock)
-  const store = await openStore({ directory: paths.store }).catch(async (error: unknown) => {
-    await lock.release()
+  const lock = acquireLock(paths.daemonLock)
+  const store = await openStore({ directory: paths.store }).catch((error: unknown) => {
+    lock.release()
     throw error
   })
   const token = randomBytes(32).toString('hex')
@@ -45,7 +45,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       await rm(paths.daemonInfo, { force: true })
       await new Promise<void>((resolve) => server.close(() => resolve()))
       await store.close()
-      await lock.release()
+      lock.release()
     },
   }
 }
