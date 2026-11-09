@@ -148,6 +148,8 @@ export {
   type AgentKind,
   agentKinds,
   type ConversationEntry,
+  type PermissionMode,
+  permissionModes,
   type Run,
   type RunProblem,
   type RunState,
@@ -207,10 +209,12 @@ export {
   type MoveTaskRequest,
   type Outcome,
   type OutcomeResult,
+  type PermissionAsk,
   type PostCommentRequest,
   type Priority,
   priorities,
   type ReportOutcomeRequest,
+  type ResumeTaskRequest,
   type SetActivityRequest,
   type SetPriorityRequest,
   type SetTaskLeadRequest,
@@ -238,4 +242,11 @@ export {
   type WriteBriefRequest,
 } from './task.ts'
 export { tedVersion } from './version.ts'
-export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'
+export type {
+  BoardStage,
+  FactoryBoard,
+  LayerKind,
+  LayerUse,
+  StageEntry,
+  WorkflowProblem,
+} from './workflow.ts'

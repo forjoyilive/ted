@@ -25,12 +25,15 @@ export function CommentBox({ task }: { task: Task }) {
   const typed = text.trim() !== ''
   const note = notes[state]
 
-  async function send() {
+  const resumes = state === 'stopped'
+
+  async function send(andResume = false) {
     if (!typed || sending) return
     setSending(true)
     setError(undefined)
     try {
-      await ted.postComment(task.id, text)
+      if (andResume) await ted.resumeTask(task.id, text)
+      else await ted.postComment(task.id, text)
       setText('')
     } catch (failed) {
       setError(readableError(failed))
@@ -50,7 +53,7 @@ export function CommentBox({ task }: { task: Task }) {
         onKeyDown={(event) => {
           if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
           event.preventDefault()
-          void send()
+          void send(resumes)
         }}
       />
       {error !== undefined && (
@@ -60,9 +63,18 @@ export function CommentBox({ task }: { task: Task }) {
       )}
       <div className={styles.buttons}>
         {note !== undefined && <Help>{note}</Help>}
-        <Button variant="primary" disabled={sending || !typed} onClick={() => void send()}>
+        <Button
+          variant={resumes ? 'secondary' : 'primary'}
+          disabled={sending || !typed}
+          onClick={() => void send()}
+        >
           {state === 'done' ? 'Comment only' : 'Send'}
         </Button>
+        {resumes && (
+          <Button variant="primary" disabled={sending || !typed} onClick={() => void send(true)}>
+            Send and resume
+          </Button>
+        )}
       </div>
     </div>
   )

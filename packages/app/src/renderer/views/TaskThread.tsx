@@ -25,6 +25,7 @@ import {
 } from '../components/RequestCard.tsx'
 import { RunChat, runMeta } from '../components/RunChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
+import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
   useCheckRuns,
@@ -34,6 +35,7 @@ import {
   useThreadEvents,
 } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
+import { runStatusAction, statusAction } from '../task-actions.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
@@ -278,6 +280,7 @@ export function TaskThread({
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
+  const headerAction = statusAction(task)
   const pin = (id: string) => setChosen({ from: requestId, id })
 
   return (
@@ -294,18 +297,21 @@ export function TaskThread({
         </div>
         <div className={styles.headerRow}>
           <h1 className={styles.taskTitle}>{task.title}</h1>
-          <TaskStatusChips task={task} onOpenTask={onOpenTask} />
-          {task.status?.kind === 'queued' && task.runs.length === 0 && task.repos.length === 0 && (
+          <TaskStatusChips task={task} onOpenTask={onOpenTask} detailed />
+          {(headerAction?.kind === 'resume' || headerAction?.kind === 'retry') && (
             <Button
               size="small"
-              variant="quiet"
+              variant="primary"
               onClick={() =>
-                void ted.moveToBacklog(task.id).catch((error: unknown) => console.error(error))
+                void runStatusAction(headerAction.kind, task).catch((error: unknown) =>
+                  console.error(error),
+                )
               }
             >
-              Move to Backlog
+              {headerAction.label}
             </Button>
           )}
+          <TaskActionsMenu task={task} />
         </div>
         <div className={styles.headerRow}>
           <StageTrack
@@ -322,7 +328,13 @@ export function TaskThread({
       </header>
       <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
       {shownRun !== undefined ? (
-        <RunChat key={shownRun} runId={shownRun} />
+        <RunChat
+          key={shownRun}
+          runId={shownRun}
+          onStopTask={() =>
+            void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
+          }
+        />
       ) : (
         <>
           {stage !== undefined && (
@@ -514,6 +526,14 @@ function RunsSection({ task, onOpenRun }: { task: Task; onOpenRun: (runId: strin
 
 function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
   const [error, setError] = useState<string>()
+  const [searchRequest, setSearchRequest] = useState(0)
+  useEffect(() => {
+    const onPick = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id) setSearchRequest((n) => n + 1)
+    }
+    window.addEventListener(pickBlockerEvent, onPick)
+    return () => window.removeEventListener(pickBlockerEvent, onPick)
+  }, [task.id])
   const blockers = task.blockedBy.flatMap((id) => tasks.filter((t) => t.id === id))
   const change = (request: Promise<Task>) => {
     setError(undefined)
@@ -525,6 +545,7 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
         tasks={tasks.filter((t) => t.id !== task.id)}
         blockers={blockers}
         menuAlign="end"
+        searchRequest={searchRequest}
         onAdd={(id) => change(ted.blockTask(task.id, id))}
         onRemove={(id) => change(ted.unblockTask(task.id, id))}
       />

@@ -18,6 +18,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  FactoryBoard,
   InboxItem,
   IntegrationsHealth,
   LinearLookup,
@@ -104,6 +105,10 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
+  resumeTask: (taskId: string, comment?: string) =>
+    window.ted.request('resumeTask', taskId, comment) as Promise<Task>,
+  openTaskSource: (taskId: string) => window.ted.request('openTaskSource', taskId) as Promise<void>,
   moveTask: (taskId: string, request: MoveTaskRequest) =>
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>
@@ -119,6 +124,8 @@ export const ted = {
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
+  factoryBoard: (factoryId: string) =>
+    window.ted.request('factoryBoard', factoryId) as Promise<FactoryBoard>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>

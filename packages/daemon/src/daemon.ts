@@ -44,6 +44,7 @@ export interface DaemonOptions {
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
+  nudgeAfterMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -202,6 +203,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
         ...(idle && { idle }),
+        ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
       })
       wake = () => tasks.wake()
       disk.start()

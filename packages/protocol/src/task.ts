@@ -81,7 +81,7 @@ export type TaskStatus =
   | { kind: 'waiting-on-you' }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
-  | { kind: 'stopped' }
+  | { kind: 'stopped'; at?: string }
   | { kind: 'blocked'; by: string }
   | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string }
@@ -219,6 +219,10 @@ export interface CreateTaskRequest {
   start?: boolean
 }
 
+export interface ResumeTaskRequest {
+  comment?: string
+}
+
 export interface BlockTaskRequest {
   by: string
 }
@@ -243,6 +247,9 @@ export type CommentAnswer =
   | { kind: 'answered'; at: string; choice?: string; text?: string }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'withdrawn'; at: string; runStopped: true }
+  | { kind: 'withdrawn'; at: string; cancelled: true }
+  | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
 export interface Comment {
@@ -256,9 +263,16 @@ export interface Comment {
   title?: string
   choices?: string[]
   gate?: { approveLabel: string; caption?: string }
+  permission?: PermissionAsk
   answer?: CommentAnswer
   delivered?: { runId: string; at: string }
   readAt?: string
+}
+
+export interface PermissionAsk {
+  command: string
+  details?: string
+  repo?: string
 }
 
 export type ThreadEventTone = 'edit' | 'done' | 'run' | 'failure' | 'quiet' | 'request'
@@ -282,6 +296,7 @@ export interface InboxItem {
 export type AnswerRequest =
   | { action: 'approve'; text?: string }
   | { action: 'request-changes'; text: string }
+  | { action: 'deny'; text?: string }
   | { action: 'answer'; choice?: string; text?: string }
 
 export interface PostCommentRequest {

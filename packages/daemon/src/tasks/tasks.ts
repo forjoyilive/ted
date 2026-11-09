@@ -10,6 +10,7 @@ import type {
   Comment,
   CommentAnswer,
   DaemonEvent,
+  FactoryBoard,
   InboxItem,
   LinearIssue,
   MoveTaskRequest,
@@ -51,7 +52,7 @@ import type {
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
-import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import { boardStages, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import {
   backStageMessage,
   nextStageMessage,
@@ -76,7 +77,7 @@ import {
   type PullRequestTask,
 } from './pull-requests.ts'
 import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
-import { threadEvents } from './thread.ts'
+import { nudgeMessage, threadEvents } from './thread.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -100,8 +101,11 @@ export interface CreateTaskInput
 export interface Tasks {
   create(input: CreateTaskInput): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
+  board(factoryId: string): Promise<FactoryBoard>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  stop(ref: string): Promise<Task>
+  resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
   archive(ref: string, options?: { closePullRequests?: boolean }): Task
@@ -150,6 +154,7 @@ export function createTasks(options: {
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
+  nudgeAfterMs?: number
 }): Tasks {
   const {
     store,
@@ -165,13 +170,15 @@ export function createTasks(options: {
   } = options
   const starting = new Set<string>()
   const relaunching = new Set<string>()
-  const heldPickUps = new Map<string, string>()
   const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
   const sendingComments = new Set<string>()
+  const stoppingByHand = new Set<string>()
+  const nudgeTimers = new Map<string, NodeJS.Timeout>()
+  const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -224,7 +231,10 @@ export function createTasks(options: {
     const all = store.listTasks()
     const holders = all.flatMap((task) => {
       const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
-      const settingUp = task.repos.some((r) => !r.removed && r.setup?.state === 'running')
+      const settingUp =
+        task.status?.kind !== 'stopped' &&
+        !task.statuses.includes('queued') &&
+        task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
       return slots > 0 ? [{ task, runs, settingUp, slots }] : []
     })
@@ -255,7 +265,7 @@ export function createTasks(options: {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
-      if (task.waitsForBlockers) return []
+      if (task.waitsForBlockers || task.stopped) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
@@ -701,6 +711,7 @@ export function createTasks(options: {
     const { run } = event
     setImmediate(() => {
       if (closed) return
+      watchIdle(run)
       askAboutModel(run)
       if (run.taskId !== undefined) {
         const taskId = run.taskId
@@ -812,20 +823,19 @@ export function createTasks(options: {
     setupReport?: string,
     { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
   ): Promise<void> {
-    if (find(task.id).archived) return
+    const current = find(task.id)
+    if (current.archived || current.stopped) return
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
-    const note = pickUp ?? (resumeSession === undefined ? heldPickUps.get(task.id) : undefined)
+    const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
     if (!(await health.ready(agent))) {
       store.holdTaskRun({
         taskId: task.id,
         agent,
         ...(resumeSession !== undefined && { sessionId: resumeSession }),
       })
-      if (note !== undefined) heldPickUps.set(task.id, note)
       return
     }
-    heldPickUps.delete(task.id)
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
     const prompt = [
@@ -842,6 +852,9 @@ export function createTasks(options: {
           ]
         : [continueMessage]),
       ...(since !== undefined ? [since] : []),
+      ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
+        ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
+        : []),
     ].join('\n\n')
     const run = await runs.start({
       agent,
@@ -849,6 +862,7 @@ export function createTasks(options: {
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
       ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
@@ -952,10 +966,11 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     repo: TaskRepo,
     setup: RecordedSetup,
+    pickUp?: string,
   ): Promise<void> {
     const release = hold(task.id)
     try {
-      await setUpThenLaunch(task, resolution, repo, setup)
+      await setUpThenLaunch(task, resolution, repo, setup, pickUp)
     } finally {
       release()
     }
@@ -966,7 +981,11 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     repo: TaskRepo,
     setup: RecordedSetup,
+    pickUp?: string,
   ): Promise<void> {
+    const before = find(task.id)
+    if (before.stopped || before.archived) return
+    if (store.queue().some((q) => q.id === task.id)) store.dequeue(task.id)
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
     const cancel = new AbortController()
@@ -978,7 +997,8 @@ export function createTasks(options: {
       log,
       signal: AbortSignal.any([stopping.signal, cancel.signal]),
     }).finally(() => settingUp.delete(task.id))
-    if (result.outcome === 'interrupted' || find(task.id).archived) return
+    const now = find(task.id)
+    if (result.outcome === 'interrupted' || now.archived || now.stopped) return
     store.worktreeSetupFinished(task.id, repo.name, {
       outcome: result.outcome,
       ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
@@ -987,7 +1007,9 @@ export function createTasks(options: {
       result.outcome === 'passed'
         ? undefined
         : setupFailure(setup.command, result, await outputTail(log))
-    await launch(find(task.id), resolution, repo, setup.env, report)
+    await launch(find(task.id), resolution, repo, setup.env, report, {
+      ...(pickUp !== undefined && { pickUp }),
+    })
   }
 
   async function resume(taskId: string): Promise<void> {
@@ -1004,7 +1026,13 @@ export function createTasks(options: {
     const repo = task.repos.find((r) => !r.removed)
     const held = store.heldRuns().find((h) => h.taskId === taskId)
     const leadLive = task.runs.some((r) => r.id === task.leadRunId)
-    if (!repo || task.archived || task.stage === 'backlog' || task.stage === 'done') {
+    if (
+      !repo ||
+      task.archived ||
+      task.stopped ||
+      task.stage === 'backlog' ||
+      task.stage === 'done'
+    ) {
       if (held) store.releaseTaskRun(taskId)
       return
     }
@@ -1106,6 +1134,44 @@ export function createTasks(options: {
     const answered = store.answerComment(comment.id, answer)
     if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
     return answered
+  }
+
+  async function answerPermission(
+    task: Task,
+    comment: Comment,
+    request: AnswerRequest,
+    text: string,
+  ): Promise<Comment> {
+    if (request.action !== 'approve' && request.action !== 'deny') {
+      throw new RequestError(400, 'answer a permission request with Approve or Deny')
+    }
+    const target = store.permissionTarget(comment.id)
+    if (!target) throw new RequestError(409, 'this request can’t be answered')
+    return holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (store.getRun(target.runId)?.state === 'finished') {
+        throw new RequestError(409, 'the Run that asked has stopped')
+      }
+      const approved = request.action === 'approve'
+      const at = new Date().toISOString()
+      const answered = store.answerPermission(comment.id, {
+        kind: approved ? 'approved' : 'denied',
+        at,
+        ...(text !== '' && { text }),
+      })
+      const said = permissionMessage(approved, target.command, text)
+      await runs.answerPermission(target.runId, target.generation, {
+        requestId: target.requestId,
+        approved,
+        ...(target.input !== undefined && { input: target.input }),
+        ...(said !== undefined && { text: said }),
+      })
+      return answered
+    })
   }
 
   function visitStart(task: Task): string {
@@ -1229,10 +1295,14 @@ export function createTasks(options: {
     const repo = task.repos.find((r) => !r.removed)
     if (repo) {
       const resolution = await resolveWorkflow(factory, { fetch: false })
-      const env =
-        store.recordedSetup(task.id, repo.name)?.env ??
-        primaryRepoWorktree(resolution.workflow, factory).env
-      await launch(find(task.id), resolution, repo, env, undefined, { pickUp: pickUpNote(task) })
+      const recorded = store.recordedSetup(task.id, repo.name)
+      const pickUp = freshRunNote(task)
+      if (recorded && repo.setup?.state === 'running') {
+        await setUpAndLaunch(find(task.id), resolution, repo, recorded, pickUp)
+      } else {
+        const env = recorded?.env ?? primaryRepoWorktree(resolution.workflow, factory).env
+        await launch(find(task.id), resolution, repo, env, undefined, { pickUp })
+      }
       store.dequeue(task.id)
       return
     }
@@ -1290,11 +1360,43 @@ export function createTasks(options: {
     }
   }
 
-  function pickUpNote(task: StoredTask): string {
+  function pendingPickUp(task: StoredTask): string | undefined {
+    const log = store.taskLog(task.id)
+    const asked = log.findLastIndex(
+      (e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers',
+    )
+    const started = log.findLastIndex(
+      (e) => e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted',
+    )
+    return asked > started ? freshRunNote(task) : undefined
+  }
+
+  function movedByApproval(task: StoredTask, answers: readonly Comment[]): boolean {
+    if (task.stage === 'backlog' || task.stage === 'done') return false
+    return answers.some((c) => c.gate && c.answer?.kind === 'approved' && c.stage !== task.stage)
+  }
+
+  function freshRunNote(task: StoredTask): string {
+    const last = store
+      .taskLog(task.id)
+      .findLast((e) => e.name === 'v1.TaskResumed' || e.name === 'v1.TaskRequeuedAfterBlockers')
+    if (last?.name === 'v1.TaskResumed') {
+      return fromTheBrief(task, {
+        heading: 'Picking up after a stop',
+        why: 'The human stopped this Task and has now resumed it.',
+      })
+    }
     const merged = store
       .blockers(task.id)
       .filter((b) => b.merged)
       .map((b) => b.displayId)
+    return fromTheBrief(task, {
+      heading: 'Picking up after a blocker',
+      why: `This Task waited for ${joinIds(merged)}, which ${merged.length === 1 ? 'has' : 'have'} merged.`,
+    })
+  }
+
+  function fromTheBrief(task: StoredTask, { heading, why }: { heading: string; why: string }) {
     const brief = store.latestBrief(task.id)
     const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
     const notes = store
@@ -1305,8 +1407,8 @@ export function createTasks(options: {
         (c) => `- ${authors[c.author.kind]}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`,
       )
     return [
-      '# Picking up after a blocker',
-      `This Task waited for ${joinIds(merged)}, which ${merged.length === 1 ? 'has' : 'have'} merged. An earlier Run worked on it in this worktree and stopped to wait. Read the Task brief, the Comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
+      `# ${heading}`,
+      `${why} An earlier Run worked on it in this worktree and has stopped. Read the Task brief, the Comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
       ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
       ...(notes.length > 0
         ? [`## ${brief ? 'Comments since the brief' : 'Comments'}\n\n${notes.join('\n')}`]
@@ -1363,7 +1465,7 @@ export function createTasks(options: {
     for (const { id } of store.listTasks()) {
       const task = store.getTask(id)
       if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
-      if (task.archived) continue
+      if (task.archived || task.stopped) continue
       if (unmergedBlockers(id).length > 0) continue
       if (task.stage === 'backlog' && task.startRequested) {
         inBackground(`start ${task.displayId}`, async () => {
@@ -1404,7 +1506,8 @@ export function createTasks(options: {
     const [checked] = await health.check([run.agent])
     if (checked?.state === 'ready') return
     const now = store.getTask(task.id)
-    if (!now || now.leadRunId !== run.id || now.stage === 'done' || now.waitsForBlockers) return
+    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
+    if (now.waitsForBlockers || now.stopped) return
     store.holdTaskRun({
       taskId: task.id,
       agent: run.agent,
@@ -1412,12 +1515,145 @@ export function createTasks(options: {
     })
   }
 
+  async function stopByHand(ref: string): Promise<Task> {
+    const task = live(ref)
+    if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+    const started =
+      task.stage !== 'backlog' &&
+      (task.leadRunId !== undefined || task.repos.length > 0 || beginning.has(task.id))
+    if (!started) {
+      throw new RequestError(409, `${task.displayId} hasn’t started, so there’s nothing to stop`)
+    }
+    if (task.stopped || stoppingByHand.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} is already stopped`)
+    }
+    stoppingByHand.add(task.id)
+    try {
+      if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
+      store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
+      settingUp.get(task.id)?.abort()
+      await beginning.get(task.id)?.catch(() => undefined)
+      settingUp.get(task.id)?.abort()
+      await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
+      closeIdleQuestion(task.id, 'The Task was stopped.')
+    } finally {
+      stoppingByHand.delete(task.id)
+    }
+    void pump()
+    return publicTask(task.id)
+  }
+
+  async function resumeByHand(ref: string, { comment }: { comment?: string } = {}): Promise<Task> {
+    const task = live(ref)
+    if (!task.stopped && task.status?.kind !== 'failed') {
+      throw new RequestError(409, `${task.displayId} isn’t stopped`)
+    }
+    if (stoppingByHand.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} is still stopping; try again`)
+    }
+    const text = comment?.trim() ?? ''
+    if (text !== '') store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
+    store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
+    await pump()
+    return publicTask(task.id)
+  }
+
+  function watchIdle(run: Run): void {
+    const timer = nudgeTimers.get(run.id)
+    if (run.state !== 'idle') {
+      if (timer) clearTimeout(timer)
+      nudgeTimers.delete(run.id)
+      if (run.state === 'working' && run.taskId !== undefined) {
+        if (store.getTask(run.taskId)?.leadRunId === run.id) {
+          closeIdleQuestion(run.taskId, 'The Task Lead carried on.')
+        }
+      }
+      return
+    }
+    if (timer || run.taskId === undefined) return
+    const next = setTimeout(() => {
+      nudgeTimers.delete(run.id)
+      if (!closed) inBackground('nudge the Task Lead', () => nudgeIfIdle(run.id))
+    }, nudgeAfterMs)
+    next.unref()
+    nudgeTimers.set(run.id, next)
+  }
+
+  async function nudgeIfIdle(runId: string): Promise<void> {
+    const run = store.getRun(runId)
+    if (run?.state !== 'idle' || run.problem !== undefined || run.taskId === undefined) return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
+    if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) return
+    if (store.heldRuns().some((h) => h.taskId === task.id)) return
+    if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
+    if (openRequests(task.id).length > 0) return
+    const nudged = store
+      .taskLog(task.id)
+      .findLast((e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === run.id)?.at
+    if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
+    else askAboutIdle(task, run)
+  }
+
+  function heardSince(task: StoredTask, at: string): boolean {
+    const comments = store.listComments(task.id)
+    return (
+      store.listStageEntries(task.id).some((e) => e.at > at) ||
+      comments.some((c) => c.author.kind === 'human' && c.createdAt > at) ||
+      comments.some((c) => c.answer !== undefined && c.answer.at > at)
+    )
+  }
+
+  async function sendNudge(task: Task, run: Run): Promise<void> {
+    await runs.send(run.id, nudgeMessage)
+    store.leadNudged(task.id, run.id)
+  }
+
+  function askAboutIdle(task: StoredTask, run: Run): void {
+    const agent = agents.get(run.agent)
+    const said = store
+      .conversation(run.id)
+      .map(({ line }) => agent.agentTextFrom(line))
+      .findLast((text) => text !== undefined && text.trim() !== '')
+    const quoted = said === undefined ? undefined : oneLine(said, 500)
+    store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: idleTitle,
+      body:
+        quoted === undefined
+          ? 'It went idle again after the nudge, with nothing open, and wrote no message.'
+          : `It went idle again after the nudge, with nothing open. Its last message:\n\n> ${quoted}`,
+      choices: [nudgeAgainChoice],
+    })
+  }
+
+  function openRequests(taskId: string): Comment[] {
+    return store.listComments(taskId).filter((c) => c.kind !== 'note' && c.answer === undefined)
+  }
+
+  function closeIdleQuestion(taskId: string, text: string): void {
+    for (const question of openRequests(taskId).filter(isIdleQuestion)) {
+      store.answerComment(question.id, { kind: 'answered', at: new Date().toISOString(), text })
+    }
+  }
+
   runs.observe({
     authFailed(run) {
       if (run.state !== 'finished') interrupted.add(run.id)
       health.authFailed(run.agent)
     },
-    accepted: markAccepted,
+    accepted(run, texts) {
+      markAccepted(run, texts)
+      const timer = nudgeTimers.get(run.id)
+      if (timer) clearTimeout(timer)
+      nudgeTimers.delete(run.id)
+      setImmediate(() => {
+        const now = store.getRun(run.id)
+        if (now && !closed) watchIdle(now)
+      })
+    },
     finished(run) {
       interrupted.delete(run.id)
       inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
@@ -1460,6 +1696,10 @@ export function createTasks(options: {
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
+  }
+
+  for (const run of store.listRuns()) {
+    if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
 
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
@@ -1557,7 +1797,16 @@ export function createTasks(options: {
       }
     },
 
+    async board(factoryId) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      return { stages: boardStages(resolution.workflow) }
+    },
+
     start,
+    stop: stopByHand,
+    resume: resumeByHand,
 
     moveToBacklog(ref) {
       const task = find(ref)
@@ -1659,7 +1908,7 @@ export function createTasks(options: {
         if (current.stage === 'backlog' && current.startRequested) {
           store.setStartRequested(task.id, false)
         } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
-          store.requeueAfterBlockers(task.id)
+          store.stopTask(task.id, { runs: 0, why: 'blockers-removed' })
         }
       }
       return publicTask(task.id)
@@ -1771,6 +2020,7 @@ export function createTasks(options: {
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
       const text = request.text?.trim() ?? ''
+      if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
       if (comment.gate) {
         if (request.action === 'request-changes') {
           if (text === '') throw new RequestError(400, 'Request changes needs your comment')
@@ -1818,7 +2068,7 @@ export function createTasks(options: {
             at,
             ...(text !== '' && { text }),
           })
-          if (text !== '' && !liveLead(now)) store.holdAnswer(comment.id)
+          if (!liveLead(now)) store.holdAnswer(comment.id)
           const approved =
             text === ''
               ? `The human approved the ${gateName(comment)}.`
@@ -1834,6 +2084,12 @@ export function createTasks(options: {
           return answered
         }
         const choice = request.choice
+        if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
+          const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
+          const run = liveLead(find(task.id))
+          if (run) await sendNudge(task, run)
+          return answered
+        }
         const aboutModel = [...asked.values()].includes(comment.id)
         if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
         const answered = answerRequest(task, comment, {
@@ -2056,6 +2312,8 @@ export function createTasks(options: {
 
     async close() {
       closed = true
+      for (const timer of nudgeTimers.values()) clearTimeout(timer)
+      nudgeTimers.clear()
       unsubscribe()
       stopPumping()
       await pumping
@@ -2066,6 +2324,14 @@ export function createTasks(options: {
 }
 
 const skippableStages: readonly StageId[] = ['clarify', 'design']
+const idleTitle = 'The Task Lead stopped without saying why'
+const nudgeAgainChoice = 'Nudge again'
+
+function isIdleQuestion(comment: Comment): boolean {
+  return (
+    comment.author.kind === 'ted' && comment.title === idleTitle && comment.answer === undefined
+  )
+}
 const useDefaultChoice = 'Use the default model'
 
 function latest(a: string, b: string): string {
@@ -2131,6 +2397,17 @@ function briefGoal(text: string): string | undefined {
 const continueMessage =
   'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
 
+function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
+  if (approved) {
+    return text === ''
+      ? undefined
+      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
+  }
+  return text === ''
+    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
+    : `The human denied this request and said:\n\n${text}`
+}
+
 function humanMessage(body: string): string {
   return `The human posted a Comment on this Task:\n\n${body}`
 }
@@ -2143,7 +2420,7 @@ function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
   if (answer.kind === 'approved')
-    return answer.text === undefined ? undefined : `approved, adding: ${answer.text}`
+    return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
   if (answer.kind === 'answered') {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
@@ -2165,9 +2442,9 @@ function joinIds(ids: readonly string[]): string {
   return `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
 }
 
-function oneLine(text: string): string {
+function oneLine(text: string, max = 200): string {
   const line = text.replace(/\s+/g, ' ').trim()
-  return line.length > 200 ? `${line.slice(0, 199)}…` : line
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
 function setupFailure(command: string, result: CommandResult, output: string): string {

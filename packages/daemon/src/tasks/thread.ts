@@ -8,6 +8,8 @@ export interface ThreadContext {
   waitingFor: readonly string[]
 }
 
+export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
+
 const agentNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
 
 const skipReasons: Record<CopySkip['reason'], string> = {
@@ -118,6 +120,27 @@ export function threadEvents(
       case 'v1.TaskRequeuedAfterBlockers':
         add(entry, 'run', 'Blockers merged · Task queued to carry on')
         break
+      case 'v1.TaskStopped': {
+        if (data.why === 'blockers-removed') {
+          add(entry, 'quiet', 'Blockers removed · resume the Task to carry on')
+          break
+        }
+        const runs = typeof data.runs === 'number' ? data.runs : 0
+        add(
+          entry,
+          'edit',
+          runs === 0
+            ? 'You stopped the Task'
+            : `You stopped the Task · ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped`,
+        )
+        break
+      }
+      case 'v1.TaskResumed':
+        add(entry, 'run', 'You resumed the Task')
+        break
+      case 'v1.TaskLeadNudged':
+        add(entry, 'run', `TED nudged the Task Lead: “${nudgeMessage}”`)
+        break
       case 'v1.TaskSentBack':
         sentBackTo = text(data.to)
         add(
@@ -208,6 +231,13 @@ export function threadEvents(
           entry,
           'quiet',
           `Paused · ${agentNames[text(data.agent)] ?? text(data.agent)} can’t run right now`,
+        )
+        break
+      case 'v1.RunAutoModeUnavailable':
+        add(
+          entry,
+          'quiet',
+          'Claude Code’s auto mode isn’t available, so every permission prompt comes to you',
         )
         break
       case 'v1.RunMessageSent':

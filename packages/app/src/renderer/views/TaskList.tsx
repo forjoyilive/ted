@@ -129,7 +129,7 @@ function usePopover(open: boolean, close: () => void) {
   return ref
 }
 
-function MenuButton({
+export function MenuButton({
   label,
   icon,
   badge,
@@ -244,17 +244,19 @@ function RadioItem({
   )
 }
 
-function FilterMenu({
+export function FilterMenu({
   filters,
   tasks,
   factories,
   allTasks,
+  board = false,
   onChange,
 }: {
   filters: ListFilters
   tasks: readonly Task[]
   factories: readonly Factory[]
   allTasks: boolean
+  board?: boolean
   onChange: (filters: ListFilters) => void
 }) {
   const count = (keep: (filters: ListFilters) => ListFilters) =>
@@ -279,17 +281,19 @@ function FilterMenu({
           ))}
         </Submenu>
       )}
-      <Submenu label="Stage">
-        {stageOrder.map((stage) => (
-          <CheckItem
-            key={stage}
-            label={stageName(stage)}
-            checked={filters.stages?.includes(stage) ?? false}
-            count={count((c) => ({ ...c, stages: [stage] }))}
-            onChange={() => set('stages', toggled(filters.stages, stage))}
-          />
-        ))}
-      </Submenu>
+      {!board && (
+        <Submenu label="Stage">
+          {stageOrder.map((stage) => (
+            <CheckItem
+              key={stage}
+              label={stageName(stage)}
+              checked={filters.stages?.includes(stage) ?? false}
+              count={count((c) => ({ ...c, stages: [stage] }))}
+              onChange={() => set('stages', toggled(filters.stages, stage))}
+            />
+          ))}
+        </Submenu>
+      )}
       <Submenu label="Status">
         {statusFilterOrder.map((status: StatusFilter) => (
           <CheckItem
@@ -332,25 +336,29 @@ function FilterMenu({
           onChange(filters.needsPlanning ? rest : { ...rest, needsPlanning: true })
         }}
       />
-      <div className={styles.menuDivider} />
-      <div className={styles.menuHeading}>Archived</div>
-      <fieldset className={styles.segments} aria-label="Archived">
-        {archivedFilters.map((value: ArchivedFilter) => (
-          <button
-            key={value}
-            type="button"
-            role="menuitemradio"
-            aria-checked={(filters.archived ?? 'hidden') === value}
-            className={styles.segment}
-            onClick={() => {
-              const { archived: _, ...rest } = filters
-              onChange(value === 'hidden' ? rest : { ...rest, archived: value })
-            }}
-          >
-            {value.charAt(0).toUpperCase() + value.slice(1)}
-          </button>
-        ))}
-      </fieldset>
+      {!board && (
+        <>
+          <div className={styles.menuDivider} />
+          <div className={styles.menuHeading}>Archived</div>
+          <fieldset className={styles.segments} aria-label="Archived">
+            {archivedFilters.map((value: ArchivedFilter) => (
+              <button
+                key={value}
+                type="button"
+                role="menuitemradio"
+                aria-checked={(filters.archived ?? 'hidden') === value}
+                className={styles.segment}
+                onClick={() => {
+                  const { archived: _, ...rest } = filters
+                  onChange(value === 'hidden' ? rest : { ...rest, archived: value })
+                }}
+              >
+                {value.charAt(0).toUpperCase() + value.slice(1)}
+              </button>
+            ))}
+          </fieldset>
+        </>
+      )}
     </>
   )
 }
@@ -398,7 +406,7 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
   )
 }
 
-function FilterIcon() {
+export function FilterIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
       <path

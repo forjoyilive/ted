@@ -13,6 +13,7 @@ import {
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
+  type ResumeTaskRequest,
   type RunChecksRequest,
   type SetActivityRequest,
   type TaskLead,
@@ -53,6 +54,23 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/stop$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.stop(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/resume$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<ResumeTaskRequest> | null
+      const comment = body?.comment
+      if (comment !== undefined && typeof comment !== 'string') {
+        throw new HttpError(400, 'comment must be text')
+      }
+      return [200, await tasks.resume(ref, { ...(comment !== undefined && { comment }) })]
+    },
   },
   {
     method: 'POST',
@@ -292,6 +310,11 @@ export const taskRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/task-defaults$/,
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.defaults(id)],
   },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/board$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.board(id)],
+  },
 ]
 
 function agentChoice(body: unknown): TaskLead {
@@ -464,6 +487,9 @@ function answerRequest(body: unknown): AnswerRequest {
   if (request.action === 'request-changes') {
     return { action: 'request-changes', text: text ?? '' }
   }
+  if (request.action === 'deny') {
+    return { action: 'deny', ...(text !== undefined && { text }) }
+  }
   if (request.action === 'answer') {
     if (request.choice !== undefined && typeof request.choice !== 'string') {
       throw new HttpError(400, 'choice must be a string')
@@ -474,7 +500,7 @@ function answerRequest(body: unknown): AnswerRequest {
       ...(text !== undefined && { text }),
     }
   }
-  throw new HttpError(400, 'action must be approve, request-changes or answer')
+  throw new HttpError(400, 'action must be approve, request-changes, deny or answer')
 }
 
 function oneLine(text: string): string {

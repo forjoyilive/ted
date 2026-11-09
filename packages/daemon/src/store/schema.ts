@@ -51,6 +51,9 @@ export const tasks = State.SQLite.table({
     rank: State.SQLite.real({ nullable: true }),
     changedAt: State.SQLite.text({ nullable: true }),
     archivedAt: State.SQLite.text({ nullable: true }),
+    stoppedAt: State.SQLite.text({ nullable: true }),
+    stoppedRuns: State.SQLite.integer({ nullable: true }),
+    stoppedWhy: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -111,6 +114,8 @@ export const runs = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     usesDefaultModel: State.SQLite.boolean({ default: false }),
     problem: State.SQLite.text({ nullable: true }),
+    permissions: State.SQLite.text({ default: 'auto' }),
+    manualPermissions: State.SQLite.boolean({ default: false }),
     prompt: State.SQLite.text(),
     cwd: State.SQLite.text(),
     taskId: State.SQLite.text({ nullable: true }),
@@ -164,6 +169,7 @@ export const comments = State.SQLite.table({
     title: State.SQLite.text({ nullable: true }),
     choices: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
+    permission: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     deliveredRunId: State.SQLite.text({ nullable: true }),
     deliveredAt: State.SQLite.text({ nullable: true }),
@@ -491,6 +497,23 @@ export const events = {
   taskRequeuedAfterBlockers: Events.synced({
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskStopped: Events.synced({
+    name: 'v1.TaskStopped',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      runs: Schema.Number,
+      why: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskResumed: Events.synced({
+    name: 'v1.TaskResumed',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
+  }),
+  taskLeadNudged: Events.synced({
+    name: 'v1.TaskLeadNudged',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
@@ -924,6 +947,36 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runPermissionsSet: Events.synced({
+    name: 'v1.RunPermissionsSet',
+    schema: Schema.Struct({ runId: Schema.String, permissions: Schema.String, at: Schema.String }),
+  }),
+  runAutoModeUnavailable: Events.synced({
+    name: 'v1.RunAutoModeUnavailable',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  permissionRequested: Events.synced({
+    name: 'v1.PermissionRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      runId: Schema.String,
+      requestId: Schema.String,
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.String,
+      body: Schema.String,
+      command: Schema.String,
+      details: Schema.NullOr(Schema.String),
+      generation: Schema.Number,
+      repo: Schema.NullOr(Schema.String),
+      input: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
   runOutputReadV2: Events.synced({
     name: 'v2.RunOutputRead',
     schema: Schema.Struct({
@@ -995,6 +1048,9 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
+  'v1.TaskResumed': (args) => task(args),
+  'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
@@ -1028,6 +1084,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.TaskRunReleased': (args) => task(args),
+  'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
   'v1.RunMessageSent': (args) => ({
     taskId: args.lead === true ? str(args.taskId) : null,
     at: String(args.at),
@@ -1124,6 +1181,26 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],
+      'v1.TaskStopped': ({ taskId, runs, why, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks
+          .update({
+            stoppedAt: at,
+            stoppedRuns: runs,
+            stoppedWhy: why,
+            waitsForBlockers: false,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskResumed': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskLeadNudged': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -1219,6 +1296,34 @@ const materializers = counted(
       'v1.ConversationTabClosed': ({ taskId, runId }) =>
         conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
       'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+      'v1.RunPermissionsSet': ({ runId, permissions }) =>
+        runs.update({ permissions }).where({ id: runId }),
+      'v1.RunAutoModeUnavailable': ({ runId }) =>
+        runs.update({ manualPermissions: true }).where({ id: runId }),
+      'v1.PermissionRequested': ({
+        runId,
+        requestId,
+        generation,
+        command,
+        details,
+        repo,
+        input,
+        ...comment
+      }) =>
+        comments.insert({
+          ...comment,
+          kind: 'permission',
+          authorKind: 'run',
+          authorRunId: runId,
+          permission: JSON.stringify({
+            requestId,
+            generation,
+            command,
+            ...(details !== null && { details }),
+            ...(repo !== null && { repo }),
+            ...(input !== null && { input }),
+          }),
+        }),
       'v1.RunSessionIdentified': ({ runId, sessionId }) =>
         runs.update({ sessionId }).where({ id: runId }),
       'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
