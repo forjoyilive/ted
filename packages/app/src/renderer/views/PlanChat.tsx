@@ -715,7 +715,13 @@ function PlanChat({
               bar: false,
               extra: extraItems(detail, onOpenTask),
               ...(open && {
-                pinned: <PinnedCard request={open} onAnswered={() => setAnswered((n) => n + 1)} />,
+                pinned: (
+                  <PinnedCard
+                    key={open.id}
+                    request={open}
+                    onAnswered={() => setAnswered((n) => n + 1)}
+                  />
+                ),
               }),
               placeholder: 'Message the planner…',
               help: 'Goes to the planner. While a round is open, this talks it through.',
