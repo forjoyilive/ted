@@ -292,8 +292,6 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }
     if (firing.state !== 'queued') return
     try {
-      const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
-        ?.workflow.settings
       const cwd = path.join(options.home, 'automations', automation.id)
       await mkdir(cwd, { recursive: true, mode: 0o700 })
       const prompt = runPrompt(automation, factory, firing)
@@ -304,7 +302,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         prompt,
         cwd,
         name: automation.name,
-        permissions: settings?.permissions === 'bypass' ? 'bypass' : 'auto',
+        permissions: 'auto',
         env,
         ...(automation.model !== undefined && { model: automation.model }),
         ...(automation.effort !== undefined && { effort: automation.effort }),

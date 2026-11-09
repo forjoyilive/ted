@@ -17,10 +17,12 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   assistantTexts,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -53,6 +55,7 @@ async function startTed(options: { addFactory?: boolean } = {}) {
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     automations: { now: () => clock, checkEveryMs: 50 },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
   })
@@ -472,6 +475,38 @@ describe('Automations', () => {
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
+})
+
+test('Automation Runs use auto permissions even when the Factory is set to bypass', async () => {
+  await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\npermissions: bypass\n' })
+  const client = await startTed()
+  for (const agent of ['claude', 'codex'] as const) {
+    const automation = await create(client, { name: `Intake ${agent}`, agent })
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.runId !== undefined,
+      'the Run to start',
+    )
+    const { run } = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    expect(run.permissions).toBe('auto')
+    const { argv } = await waitUntil(
+      () =>
+        readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')
+          .then((s) => JSON.parse(s) as { argv: string[] })
+          .catch(() => undefined),
+      `the ${agent} stub to start`,
+    )
+    if (agent === 'claude') {
+      expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    } else {
+      expect(argv).toEqual(
+        expect.arrayContaining(['sandbox_mode="workspace-write"', 'approval_policy="on-request"']),
+      )
+      expect(argv.join(' ')).not.toContain('danger-full-access')
+    }
+  }
 })
 
 test('removing a Factory deletes its Automations and stops their Runs', async () => {
