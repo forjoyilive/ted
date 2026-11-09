@@ -64,7 +64,7 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
 }
 
 async function openAutomations(window: Page) {
-  await window.keyboard.press('Meta+1')
+  await openFirstFactory(window)
   await sidebar(window)
     .getByRole('button', { name: /^Automations/ })
     .click()
@@ -72,6 +72,18 @@ async function openAutomations(window: Page) {
 }
 
 const history = (ted: DaemonClient, id: string): Promise<AutomationDetail> => ted.getAutomation(id)
+
+async function openFirstFactory(window: Page) {
+  const entry = sidebar(window)
+    .getByRole('button', { name: /^(Automations|Plans)/ })
+    .first()
+  for (let tries = 0; tries < 30; tries++) {
+    await window.keyboard.press('Meta+1')
+    if (await entry.isVisible()) return
+    await window.waitForTimeout(500)
+  }
+  await entry.waitFor()
+}
 
 describe('Automations in the app', () => {
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {

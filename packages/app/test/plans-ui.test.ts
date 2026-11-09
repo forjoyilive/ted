@@ -59,6 +59,18 @@ async function json(name: string, body: unknown): Promise<string> {
   return at
 }
 
+async function openFirstFactory(window: Page) {
+  const entry = sidebar(window)
+    .getByRole('button', { name: /^(Automations|Plans)/ })
+    .first()
+  for (let tries = 0; tries < 30; tries++) {
+    await window.keyboard.press('Meta+1')
+    if (await entry.isVisible()) return
+    await window.waitForTimeout(500)
+  }
+  await entry.waitFor()
+}
+
 describe('Planning chats', () => {
   test('Plan opens a new chat; a round and a proposal pin above the box, show in the Inbox, and Create Tasks finishes it', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
@@ -84,7 +96,7 @@ describe('Planning chats', () => {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
     const window = await app.firstWindow()
     await sidebar(window).waitFor()
-    await window.keyboard.press('Meta+1')
+    await openFirstFactory(window)
     await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
@@ -167,7 +179,7 @@ describe('Planning chats', () => {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
     const window = await app.firstWindow()
     await sidebar(window).waitFor()
-    await window.keyboard.press('Meta+1')
+    await openFirstFactory(window)
     await sidebar(window)
       .getByRole('button', { name: /^Plans/ })
       .click()
