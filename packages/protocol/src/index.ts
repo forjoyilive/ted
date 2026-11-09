@@ -90,6 +90,19 @@ export {
   type RunFixRequest,
   type RunFixResult,
 } from './integrations.ts'
+export {
+  findLinearUrl,
+  type LinearIssue,
+  type LinearKeyPlace,
+  type LinearKeyState,
+  type LinearLookup,
+  type LinearLookupRequest,
+  type LinearStatus,
+  type LinearUrl,
+  linearKeyPage,
+  parseLinearUrl,
+  type SaveLinearKeyRequest,
+} from './linear.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
@@ -114,6 +127,18 @@ export {
   workingRunLimits,
 } from './settings.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
+export {
+  diskFullHold,
+  diskLimits,
+  formatBytes,
+  type RemoveClonesResult,
+  type StorageCategory,
+  type StorageCategoryId,
+  type StorageSummary,
+  type StoredBackup,
+  storageCategories,
+  type WorktreeUse,
+} from './storage.ts'
 export {
   type AgentStageId,
   type AnswerRequest,
@@ -151,6 +176,7 @@ export {
   type TaskMarker,
   type TaskRepo,
   type TaskRun,
+  type TaskSource,
   type TaskStatus,
   type ThreadEvent,
   type ThreadEventTone,

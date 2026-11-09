@@ -43,9 +43,11 @@ import type { Attachments } from './attachments.ts'
 import type { CommandLine } from './command-line.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
+import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
+import type { Linear } from './linear/linear.ts'
 import { readProfile } from './profile.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunTokens } from './run-token.ts'
@@ -60,6 +62,7 @@ export interface BaseOptions {
   agents: Agents
   runTokens: RunTokens
   attachments: Attachments
+  linear: Linear
   reposDir: string
   appStreams: Set<http.ServerResponse>
   onShutdown: () => void
@@ -487,6 +490,42 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/integrations\/linear$/,
+    handle: async (_, { linear }) => [200, await linear.status()],
+  },
+  {
+    method: 'PUT',
+    path: /^\/integrations\/linear\/key$/,
+    async handle({ req }, { linear }) {
+      const body = (await readJson(req)) as Partial<Record<'key' | 'inFile', unknown>> | null
+      if (typeof body?.key !== 'string') throw new HttpError(400, 'key must be text')
+      if (body.inFile !== undefined && typeof body.inFile !== 'boolean') {
+        throw new HttpError(400, 'inFile must be true or false')
+      }
+      return [200, await linear.save({ key: body.key, inFile: body.inFile === true })]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/integrations\/linear\/key$/,
+    handle: async (_, { linear }) => [200, await linear.remove()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/linear\/test$/,
+    handle: async (_, { linear }) => [200, await linear.test()],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/linear\/lookup$/,
+    async handle({ req }, { linear }) {
+      const body = (await readJson(req)) as Partial<Record<'url', unknown>> | null
+      if (typeof body?.url !== 'string') throw new HttpError(400, 'url must be text')
+      return [200, await linear.lookup(body.url)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/dev\/factories$/,
     async handle({ req }, { store, reposDir, workflows, factories }) {
@@ -504,9 +543,20 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/storage$/,
+    handle: async (_, { storage }) => [200, await storage.summary()],
+  },
+  {
+    method: 'POST',
+    path: /^\/storage\/remove-clones$/,
+    handle: async (_, { storage }) => [200, await storage.removeUnusedClones()],
+  },
+  {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ req }, { runs, agents }) {
+    async handle({ req }, { runs, agents, disk }) {
+      if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
       const body = (await readJson(req)) as Partial<StartDevRunRequest> | null
       const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
       const cwd = typeof body?.cwd === 'string' ? body.cwd : ''
@@ -535,6 +585,7 @@ export async function listen(options: BaseOptions): Promise<{ server: http.Serve
     options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
+      if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
       console.error(
         redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
       )
@@ -573,6 +624,9 @@ async function handle(
   const route = find(routes, req, url, caller)
   if (!route) throw new HttpError(404, 'not found')
   const services = await options.data.services()
+  if (services.disk.cantSave() && req.method !== 'GET' && !url.startsWith('/storage/')) {
+    throw new HttpError(507, cantSaveMessage)
+  }
   const reply = await route.route.handle(context(route.params), { ...options, ...services })
   if (reply) sendJson(res, ...reply)
 
@@ -690,7 +744,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'a Task must be an object')
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
-  const text = (name: 'title' | 'description' | 'factory') => {
+  const text = (name: 'title' | 'description' | 'factory' | 'source') => {
     const value = request[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
@@ -711,6 +765,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const title = text('title')
   const description = text('description')
   const factory = text('factory')
+  const source = sourceUrl(text('source'))
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
   const lead = taskLead(request.lead)
@@ -743,6 +798,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(lead !== undefined && { lead }),
     ...(blockedBy !== undefined && { blockedBy }),
     ...(attached.length > 0 && { attachments: attached }),
+    ...(source !== undefined && { source }),
     ...(request.start !== undefined && { start: request.start }),
   }
 
@@ -764,6 +820,21 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
       ...(level !== undefined && { effort: level }),
     }
   }
+}
+
+function sourceUrl(text: string | undefined): string | undefined {
+  if (text === undefined || text.trim() === '') return undefined
+  const trimmed = text.trim()
+  const parsed = URL.canParse(trimmed) ? new URL(trimmed) : undefined
+  if (
+    !parsed ||
+    (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') ||
+    trimmed.length > 2048 ||
+    /\s/.test(trimmed)
+  ) {
+    throw new HttpError(400, 'source must be a web address starting with https://')
+  }
+  return trimmed
 }
 
 const maxChoices = 6
@@ -887,10 +958,16 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
-  showTrayIcon(value) {
-    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
+  showTrayIcon: onOff('showTrayIcon'),
+  startAtLogin: onOff('startAtLogin'),
+  stayAwake: onOff('stayAwake'),
+}
+
+function onOff(name: keyof MachineSettings): (value: unknown) => boolean {
+  return (value) => {
+    if (typeof value !== 'boolean') throw new HttpError(400, `${name} must be true or false`)
     return value
-  },
+  }
 }
 
 function repoSource(given: unknown): RepoSource {

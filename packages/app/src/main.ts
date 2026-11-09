@@ -23,11 +23,13 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  linearKeyPage,
   type MachineSettings,
   noActivity,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
+  tedPaths,
   tedVersion,
 } from '@ted/protocol'
 import {
@@ -60,9 +62,17 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import {
+  createLoginItem,
+  type LoginItem,
+  recordLoginItem,
+  startsInBackground,
+} from './login-item.ts'
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
+
+const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
@@ -139,6 +149,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
     return { path: `${shown}${path.sep}`, platform: process.platform }
   },
+  getStorage: (client) => client.getStorage(),
+  removeUnusedClones: (client) => client.removeUnusedClones(),
+  showBackupInFolder: async (_, name) => {
+    const backup = String(name)
+    if (!backupName.test(backup)) throw new Error('no such backup')
+    shell.showItemInFolder(path.join(tedPaths(tedHome()).backups, backup))
+  },
   showTedFolder: async () => {
     const error = await shell.openPath(tedHome())
     if (error !== '') throw new Error(error)
@@ -163,6 +180,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
   runFix: (client, request) => client.runFix(request as RunFixRequest),
+  getLinear: (client) => client.getLinear(),
+  saveLinearKey: (client, key, inFile) =>
+    client.saveLinearKey({ key: String(key), inFile: inFile === true }),
+  testLinear: (client) => client.testLinear(),
+  removeLinearKey: (client) => client.removeLinearKey(),
+  lookupLinear: (client, url) => client.lookupLinear(String(url)),
+  openLinearKeyPage: () => shell.openExternal(linearKeyPage),
 }
 
 const pictureSize = 256
@@ -208,12 +232,46 @@ let quitting = false
 let state: MenuState = { activity: noActivity, banners: [] }
 let settings: MachineSettings = defaultMachineSettings
 let bannerTimer: NodeJS.Timeout | undefined
+let loginItem: LoginItem | undefined
+let loginItemApplied: boolean | undefined
+let loginItemWork: Promise<void> = Promise.resolve()
+
+const loginItemsPane = 'x-apple.systempreferences:com.apple.LoginItems-Settings.extension'
 
 const sendToRenderer = (event: unknown) => window?.webContents.send('ted:event', event)
 
 function applySettings(next: MachineSettings): void {
   settings = next
   nativeTheme.themeSource = next.appearance
+  if (next.startAtLogin !== loginItemApplied) void applyLoginItem(next.startAtLogin)
+}
+
+function applyLoginItem(enabled: boolean): Promise<void> {
+  loginItemApplied = enabled
+  loginItemWork = loginItemWork
+    .then(async () => {
+      if (!loginItem) return
+      sendToRenderer({ type: 'login-item', state: await loginItem.apply(enabled) })
+    })
+    .catch((error: unknown) => console.error('Start at login failed:', error))
+  return loginItemWork
+}
+
+function makeLoginItem(): LoginItem {
+  const log = process.env.TED_LOGIN_ITEM_LOG
+  if (log) return recordLoginItem(log, process.env.TED_LOGIN_ITEM_STATUS)
+  return createLoginItem({
+    platform: process.platform,
+    packaged: app.isPackaged,
+    macVersion: Number.parseInt(process.getSystemVersion(), 10),
+    executable: process.env.APPIMAGE || process.execPath,
+    autostartDir: path.join(
+      process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'),
+      'autostart',
+    ),
+    getLoginItemSettings: (options) => app.getLoginItemSettings(options),
+    setLoginItemSettings: (options) => app.setLoginItemSettings(options),
+  })
 }
 
 function forward(event: DaemonEvent): void {
@@ -413,6 +471,9 @@ function onConnection(connection: DaemonConnection): void {
 }
 
 async function start(): Promise<void> {
+  loginItem = makeLoginItem()
+  const background = startsInBackground(process.argv)
+  if (background) app.dock?.hide()
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     restartDelaysMs,
@@ -425,6 +486,13 @@ async function start(): Promise<void> {
 
   const appRequests: Record<string, () => Promise<unknown>> = {
     connection: async () => supervised.connection,
+    loginItem: async () => {
+      await loginItemWork
+      return loginItem?.state() ?? 'unavailable'
+    },
+    openLoginItemsSettings: async () => {
+      if (platform === 'darwin') await shell.openExternal(loginItemsPane)
+    },
     restartDaemon: () => supervised.restart(),
     async copyCrashReport() {
       const { connection } = supervised
@@ -459,6 +527,7 @@ async function start(): Promise<void> {
   app.on('activate', showWindow)
   app.on('second-instance', showWindow)
   refresh()
+  if (background) return
   await createWindow()
 }
 

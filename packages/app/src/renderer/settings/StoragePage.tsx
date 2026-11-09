@@ -1,0 +1,178 @@
+import { formatBytes, type StorageSummary, type StoredBackup } from '@ted/protocol'
+import { useCallback, useEffect, useState } from 'react'
+import { useConnection } from '../data.ts'
+import { ted } from '../ted.ts'
+import { Button, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
+import type { SettingsPageProps } from './sections.tsx'
+import styles from './storage.module.css'
+
+const when = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+})
+const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+function backupTitle(backup: StoredBackup): string {
+  const at = new Date(backup.takenAt)
+  switch (backup.kind) {
+    case 'daily':
+      return `Daily · ${when.format(at)}`
+    case 'pre-update':
+      return `Before the update to ${backup.takenBy} · ${day.format(at)}`
+    case 'before-restore':
+      return `Before a restore · ${when.format(at)}`
+  }
+}
+
+export function StoragePage({ dispatch }: SettingsPageProps) {
+  const { epoch } = useConnection()
+  const [storage, setStorage] = useState<StorageSummary>()
+  const [error, setError] = useState<string>()
+  const [removing, setRemoving] = useState(false)
+
+  const load = useCallback(async () => {
+    try {
+      setStorage(await ted.getStorage())
+      setError(undefined)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    }
+  }, [])
+
+  useEffect(() => {
+    void epoch
+    void load()
+  }, [epoch, load])
+
+  const removeClones = async () => {
+    setRemoving(true)
+    try {
+      await ted.removeUnusedClones()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setRemoving(false)
+      await load()
+    }
+  }
+
+  const subtitle = storage
+    ? `${formatBytes(storage.usedBytes)} used under ${storage.home} · ${formatBytes(storage.freeBytes)} free${storage.volume === '' ? '' : ` on ${storage.volume}`}`
+    : 'Measuring…'
+  const shown = storage?.categories.filter((c) => c.bytes > 0) ?? []
+  const largest = Math.max(1, ...shown.map((c) => c.bytes))
+
+  return (
+    <SettingsPage title="Storage" subtitle={subtitle}>
+      {error !== undefined && <p className={styles.error}>{error}</p>}
+      {storage && (
+        <>
+          <SettingsGroup label="Space used">
+            {shown.map((category) => (
+              <div key={category.id} className={styles.usageRow}>
+                <span className={styles.usageLabel}>{category.label}</span>
+                <span className={styles.track} aria-hidden>
+                  <span
+                    className={styles.fill}
+                    style={{ width: `${Math.max(1, (category.bytes / largest) * 100)}%` }}
+                  />
+                </span>
+                <span className={styles.size}>{formatBytes(category.bytes)}</span>
+              </div>
+            ))}
+          </SettingsGroup>
+
+          {storage.largestWorktrees.length > 0 && (
+            <SettingsGroup
+              label="Largest worktrees"
+              help="The ten Task worktrees using the most space. A worktree is deleted when its Task is archived or done."
+            >
+              {storage.largestWorktrees.map((worktree) => (
+                <div key={worktree.taskId} className={styles.worktreeRow}>
+                  <span className={styles.taskId}>{worktree.displayId}</span>
+                  <span className={styles.taskTitle}>{worktree.title}</span>
+                  <span className={styles.factory}>{worktree.factoryName}</span>
+                  <span className={styles.spacer} />
+                  <span className={styles.size}>{formatBytes(worktree.bytes)}</span>
+                  <button
+                    type="button"
+                    className={styles.link}
+                    onClick={() => {
+                      dispatch({ type: 'close-settings' })
+                      dispatch({
+                        type: 'open-task',
+                        taskId: worktree.taskId,
+                        factoryId: worktree.factoryId,
+                      })
+                    }}
+                  >
+                    Open Task
+                  </button>
+                </div>
+              ))}
+            </SettingsGroup>
+          )}
+
+          <SettingsGroup label="Clean up">
+            <SettingRow
+              title="Remove clones of removed Factories"
+              detail={
+                storage.removableClones.count === 0
+                  ? 'None to remove'
+                  : `${plural(storage.removableClones.count, 'clone')} · ${formatBytes(storage.removableClones.bytes)}`
+              }
+            >
+              <Button
+                onClick={() => void removeClones()}
+                disabled={removing || storage.removableClones.count === 0}
+              >
+                {removing ? 'Removing…' : 'Remove'}
+              </Button>
+            </SettingRow>
+            <SettingRow
+              title="Erase simulators not used by a running Task"
+              detail={
+                storage.simulators.count === 0
+                  ? 'No simulators'
+                  : `${plural(storage.simulators.count, 'simulator')} · ${formatBytes(storage.simulators.bytes)}`
+              }
+            >
+              <Button onClick={() => undefined} disabled={storage.simulators.count === 0}>
+                Erase
+              </Button>
+            </SettingRow>
+          </SettingsGroup>
+
+          <section className={styles.backups} aria-label="Backups">
+            <h2 className={styles.backupsLabel}>Backups</h2>
+            <p className={styles.backupsNote}>
+              7 daily copies and the last 3 from before updates, in {storage.backupsDir}. To restore
+              one, run <code className={styles.code}>ted backup restore &lt;name&gt;</code> in a
+              terminal.
+            </p>
+            {storage.backups.length > 0 && (
+              <SettingsGroup>
+                {storage.backups.map((backup) => (
+                  <SettingRow
+                    key={backup.name}
+                    title={backupTitle(backup)}
+                    detail={`${formatBytes(backup.bytes)} · ${backup.name}`}
+                  >
+                    <Button onClick={() => void ted.showBackupInFolder(backup.name)}>
+                      Show in folder
+                    </Button>
+                  </SettingRow>
+                ))}
+              </SettingsGroup>
+            )}
+          </section>
+        </>
+      )}
+    </SettingsPage>
+  )
+}

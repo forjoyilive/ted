@@ -18,9 +18,12 @@ import type {
   Factory,
   InboxItem,
   IntegrationsHealth,
+  LinearLookup,
+  LinearStatus,
   LogText,
   MachineSettings,
   Profile,
+  RemoveClonesResult,
   RepoCheck,
   RestoreBackupResult,
   Run,
@@ -28,17 +31,20 @@ import type {
   RunFixResult,
   RunSlots,
   StageEntry,
+  StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
   ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
+import type { LoginItemState } from '../login-item.ts'
 
 export type TedEvent =
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
+  | { type: 'login-item'; state: LoginItemState }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -118,6 +124,10 @@ export const ted = {
   copyReport: () => window.ted.request('copyReport') as Promise<void>,
   tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
+  getStorage: () => window.ted.request('getStorage') as Promise<StorageSummary>,
+  removeUnusedClones: () => window.ted.request('removeUnusedClones') as Promise<RemoveClonesResult>,
+  showBackupInFolder: (name: string) =>
+    window.ted.request('showBackupInFolder', name) as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string, input?: BannerActionInput) =>
@@ -125,6 +135,8 @@ export const ted = {
   agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
   checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
+  loginItem: () => window.ted.request('loginItem') as Promise<LoginItemState>,
+  openLoginItemsSettings: () => window.ted.request('openLoginItemsSettings') as Promise<void>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
@@ -132,6 +144,13 @@ export const ted = {
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>
     window.ted.request('runFix', request) as Promise<RunFixResult>,
+  getLinear: () => window.ted.request('getLinear') as Promise<LinearStatus>,
+  saveLinearKey: (key: string, inFile = false) =>
+    window.ted.request('saveLinearKey', key, inFile) as Promise<LinearStatus>,
+  testLinear: () => window.ted.request('testLinear') as Promise<LinearStatus>,
+  removeLinearKey: () => window.ted.request('removeLinearKey') as Promise<LinearStatus>,
+  lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
+  openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }
 

@@ -84,6 +84,10 @@ _Avoid_: Ticket, issue, card, session, epic
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
 
+**Source**:
+The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
+_Avoid_: Origin, link, ticket
+
 **Priority**:
 How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
 _Avoid_: Severity, importance

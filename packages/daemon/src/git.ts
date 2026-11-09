@@ -114,6 +114,14 @@ export async function defaultBranch(repo: string): Promise<string> {
   return ref.replace(/^origin\//, '')
 }
 
+export async function isValidBranchName(repo: string, name: string): Promise<boolean> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(name)) return false
+  return git(repo, 'check-ref-format', `refs/heads/${name}`).then(
+    () => true,
+    () => false,
+  )
+}
+
 export async function branchExists(repo: string, branch: string): Promise<boolean> {
   for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
     const found = await git(repo, 'show-ref', '--verify', '--quiet', ref).then(

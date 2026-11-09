@@ -5,18 +5,30 @@ import styles from './settings.module.css'
 export function SettingsPage({
   title,
   help,
+  subtitle,
   children,
 }: {
   title: string
   help?: ReactNode
+  subtitle?: ReactNode
   children: ReactNode
 }) {
+  const titleRow = (
+    <div className={styles.pageTitleRow}>
+      <h1 className={styles.pageTitle}>{title}</h1>
+      {help !== undefined && <Help>{help}</Help>}
+    </div>
+  )
   return (
     <div className={styles.page}>
-      <div className={styles.pageTitleRow}>
-        <h1 className={styles.pageTitle}>{title}</h1>
-        {help !== undefined && <Help>{help}</Help>}
-      </div>
+      {subtitle === undefined ? (
+        titleRow
+      ) : (
+        <div>
+          {titleRow}
+          <p className={styles.pageSubtitle}>{subtitle}</p>
+        </div>
+      )}
       {children}
     </div>
   )
@@ -96,17 +108,19 @@ export function Button({
   children,
   onClick,
   primary,
+  danger,
   disabled,
 }: {
   children: ReactNode
   onClick: () => void
   primary?: boolean
+  danger?: boolean
   disabled?: boolean
 }) {
   return (
     <button
       type="button"
-      className={`${styles.button} ${primary ? styles.primary : ''}`}
+      className={`${styles.button} ${primary ? styles.primary : ''} ${danger ? styles.danger : ''}`}
       onClick={onClick}
       disabled={disabled}
     >
