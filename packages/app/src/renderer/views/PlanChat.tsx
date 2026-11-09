@@ -668,7 +668,8 @@ function PinnedCard({ request, onAnswered }: { request: PlanRequest; onAnswered:
             round={request.round}
             readOnly={false}
             sending={sending}
-            talk={false}
+            talking={false}
+            onTalk={undefined}
             onSend={(answer) => void send(answer)}
           />
           <p className={styles.talkHint}>Typing below talks it through with the planner.</p>
@@ -697,7 +698,7 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
   const extra: ChatExtra[] = requests.map((request) =>
     request.kind === 'note'
       ? {
-          key: request.id,
+          id: request.id,
           at: request.createdAt,
           node: (
             <EventLine
@@ -708,7 +709,7 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
           ),
         }
       : {
-          key: request.id,
+          id: request.id,
           at: request.createdAt,
           node: (
             <OneLiner
@@ -727,7 +728,7 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
           ? `Planning Run failed${plan.error !== undefined ? `: ${plan.error}` : ''}`
           : 'Planning Run stopped by you. No Tasks were created.'
     extra.push({
-      key: 'ended',
+      id: 'ended',
       at: plan.finishedAt,
       node: <EventLine text={text} at={plan.finishedAt} />,
     })
@@ -808,24 +809,20 @@ function PlanChat({
         {plan.runId !== undefined ? (
           <RunChat
             runId={plan.runId}
-            options={{
-              bar: false,
-              extra: extraItems(detail, onOpenTask),
-              ...(open && {
-                pinned: (
-                  <PinnedCard
-                    key={open.id}
-                    request={open}
-                    onAnswered={() => setAnswered((n) => n + 1)}
-                  />
-                ),
-              }),
-              placeholder: 'Message the planner…',
-              help: 'Goes to the planner. While a round is open, this talks it through.',
-              ...(ended && {
-                readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} />,
-              }),
-            }}
+            bar={false}
+            extra={extraItems(detail, onOpenTask)}
+            {...(open && {
+              pinned: (
+                <PinnedCard
+                  key={open.id}
+                  request={open}
+                  onAnswered={() => setAnswered((n) => n + 1)}
+                />
+              ),
+            })}
+            placeholder="Message the planner…"
+            help="Goes to the planner. While a round is open, this talks it through."
+            {...(ended && { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> })}
           />
         ) : (
           <>

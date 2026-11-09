@@ -115,6 +115,7 @@ import {
   sendBackResets,
   sendBacks,
   stageEntries,
+  stageFileTexts,
   subAgentRequests,
   taskAttachments,
   taskBlockers,
@@ -214,10 +215,20 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
+  forcedGates: AgentStageId[]
+  changesSettings: boolean
   worktree?: string
   startRequested: boolean
   waitsForBlockers: boolean
   stopped: boolean
+}
+
+export interface SeenStageFile {
+  hash: string
+  layer: LayerKind
+  stage: AgentStageId
+  text: string
+  tedVersion: string
 }
 
 export type StopReason = 'human' | 'blockers-removed'
@@ -246,6 +257,8 @@ export interface NewTask {
   source?: TaskSource
   followUpOf?: string
   splitFrom?: string
+  forcedGates?: AgentStageId[]
+  changesSettings?: boolean
   automation?: { automationId: string; firingId: string }
   plan?: { planId: string; row: number }
 }
@@ -504,6 +517,8 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  rememberStageFileText(seen: SeenStageFile): void
+  seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setClarifyDepth(
     taskId: string,
@@ -519,6 +534,8 @@ export interface TedStore {
   commentsDelivered(ids: readonly string[], runId: string): void
   commentsRead(ids: readonly string[]): void
   holdAnswer(id: string): void
+  startRoundTalk(id: string, runId: string): Comment
+  roundTalkDone(id: string): Comment
   heldAnswers(taskId: string): Comment[]
   answersDelivered(ids: readonly string[], runId: string): void
   taskLog(taskId: string): LoggedEvent[]
@@ -614,6 +631,7 @@ export interface TedStore {
   closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
   activity(): Activity
+  setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -1034,6 +1052,8 @@ export async function openStore({
     followUpOf,
     splitFrom,
     needsPlanningAt,
+    forcedGates,
+    changesSettings,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1190,6 +1210,8 @@ export async function openStore({
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
+      forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
+      changesSettings,
       repos,
       chosenRepos:
         chosenRepos !== null
@@ -1268,6 +1290,8 @@ export async function openStore({
   }
 
   const toPublicTask = ({
+    forcedGates: _____,
+    changesSettings: ______,
     worktree: _,
     startRequested: __,
     waitsForBlockers: ___,
@@ -1328,6 +1352,9 @@ export async function openStore({
     permission,
     answerHeld: _,
     failedRunId,
+    talkRunId,
+    talkStartedAt,
+    talkDoneAt,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -1342,6 +1369,14 @@ export async function openStore({
     ...(round !== null && { round: JSON.parse(round) as Round }),
     ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
     ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
+    ...(talkRunId !== null &&
+      talkStartedAt !== null && {
+        talk: {
+          runId: talkRunId,
+          startedAt: talkStartedAt,
+          ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
+        },
+      }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(permission !== null && { permission: publicPermission(permission) }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
@@ -1672,6 +1707,7 @@ export async function openStore({
     }
   }
 
+  let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
     const held = store.query(queryDb(heldRuns)).length
@@ -1696,6 +1732,7 @@ export async function openStore({
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
       checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
+      shellsRunning,
     }
   }
   let lastActivity = activity()
@@ -1782,6 +1819,8 @@ export async function openStore({
       source,
       followUpOf,
       splitFrom,
+      forcedGates = [],
+      changesSettings = false,
       automation,
       plan,
     }) {
@@ -1826,6 +1865,10 @@ export async function openStore({
               }),
             ]
           : []),
+        ...(forcedGates.length > 0
+          ? [events.taskGatesForced({ taskId: id, stages: forcedGates, at })]
+          : []),
+        ...(changesSettings ? [events.taskChangesSettings({ taskId: id, at })] : []),
         ...(followUpOf !== undefined
           ? [
               events.taskFollowsUp({ taskId: id, originalId: followUpOf, at }),
@@ -2412,6 +2455,22 @@ export async function openStore({
         }),
       )
     },
+    rememberStageFileText(seen) {
+      if (store.query(queryDb(stageFileTexts.where({ hash: seen.hash }))).length > 0) return
+      commit(events.stageFileTextSeen({ ...seen, at: new Date().toISOString() }))
+    },
+    seenStageFileText(hash) {
+      const row = store.query(queryDb(stageFileTexts.where({ hash }))).at(0)
+      return (
+        row && {
+          hash: row.hash,
+          layer: row.layer as LayerKind,
+          stage: row.stage as AgentStageId,
+          text: row.text,
+          tedVersion: row.tedVersion,
+        }
+      )
+    },
     lastValidWorkflowLayer(layer) {
       const row = store.query(queryDb(workflowLayers.where({ layer }))).at(0)
       return (
@@ -2511,6 +2570,14 @@ export async function openStore({
       if (ids.length === 0) return
       commit(events.commentsRead({ ids, at: new Date().toISOString() }))
       for (const id of ids) emitComment(id)
+    },
+    startRoundTalk(id, runId) {
+      commit(events.roundTalkStarted({ id, runId, at: new Date().toISOString() }))
+      return emitComment(id)
+    },
+    roundTalkDone(id) {
+      commit(events.roundTalkDone({ id, at: new Date().toISOString() }))
+      return emitComment(id)
     },
     holdAnswer(id) {
       commit(events.commentAnswerHeld({ id, at: new Date().toISOString() }))
@@ -3072,6 +3139,10 @@ export async function openStore({
     },
     settings,
     activity,
+    setShellsRunning(count) {
+      shellsRunning = count
+      noteActivity()
+    },
     updateSettings(changes) {
       const current = settings()
       const changed = Object.fromEntries(

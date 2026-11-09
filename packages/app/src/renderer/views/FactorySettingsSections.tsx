@@ -2,6 +2,7 @@ import type {
   AgentChoiceInput,
   AgentRole,
   AgentRowView,
+  AgentStageId,
   CheckInput,
   CheckTry,
   ClarifyDepth,
@@ -10,6 +11,7 @@ import type {
   InvalidSettings,
   LayerKind,
   LibraryInvalid,
+  StageDrift,
   StageId,
   StageRowView,
 } from '@ted/protocol'
@@ -19,6 +21,7 @@ import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import {
   agentEdited,
+  driftLine,
   lastRunText,
   lastValidLine,
   type SettingsDraft,
@@ -28,6 +31,7 @@ import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.t
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
+import { DiffLines } from './SaveSettingsDialog.tsx'
 
 type Update = (change: (draft: SettingsDraft) => SettingsDraft) => void
 
@@ -170,6 +174,10 @@ export function WorkflowSection({
     })
   const setFile = (id: StageId, text: string | null) =>
     onDraft((d) => ({ ...d, stageFiles: { ...d.stageFiles, [id]: text } }))
+  const keep = (id: AgentStageId) =>
+    onDraft((d) =>
+      d.keepStageFiles.includes(id) ? d : { ...d, keepStageFiles: [...d.keepStageFiles, id] },
+    )
   const review = draft.stages.review
   const merge = draft.stages.merge
   const reviewGateOff =
@@ -204,6 +212,8 @@ export function WorkflowSection({
             onStage={(fields) => setStage(row.id, fields)}
             onFile={(text) => setFile(row.id, text)}
             onEdit={(open) => setEditing(open ? row.id : undefined)}
+            onKeep={() => keep(row.id as AgentStageId)}
+            factoryId={view.factoryId}
           />
         ))}
       </div>
@@ -236,6 +246,8 @@ function StageRow({
   onStage,
   onFile,
   onEdit,
+  onKeep,
+  factoryId,
 }: {
   row: StageRowView
   draft: SettingsDraft
@@ -244,6 +256,8 @@ function StageRow({
   onStage: (fields: Partial<SettingsDraft['stages'][StageId]>) => void
   onFile: (text: string | null) => void
   onEdit: (open: boolean) => void
+  onKeep: () => void
+  factoryId: string
 }) {
   const stage = draft.stages[row.id]
   const name = title(row.id)
@@ -258,11 +272,19 @@ function StageRow({
       : (row.inherited?.layer ?? (row.from === 'factory' ? 'ted' : row.from))
   const fixed = row.id === 'intake' || row.id === 'work'
   const dash = <span className={styles.dash}>—</span>
+  const drift =
+    agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)
+      ? row.drift
+      : undefined
   return (
-    <div className={editing ? styles.stageOpen : styles.stageBlock}>
+    <div className={drift ? styles.stageDrift : editing ? styles.stageOpen : styles.stageBlock}>
       <div className={styles.workflowRow}>
         <span className={styles.stageName}>
-          {name} <Edited when={edited.size > 0} />
+          {name}
+          {drift && (
+            <span className={styles.driftDot} role="img" aria-label="Inherited version changed" />
+          )}{' '}
+          <Edited when={edited.size > 0} />
         </span>
         <span>
           {row.id === 'done' ? (
@@ -362,6 +384,20 @@ function StageRow({
           )}
         </span>
       </div>
+      {drift && (
+        <DriftNotice
+          stage={row.id as AgentStageId}
+          drift={drift}
+          label="Inherited"
+          useLabel="Use inherited"
+          onKeep={onKeep}
+          onUse={() => {
+            onFile(null)
+            onEdit(false)
+          }}
+          factoryId={factoryId}
+        />
+      )}
       {editing && file !== null && (
         <div className={styles.fileEditor}>
           <div className={styles.fileHead}>
@@ -380,6 +416,88 @@ function StageRow({
         </div>
       )}
     </div>
+  )
+}
+
+export function DriftNotice({
+  stage,
+  drift,
+  label,
+  useLabel,
+  onKeep,
+  onUse,
+  factoryId,
+}: {
+  stage: AgentStageId
+  drift: StageDrift
+  label: 'Inherited' | 'Default'
+  useLabel: string
+  onKeep: () => void
+  onUse: () => void
+  factoryId?: string
+}) {
+  const [busy, setBusy] = useState(false)
+  const [created, setCreated] = useState<string>()
+  const [error, setError] = useState<string>()
+  const merge = async () => {
+    if (factoryId === undefined) return
+    setBusy(true)
+    setError(undefined)
+    try {
+      const task = await ted.mergeInherited(factoryId, stage)
+      setCreated(task.displayId)
+    } catch (caught) {
+      setError(readableError(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className={styles.driftBody} aria-label={`${title(stage)} drift`}>
+      <p className={styles.driftLine}>
+        <span className={styles.warnMark} aria-hidden>
+          ▲
+        </span>{' '}
+        {driftLine(stage, drift, label)}
+      </p>
+      {drift.diffOf === 'yours' && (
+        <p className={styles.driftCaption}>
+          TED doesn’t have the version your copy was made from, so this compares your copy with the{' '}
+          {label === 'Default' ? 'default' : 'inherited file'}.
+        </p>
+      )}
+      <div className={styles.driftDiff}>
+        <DiffLines lines={drift.diff} />
+      </div>
+      <div className={styles.driftActions}>
+        <Button size="small" onClick={onKeep}>
+          Keep mine
+        </Button>
+        <Button size="small" onClick={onUse}>
+          {useLabel}
+        </Button>
+        {factoryId !== undefined && (
+          <>
+            <Button
+              size="small"
+              disabled={busy || created !== undefined}
+              onClick={() => void merge()}
+            >
+              Merge with an agent
+            </Button>
+            <Help>
+              Creates a Task in this Factory that folds the inherited changes into your copy and
+              updates based_on. Its Review Gate is always on, so you see the result before it
+              merges.
+            </Help>
+          </>
+        )}
+        {created !== undefined && (
+          <span className={styles.driftCaption}>{created} will merge the changes.</span>
+        )}
+      </div>
+      {error !== undefined && <p className={styles.driftError}>{error}</p>}
+    </section>
   )
 }
 

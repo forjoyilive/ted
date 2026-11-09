@@ -303,6 +303,19 @@ export function RequestCard({
     }
   }
 
+  async function talk() {
+    setSending(true)
+    setError(undefined)
+    try {
+      const talking = await ted.talkThrough(request.id)
+      if (talking.talk) onOpenRun?.(talking.talk.runId)
+    } catch (failed) {
+      setError(failed instanceof Error ? failed.message : String(failed))
+    } finally {
+      setSending(false)
+    }
+  }
+
   const withText = typed ? { text } : {}
   const actionChoice =
     request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
@@ -352,7 +365,9 @@ export function RequestCard({
           round={request.round}
           readOnly={readOnly}
           sending={sending}
+          talking={request.talk !== undefined}
           onSend={(answer) => void send(answer)}
+          onTalk={onOpenRun && (() => void talk())}
         />
       )}
       {request.proposal &&
@@ -558,6 +573,14 @@ function answerLine(
     case 'changes-requested':
       return { mark: '↩', tone: 'neutral', text: 'You requested changes' }
     case 'answered':
+      if (answer.talkedThrough) {
+        const { messages } = answer.talkedThrough
+        return {
+          mark: '✓',
+          tone: 'good',
+          text: `Answered in Talk it through · ${messages} ${messages === 1 ? 'message' : 'messages'}`,
+        }
+      }
       if (answer.answers) {
         return { mark: '✓', tone: 'good', text: `You answered · ${roundTally(answer.answers)}` }
       }
@@ -638,11 +661,13 @@ export function AnsweredCard({
   task,
   newer,
   expanded = false,
+  onOpenRun,
 }: {
   request: Comment
   task: Task
   newer?: Comment | undefined
   expanded?: boolean
+  onOpenRun?: ((runId: string) => void) | undefined
 }) {
   const now = useNow()
   const [showing, setShowing] = useState(expanded)
@@ -653,6 +678,7 @@ export function AnsweredCard({
   const line = answerLine(request, newer, task)
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
   const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
+  const talked = request.answer?.kind === 'answered' ? request.answer.talkedThrough : undefined
   return (
     <section
       ref={card}
@@ -661,14 +687,24 @@ export function AnsweredCard({
     >
       <div className={styles.answeredHead}>
         <CardHead request={request} task={task} now={now} />
-        <button
-          type="button"
-          className={styles.showRequest}
-          aria-expanded={showing}
-          onClick={() => setShowing(!showing)}
-        >
-          {showing ? 'Hide request' : 'Show request'}
-        </button>
+        {talked && onOpenRun ? (
+          <button
+            type="button"
+            className={styles.showRequest}
+            onClick={() => onOpenRun(talked.runId)}
+          >
+            Open chat
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={styles.showRequest}
+            aria-expanded={showing}
+            onClick={() => setShowing(!showing)}
+          >
+            {showing ? 'Hide request' : 'Show request'}
+          </button>
+        )}
       </div>
       {request.permission ? (
         <p className={styles.answeredCommand}>{request.permission.command}</p>

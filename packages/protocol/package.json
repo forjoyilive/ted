@@ -21,6 +21,8 @@
     "./diff": "./src/diff.ts",
     "./search": "./src/search.ts",
     "./proposal": "./src/proposal.ts",
-    "./plan": "./src/plan.ts"
+    "./plan": "./src/plan.ts",
+    "./shell": "./src/shell.ts",
+    "./schedule": "./src/schedule.ts"
   }
 }

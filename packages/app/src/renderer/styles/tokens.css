@@ -101,6 +101,9 @@
   --terminal-fg: light-dark(#d8d7d1, #d8d7d1);
   --terminal-muted: light-dark(#85847d, #85847d);
   --terminal-green: light-dark(#7fcf9e, #7fcf9e);
+  --terminal-selection: light-dark(#4a4a44, #4a4a44);
+  --terminal-match: light-dark(#6b5a1e, #6b5a1e);
+  --terminal-match-active: light-dark(#b8862b, #b8862b);
 
   --font-sans: -apple-system, BlinkMacSystemFont, 'Geist Variable', sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'Geist Mono Variable', monospace;

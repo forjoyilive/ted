@@ -24,6 +24,7 @@ export interface Navigation {
   requestId?: string
   planId?: string
   planFrom?: string
+  automation?: { id: string; runId?: string }
   lastFactoryId?: string
   lastViews: Readonly<Record<string, FactoryView>>
   settings?: { section: SettingsSectionId }
@@ -36,6 +37,14 @@ export type NavigationAction =
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
   | { type: 'open-plan'; factoryId: string; planId?: string; from?: string }
   | { type: 'close-task' }
+  | {
+      type: 'open-automation'
+      automationId: string
+      factoryId: string
+      runId?: string
+      requestId?: string
+    }
+  | { type: 'close-automation' }
   | { type: 'open-settings'; section?: SettingsSectionId }
   | { type: 'close-settings' }
 
@@ -56,6 +65,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         settings: __,
         planId: ____,
         planFrom: _____,
+        automation: ______,
         ...rest
       } = state
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
@@ -86,7 +96,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       }
     }
     case 'open-task': {
-      const { requestId: _, ...rest } = state
+      const { requestId: _, automation: __, ...rest } = state
       return {
         ...rest,
         taskId: action.taskId,
@@ -97,6 +107,32 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
     case 'close-task': {
       const { taskId: _, requestId: __, ...rest } = state
       return rest
+    }
+    case 'open-automation': {
+      const automation = {
+        id: action.automationId,
+        ...(action.runId !== undefined && { runId: action.runId }),
+      }
+      if (state.screen.kind === 'inbox' && action.runId !== undefined) {
+        const { taskId: _, requestId: __, ...rest } = state
+        return {
+          ...rest,
+          automation,
+          lastFactoryId: action.factoryId,
+          ...(action.requestId !== undefined && { requestId: action.requestId }),
+        }
+      }
+      const screen: Screen = { kind: 'factory', factoryId: action.factoryId, view: 'automations' }
+      return { ...navigate(state, { type: 'open', screen }), automation }
+    }
+    case 'close-automation': {
+      const { automation, requestId: _, ...rest } = state
+      if (automation?.runId === undefined) return rest
+      const factoryId =
+        state.screen.kind === 'factory' ? state.screen.factoryId : state.lastFactoryId
+      if (factoryId === undefined) return rest
+      if (state.screen.kind === 'factory') return { ...rest, automation: { id: automation.id } }
+      return navigate(rest, { type: 'open-automation', automationId: automation.id, factoryId })
     }
     case 'open-settings': {
       const section = action.section ?? state.settings?.section ?? state.lastSettingsSection
@@ -115,6 +151,7 @@ export function currentFactoryId(
 ): string | undefined {
   const task = state.taskId === undefined ? undefined : tasks.find((t) => t.id === state.taskId)
   if (task) return task.factoryId
+  if (state.automation && state.lastFactoryId !== undefined) return state.lastFactoryId
   if (state.screen.kind === 'factory') return state.screen.factoryId
   return state.lastFactoryId
 }

@@ -1,9 +1,16 @@
 import type { Task, TaskRepo } from '@ted/protocol'
 import { useState } from 'react'
-import { ted } from './ted.ts'
+import { openInEditor } from './editor.ts'
+import { readableError, ted } from './ted.ts'
 import styles from './worktree.module.css'
 
-export function CodeSection({ task }: { task: Task }) {
+export function CodeSection({
+  task,
+  onOpenShell,
+}: {
+  task: Task
+  onOpenShell: (repo: string) => void
+}) {
   const repos = task.repos.filter((repo) => !repo.removed)
   return (
     <section className={styles.code} aria-label="Code">
@@ -22,7 +29,7 @@ export function CodeSection({ task }: { task: Task }) {
       ) : (
         <ul className={styles.repos}>
           {repos.map((repo) => (
-            <RepoRow key={repo.name} task={task} repo={repo} />
+            <RepoRow key={repo.name} task={task} repo={repo} onOpenShell={onOpenShell} />
           ))}
         </ul>
       )}
@@ -73,9 +80,25 @@ const setupLabel = {
   'timed-out': 'Setup timed out',
 } as const
 
-function RepoRow({ task, repo }: { task: Task; repo: TaskRepo }) {
+function RepoRow({
+  task,
+  repo,
+  onOpenShell,
+}: {
+  task: Task
+  repo: TaskRepo
+  onOpenShell: (repo: string) => void
+}) {
   const [log, setLog] = useState<string>()
   const [copied, setCopied] = useState(false)
+  const [problem, setProblem] = useState<string>()
+
+  const edit = () => {
+    setProblem(undefined)
+    openInEditor({ taskId: task.id, repo: repo.name }).catch((error: unknown) =>
+      setProblem(readableError(error)),
+    )
+  }
 
   const copyPath = async () => {
     await navigator.clipboard.writeText(repo.worktree)
@@ -85,7 +108,27 @@ function RepoRow({ task, repo }: { task: Task; repo: TaskRepo }) {
 
   return (
     <li className={styles.repo}>
-      <span className={styles.repoName}>{repo.name}</span>
+      <span className={styles.repoLine}>
+        <span className={styles.repoName}>{repo.name}</span>
+        <span className={styles.repoActions}>
+          <button
+            type="button"
+            className={styles.link}
+            title="Open your login shell in this worktree (⌃`)"
+            onClick={() => onOpenShell(repo.name)}
+          >
+            Shell
+          </button>
+          <button type="button" className={styles.link} onClick={edit}>
+            Open in editor
+          </button>
+        </span>
+      </span>
+      {problem !== undefined && (
+        <p className={styles.setup} role="alert">
+          {problem}
+        </p>
+      )}
       <PullRequestLine task={task} repo={repo} />
       <code className={styles.branch}>{repo.branch}</code>
       <button

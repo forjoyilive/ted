@@ -29,7 +29,7 @@ function commandDetail(status: CommandLineStatus | undefined): ReactNode {
   }
 }
 
-export function CommandLineGroup() {
+export function CommandLineGroup({ children }: { children?: ReactNode }) {
   const [status, setStatus] = useState<CommandLineStatus>()
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string>()
@@ -51,7 +51,8 @@ export function CommandLineGroup() {
   const detail = problem ?? commandDetail(status)
 
   return (
-    <SettingsGroup label="Command line">
+    <SettingsGroup label="Editor and command line">
+      {children}
       <SettingRow
         title="The ted command"
         help={commandHelp}

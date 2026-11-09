@@ -2,12 +2,20 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   AgentKind,
+  AgentStageId,
+  AnswerAutomationRequest,
   AnswerRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
   AttachmentBytes,
   AttachmentRef,
+  Automation,
+  AutomationDetail,
+  AutomationRequest,
+  AutomationRun,
+  AutomationSchedule,
+  AutomationTemplate,
   BackupsSummary,
   Banner,
   BannerActionInput,
@@ -20,6 +28,7 @@ import type {
   ClarifyDepth,
   CommandLineStatus,
   Comment,
+  CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
   DaemonEvent,
@@ -27,12 +36,15 @@ import type {
   DeleteTaskRequest,
   DescriptionVersion,
   Diagnostics,
+  DriftCounts,
+  EditAutomationRequest,
   EditTaskRequest,
   Factory,
   FactoryBoard,
   FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
+  FoundEditor,
   InboxItem,
   IntegrationsHealth,
   LibraryChanges,
@@ -43,6 +55,7 @@ import type {
   LogText,
   MachineSettings,
   MoveTaskRequest,
+  OpenInEditorRequest,
   Plan,
   PlanDetail,
   PlanInboxItem,
@@ -64,9 +77,13 @@ import type {
   SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
+  SchedulePreview,
   SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
+  ShellOutput,
+  ShellOutputQuery,
+  ShellSize,
   StageEntry,
   StartPlanRequest,
   StorageSummary,
@@ -74,6 +91,7 @@ import type {
   TaskDefaults,
   TaskLead,
   TaskReposResult,
+  TaskShell,
   ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
@@ -123,6 +141,10 @@ export const ted = {
   listAnswered: () => window.ted.request('listAnswered') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
+  talkThrough: (commentId: string) =>
+    window.ted.request('talkThrough', commentId) as Promise<Comment>,
+  doneTalking: (commentId: string) =>
+    window.ted.request('doneTalking', commentId) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
   sendRunMessage: (runId: string, text: string, interrupt = false) =>
@@ -201,6 +223,19 @@ export const ted = {
     ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  openShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('openShell', taskId, repo, size) as Promise<TaskShell>,
+  restartShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('restartShell', taskId, repo, size) as Promise<TaskShell>,
+  writeShell: (taskId: string, repo: string, data: string) =>
+    window.ted.request('writeShell', taskId, repo, data) as Promise<void>,
+  resizeShell: (taskId: string, repo: string, size: ShellSize) =>
+    window.ted.request('resizeShell', taskId, repo, size) as Promise<void>,
+  readShell: (taskId: string, repo: string, query: ShellOutputQuery) =>
+    window.ted.request('readShell', taskId, repo, query) as Promise<ShellOutput>,
+  listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
+  openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
+    window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>
@@ -221,6 +256,9 @@ export const ted = {
     window.ted.request('previewLibrary', changes) as Promise<LibraryPreview>,
   saveLibrary: (request: SaveLibraryRequest) =>
     window.ted.request('saveLibrary', request) as Promise<LibraryView>,
+  drift: () => window.ted.request('drift') as Promise<DriftCounts>,
+  mergeInherited: (factoryId: string, stage: AgentStageId) =>
+    window.ted.request('mergeInherited', factoryId, stage) as Promise<Task>,
   tryCheck: (factoryId: string, request: CheckTryRequest) =>
     window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
   stopCheckTry: (factoryId: string, name: string) =>
@@ -295,6 +333,29 @@ export const ted = {
   removeLinearKey: () => window.ted.request('removeLinearKey') as Promise<LinearStatus>,
   lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
   openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
+  listAutomations: (factoryId?: string) =>
+    window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,
+  getAutomation: (id: string) =>
+    window.ted.request('getAutomation', id) as Promise<AutomationDetail>,
+  automationTemplates: () =>
+    window.ted.request('automationTemplates') as Promise<AutomationTemplate[]>,
+  automationRequests: () =>
+    window.ted.request('automationRequests') as Promise<AutomationRequest[]>,
+  previewSchedule: (schedule: AutomationSchedule, timeZone?: string) =>
+    window.ted.request('previewSchedule', schedule, timeZone) as Promise<SchedulePreview>,
+  createAutomation: (input: CreateAutomationRequest) =>
+    window.ted.request('createAutomation', input) as Promise<Automation>,
+  editAutomation: (id: string, input: EditAutomationRequest) =>
+    window.ted.request('editAutomation', id, input) as Promise<Automation>,
+  setAutomationOn: (id: string, on: boolean) =>
+    window.ted.request('setAutomationOn', id, on) as Promise<Automation>,
+  runAutomation: (id: string) => window.ted.request('runAutomation', id) as Promise<AutomationRun>,
+  retryAutomationRun: (runId: string) =>
+    window.ted.request('retryAutomationRun', runId) as Promise<AutomationRun>,
+  deleteAutomation: (id: string) =>
+    window.ted.request('deleteAutomation', id) as Promise<{ deleted: boolean }>,
+  answerAutomationRequest: (id: string, answer: AnswerAutomationRequest) =>
+    window.ted.request('answerAutomationRequest', id, answer) as Promise<AutomationRequest>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }
 

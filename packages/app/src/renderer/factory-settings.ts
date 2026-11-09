@@ -8,6 +8,7 @@ import type {
   LibraryInvalid,
   RepoSettingsInput,
   RepoSettingsView,
+  StageDrift,
 } from '@ted/protocol/factory-settings'
 import { agentRoles, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
@@ -120,6 +121,7 @@ export interface SettingsDraft {
   repos: RepoSettingsInput[]
   stages: Partial<Record<StageId, StageDraft>>
   stageFiles: Partial<Record<AgentStageId, string | null>>
+  keepStageFiles: AgentStageId[]
   checks: CheckInput[]
   agents: Record<AgentRole, AgentChoiceInput | null>
   permissions: PermissionMode
@@ -145,6 +147,7 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
     repos: draftFrom(view.repos),
     stages,
     stageFiles,
+    keepStageFiles: [],
     checks: view.checks.map((check) => ({ ...check })),
     agents,
     permissions: view.permissions,
@@ -198,6 +201,8 @@ export function settingsChanges(
     changes.stageFiles ??= {}
     changes.stageFiles[id] = text
   }
+  const kept = draft.keepStageFiles.filter((id) => !loaded.keepStageFiles.includes(id))
+  if (kept.length > 0) changes.keepStageFiles = kept
   if (draft.checks.map(checkKey).join('\n') !== loaded.checks.map(checkKey).join('\n')) {
     changes.checks = draft.checks
   }
@@ -230,6 +235,7 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
     yaml += Math.max(edited, 1)
   }
   yaml += Object.keys(changes.agents ?? {}).length
+  yaml += changes.keepStageFiles?.length ?? 0
   if (changes.permissions !== undefined) yaml += 1
   if (changes.maxWorkingRuns !== undefined) yaml += 1
   const stageFiles = Object.entries(changes.stageFiles ?? {}) as [AgentStageId, string | null][]
@@ -249,7 +255,7 @@ export function unsavedSummary({ count, files }: UnsavedChanges): string {
   return `${changes} to ${files.length} files in .ted/`
 }
 
-export type StageField = 'enabled' | 'gate' | 'maxBack' | 'depth' | 'file'
+export type StageField = 'enabled' | 'gate' | 'maxBack' | 'depth' | 'file' | 'kept'
 
 export function stageEdited(
   draft: SettingsDraft,
@@ -262,6 +268,7 @@ export function stageEdited(
   if (now && before) for (const f of stageFields) if (now[f] !== before[f]) edited.add(f)
   if (id !== 'backlog' && id !== 'done') {
     if ((draft.stageFiles[id] ?? null) !== (loaded.stageFiles[id] ?? null)) edited.add('file')
+    if (draft.keepStageFiles.includes(id) && !loaded.keepStageFiles.includes(id)) edited.add('kept')
   }
   return edited
 }
@@ -307,6 +314,19 @@ export function timeAgo(then: number, now: number): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   return days === 1 ? '1 day ago' : `${days} days ago`
+}
+
+export function driftLine(
+  stage: AgentStageId,
+  drift: StageDrift,
+  label: 'Inherited' | 'Default',
+): string {
+  const file = `${stage}.md`
+  const changed =
+    drift.layer === 'library'
+      ? `Your Library’s ${file} changed.`
+      : `TED’s default ${file} changed${drift.changedIn === undefined ? '' : ` in TED ${drift.changedIn}`}.`
+  return `${label} version changed. ${changed} Your copy is based on ${drift.basedOn}.`
 }
 
 export function lastValidLine(invalid: LibraryInvalid & { url?: string }, now: number): string {

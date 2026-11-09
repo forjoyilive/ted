@@ -455,12 +455,13 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
 }
 
 export interface ChatExtra {
-  key: string
+  id: string
   at: string
   node: ReactNode
 }
 
 export interface ChatOptions {
+  header?: ((run: RunSummary) => ReactNode) | undefined
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
@@ -469,40 +470,22 @@ export interface ChatOptions {
   readOnly?: ReactNode
 }
 
-function withExtra(
-  items: readonly ChatItem[],
-  extra: readonly ChatExtra[],
-): ({ item: ChatItem } | { extra: ChatExtra })[] {
-  const merged: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
-  let lastAt = ''
-  const times = items.map((item) => {
-    if ('at' in item && item.at !== undefined) lastAt = item.at
-    return lastAt
-  })
+function withExtras(items: readonly ChatItem[], extra: readonly ChatExtra[]) {
+  const rows: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
   for (const added of [...extra].sort((a, b) => a.at.localeCompare(b.at))) {
-    let at = merged.length
-    for (let i = merged.length - 1; i >= 0; i--) {
-      const entry = merged[i]
-      if (!entry) continue
-      const when = 'item' in entry ? (times[items.indexOf(entry.item)] ?? '') : entry.extra.at
-      const queued = 'item' in entry && entry.item.kind === 'human' && entry.item.queued === true
-      if (!queued && when <= added.at) break
-      at = i
+    let at = rows.length
+    while (at > 0) {
+      const before = rows[at - 1]
+      const when = before && ('item' in before ? before.item.at : before.extra.at)
+      if (when === undefined || when <= added.at) break
+      at--
     }
-    merged.splice(at, 0, { extra: added })
+    rows.splice(at, 0, { extra: added })
   }
-  return merged
+  return rows
 }
 
-function Composer({
-  run,
-  placeholder,
-  help,
-}: {
-  run: RunSummary
-  placeholder?: string | undefined
-  help?: string | undefined
-}) {
+function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -545,7 +528,7 @@ function Composer({
           aria-label="Message to this Run"
           placeholder={
             live
-              ? (placeholder ?? `Message the ${run.name}’s Run…`)
+              ? (options.placeholder ?? `Message the ${run.name}’s Run…`)
               : 'This Run has finished. Its chat is read-only.'
           }
           disabled={!live}
@@ -559,7 +542,7 @@ function Composer({
         />
         <span className={styles.boxHelp}>
           <Help>
-            {help ??
+            {options.help ??
               'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'}
           </Help>
         </span>
@@ -607,22 +590,22 @@ function Composer({
   )
 }
 
-function ChatBody({
+export function ChatBody({
   chat,
   onStopTask,
-  options,
+  options = {},
 }: {
   chat: Chat
   onStopTask: (() => void) | undefined
-  options: ChatOptions
+  options?: ChatOptions
 }) {
   const { run, items } = chat
-  const extra = options.extra ?? []
+  const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const now = useTicking(running)
   const list = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
-  const count = items.length + extra.length
+  const count = rows.length
   const lastText = items.at(-1)?.kind === 'agent' ? items.at(-1) : undefined
 
   useEffect(() => {
@@ -634,7 +617,9 @@ function ChatBody({
 
   return (
     <>
-      {options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
+      {options.header
+        ? options.header(run)
+        : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
       <div
         ref={list}
         className={styles.items}
@@ -643,23 +628,16 @@ function ChatBody({
           pinned.current = element.scrollHeight - element.scrollTop - element.clientHeight < 40
         }}
       >
-        {withExtra(items, extra).map((entry) =>
-          'item' in entry ? (
-            <ChatRow
-              key={`${entry.item.kind}:${entry.item.id}`}
-              item={entry.item}
-              run={run}
-              now={now}
-            />
+        {rows.map((row) =>
+          'item' in row ? (
+            <ChatRow key={`${row.item.kind}:${row.item.id}`} item={row.item} run={run} now={now} />
           ) : (
-            <div key={`extra:${entry.extra.key}`}>{entry.extra.node}</div>
+            <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
           ),
         )}
       </div>
       {options.pinned}
-      {options.readOnly ?? (
-        <Composer run={run} placeholder={options.placeholder} help={options.help} />
-      )}
+      {options.readOnly ?? <Composer run={run} options={options} />}
     </>
   )
 }
@@ -667,12 +645,11 @@ function ChatBody({
 export function RunChat({
   runId,
   onStopTask,
-  options = {},
+  ...options
 }: {
   runId: string
   onStopTask?: (() => void) | undefined
-  options?: ChatOptions
-}) {
+} & ChatOptions) {
   const chat = useRunChat(runId)
   return (
     <section className={styles.chat} aria-label="Run chat">

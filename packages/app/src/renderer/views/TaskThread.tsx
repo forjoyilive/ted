@@ -34,7 +34,9 @@ import {
 import { Diff, RunChat } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
+import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
+import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
   useCheckRuns,
@@ -45,6 +47,7 @@ import {
   useThreadEvents,
 } from '../data.ts'
 import { useNow } from '../requests.ts'
+import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import {
@@ -262,23 +265,56 @@ export function TaskPanes({
     if (visibleRun === runId) show(undefined)
     void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
+  const [shell, setShell] = useState<{ taskId: string; repo: string }>()
+  const liveRepos = task.repos.filter((r) => !r.removed)
+  const shellRepo =
+    shell?.taskId === task.id && liveRepos.some((r) => r.name === shell.repo)
+      ? shell.repo
+      : undefined
+  const openShell = (repo: string) => setShell({ taskId: task.id, repo })
+  useEffect(() => {
+    const take = () => {
+      const request = takeShellRequest(task.id)
+      if (!request) return
+      const name = request.repo ?? task.repos.find((r) => !r.removed)?.name
+      if (name !== undefined) setShell({ taskId: task.id, repo: name })
+    }
+    take()
+    window.addEventListener(openShellEvent, take)
+    return () => window.removeEventListener(openShellEvent, take)
+  }, [task.id, task.repos])
   return (
     <>
-      <TaskThread
+      {shellRepo !== undefined ? (
+        <TaskShell
+          key={`${task.id}:${shellRepo}`}
+          taskId={task.id}
+          repo={shellRepo}
+          onBack={() => setShell(undefined)}
+        />
+      ) : (
+        <TaskThread
+          task={task}
+          backLink={backLink}
+          requestId={requestId}
+          answeredId={answeredId}
+          onBack={onBack}
+          onOpenTask={onOpenTask}
+          onOpenPlan={onOpenPlan}
+          onFollowedUp={onFollowedUp}
+          shownRun={visibleRun}
+          onShowRun={show}
+          onOpenRun={openRun}
+          onCloseRun={closeRun}
+        />
+      )}
+      <TaskDetails
         task={task}
-        backLink={backLink}
-        requestId={requestId}
-        answeredId={answeredId}
-        onBack={onBack}
-        onOpenTask={onOpenTask}
-        onOpenPlan={onOpenPlan}
-        onFollowedUp={onFollowedUp}
-        shownRun={visibleRun}
-        onShowRun={show}
+        tasks={tasks}
+        factories={factories}
         onOpenRun={openRun}
-        onCloseRun={closeRun}
+        onOpenShell={openShell}
       />
-      <TaskDetails task={task} tasks={tasks} factories={factories} onOpenRun={openRun} />
     </>
   )
 }
@@ -348,6 +384,15 @@ export function TaskThread({
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
   const pin = (id: string) => setChosen({ from: requestId, id })
+  const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
+
+  if (talk && shownRun !== undefined) {
+    return (
+      <section className={styles.pane} aria-label="Task thread">
+        <TalkThrough request={talk} task={task} onBack={() => onShowRun(undefined)} />
+      </section>
+    )
+  }
 
   return (
     <section className={styles.pane} aria-label="Task thread">
@@ -510,6 +555,7 @@ export function TaskThread({
                       task={task}
                       newer={newer}
                       expanded={comment.id === answeredId}
+                      onOpenRun={onOpenRun}
                     />
                   </li>
                 )
@@ -604,11 +650,13 @@ export function TaskDetails({
   tasks,
   factories,
   onOpenRun,
+  onOpenShell,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
+  onOpenShell: (repo: string) => void
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -737,7 +785,7 @@ export function TaskDetails({
           {error}
         </p>
       )}
-      <CodeSection task={task} />
+      <CodeSection task={task} onOpenShell={onOpenShell} />
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <TaskBriefSection task={task} />
     </aside>

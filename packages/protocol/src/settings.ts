@@ -1,6 +1,7 @@
 import type { Billing } from './health.ts'
 import type { ListView } from './list-view.ts'
 import type { AgentKind } from './run.ts'
+import type { EditorChoice } from './shell.ts'
 
 export const appearances = ['system', 'light', 'dark'] as const
 
@@ -29,6 +30,8 @@ export interface MachineSettings {
   listViews: Readonly<Record<string, ListView>>
   firstLaunchDone: boolean
   billing: Readonly<Record<AgentKind, Billing>>
+  editor: EditorChoice | null
+  editorCommand: string
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -46,6 +49,8 @@ export const defaultMachineSettings: MachineSettings = {
   listViews: {},
   firstLaunchDone: false,
   billing: { claude: 'subscription', codex: 'subscription' },
+  editor: null,
+  editorCommand: '',
 }
 
 export interface Profile {

@@ -49,6 +49,7 @@ import type {
   CheckTry,
   CheckTryOutput,
   CheckTryRequest,
+  DriftCounts,
   FactorySettingsChanges,
   FactorySettingsView,
   LibraryChanges,
@@ -76,9 +77,18 @@ import type {
 import type { AutomationSchedule } from './schedule.ts'
 import type { SearchResults } from './search.ts'
 import type { MachineSettings, Profile } from './settings.ts'
+import type {
+  FoundEditor,
+  OpenInEditorRequest,
+  ShellOutput,
+  ShellOutputQuery,
+  ShellSize,
+  TaskShell,
+} from './shell.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
+  AgentStageId,
   AnswerRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
@@ -86,6 +96,7 @@ import type {
   AttachmentBytes,
   AttachmentRef,
   CancelMergeRequest,
+  CloseRoundRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
@@ -439,6 +450,18 @@ export class DaemonClient {
     return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
   }
 
+  talkThrough(commentId: string): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/talk`)
+  }
+
+  doneTalking(commentId: string): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/done-talking`)
+  }
+
+  closeRound(ref: string, request: CloseRoundRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/rounds/close`, request)
+  }
+
   writeBrief(ref: string, text: string): Promise<TaskBrief> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/brief`, { text })
   }
@@ -513,6 +536,43 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup`,
+    )
+  }
+
+  openShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo), size)
+  }
+
+  restartShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo, '/restart'), size)
+  }
+
+  async writeShell(ref: string, repo: string, data: string): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/input'), { data })
+  }
+
+  async resizeShell(ref: string, repo: string, size: ShellSize): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/resize'), size)
+  }
+
+  readShell(ref: string, repo: string, query: ShellOutputQuery): Promise<ShellOutput> {
+    const params = new URLSearchParams({
+      generation: String(query.generation),
+      from: String(query.from),
+      waitMs: String(query.waitMs ?? 0),
+    })
+    return this.#request('GET', shellRoute(ref, repo, `/output?${params}`))
+  }
+
+  listEditors(): Promise<FoundEditor[]> {
+    return this.#request('GET', '/editors')
+  }
+
+  async openInEditor(ref: string, repo: string, request: OpenInEditorRequest = {}): Promise<void> {
+    await this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/open-in-editor`,
+      request,
     )
   }
 
@@ -676,6 +736,17 @@ export class DaemonClient {
 
   saveLibrary(request: SaveLibraryRequest): Promise<LibraryView> {
     return this.#request('POST', '/library/save', request)
+  }
+
+  drift(): Promise<DriftCounts> {
+    return this.#request('GET', '/drift')
+  }
+
+  mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/stages/${encodeURIComponent(stage)}/merge-inherited`,
+    )
   }
 
   tryCheck(factoryId: string, request: CheckTryRequest): Promise<CheckTry> {
@@ -1013,4 +1084,8 @@ function dispatch(
 
 function factoryQuery(factory: string | undefined): string {
   return factory === undefined ? '' : `?factory=${encodeURIComponent(factory)}`
+}
+
+function shellRoute(ref: string, repo: string, rest = ''): string {
+  return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${rest}`
 }

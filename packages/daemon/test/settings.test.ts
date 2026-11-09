@@ -59,6 +59,8 @@ describe('machine settings in the store', () => {
       listViews: {},
       billing: { claude: 'subscription', codex: 'subscription' },
       firstLaunchDone: false,
+      editor: null,
+      editorCommand: '',
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -190,6 +192,9 @@ describe('settings and Factories over the daemon API', () => {
     ['a terminal font size below 10', { terminalFontSize: 9 }],
     ['a terminal font size above 20', { terminalFontSize: 21 }],
     ['a fractional terminal font size', { terminalFontSize: 12.5 }],
+    ['an editor TED doesn’t know', { editor: 'notepad' }],
+    ['a custom editor command with an open quote', { editorCommand: '"my editor {path}' }],
+    ['a custom editor command over two lines', { editorCommand: 'code\n{path}' }],
     ['Developer mode that is not true or false', { developerMode: 'yes' }],
     ['a profile picture that is not an image', { profilePicture: 'data:text/html;base64,PGI+' }],
     ['a profile picture that is a link', { profilePicture: 'https://example.com/me.png' }],

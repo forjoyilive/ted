@@ -58,6 +58,7 @@ const idle = {
   automationsOn: 0,
   factoriesSettingUp: 0,
   checksRunning: 0,
+  shellsRunning: 0,
 }
 
 describe('activity', () => {

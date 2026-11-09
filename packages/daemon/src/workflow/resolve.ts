@@ -82,6 +82,47 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
   }
 }
 
+export function withForcedGates(
+  workflow: ResolvedWorkflow,
+  forced: readonly AgentStageId[],
+): ResolvedWorkflow {
+  if (forced.length === 0) return workflow
+  const rank = (id: StageId) => builtInOrder.indexOf(id)
+  const stages = { ...workflow.settings.stages }
+  const order = [...workflow.order]
+  for (const id of forced) {
+    stages[id] = { ...stages[id], enabled: true, gate: true }
+    if (order.includes(id)) continue
+    const before = order.findIndex((other) => other !== 'intake' && rank(other) > rank(id))
+    if (before === -1) order.push(id)
+    else order.splice(before, 0, id)
+  }
+  const included: StageId[] = [
+    ...(workflow.stages.includes('backlog') ? (['backlog'] as const) : []),
+    ...order.filter((id) => stages[id]?.enabled !== false),
+    'done',
+  ]
+  return {
+    ...workflow,
+    stages: included,
+    order,
+    settings: { ...workflow.settings, stages, order },
+    next(current) {
+      if (current === 'done') return 'done'
+      const index = included.indexOf(current)
+      if (index !== -1) return included[index + 1] ?? 'done'
+      return included.find((id) => id !== 'backlog' && rank(id) > rank(current)) ?? 'done'
+    },
+  }
+}
+
+export function onDefaultBranch(workflow: ResolvedWorkflow): ResolvedWorkflow {
+  const [primary, ...rest] = workflow.settings.repos ?? []
+  if (primary?.base_branch === undefined) return workflow
+  const { base_branch: _, ...kept } = primary
+  return { ...workflow, settings: { ...workflow.settings, repos: [kept, ...rest] } }
+}
+
 export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {
   const { stages } = workflow.settings
   return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => ({

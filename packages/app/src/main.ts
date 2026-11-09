@@ -13,8 +13,11 @@ import {
 import {
   type Activity,
   type AgentKind,
+  type AgentStageId,
+  type AnswerAutomationRequest,
   type AnswerRequest,
   type AttachmentRef,
+  type AutomationSchedule,
   agentKinds,
   type Banner,
   type BannerActionInput,
@@ -22,12 +25,14 @@ import {
   type CheckRepoRequest,
   type CheckTryRequest,
   type ClarifyDepth,
+  type CreateAutomationRequest,
   type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type EditAutomationRequest,
   type EditTaskRequest,
   type FactorySettingsChanges,
   type LibraryChanges,
@@ -102,6 +107,11 @@ function attachmentRefs(value: unknown): AttachmentRef[] {
   })
 }
 
+function shellSize(value: unknown): { cols: number; rows: number } {
+  const { cols, rows } = (value ?? {}) as Record<string, unknown>
+  return { cols: Number(cols), rows: Number(rows) }
+}
+
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
@@ -129,6 +139,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listAnswered: (client) => client.listAnswered(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
+  talkThrough: (client, commentId) => client.talkThrough(String(commentId)),
+  doneTalking: (client, commentId) => client.doneTalking(String(commentId)),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   getRunChat: (client, runId) => client.getRunChat(String(runId)),
   sendRunMessage: (client, runId, text, interrupt) =>
@@ -222,6 +234,31 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   readAttachment: (client, hash, name) =>
     client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  openShell: (client, taskId, repo, size) =>
+    client.openShell(String(taskId), String(repo), shellSize(size)),
+  restartShell: (client, taskId, repo, size) =>
+    client.restartShell(String(taskId), String(repo), shellSize(size)),
+  writeShell: (client, taskId, repo, data) =>
+    client.writeShell(String(taskId), String(repo), String(data)),
+  resizeShell: (client, taskId, repo, size) =>
+    client.resizeShell(String(taskId), String(repo), shellSize(size)),
+  readShell: (client, taskId, repo, query) => {
+    const given = (query ?? {}) as Record<string, unknown>
+    return client.readShell(String(taskId), String(repo), {
+      generation: Number(given.generation),
+      from: Number(given.from),
+      waitMs: Number(given.waitMs ?? 0),
+    })
+  },
+  listEditors: (client) => client.listEditors(),
+  openInEditor: (client, taskId, repo, at) => {
+    const given = (at ?? {}) as Record<string, unknown>
+    return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.file === 'string' && { file: given.file }),
+      ...(typeof given.line === 'number' && { line: given.line }),
+      ...(typeof given.column === 'number' && { column: given.column }),
+    })
+  },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {
@@ -247,6 +284,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   library: (client) => client.library(),
   previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
   saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
+  drift: (client) => client.drift(),
+  mergeInherited: (client, factoryId, stage) =>
+    client.mergeInherited(String(factoryId), stage as AgentStageId),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
   reorderFactories: (client, factoryIds) =>
     client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),
@@ -351,6 +391,25 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   removeLinearKey: (client) => client.removeLinearKey(),
   lookupLinear: (client, url) => client.lookupLinear(String(url)),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
+  listAutomations: (client, factory) =>
+    client.listAutomations(factory === undefined ? undefined : String(factory)),
+  getAutomation: (client, id) => client.getAutomation(String(id)),
+  automationTemplates: (client) => client.automationTemplates(),
+  automationRequests: (client) => client.automationRequests(),
+  previewSchedule: (client, schedule, timeZone) =>
+    client.previewSchedule(
+      schedule as AutomationSchedule,
+      timeZone === undefined ? undefined : String(timeZone),
+    ),
+  createAutomation: (client, input) => client.createAutomation(input as CreateAutomationRequest),
+  editAutomation: (client, id, input) =>
+    client.editAutomation(String(id), input as EditAutomationRequest),
+  setAutomationOn: (client, id, on) => client.setAutomationOn(String(id), on === true),
+  runAutomation: (client, id) => client.runAutomation(String(id)),
+  retryAutomationRun: (client, runId) => client.retryAutomationRun(String(runId)),
+  deleteAutomation: (client, id) => client.deleteAutomation(String(id)),
+  answerAutomationRequest: (client, id, answer) =>
+    client.answerAutomationRequest(String(id), answer as AnswerAutomationRequest),
 }
 
 const pictureSize = 256

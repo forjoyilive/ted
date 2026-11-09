@@ -59,6 +59,59 @@
   background: var(--surface-inset);
 }
 
+.stageDrift {
+  border-top: 1px solid var(--status-warning-border);
+  border-bottom: 1px solid var(--status-warning-border);
+  background: var(--status-waiting-bg);
+}
+
+.driftDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-waiting-fg);
+}
+
+.driftBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
+.driftLine,
+.driftCaption,
+.driftError {
+  margin: 0;
+  font-size: var(--text-13);
+}
+
+.driftLine {
+  color: var(--text-primary);
+}
+
+.driftCaption {
+  color: var(--text-caption);
+}
+
+.driftError {
+  color: var(--status-failed-fg);
+}
+
+.driftDiff {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-card);
+}
+
+.driftActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 .stageName {
   display: inline-flex;
   align-items: center;

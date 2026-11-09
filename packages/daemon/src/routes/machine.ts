@@ -6,6 +6,7 @@ import {
   type BannerActionInput,
   billings,
   createdByKinds,
+  editorIds,
   type ListFilters,
   type ListView,
   listColumns,
@@ -19,6 +20,7 @@ import {
   terminalFontSizes,
   workingRunLimits,
 } from '@ted/protocol'
+import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
 import { type Route, readJson, readOptionalJson } from './route.ts'
@@ -226,7 +228,29 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return { claude: choose('claude'), codex: choose('codex') }
   },
+  editor(value) {
+    if (value === null || value === 'custom') return value
+    const editor = editorIds.find((id) => id === value)
+    if (!editor) throw new HttpError(400, `editor must be null, custom or ${editorIds.join(', ')}`)
+    return editor
+  },
+  editorCommand(value) {
+    if (typeof value !== 'string' || value.length > maxEditorCommand) {
+      throw new HttpError(
+        400,
+        `editorCommand must be text of at most ${maxEditorCommand} characters`,
+      )
+    }
+    try {
+      parseEditorCommand(value)
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : String(error))
+    }
+    return value.trim()
+  },
 }
+
+const maxEditorCommand = 2000
 
 function onOff(name: keyof MachineSettings): (value: unknown) => boolean {
   return (value) => {

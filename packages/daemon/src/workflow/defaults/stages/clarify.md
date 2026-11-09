@@ -51,6 +51,7 @@ The Task is already clear: a small, specific change with one obvious reading. Po
    ```
 
 4. End your turn. TED sends you the human’s answers, each marked recommended or changed.
+5. If the human clicks **Talk it through** instead, TED tells you, and the human writes to you in your Conversation. Discuss the round’s questions there. When it’s settled, or when TED says the human is done talking, write a summary to a file (each question and what you agreed, then anything still open) and run `ted ask --close --summary <file>`. TED posts it as your note and closes the round as answered in Talk it through. Ask anything still open in a new round.
 
 ## Done when
 

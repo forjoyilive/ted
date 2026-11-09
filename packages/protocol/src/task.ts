@@ -440,6 +440,22 @@ export interface RoundAnswer {
   changed: boolean
 }
 
+export interface RoundTalk {
+  runId: string
+  startedAt: string
+  doneAt?: string
+}
+
+export interface TalkedThrough {
+  runId: string
+  summaryId: string
+  messages: number
+}
+
+export interface CloseRoundRequest {
+  summary: string
+}
+
 export interface RoundAnswerInput {
   answer: string
   note?: string
@@ -455,6 +471,7 @@ export type CommentAnswer =
       text?: string
       answers?: RoundAnswer[]
       planId?: string
+      talkedThrough?: TalkedThrough
     }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
@@ -477,6 +494,7 @@ export interface Comment {
   round?: Round
   proposal?: Proposal
   sizeCheck?: SizeCheck
+  talk?: RoundTalk
   gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer

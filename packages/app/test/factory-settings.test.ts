@@ -2,6 +2,7 @@ import type { FactorySettingsView, RepoSettingsInput } from '@ted/protocol/facto
 import { describe, expect, test } from 'vitest'
 import {
   changeCount,
+  driftLine,
   editedFields,
   lastRunText,
   lastValidLine,
@@ -139,6 +140,33 @@ describe('Factory settings draft', () => {
     expect(unsaved).toEqual({ count: 3, files: ['.ted/workflow.yaml', '.ted/stages/review.md'] })
     expect(unsavedSummary(unsaved)).toBe('3 unsaved changes to 2 files in .ted/')
     expect([...stageEdited(draft, loaded, 'review')]).toEqual(['file'])
+  })
+
+  test('Keep mine sends keepStageFiles and counts as a workflow.yaml change', () => {
+    const loaded = settingsDraft(view)
+    const draft = settingsDraft(view)
+    draft.keepStageFiles = ['review']
+    expect(settingsChanges(draft, loaded).keepStageFiles).toEqual(['review'])
+    expect(unsavedChanges(draft, loaded)).toEqual({ count: 1, files: ['.ted/workflow.yaml'] })
+    expect([...stageEdited(draft, loaded, 'review')]).toEqual(['kept'])
+  })
+
+  test('the drift line names what changed and what the copy is based on', () => {
+    const drift = {
+      basedOn: '9a01b7d',
+      current: '3c4d5e6',
+      diffOf: 'inherited' as const,
+      diff: [],
+    }
+    expect(driftLine('review', { ...drift, layer: 'ted', changedIn: '1.4.0' }, 'Inherited')).toBe(
+      'Inherited version changed. TED’s default review.md changed in TED 1.4.0. Your copy is based on 9a01b7d.',
+    )
+    expect(driftLine('review', { ...drift, layer: 'library' }, 'Inherited')).toBe(
+      'Inherited version changed. Your Library’s review.md changed. Your copy is based on 9a01b7d.',
+    )
+    expect(driftLine('design', { ...drift, layer: 'ted' }, 'Default')).toBe(
+      'Default version changed. TED’s default design.md changed. Your copy is based on 9a01b7d.',
+    )
   })
 
   test('notes alone name .ted/notes.md, and resetting an agent sends null', () => {

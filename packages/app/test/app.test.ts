@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   mkdir,
   mkdtemp,
@@ -1232,7 +1233,7 @@ describe('App Settings', () => {
   test('run from source, the ted command row says only an installed copy can install it', async () => {
     const window = await launchApp()
     await openSettings(window)
-    const commandLine = window.getByRole('group', { name: 'Command line' })
+    const commandLine = window.getByRole('group', { name: 'Editor and command line' })
 
     await commandLine.getByText('Only an installed copy of TED can install it.').waitFor()
     expect(await commandLine.getByRole('button', { name: 'Install the ted command' }).count()).toBe(
@@ -2355,7 +2356,7 @@ describe('Inbox and Gates', () => {
       true,
     )
     expect(await card.getByText('Recommended', { exact: true }).count()).toBe(2)
-    expect(await card.getByRole('button', { name: 'Talk it through' }).isDisabled()).toBe(true)
+    expect(await card.getByRole('button', { name: 'Talk it through' }).isDisabled()).toBe(false)
     await first.getByText('Keep the latest edit').click()
     await first.getByText('Changed ·').waitFor()
     await first.getByRole('button', { name: 'Reset' }).click()
@@ -2476,6 +2477,91 @@ describe('Inbox and Gates', () => {
       'Offline badge',
       'Sync queue with retry',
     ])
+  })
+
+  test('Talk it through opens the Task Lead’s chat with the round below it; Done talking closes the round with the summary', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const roundFile = path.join(home, 'round.json')
+    const summaryFile = path.join(home, 'summary.md')
+    await writeFile(
+      roundFile,
+      JSON.stringify({
+        title: 'Conflicts and sync · 1 question',
+        questions: [
+          {
+            question: 'When a note is edited on two devices offline, what happens?',
+            choices: ['Keep both and let me merge', 'Keep the latest edit'],
+            recommended: 'Keep both and let me merge',
+          },
+        ],
+      }),
+    )
+    await writeFile(summaryFile, 'Summary of Talk it through, Round 1: keep both copies.\n')
+    await addFactory(origin, 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          { run: ['ted', 'outcome', 'advance'] },
+          { run: ['ted', 'clarify', 'depth', 'few', 'one question'] },
+          { run: ['ted', 'ask', '--round', roundFile] },
+          { everyMessage: [{ say: 'Happy to talk it through.' }, { endTurn: true }] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.getByRole('button').filter({ hasText: 'Clarify round' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
+    await card.getByRole('button', { name: 'Talk it through' }).click()
+
+    await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
+    await thread.getByText('Round 1 · 1 question · open while you talk').waitFor()
+    await thread.getByText('Happy to talk it through.').first().waitFor()
+    await thread.getByRole('button', { name: 'Show', exact: true }).click()
+    const shown = thread.getByRole('region', { name: 'Clarify round', exact: true })
+    await shown.getByRole('button', { name: 'Submit answers' }).waitFor()
+    expect(await shown.getByRole('button', { name: 'Talk it through' }).count()).toBe(0)
+    await thread.getByRole('button', { name: 'Hide', exact: true }).click()
+
+    const box = thread.getByRole('textbox', { name: 'Message to this Run' })
+    await box.fill(
+      JSON.stringify({
+        steps: [
+          {
+            everyMessage: [
+              { run: ['ted', 'ask', '--close', '--summary', summaryFile] },
+              { endTurn: true },
+            ],
+          },
+          { say: 'Two copies side by side.' },
+          { endTurn: true },
+        ],
+      }),
+    )
+    await thread.getByRole('button', { name: 'Send', exact: true }).click()
+    await thread.getByText('Two copies side by side.', { exact: true }).waitFor()
+    await thread.getByRole('button', { name: 'Done talking' }).click()
+    await thread
+      .getByRole('heading', { name: 'Talking through Round 1' })
+      .waitFor({ state: 'detached' })
+    await thread.getByRole('tab', { name: 'Thread' }).click()
+    const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
+    await answered.getByText(/^Answered in Talk it through · \d+ messages$/).waitFor()
+    await thread.getByText('Summary of Talk it through, Round 1: keep both copies.').waitFor()
+    expect(await thread.getByText('You steered the Task Lead in its Conversation').count()).toBe(0)
+    await answered.getByRole('button', { name: 'Open chat' }).click()
+    await thread
+      .getByRole('region', { name: 'Run chat' })
+      .getByText('Two copies side by side.', { exact: true })
+      .waitFor()
   })
 
   test('the grilling sign-off lists Decisions so far, the open questions and what each button does', async () => {
@@ -3237,6 +3323,79 @@ describe('Factory settings sections', () => {
     await notice
       .getByText(/TED is using the last valid version, from [0-9a-f]{7}, just now/)
       .waitFor()
+  })
+})
+
+function blobHash(text: string): string {
+  return createHash('sha1')
+    .update(`blob ${Buffer.byteLength(text)}\0`)
+    .update(text)
+    .digest('hex')
+    .slice(0, 7)
+}
+
+async function writeLibrary(files: Record<string, string>): Promise<void> {
+  for (const [name, text] of Object.entries(files)) {
+    const file = path.join(home, 'library', name)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, text)
+  }
+}
+
+describe('Drift', () => {
+  test('a changed inherited Stage file turns its row amber with Keep mine, Use inherited and Merge with an agent', async () => {
+    const v1 = '# Review\n\n- Check the diff against the Design brief.\n'
+    const v2 = '# Review\n\n- Check the diff against the Design brief and the Decisions.\n'
+    await writeLibrary({ 'stages/review.md': v1 })
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.ted/workflow.yaml': `version: 1\nstages:\n  review: { based_on: ${blobHash(v1)} }\n`,
+      '.ted/stages/review.md': `${v1}- Also check the docs.\n`,
+    })
+    await addFactory(origin, 'NB')
+    await writeLibrary({ 'stages/review.md': v2 })
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const settings = sidebar(window).getByRole('button', { name: /^Settings 1$/ })
+    await settings.waitFor()
+    await settings.click()
+    await window.getByRole('button', { name: 'Workflow 1' }).waitFor()
+
+    const drift = window.getByRole('region', { name: 'Review drift' })
+    await drift
+      .getByText(
+        `Inherited version changed. Your Library’s review.md changed. Your copy is based on ${blobHash(v1)}.`,
+      )
+      .waitFor()
+    await drift.getByText('- Check the diff against the Design brief and the Decisions.').waitFor()
+    await drift.getByRole('button', { name: 'Use inherited' }).waitFor()
+    await drift.getByRole('button', { name: 'Merge with an agent' }).waitFor()
+    await drift.getByRole('button', { name: 'Keep mine' }).click()
+    await drift.waitFor({ state: 'detached' })
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+  })
+
+  test('a Library copy of a changed default shows Keep mine and Use default only', async () => {
+    await writeLibrary({
+      'workflow.yaml': 'version: 1\nstages:\n  review:\n    based_on: abcdef0\n',
+      'stages/review.md': 'My review steps\n',
+    })
+    const window = await launchApp()
+    await openSettings(window)
+    const library = settingsNav(window).getByRole('button', { name: 'Library 1' })
+    await library.waitFor()
+    await library.click()
+    const drift = window.getByRole('region', { name: 'Review drift' })
+    await drift
+      .getByText(
+        /Default version changed\. TED’s default review\.md changed in TED .+\. Your copy is based on abcdef0\./,
+      )
+      .waitFor()
+    await drift.getByRole('button', { name: 'Use default' }).waitFor()
+    expect(await drift.getByRole('button', { name: 'Merge with an agent' }).count()).toBe(0)
+    await drift.getByRole('button', { name: 'Keep mine' }).click()
+    await window.getByText('1 unsaved change to the Library').waitFor()
   })
 })
 

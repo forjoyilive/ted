@@ -11,6 +11,8 @@ import { createEnvironment } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
+import { createEditors, type LaunchEditor } from './editors.ts'
+import { RequestError } from './errors.ts'
 import { ensureClone } from './factories.ts'
 import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
@@ -31,6 +33,7 @@ import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { listen } from './server.ts'
+import { createShells, loginShell } from './shells.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -66,6 +69,12 @@ export interface DaemonOptions {
   limitProbeMs?: number
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
+  editors?: DaemonEditorsOptions
+}
+
+export interface DaemonEditorsOptions {
+  appDirs?: string[]
+  launch?: LaunchEditor
 }
 
 export interface DaemonAutomationsOptions {
@@ -218,6 +227,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         libraryDir: paths.library,
         reposDir: paths.repos,
+        tedVersion: options.version,
+        onDrift: (drift) => emit({ type: 'drift-changed', drift }),
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
@@ -264,6 +275,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         health: async () => integrations.current() ?? (await integrations.check()),
         factories,
+        createTask: async (input) => {
+          if (!started) throw new RequestError(503, 'TED is still starting')
+          return started.create(input)
+        },
         ...(options.settingsMergeWaitMs !== undefined && {
           mergeWaitMs: options.settingsMergeWaitMs,
         }),
@@ -289,6 +304,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       let plans: Plans | undefined
+      await workflows.inherited().catch(() => undefined)
       const tasks = createTasks({
         planning: () => plans,
         store,
@@ -312,6 +328,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
+      })
+      const shells = createShells({
+        async target(ref, repo) {
+          const access = await tasks.worktreeAccess(ref, repo)
+          return { ...access, env: { ...access.env, TED_HOME: paths.home } }
+        },
+        subscribe: (listener) => store.subscribe(listener),
+        program: () => loginShell(environment.current()),
+        onRunning: (count) => store.setShellsRunning(count),
+        ...(idle && { idle }),
+      })
+      const editorOptions = options.editors ?? {}
+      const editors = createEditors({
+        env: environment.current,
+        settings: () => store.settings(),
+        ...(editorOptions.appDirs !== undefined && { appDirs: editorOptions.appDirs }),
+        ...(editorOptions.launch !== undefined && { launch: editorOptions.launch }),
       })
       const automationOptions = options.automations ?? {}
       const automations = createAutomations({
@@ -426,7 +459,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         factoryRemovals,
         checkTries,
         library,
+        shells,
+        editors,
         async close() {
+          shells.close()
           automations.close()
           plans.close()
           libraryWatch.close()

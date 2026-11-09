@@ -21,6 +21,7 @@ export function tedTestConfig(include: string[]) {
         TED_SKIP_FIRST_LAUNCH: '1',
         TED_TIME_MACHINE: 'off',
         TED_APP_TOKEN: 'test-app-token',
+        TED_EDITOR_APP_DIRS: '',
       },
     },
   })

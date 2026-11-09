@@ -6,6 +6,7 @@ export type BannerPlace =
   | { kind: 'settings'; section?: string }
   | { kind: 'factory-settings'; factoryId: string }
   | { kind: 'task'; taskId: string }
+  | { kind: 'automation'; automationId: string; factoryId: string }
 
 export interface BannerAction {
   label: string

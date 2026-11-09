@@ -7,9 +7,11 @@ import {
   followUpTaskEvent,
 } from './components/ArchiveDialogs.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
+import { openInEditor } from './editor.ts'
 import type { Direction } from './key-targets.ts'
 import { keysFor } from './keymap.ts'
 import type { FactoryView, NavigationAction } from './navigation.ts'
+import { hasWorktree, openTaskShell } from './shell.ts'
 import { runStatusAction, shortcutAction, statusAction } from './task-actions.ts'
 import { clarifyDepthLabels, priorityLabels } from './task-fields.ts'
 import { ted } from './ted.ts'
@@ -36,6 +38,7 @@ export interface CommandContext {
   factoryId?: string | undefined
   dispatch: (action: NavigationAction) => void
   newTask: (description?: string) => void
+  newAutomation: () => void
   addFactory: () => void
   keys?: KeyActions
 }
@@ -132,7 +135,7 @@ export const globalCommands: readonly Command[] = [
     id: 'go-to-automations',
     label: 'Go to Automations…',
     scope: 'global',
-    keywords: 'new automation schedule',
+    keywords: 'automations schedule',
     choices: ({ factories, dispatch }) =>
       factories.map((factory) => ({
         id: factory.id,
@@ -157,6 +160,13 @@ export const globalCommands: readonly Command[] = [
         ...(index < 9 && { shortcut: factoryShortcut(index) }),
         run: () => dispatch({ type: 'open-factory', factoryId: factory.id }),
       })),
+  },
+  {
+    id: 'new-automation',
+    label: 'New Automation',
+    scope: 'global',
+    keywords: 'schedule automation',
+    run: ({ newAutomation }) => newAutomation(),
   },
   {
     id: 'settings',
@@ -240,6 +250,31 @@ export function taskCommands(task: Task): Command[] {
       shortcuts: keysFor('blocked-by'),
       run: () => taskEvent(pickBlockerEvent, task),
     })
+  }
+  if (hasWorktree(task)) {
+    list.push({
+      id: 'shell',
+      label: 'Open shell',
+      scope: 'task',
+      shortcuts: keysFor('shell'),
+      keywords: 'terminal worktree',
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id) {
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        }
+        openTaskShell(task)
+      },
+    })
+    const repo = task.repos.find((r) => !r.removed)
+    if (repo) {
+      list.push({
+        id: 'open-in-editor',
+        label: 'Open in editor',
+        scope: 'task',
+        keywords: 'vs code cursor zed worktree',
+        run: () => openInEditor({ taskId: task.id, repo: repo.name }),
+      })
+    }
   }
   list.push(
     {

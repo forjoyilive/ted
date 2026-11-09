@@ -11,6 +11,8 @@ export interface FactoryBadges {
   failed?: boolean
   plansFailed?: boolean
   stopsWork?: boolean
+  drift?: number
+  automationFailed?: boolean
 }
 
 export interface SidebarFooter {
@@ -303,13 +305,23 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'settings' && (badge.drift ?? 0) > 0 && (
+                      <span className={styles.subCount} title="Inherited Stage files that changed">
+                        {badge.drift}
+                      </span>
+                    )}
+                    {view === 'automations' && badge.automationFailed && (
+                      <span role="img" aria-label="An Automation failed" className={styles.subDot}>
+                        <DotIcon className={styles.failedDot} />
+                      </span>
+                    )}
                     {view === 'plans' && badge.plansFailed && (
                       <span
                         role="img"
                         aria-label="A planning chat failed"
-                        className={styles.failedDot}
+                        className={styles.subDot}
                       >
-                        <DotIcon />
+                        <DotIcon className={styles.failedDot} />
                       </span>
                     )}
                   </button>

@@ -1,4 +1,4 @@
-import type { Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
+import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
 
 export interface InboxChip {
   factoryId?: string
@@ -8,22 +8,28 @@ export interface InboxChip {
 
 export function waitingByFactory(
   items: readonly InboxItem[],
+  questions: readonly Pick<AutomationRequest, 'factoryId'>[] = [],
   plans: readonly PlanInboxItem[] = [],
 ): Record<string, number> {
   const counts: Record<string, number> = {}
-  for (const { task } of items) counts[task.factoryId] = (counts[task.factoryId] ?? 0) + 1
-  for (const { plan } of plans) counts[plan.factoryId] = (counts[plan.factoryId] ?? 0) + 1
+  const factoryIds = [
+    ...items.map((i) => i.task.factoryId),
+    ...plans.map((p) => p.plan.factoryId),
+    ...questions.map((q) => q.factoryId),
+  ]
+  for (const id of factoryIds) counts[id] = (counts[id] ?? 0) + 1
   return counts
 }
 
 export function inboxChips(
   items: readonly InboxItem[],
   factories: readonly Factory[],
+  questions: readonly Pick<AutomationRequest, 'factoryId'>[] = [],
   plans: readonly PlanInboxItem[] = [],
 ): InboxChip[] {
-  const counts = waitingByFactory(items, plans)
+  const counts = waitingByFactory(items, questions, plans)
   return [
-    { label: 'All', count: items.length + plans.length },
+    { label: 'All', count: items.length + plans.length + questions.length },
     ...factories.map((f) => ({ factoryId: f.id, label: f.name, count: counts[f.id] ?? 0 })),
   ]
 }
