@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -12,6 +12,7 @@ import {
   api,
   editEventlog,
   pretendStateSchemaChanged,
+  removeHome,
   stopDaemonIn,
   tokenFor,
 } from '../../daemon/test/helpers.ts'
@@ -35,8 +36,8 @@ afterEach(async () => {
   await closeApp(app)
   app = undefined
   await stopDaemonIn(home)
-  await rm(home, { recursive: true, force: true })
-})
+  await removeHome(home)
+}, 30_000)
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({

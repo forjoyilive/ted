@@ -12,7 +12,10 @@ export async function closeApp(
   timeoutMs = 10_000,
 ): Promise<void> {
   if (!app) return
-  const child = app.process()
+  let child: ReturnType<ElectronApplication['process']> | undefined
+  try {
+    child = app.process()
+  } catch {}
   const closed = await Promise.race([
     app.close().then(
       () => true,
@@ -20,7 +23,7 @@ export async function closeApp(
     ),
     sleep(timeoutMs).then(() => false),
   ])
-  if (closed && child.exitCode !== null) return
+  if (!child || (closed && child.exitCode !== null)) return
   if (child.pid !== undefined) {
     kill(-child.pid)
     kill(child.pid)
