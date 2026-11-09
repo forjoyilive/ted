@@ -1653,7 +1653,11 @@ describe('running in the background', () => {
           'Quit TED completely',
         ]),
       )
-    if (process.platform === 'linux') expect(await window.title()).toBe('TED (1)')
+    if (process.platform === 'linux') {
+      expect(
+        await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()),
+      ).toBe('TED (1)')
+    }
 
     await app?.evaluate(({ Menu }) => {
       const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
@@ -1716,27 +1720,30 @@ describe('running in the background', () => {
     await expect.poll(checked(startAtLogin)).toBe('false')
   })
 
-  test('when macOS asks for approval, the row says so and opens Login Items', async () => {
-    const window = await launchApp({
-      TED_LOGIN_ITEM_LOG: loginLog(),
-      TED_LOGIN_ITEM_STATUS: 'requires-approval',
-    })
-    await app?.evaluate(({ shell }) => {
-      const opened: string[] = []
-      Object.assign(globalThis, { opened })
-      shell.openExternal = async (url: string) => {
-        opened.push(url)
-      }
-    })
-    await openSettings(window)
+  test.skipIf(process.platform !== 'darwin')(
+    'when macOS asks for approval, the row says so and opens Login Items',
+    async () => {
+      const window = await launchApp({
+        TED_LOGIN_ITEM_LOG: loginLog(),
+        TED_LOGIN_ITEM_STATUS: 'requires-approval',
+      })
+      await app?.evaluate(({ shell }) => {
+        const opened: string[] = []
+        Object.assign(globalThis, { opened })
+        shell.openExternal = async (url: string) => {
+          opened.push(url)
+        }
+      })
+      await openSettings(window)
 
-    await window.getByText('Allow TED in System Settings → Login Items').waitFor()
-    await window.getByRole('button', { name: 'Open System Settings' }).click()
+      await window.getByText('Allow TED in System Settings → Login Items').waitFor()
+      await window.getByRole('button', { name: 'Open System Settings' }).click()
 
-    await expect
-      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
-      .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
-  })
+      await expect
+        .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+        .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
+    },
+  )
 
   test('started with --background, TED runs with no window', async () => {
     app = await electron.launch({

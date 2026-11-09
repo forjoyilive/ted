@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { readdir, readFile } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { promisify } from 'node:util'
 
@@ -12,19 +13,63 @@ export interface MarkedProcess {
   command: string
 }
 
+interface ProcessEntry extends MarkedProcess {
+  ppid: number
+}
+
 function cleanEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env }
   for (const name of markerNames) delete env[name]
   return env
 }
 
-async function ancestors(): Promise<Set<number>> {
-  const { stdout } = await execFileAsync('ps', ['-ax', '-o', 'pid=,ppid='], { env: cleanEnv() })
-  const parents = new Map<number, number>()
-  for (const line of stdout.split('\n')) {
-    const [pid, ppid] = line.trim().split(/\s+/).map(Number)
-    if (pid !== undefined && ppid !== undefined) parents.set(pid, ppid)
+async function linuxProcesses(): Promise<ProcessEntry[]> {
+  const entries: ProcessEntry[] = []
+  for (const name of await readdir('/proc')) {
+    if (!/^\d+$/.test(name)) continue
+    try {
+      const [stat, cmdline, environ] = await Promise.all([
+        readFile(`/proc/${name}/stat`, 'utf8'),
+        readFile(`/proc/${name}/cmdline`, 'utf8'),
+        readFile(`/proc/${name}/environ`, 'utf8').catch(() => ''),
+      ])
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ')
+      entries.push({
+        pid: Number(name),
+        ppid: Number(fields[1]),
+        pgid: Number(fields[2]),
+        command: `${cmdline} ${environ}`.replaceAll('\0', ' '),
+      })
+    } catch {}
   }
+  return entries
+}
+
+async function psProcesses(): Promise<ProcessEntry[]> {
+  const { stdout } = await execFileAsync('ps', ['eww', '-ax', '-o', 'pid=,ppid=,pgid=,command='], {
+    env: cleanEnv(),
+    maxBuffer: 256 * 1024 * 1024,
+  })
+  const entries: ProcessEntry[] = []
+  for (const line of stdout.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s(.*)$/.exec(line)
+    if (!match) continue
+    entries.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      pgid: Number(match[3]),
+      command: match[4] ?? '',
+    })
+  }
+  return entries
+}
+
+function listProcesses(): Promise<ProcessEntry[]> {
+  return process.platform === 'linux' ? linuxProcesses() : psProcesses()
+}
+
+function ancestors(entries: ProcessEntry[]): Set<number> {
+  const parents = new Map(entries.map((entry) => [entry.pid, entry.ppid]))
   const chain = new Set<number>()
   for (let pid: number | undefined = process.pid; pid && !chain.has(pid); pid = parents.get(pid)) {
     chain.add(pid)
@@ -34,23 +79,11 @@ async function ancestors(): Promise<Set<number>> {
 
 export async function findMarked(name: string, value: string): Promise<MarkedProcess[]> {
   const pattern = new RegExp(`(^|\\s)${name}=${value.replace(/[^\w-]/g, '\\$&')}(\\s|$)`)
-  const [{ stdout }, own] = await Promise.all([
-    execFileAsync('ps', ['eww', '-ax', '-o', 'pid=,pgid=,command='], {
-      env: cleanEnv(),
-      maxBuffer: 256 * 1024 * 1024,
-    }),
-    ancestors(),
-  ])
-  const found: MarkedProcess[] = []
-  for (const line of stdout.split('\n')) {
-    const match = /^\s*(\d+)\s+(\d+)\s(.*)$/.exec(line)
-    if (!match) continue
-    const pid = Number(match[1])
-    const command = match[3] ?? ''
-    if (own.has(pid) || !pattern.test(command)) continue
-    found.push({ pid, pgid: Number(match[2]), command })
-  }
-  return found
+  const entries = await listProcesses()
+  const own = ancestors(entries)
+  return entries
+    .filter((entry) => !own.has(entry.pid) && pattern.test(entry.command))
+    .map(({ pid, pgid, command }) => ({ pid, pgid, command }))
 }
 
 function signal(pid: number): void {
