@@ -1,7 +1,6 @@
-// Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/ActivityRun.tsx
-// and ChatTimelineItems.tsx (collapsible tool-call rows with +/− counts, the running state, and
-// the human bubble). TED changed: rewritten for TED’s CSS Modules and RunChat items, with no
-// grouping of calls, an Edit row that expands to its diff, and a Run bar and composer of its own.
+// Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
+// ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, no
+// grouping of calls, and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useRunChat } from '../data.ts'
