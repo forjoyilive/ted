@@ -1,6 +1,9 @@
 name: CI
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * 1'
@@ -23,7 +26,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm --filter @ted/app exec install-electron
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
       # Ubuntu runners block Chromium's OS sandbox; the renderer's own sandbox stays on.
       - run: xvfb-run -a pnpm test
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         env:
           ELECTRON_DISABLE_SANDBOX: '1'
