@@ -34,7 +34,7 @@ if MODE.startswith("hook"):
 cmd = ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json",
        "--verbose", "--replay-user-messages", "--include-hook-events",
        "--model", "haiku", "--setting-sources", "project", "--strict-mcp-config",
-       "--no-session-persistence", "--allowedTools", "Bash", "--settings", json.dumps(settings)]
+       "--no-session-persistence", "--allowedTools", "Bash(sleep:*)", "Bash(echo:*)", "--settings", json.dumps(settings)]
 
 t0 = time.time()
 log = open(OUT, "w")

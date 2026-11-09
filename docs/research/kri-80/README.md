@@ -76,3 +76,5 @@ Evidence (event logs written by `log_hook.py`):
 - `claude_pty.py`, `log_hook.py`: PTY driver (modes `hook`, `gate`, `type`, `interrupt`) and event logger.
 - `gate_hook.py`, `hold_hook.py`: the two hook designs.
 - `claude-help.txt`, `codex-app-server-help.txt`: `--help` output for the tested versions.
+
+The committed transcripts were recorded with `--allowedTools Bash`. The scripts now allow only `Bash(sleep:*)` and `Bash(echo:*)`; a rerun of `claude_stream.py gate` with that rule gave the same result.

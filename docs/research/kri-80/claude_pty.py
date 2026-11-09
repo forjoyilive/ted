@@ -27,7 +27,7 @@ hooks["PostToolUse"][0]["hooks"].append(
     {"type": "command", "command": f"python3 {HERE}/{'gate_hook' if MODE == 'gate' else 'hold_hook'}.py {QUEUE_FILE}"})
 
 cmd = ["claude", "--model", "haiku", "--setting-sources", "project", "--strict-mcp-config",
-       "--allowedTools", "Bash", "--settings", json.dumps({"hooks": hooks})]
+       "--allowedTools", "Bash(sleep:*)", "Bash(echo:*)", "--settings", json.dumps({"hooks": hooks})]
 master, slave = pty.openpty()
 proc = subprocess.Popen(cmd, stdin=slave, stdout=slave, stderr=slave, cwd=HERE, close_fds=True)
 screen = open(EVENTS.replace(".jsonl", ".screen.txt"), "wb")
