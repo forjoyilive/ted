@@ -9,6 +9,7 @@ import type {
   Factory,
   MachineSettings,
   RestoreBackupResult,
+  StageEntry,
   Task,
   TaskDefaults,
 } from '@ted/protocol'
@@ -28,6 +29,8 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listStageEntries: (taskId: string) =>
+    window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,

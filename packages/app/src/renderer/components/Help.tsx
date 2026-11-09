@@ -1,9 +1,17 @@
 import { type ReactNode, useId, useState } from 'react'
 import styles from './Help.module.css'
 
-export function Tooltip({ id, children }: { id?: string; children: ReactNode }) {
+export function Tooltip({
+  id,
+  className,
+  children,
+}: {
+  id?: string
+  className?: string | undefined
+  children: ReactNode
+}) {
   return (
-    <span className={styles.tooltip} role="tooltip" id={id}>
+    <span className={`${styles.tooltip} ${className ?? ''}`} role="tooltip" id={id}>
       {children}
     </span>
   )

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Button } from '../components/Button.tsx'
 import { PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import styles from './views.module.css'
 
 const stageRank: Record<StageId, number> = {
@@ -88,7 +89,14 @@ export function TaskList({ title, tasks, factories, onOpen, onNewTask, banners }
   )
 }
 
-export function Board({ title, tasks, onOpen, onNewTask, banners }: TaskViewProps) {
+export function Board({
+  title,
+  tasks,
+  onOpen,
+  onOpenTask,
+  onNewTask,
+  banners,
+}: TaskViewProps & { onOpenTask: (ref: string) => void }) {
   const stages: string[] = [
     ...stageOrder,
     ...new Set(tasks.map((t) => t.stage).filter((s) => !stageOrder.includes(s))),
@@ -108,18 +116,22 @@ export function Board({ title, tasks, onOpen, onNewTask, banners }: TaskViewProp
                 <span className={styles.columnCount}>{inStage.length}</span>
               </h2>
               {inStage.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  className={styles.card}
-                  onClick={() => onOpen(task)}
-                >
+                <div key={task.id} className={styles.card}>
                   <span className={styles.cardId}>
                     <PriorityIcon priority={task.priority} />
                     {task.displayId}
+                    <span className={styles.cardRuns}>
+                      <RunIcons runs={task.runs} stacked />
+                    </span>
                   </span>
-                  <span className={styles.cardTitle}>{task.title}</span>
-                </button>
+                  <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
+                    {task.title}
+                  </button>
+                  <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+                  {task.activity !== undefined && (
+                    <span className={styles.cardActivity}>{task.activity}</span>
+                  )}
+                </div>
               ))}
             </section>
           )

@@ -1,11 +1,13 @@
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { agentStageIds, type DaemonEvent } from '@ted/protocol'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
 let dir: string
+const agentStages = [...agentStageIds]
 
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'ted-store-'))
@@ -105,6 +107,132 @@ describe('TedStore', () => {
       expect(second.getRun('missing')).toBeUndefined()
     } finally {
       await second.close()
+    }
+  })
+
+  test('a new Task has no status, a Not started activity line and every default Stage ahead', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Fix login' })
+
+      expect(task.status).toBeUndefined()
+      expect(task.markers).toEqual([])
+      expect(task.activity).toBe('Not started')
+      expect(task.runs).toEqual([])
+      expect(task.track.map((s) => s.stage)).toEqual(agentStages)
+      expect(task.track.every((s) => s.state === 'future')).toBe(true)
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('the Stage track follows the Workflow order and strikes through Stages the Task skipped', async () => {
+    const first = await openStore({ directory: dir })
+    const task = await first.createTask({ title: 'Fix login' })
+    const order = [
+      { stage: 'intake', enabled: true },
+      { stage: 'clarify', enabled: false },
+      { stage: 'design', enabled: true },
+      { stage: 'work', enabled: true },
+      { stage: 'review', enabled: true },
+      { stage: 'merge', enabled: false },
+    ] as const
+    const entry = { layers: [], order: [...order] }
+    first.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
+    first.changeStage(task.id, 'work', entry)
+    await first.close()
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.getTask(task.id)?.track).toEqual([
+        { stage: 'intake', state: 'past' },
+        { stage: 'clarify', state: 'skipped' },
+        { stage: 'design', state: 'skipped' },
+        { stage: 'work', state: 'current' },
+        { stage: 'review', state: 'future' },
+        { stage: 'merge', state: 'skipped' },
+      ])
+      second.changeStage(task.id, 'done', entry)
+      expect(second.getTask(task.id)?.track.map((s) => s.state)).toEqual([
+        'past',
+        'skipped',
+        'skipped',
+        'past',
+        'skipped',
+        'skipped',
+      ])
+    } finally {
+      await second.close()
+    }
+  })
+
+  test('a Task waiting on an unmerged blocker says so, and updates when the blocker is done', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const blocker = await store.createTask({ title: 'First' })
+      const task = await store.createTask({ title: 'Second', blockedBy: [blocker.id] })
+
+      expect(task.markers).toEqual([{ kind: 'blocked-by', by: 'DEV-1' }])
+      expect(task.activity).toBe('Starts when DEV-1 merges')
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+      const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
+      store.changeStage(blocker.id, 'done', entry)
+
+      const freed = store.getTask(task.id)
+      expect(freed?.markers).toEqual([])
+      expect(freed?.activity).toBe('Not started')
+      expect(seen.map((e) => e.type === 'task-updated' && e.task.id)).toEqual([blocker.id, task.id])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('the agent’s activity line lasts until the Task changes Stage', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Fix login' })
+      const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
+      store.startTask({ taskId: task.id, stage: 'intake', branch: 'b', worktree: '/w', entry })
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+
+      const updated = store.setActivity(task.id, 'Running Checks · Tests (2 of 3)')
+
+      expect(updated.activity).toBe('Running Checks · Tests (2 of 3)')
+      expect(seen).toEqual([{ type: 'task-updated', task: updated }])
+      store.changeStage(task.id, 'clarify', entry)
+      expect(store.getTask(task.id)?.activity).toBeUndefined()
+      vi.useFakeTimers({ now: new Date('2026-11-08T12:00:00Z'), toFake: ['Date'] })
+      store.setActivity(task.id, 'Asking round 1')
+      store.changeStage(task.id, 'design', entry)
+      expect(store.getTask(task.id)?.activity).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+      await store.close()
+    }
+  })
+
+  test('a Task with a working Run is Working, shows its Runs, and updates when the Run’s state changes', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Fix login' })
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+      store.startRun({ id: 'run-1', agent: 'codex', prompt: 'Hi', cwd: '/tmp', taskId: task.id })
+
+      expect(store.getTask(task.id)).toMatchObject({
+        status: { kind: 'working' },
+        runs: [{ id: 'run-1', agent: 'codex', state: 'working' }],
+      })
+      store.recordRunOutput('run-1', { toOffset: 1, entries: [], state: 'waiting' })
+      store.recordRunOutput('run-1', { toOffset: 2, entries: [], state: 'finished' })
+
+      const statuses = seen.map((e) => (e.type === 'task-updated' ? e.task.status?.kind : e.type))
+      expect(statuses).toEqual(['working', 'waiting-on-you', undefined])
+      expect(store.getTask(task.id)?.runs).toEqual([])
+    } finally {
+      await store.close()
     }
   })
 

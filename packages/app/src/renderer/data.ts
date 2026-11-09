@@ -5,6 +5,8 @@ import type {
   DataStatus,
   Factory,
   MachineSettings,
+  StageEntry,
+  StageId,
   Task,
 } from '@ted/protocol'
 import { useCallback, useEffect, useState } from 'react'
@@ -93,6 +95,26 @@ export function useDataStatus(): DataStatus | undefined {
   }, [])
 
   return status
+}
+
+export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
+  const [entries, setEntries] = useState<StageEntry[]>([])
+
+  useEffect(() => {
+    let current = true
+    if (stage === 'backlog') {
+      setEntries([])
+      return
+    }
+    void ted.listStageEntries(taskId).then((loaded) => {
+      if (current) setEntries(loaded)
+    })
+    return () => {
+      current = false
+    }
+  }, [taskId, stage])
+
+  return entries
 }
 
 export function useBanners(): Banner[] {

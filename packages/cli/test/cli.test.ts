@@ -275,6 +275,7 @@ describe('ted help', () => {
     const { stdout } = await ted(['help'])
     expect(stdout).toContain('ted comment')
     expect(stdout).toContain('ted outcome advance')
+    expect(stdout).toContain('ted status')
     expect(stdout).toContain('ted help')
   })
 })
@@ -305,8 +306,9 @@ describe('ted dev factory and ted task start', () => {
     expect(listed).toMatch(/^NB-1 {2}Done {2}/)
   })
 
-  test('comment and outcome outside a Run need --task', async () => {
+  test('comment, status and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
+    await expect(ted(['status', 'Reading'])).rejects.toMatchObject({ code: 2 })
   })
 })
 

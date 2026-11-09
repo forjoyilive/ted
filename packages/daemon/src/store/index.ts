@@ -4,8 +4,10 @@ import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import {
   type AgentKind,
+  type AgentStageId,
   type Appearance,
   type Attachment,
+  agentStageIds,
   type Banner,
   type BannerAction,
   type BannerSeverity,
@@ -26,8 +28,10 @@ import {
   type StageId,
   type Task,
   type TaskLead,
+  type TrackStage,
 } from '@ted/protocol'
 import { Effect } from 'effect'
+import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
@@ -76,7 +80,14 @@ export interface NewTask {
   attachments?: Attachment[]
 }
 
-export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
+export interface PlannedStage {
+  stage: AgentStageId
+  enabled: boolean
+}
+
+export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
+  order: PlannedStage[]
+}
 
 export interface AcceptedLayer {
   files: Record<string, string | null>
@@ -102,6 +113,7 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -170,8 +182,8 @@ export async function openStore({
       ? placeholderFactory.key
       : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
 
-  const leadRunId = (taskId: string) =>
-    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
+  const taskRuns = (taskId: string) =>
+    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
   const blockersOf = (taskId: string) =>
     store
@@ -183,15 +195,39 @@ export async function openStore({
       .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
       .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
 
+  const entryRows = (taskId: string) =>
+    store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+
   const toTask = ({
     branch,
     worktree,
+    activity,
+    activityEntries,
     leadAgent,
     leadModel,
     leadEffort,
     ...row
   }: typeof tasks.Type): StoredTask => {
-    const lead = leadRunId(row.id)
+    const stage = row.stage as StageId
+    const all = taskRuns(row.id)
+    const lead = all.at(0)
+    const live = all.filter((r) => r.state !== 'finished')
+    const entries = entryRows(row.id)
+    const blockedBy = blockersOf(row.id)
+    const waitingOn = blockedBy.flatMap((id) => {
+      const blocker = taskRow(id)
+      return blocker && blocker.stage !== 'done'
+        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
+        : []
+    })
+    const facts: TaskFacts = {
+      stage,
+      runs: live.map((r) => r.state as RunState),
+      ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
+    }
+    const status = taskStatus(facts)
+    const shown = taskActivity(facts)
     return {
       ...row,
       priority: row.priority as Priority,
@@ -203,13 +239,20 @@ export async function openStore({
           ...(leadEffort !== null && { effort: leadEffort as Effort }),
         },
       }),
-      blockedBy: blockersOf(row.id),
+      blockedBy,
       attachments: attachmentsOf(row.id),
-      stage: row.stage as StageId,
+      stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
-      ...(lead !== undefined && { leadRunId: lead }),
+      ...(lead !== undefined && { leadRunId: lead.id }),
+      ...(status !== undefined && { status }),
+      markers: taskMarkers(facts, status),
+      ...(shown !== undefined && { activity: shown }),
+      track: track(stage, entries),
+      runs: live
+        .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
+        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
     }
   }
 
@@ -230,13 +273,14 @@ export async function openStore({
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEntered({
+    events.taskStageEnteredV2({
       id: randomUUID(),
       taskId,
       stage,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
+      order: JSON.stringify(entry.order),
       at,
     })
 
@@ -254,6 +298,7 @@ export async function openStore({
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
+  const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
@@ -364,7 +409,15 @@ export async function openStore({
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (stage === 'done') {
+        for (const { taskId: waiting } of store.query(
+          queryDb(taskBlockers.where({ blockerId: taskId })),
+        )) {
+          updatedTask(waiting)
+        }
+      }
+      return task
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -387,6 +440,18 @@ export async function openStore({
           acceptedAt: row.acceptedAt,
         }
       )
+    },
+    setActivity(taskId, text, runId) {
+      store.commit(
+        events.taskActivitySet({
+          taskId,
+          text,
+          runId: runId ?? null,
+          stageEntries: entryRows(taskId).length,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {
@@ -416,6 +481,7 @@ export async function openStore({
         startedAt: new Date().toISOString(),
       }
       store.commit(events.runStartedV2(row))
+      if (taskId !== undefined) updatedTask(taskId)
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
     recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
@@ -430,6 +496,8 @@ export async function openStore({
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),
       )
+      const taskId = taskIdOfRun(runId)
+      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
     },
     getRun(id) {
       const row = runRow(id)
@@ -511,4 +579,28 @@ function describeOpenError(error: unknown): string {
   }
   const text = message.replace(/\s+/g, ' ').trim() || 'unknown error'
   return event ? `${event}: ${text}` : text
+}
+
+function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
+  const saved = entries.findLast((e) => e.order !== null)?.order
+  const plan: PlannedStage[] = saved
+    ? (JSON.parse(saved) as PlannedStage[])
+    : agentStageIds.map((id) => ({ stage: id, enabled: true }))
+  const order: StageId[] = plan.map((p) => p.stage)
+  const entered = new Set(entries.map((e) => e.stage))
+  const inOrder = order.includes(stage)
+  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
+  return plan.map(({ stage: id, enabled }) => {
+    if (id === stage) return { stage: id, state: 'current' }
+    if (!enabled) return { stage: id, state: 'skipped' }
+    if (stage === 'backlog') return { stage: id, state: 'future' }
+    if (stage === 'done' || rank(id) < rank(stage)) {
+      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
+    }
+    return { stage: id, state: 'future' }
+  })
+}
+
+function builtInRank(id: StageId): number {
+  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
 }

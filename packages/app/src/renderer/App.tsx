@@ -57,6 +57,10 @@ export function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [newTaskOpen])
+  const openTaskByRef = (ref: string) => {
+    const found = tasks.find((t) => t.displayId === ref || t.id === ref)
+    if (found) openTask(found)
+  }
 
   async function act(banner: Banner) {
     const place = banner.action?.opens
@@ -91,6 +95,7 @@ export function App() {
             task={task}
             backLink={backLink(navigation)}
             onBack={() => dispatch({ type: 'close-task' })}
+            onOpenTask={openTaskByRef}
           />
           <TaskDetails task={task} tasks={tasks} factories={factories} />
         </>
@@ -123,7 +128,7 @@ export function App() {
           onNewTask: openNewTask,
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        if (screen.view === 'board') return <Board {...view} />
+        if (screen.view === 'board') return <Board {...view} onOpenTask={openTaskByRef} />
         if (screen.view === 'list') return <TaskList {...view} />
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }

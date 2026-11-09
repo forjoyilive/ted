@@ -276,6 +276,52 @@ describe('Tasks', () => {
     expect((await getTask(client, task.id))?.stage).toBe('intake')
   })
 
+  test('ted status from the Task Lead sets the activity line, and only on its own Task', async () => {
+    const client = await startWithStub()
+    await addFactory(client)
+    const other = await createTask(client, 'Someone else’s')
+    const task = await createTask(
+      client,
+      steps(
+        { run: ['ted', 'status', 'Running Checks · Tests (2 of 3)'] },
+        { run: ['ted', 'status', '--task', 'NB-1', 'sneaky'] },
+        { run: ['ted', 'status', 'line one\nline\u001b[31m two'] },
+        { endTurn: true },
+      ),
+    )
+
+    await client.ok('POST', `/tasks/${task.displayId}/start`)
+
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle')
+    expect(await commandResults(client, run.id)).toEqual([
+      { code: 0, stdout: 'Activity line set\n', stderr: '' },
+      { code: 1, stdout: '', stderr: 'ted: this Run doesn’t belong to NB-1\n' },
+      { code: 0, stdout: 'Activity line set\n', stderr: '' },
+    ])
+    expect((await getTask(client, other.id))?.activity).toBe('Not started')
+    expect(await getTask(client, task.id)).toMatchObject({
+      stage: 'intake',
+      activity: 'line one line two',
+      track: [
+        { stage: 'intake', state: 'current' },
+        { stage: 'clarify', state: 'future' },
+        { stage: 'design', state: 'future' },
+        { stage: 'work', state: 'future' },
+        { stage: 'validate', state: 'future' },
+        { stage: 'review', state: 'future' },
+        { stage: 'merge', state: 'future' },
+      ],
+    })
+    expect(await client.call('POST', `/tasks/${task.id}/activity`, { text: ' \n' })).toEqual({
+      status: 400,
+      body: { error: 'text is required' },
+    })
+    expect((await client.call('POST', `/tasks/${task.id}/activity`, { text: 'x' })).status).toBe(
+      403,
+    )
+  })
+
   test('a Run that isn’t on the Task can’t report its outcome', async () => {
     const client = await startWithStub()
     await addFactory(client)
