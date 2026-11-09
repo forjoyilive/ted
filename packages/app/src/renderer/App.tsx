@@ -49,6 +49,7 @@ import {
   useDrift,
   useFactoryList,
   useInbox,
+  usePlanInbox,
   useSettings,
   useSlots,
   useTasks,
@@ -70,6 +71,7 @@ import {
   backLink,
   currentFactoryId,
   initialNavigation,
+  newPlan,
   type SettingsSectionId,
   settingsSectionIds,
   startHistory,
@@ -87,7 +89,8 @@ import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
-import { Stub } from './views/OtherViews.tsx'
+import { PlansStub, Stub } from './views/OtherViews.tsx'
+import { PlanChatView } from './views/PlanChat.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
@@ -235,11 +238,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const inbox = useInbox()
   const questions = useAutomationRequests()
   const allAutomations = useAutomations(undefined)
-  const inboxCount = inbox.length + questions.length
+  const planInbox = usePlanInbox()
+  const inboxCount = inbox.length + questions.length + planInbox.length
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
   const answered = useAnswered(inboxScreen?.answered === true)
   const waiting: Record<string, FactoryBadges> = {}
-  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions))) {
+  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions, planInbox))) {
     waiting[factoryId] = { waiting: count }
   }
   for (const automation of allAutomations ?? []) {
@@ -612,6 +616,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return (
         <Inbox
           items={inbox}
+          plans={planInbox}
+          onOpenPlan={({ plan }) =>
+            dispatch({ type: 'open-plan', factoryId: plan.factoryId, planId: plan.id })
+          }
           answered={answered}
           factories={factories}
           factoryId={screen.factoryId}
@@ -674,11 +682,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onNewTask: () => openNewTask(),
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        const openPlans = () =>
-          dispatch({
-            type: 'open',
-            screen: { kind: 'factory', factoryId: screen.factoryId, view: 'plans' },
-          })
+        const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
         if (screen.view === 'board') {
           return (
             <Board
@@ -761,6 +765,38 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               onOpen={openAutomation}
               onNew={(template) => newAutomation(screen.factoryId, template)}
               onOpenTask={openTaskByRef}
+            />
+          )
+        }
+        if (screen.view === 'plans' && factory) {
+          const backToPlans = () =>
+            dispatch({
+              type: 'open',
+              screen: { kind: 'factory', factoryId: factory.id, view: 'plans' },
+            })
+          if (navigation.planId !== undefined) {
+            return (
+              <PlanChatView
+                key={navigation.planId}
+                factory={factory}
+                planId={navigation.planId === newPlan ? undefined : navigation.planId}
+                onBack={backToPlans}
+                onOpenPlan={(planId) =>
+                  dispatch({ type: 'open-plan', factoryId: factory.id, planId })
+                }
+                onOpenTask={openTaskByRef}
+                onDeleted={backToPlans}
+              />
+            )
+          }
+          return (
+            <PlansStub
+              factory={factory}
+              banners={view.banners}
+              onPlan={openPlans}
+              onOpenPlan={(planId) =>
+                dispatch({ type: 'open-plan', factoryId: factory.id, planId })
+              }
             />
           )
         }

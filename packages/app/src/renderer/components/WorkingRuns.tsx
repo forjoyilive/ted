@@ -62,6 +62,7 @@ function Row({
 
 function holderRuns(holder: SlotHolder): string {
   if (holder.kind === 'automation') return 'Automation Run'
+  if (holder.kind === 'planning') return 'Planning Run'
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
@@ -128,10 +129,10 @@ export function WorkingRunsPopover({
           {slots.holders.length > 0 && (
             <Group label="Working">
               {slots.holders.map((holder) =>
-                holder.kind === 'automation' ? (
+                holder.kind === 'automation' || holder.kind === 'planning' ? (
                   <Row
                     key={holder.runId}
-                    lead="Auto"
+                    lead={holder.kind === 'planning' ? 'Plan' : 'Auto'}
                     title={holder.name}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                     trailing={slotCount(holder.runs)}
@@ -163,13 +164,13 @@ export function WorkingRunsPopover({
                     title={`${entry.displayId} · ${entry.name}`}
                     detail={`${name(entry.factoryId)} · Sub-agent`}
                   />
-                ) : entry.kind === 'automation' ? (
+                ) : entry.kind === 'automation' || entry.kind === 'planning' ? (
                   <Row
                     key={entry.runId}
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
-                    detail={`${name(entry.factoryId)} · Automation Run`}
+                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : 'Automation Run'}`}
                   />
                 ) : (
                   <Row

@@ -7,6 +7,7 @@ const folderLabel = navigator.userAgent.includes('Mac') ? 'Show in Finder' : 'Sh
 
 export interface FactoryMenuActions {
   onNewTask: () => void
+  onPlan: () => void
   onRename: () => void
   onMoveUp: () => void
   onMoveDown: () => void
@@ -72,6 +73,7 @@ export function FactoryMenu({
         }}
       >
         {item('New Task', actions.onNewTask)}
+        {item('Plan', actions.onPlan, { disabled: !factory.cloned })}
         {item('Rename…', actions.onRename)}
         {item('Move up', actions.onMoveUp, { disabled: first })}
         {item('Move down', actions.onMoveDown, { disabled: last })}

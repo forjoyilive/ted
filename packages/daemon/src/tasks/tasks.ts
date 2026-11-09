@@ -5150,8 +5150,13 @@ export function createTasks(options: {
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       const depth = resolution.workflow.settings.stages.clarify?.depth
+      const choices = resolveAgentChoices(resolution.workflow.settings, {
+        claude: agents.installed('claude'),
+        codex: agents.installed('codex'),
+      })
       return {
-        lead: leadFrom(resolution.workflow.settings),
+        lead: choices.lead,
+        planner: choices.planner,
         clarifyDepth: clarifyDepths.find((d) => d === depth) ?? 'auto',
       }
     },

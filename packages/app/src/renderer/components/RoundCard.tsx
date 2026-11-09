@@ -188,7 +188,7 @@ export function RoundAnswers({
   request,
   answers,
 }: {
-  request: Comment
+  request: Pick<Comment, 'round'>
   answers: readonly RoundAnswer[]
 }) {
   const questions = request.round?.questions ?? []

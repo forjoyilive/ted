@@ -23,6 +23,7 @@ export interface Navigation {
   taskId?: string
   requestId?: string
   automation?: { id: string; runId?: string }
+  planId?: string
   lastFactoryId?: string
   lastViews: Readonly<Record<string, FactoryView>>
   settings?: { section: SettingsSectionId }
@@ -33,6 +34,7 @@ export type NavigationAction =
   | { type: 'open'; screen: Screen }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
+  | { type: 'open-plan'; factoryId: string; planId?: string }
   | { type: 'close-task' }
   | {
       type: 'open-automation'
@@ -45,6 +47,8 @@ export type NavigationAction =
   | { type: 'open-settings'; section?: SettingsSectionId }
   | { type: 'close-settings' }
 
+export const newPlan = 'new'
+
 export const initialNavigation: Navigation = {
   screen: { kind: 'inbox' },
   lastViews: {},
@@ -54,7 +58,14 @@ export const initialNavigation: Navigation = {
 export function navigate(state: Navigation, action: NavigationAction): Navigation {
   switch (action.type) {
     case 'open': {
-      const { taskId: _, requestId: ___, settings: __, automation: ____, ...rest } = state
+      const {
+        taskId: _,
+        requestId: ___,
+        settings: __,
+        automation: ____,
+        planId: _____,
+        ...rest
+      } = state
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
       const { factoryId, view } = action.screen
       return {
@@ -70,6 +81,13 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         type: 'open',
         screen: { kind: 'factory', factoryId: action.factoryId, view },
       })
+    }
+    case 'open-plan': {
+      const opened = navigate(state, {
+        type: 'open',
+        screen: { kind: 'factory', factoryId: action.factoryId, view: 'plans' },
+      })
+      return { ...opened, planId: action.planId ?? newPlan }
     }
     case 'open-task': {
       const { requestId: _, automation: __, ...rest } = state

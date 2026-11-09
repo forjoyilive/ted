@@ -177,6 +177,10 @@ const [group, command, ...rest] = parsed?.positionals ?? []
 const options = parsed?.values ?? {}
 const home = tedHome()
 
+function inPlan(): boolean {
+  return options.task === undefined && !process.env.TED_TASK && !!process.env.TED_PLAN
+}
+
 function taskRef(given?: string): string {
   const ref = given ?? options.task ?? process.env.TED_TASK
   if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
@@ -293,6 +297,29 @@ try {
     const round = await withDaemon(home, (client) => client.closeRound(ref, { summary }))
     console.log(
       `Closed Round ${round.round?.number ?? ''} as answered in Talk it through and posted your summary. If anything is still open, ask it in a new round with \`ted ask --round <file>\`.`,
+    )
+  } else if (
+    inPlan() &&
+    ((group === 'ask' && options.round !== undefined && command === undefined) ||
+      (group === 'task' && command === 'propose' && rest.length === 0))
+  ) {
+    const supersedes = options.supersedes
+    if (group === 'task' && options.file === undefined) {
+      throw new UsageError('give the proposal with --file <file>')
+    }
+    const input =
+      group === 'ask'
+        ? { round: await readRound(options.round ?? '') }
+        : { proposal: await readJsonFile<ProposalInput>(options.file ?? '', 'proposal') }
+    const request = await withDaemon(home, (client) =>
+      client.postPlanRequest({ ...input, ...(supersedes !== undefined && { supersedes }) }),
+    )
+    const what =
+      request.kind === 'round'
+        ? `Round ${request.round?.number ?? ''}`
+        : `a proposal of ${request.proposal?.rows.length ?? 0} rows`
+    console.log(
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
     )
   } else if (group === 'ask' && options.round !== undefined && command === undefined) {
     const ref = taskRef()

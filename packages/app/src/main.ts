@@ -47,6 +47,7 @@ import {
   type RunFixRequest,
   type SaveLibraryRequest,
   type SaveSettingsRequest,
+  type StartPlanRequest,
   type Task,
   tedHome,
   tedPaths,
@@ -143,6 +144,16 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
+  listPlans: (client, factory) =>
+    client.listPlans(typeof factory === 'string' ? factory : undefined),
+  getPlan: (client, id) => client.getPlan(String(id)),
+  startPlan: (client, input) => client.startPlan(input as StartPlanRequest),
+  renamePlan: (client, id, title) => client.renamePlan(String(id), String(title)),
+  stopPlan: (client, id) => client.stopPlan(String(id)),
+  deletePlan: (client, id) => client.deletePlan(String(id)),
+  planInbox: (client) => client.planInbox(),
+  answerPlanRequest: (client, id, answer) =>
+    client.answerPlanRequest(String(id), answer as AnswerRequest),
   listAnswered: (client) => client.listAnswered(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),

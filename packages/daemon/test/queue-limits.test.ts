@@ -105,9 +105,7 @@ describe('the queue', () => {
     const slots = await client.ok<RunSlots>('GET', '/slots')
     expect(slots).toMatchObject({ limit: 1, working: 1, queued: 2 })
     expect(slots.holders.map((h) => (h.kind === 'task' ? h.displayId : h.name))).toEqual(['NB-1'])
-    expect(
-      slots.queue.map((q) => [q.place, q.kind === 'automation' ? q.name : q.displayId]),
-    ).toEqual([
+    expect(slots.queue.map((q) => [q.place, 'displayId' in q ? q.displayId : q.name])).toEqual([
       [1, 'NB-2'],
       [2, 'NB-3'],
     ])

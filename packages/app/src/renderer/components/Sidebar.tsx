@@ -337,6 +337,7 @@ export function Sidebar({
           onClose={() => setMenu(undefined)}
           actions={{
             onNewTask: () => onNewTask(menuFactory.id),
+            onPlan: () => dispatch({ type: 'open-plan', factoryId: menuFactory.id }),
             onRename: () => setRenaming(menuFactory.id),
             onMoveUp: () => reorder(moveFactory(factories, menuIndex, menuIndex - 1)),
             onMoveDown: () => reorder(moveFactory(factories, menuIndex, menuIndex + 1)),

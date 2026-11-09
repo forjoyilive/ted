@@ -3072,7 +3072,7 @@ describe('List and All Tasks', () => {
 
     await main.locator('tr[data-task="MS-1"]').getByText('1st', { exact: true }).waitFor()
     expect(
-      (await client.getSlots()).queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId)),
+      (await client.getSlots()).queue.map((q) => ('displayId' in q ? q.displayId : q.name)),
     ).toEqual(['MS-1', 'NB-2'])
 
     await main.getByRole('button', { name: 'Clear Status is Queued' }).click()
@@ -3614,6 +3614,7 @@ describe('Factory row menu', () => {
     const menu = window.getByRole('menu', { name: 'Factory actions' })
     expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
       'New Task',
+      'Plan',
       'Rename…',
       'Move up',
       'Move down',
@@ -3781,6 +3782,7 @@ describe('Empty states', () => {
         .getByRole('button', { name: 'Plans', exact: true })
         .getAttribute('aria-current'),
     ).toBe('page')
+    await window.getByRole('region', { name: 'New planning chat' }).waitFor()
   })
 
   test('Board filters that match nothing offer Clear filters', async () => {

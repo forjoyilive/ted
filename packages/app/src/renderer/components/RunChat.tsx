@@ -467,21 +467,32 @@ export interface ChatOptions {
   pinned?: ReactNode
   placeholder?: string
   help?: string
+  readOnly?: ReactNode
 }
 
-function withExtras(items: readonly ChatItem[], extra: readonly ChatExtra[]) {
-  const rows: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
+function withExtras(
+  items: readonly ChatItem[],
+  extra: readonly ChatExtra[],
+): ({ item: ChatItem } | { extra: ChatExtra })[] {
+  const merged: ({ item: ChatItem } | { extra: ChatExtra })[] = items.map((item) => ({ item }))
+  let lastAt = ''
+  const times = items.map((item) => {
+    if ('at' in item && item.at !== undefined) lastAt = item.at
+    return lastAt
+  })
   for (const added of [...extra].sort((a, b) => a.at.localeCompare(b.at))) {
-    let at = rows.length
-    while (at > 0) {
-      const before = rows[at - 1]
-      const when = before && ('item' in before ? before.item.at : before.extra.at)
-      if (when === undefined || when <= added.at) break
-      at--
+    let at = merged.length
+    for (let i = merged.length - 1; i >= 0; i--) {
+      const entry = merged[i]
+      if (!entry) continue
+      const when = 'item' in entry ? (times[items.indexOf(entry.item)] ?? '') : entry.extra.at
+      const queued = 'item' in entry && entry.item.kind === 'human' && entry.item.queued === true
+      if (!queued && when <= added.at) break
+      at = i
     }
-    rows.splice(at, 0, { extra: added })
+    merged.splice(at, 0, { extra: added })
   }
-  return rows
+  return merged
 }
 
 function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
@@ -636,7 +647,7 @@ export function ChatBody({
         )}
       </div>
       {options.pinned}
-      <Composer run={run} options={options} />
+      {options.readOnly ?? <Composer run={run} options={options} />}
     </>
   )
 }

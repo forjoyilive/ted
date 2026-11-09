@@ -59,6 +59,10 @@ import type {
   MachineSettings,
   MoveTaskRequest,
   OpenInEditorRequest,
+  Plan,
+  PlanDetail,
+  PlanInboxItem,
+  PlanRequest,
   Priority,
   Profile,
   RemoveClonesResult,
@@ -84,6 +88,7 @@ import type {
   ShellOutputQuery,
   ShellSize,
   StageEntry,
+  StartPlanRequest,
   StorageSummary,
   Task,
   TaskChanges,
@@ -128,6 +133,16 @@ export const ted = {
   listThreadEvents: (taskId: string) =>
     window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
+  getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
+  startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,
+  renamePlan: (id: string, title: string) =>
+    window.ted.request('renamePlan', id, title) as Promise<Plan>,
+  stopPlan: (id: string) => window.ted.request('stopPlan', id) as Promise<Plan>,
+  deletePlan: (id: string) => window.ted.request('deletePlan', id) as Promise<{ deleted: true }>,
+  planInbox: () => window.ted.request('planInbox') as Promise<PlanInboxItem[]>,
+  answerPlanRequest: (id: string, answer: AnswerRequest) =>
+    window.ted.request('answerPlanRequest', id, answer) as Promise<PlanRequest>,
   listAnswered: () => window.ted.request('listAnswered') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,

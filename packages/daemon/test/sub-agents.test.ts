@@ -251,7 +251,7 @@ describe('sub-agents', () => {
       return current.queue.length === 2 ? current : undefined
     }, 'both to queue')
     expect(
-      slots.queue.map((q) => [q.place, q.kind, q.kind === 'automation' ? q.name : q.displayId]),
+      slots.queue.map((q) => [q.place, q.kind, 'displayId' in q ? q.displayId : q.name]),
     ).toEqual([
       [1, 'sub-agent', 'NB-1'],
       [2, 'task', 'NB-2'],

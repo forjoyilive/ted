@@ -14,6 +14,9 @@ import type {
   Factory,
   InboxItem,
   MachineSettings,
+  Plan,
+  PlanDetail,
+  PlanInboxItem,
   RunChat,
   RunSlots,
   RunSummary,
@@ -523,6 +526,41 @@ function useReloading<T>(
   }, [key, epoch])
 
   return value
+}
+
+const planEvent = (event: TedEvent, planId?: string) =>
+  ((event.type === 'plan-updated' || event.type === 'plan-deleted') &&
+    (planId === undefined || event.planId === planId)) ||
+  (event.type === 'run-updated' && (planId === undefined || event.run.id === planId)) ||
+  event.type === 'slots-changed' ||
+  event.type === 'task-updated'
+
+export function usePlan(planId: string | undefined): PlanDetail | undefined {
+  return useReloading(
+    () => (planId === undefined ? Promise.resolve(undefined) : ted.getPlan(planId)),
+    (event) => planId !== undefined && planEvent(event, planId),
+    planId ?? '',
+  ) as PlanDetail | undefined
+}
+
+export function usePlans(factoryId: string): Plan[] {
+  return (
+    useReloading(
+      () => ted.listPlans(factoryId),
+      (event) => planEvent(event),
+      factoryId,
+    ) ?? []
+  )
+}
+
+export function usePlanInbox(): PlanInboxItem[] {
+  return (
+    useReloading(
+      () => ted.planInbox(),
+      (event) => event.type === 'plan-updated' || event.type === 'plan-deleted',
+      'plan-inbox',
+    ) ?? []
+  )
 }
 
 export function useRunChat(runId: string): RunChat | undefined {

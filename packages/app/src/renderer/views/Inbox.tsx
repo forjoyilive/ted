@@ -1,4 +1,4 @@
-import type { AutomationRequest, Factory, InboxItem } from '@ted/protocol'
+import type { AutomationRequest, Factory, InboxItem, PlanInboxItem } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef } from 'react'
 import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
@@ -6,6 +6,7 @@ import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
+import { inboxLabel } from '../plans.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import styles from './Inbox.module.css'
 import { factoryName, stageName } from './TaskViews.tsx'
@@ -13,6 +14,7 @@ import views from './views.module.css'
 
 export function Inbox({
   items,
+  plans = [],
   answered,
   factories,
   factoryId,
@@ -22,12 +24,14 @@ export function Inbox({
   onOpen,
   questions = [],
   onOpenQuestion,
+  onOpenPlan,
   onFilter,
   onShowAnswered,
   onNewTask,
   children,
 }: {
   items: readonly InboxItem[]
+  plans?: readonly PlanInboxItem[]
   answered: readonly InboxItem[]
   factories: readonly Factory[]
   factoryId: string | undefined
@@ -37,6 +41,7 @@ export function Inbox({
   onOpen: (item: InboxItem) => void
   questions?: readonly AutomationRequest[]
   onOpenQuestion?: (question: AutomationRequest) => void
+  onOpenPlan?: (item: PlanInboxItem) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
   onNewTask: () => void
@@ -49,6 +54,9 @@ export function Inbox({
   const asked = showAnswered
     ? []
     : questions.filter((q) => factoryId === undefined || q.factoryId === factoryId)
+  const planRows = showAnswered
+    ? []
+    : plans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
 
   const before = useRef(waiting)
   const open = useRef(onOpen)
@@ -83,7 +91,7 @@ export function Inbox({
           </div>
           {manyFactories && (
             <div className={styles.chips}>
-              {inboxChips(items, factories, questions).map((chip) => (
+              {inboxChips(items, factories, questions, plans).map((chip) => (
                 <button
                   key={chip.factoryId ?? 'all'}
                   type="button"
@@ -97,7 +105,7 @@ export function Inbox({
             </div>
           )}
         </header>
-        {shown.length === 0 && asked.length === 0 ? (
+        {shown.length === 0 && asked.length === 0 && planRows.length === 0 ? (
           <InboxEmptyState
             empty={inboxEmpty({
               showAnswered,
@@ -110,6 +118,32 @@ export function Inbox({
           />
         ) : (
           <ul className={styles.rows}>
+            {planRows.map((item) => {
+              const { request, plan } = item
+              const where = [
+                plan.title,
+                ...(manyFactories ? [factoryName(factories, plan.factoryId)] : []),
+              ].join(' · ')
+              return (
+                <li key={request.id}>
+                  <button
+                    type="button"
+                    className={styles.row}
+                    data-plan-request={request.id}
+                    onClick={() => onOpenPlan?.(item)}
+                  >
+                    <span className={styles.top}>
+                      <span className={styles.kind}>{inboxLabel(request)}</span>
+                      <span className={styles.age}>{age(request.createdAt, now)}</span>
+                    </span>
+                    <span data-headline className={`${styles.headline} ${styles.unread}`}>
+                      {request.title ?? ''}
+                    </span>
+                    <span className={styles.where}>{where}</span>
+                  </button>
+                </li>
+              )
+            })}
             {shown.map((item) => {
               const { request, task } = item
               const where = [

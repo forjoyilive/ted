@@ -29,6 +29,7 @@ import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
+import { planRoutes } from './routes/plans.ts'
 import {
   type BaseOptions,
   maxBodyBytes,
@@ -149,6 +150,7 @@ const routes: Route[] = [
   ...integrationRoutes,
   ...runRoutes,
   ...automationRoutes,
+  ...planRoutes,
   ...searchRoutes,
 ]
 
