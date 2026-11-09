@@ -220,3 +220,5 @@ export interface TaskBrief {
 export interface WriteBriefRequest {
   text: string
 }
+
+export type SetTaskLeadRequest = TaskLead

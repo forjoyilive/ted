@@ -10,18 +10,27 @@ import type {
   Diagnostics,
   Factory,
   InboxItem,
+  IntegrationsHealth,
   LogText,
   MachineSettings,
   Profile,
   RestoreBackupResult,
+  Run,
+  RunFixRequest,
+  RunFixResult,
+  RunSlots,
   StageEntry,
   Task,
   TaskDefaults,
+  TaskLead,
 } from '@ted/protocol'
+import type { MenuCommand } from '../background.ts'
+
+export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
-  onEvent(listener: (event: DaemonEvent) => void): () => void
+  onEvent(listener: (event: TedEvent) => void): () => void
 }
 
 declare global {
@@ -37,11 +46,19 @@ export const ted = {
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
+  getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  setTaskLead: (taskId: string, lead: TaskLead) =>
+    window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  pickDefaultModel: (taskId: string) =>
+    window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
+  startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
+  moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
@@ -72,5 +89,9 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
-  onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
+  getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
+  checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
+  runFix: (request: RunFixRequest) =>
+    window.ted.request('runFix', request) as Promise<RunFixResult>,
+  onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }

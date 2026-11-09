@@ -18,4 +18,5 @@ A Comment now has one of the seven kinds in spec 10.5 and an author that is the 
 
 - Tests that walk a Task to Done commit a `.ted/workflow.yaml` with `order: [intake, work, merge]`, which has no Gates, or answer the Gates through the API.
 - If the Task Lead’s Run has finished, an answer is stored but nothing reaches an agent; spec 6.20 (the next Run gets it with the brief) is left to the ticket that starts fresh Runs.
+- TED’s Model unavailable question (ADR 0027) is a request too, with Use the default model and Change setting as choices. Choosing Use the default model restarts the Run as the Task Lead field’s button does; when the Run stops waiting on its model some other way, TED answers the question itself.
 - Clarify rounds, permissions and proposals use the same kinds and answer event; their own answer rules come with their tickets.

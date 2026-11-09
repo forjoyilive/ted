@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { parseArgs, promisify, stripVTControlCharacters } from 'node:util'
+import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
@@ -10,10 +9,17 @@ import {
   type AgentStageId,
   agentKinds,
   type Banner,
+  DaemonClient,
+  DaemonUnreachableError,
+  type Effort,
+  efforts,
   type Factory,
+  type IntegrationsHealth,
   isShowing,
+  minGhVersion,
   type RunWithConversation,
   readDaemonInfo,
+  type TaskLead,
   tedHome,
   tedPaths,
 } from '@ted/protocol'
@@ -22,6 +28,7 @@ const usage = `Usage:
   ted help                                   Show this list of commands
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
+  ted open                                   Bring the open TED app to the front
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
@@ -40,6 +47,10 @@ const usage = `Usage:
   ted task start <id>                        Start a Task from Backlog
   ted backup list                            List backups of TED's data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
+  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+                                             Set the Task Lead's agent, model and effort
+  ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
+                                             when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
@@ -61,6 +72,9 @@ function parse() {
         agent: { type: 'string' },
         choice: { type: 'string', multiple: true },
         cwd: { type: 'string' },
+        'default-model': { type: 'boolean' },
+        effort: { type: 'string' },
+        model: { type: 'string' },
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
@@ -106,6 +120,8 @@ try {
     await status()
   } else if (group === 'doctor' && command === undefined) {
     await doctor()
+  } else if (group === 'open' && command === undefined) {
+    await openApp()
   } else if (group === 'comment') {
     const ref = taskRef()
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
@@ -185,7 +201,11 @@ try {
   } else if (group === 'task' && command === 'start' && rest.length === 1) {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
-    console.log(`Started ${task.displayId} on branch ${task.branch}`)
+    console.log(
+      task.status?.kind === 'queued'
+        ? `Queued ${task.displayId} · ${'place' in task.status ? `${ordinal(task.status.place)} in line for a slot` : task.status.hold}`
+        : `Started ${task.displayId} on branch ${task.branch}`,
+    )
   } else if (group === 'backup' && command === 'list' && rest.length === 0) {
     const { backups } = await withDaemon(home, (client) => client.listBackups())
     console.log(
@@ -195,6 +215,30 @@ try {
     )
   } else if (group === 'backup' && command === 'restore' && rest.length === 1) {
     await restoreBackup(rest[0] ?? '')
+  } else if (
+    group === 'task' &&
+    command === 'lead' &&
+    rest.length === 1 &&
+    options['default-model']
+  ) {
+    const ref = rest[0] ?? ''
+    const task = await withDaemon(home, (client) => client.useDefaultModel(ref))
+    console.log(`${task.displayId}’s Task Lead now runs on the default model`)
+  } else if (group === 'task' && command === 'lead' && rest.length === 2) {
+    const [ref = '', agent = ''] = rest
+    const { model, effort } = options
+    if (!agentKinds.includes(agent as AgentKind))
+      throw new UsageError('agent must be claude or codex')
+    if (effort !== undefined && !efforts.includes(effort as Effort)) {
+      throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
+    }
+    const lead: TaskLead = {
+      agent: agent as AgentKind,
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort: effort as Effort }),
+    }
+    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
@@ -303,6 +347,23 @@ async function problems(): Promise<{ pid: number | undefined; banners: string[];
   }
 }
 
+async function openApp(): Promise<void> {
+  const info = await readDaemonInfo(home)
+  const token = process.env.TED_RUN_TOKEN || info?.token
+  const result = await (info ? new DaemonClient(info, token).openApp() : undefined)?.catch(
+    (error: unknown) => {
+      if (error instanceof DaemonUnreachableError) return undefined
+      throw error
+    },
+  )
+  if (!result?.opened) {
+    console.error('ted: TED isn’t open. Open it from your app launcher.')
+    process.exitCode = 1
+    return
+  }
+  console.log('Opened TED')
+}
+
 async function status(): Promise<void> {
   const { pid, banners } = await problems()
   console.log(`TED’s background process is running (pid ${pid ?? 'unknown'})`)
@@ -310,15 +371,46 @@ async function status(): Promise<void> {
 }
 
 async function doctor(): Promise<void> {
+  const health = await withDaemon(home, (client) => client.checkIntegrations())
   const { pid, banners, stops } = await problems()
   console.log(`✓ TED’s background process is running (pid ${pid ?? 'unknown'})`)
-  const git = await promisify(execFile)('git', ['--version']).then(
-    ({ stdout }) => stdout.trim().replace(/^git version /, ''),
-    () => undefined,
-  )
-  console.log(git === undefined ? '✗ git not found on PATH' : `✓ git ${git}`)
+  const lines = integrationLines(health)
+  console.log(lines.map((line) => printable(line)).join('\n'))
   console.log(banners.join('\n'))
-  if (stops || git === undefined) process.exitCode = 1
+  if (stops || health.git.state === 'not-installed') process.exitCode = 1
+}
+
+function integrationLines({ git, github }: IntegrationsHealth): string[] {
+  const identity = [git.name, git.email && `<${git.email}>`].filter(Boolean).join(' ')
+  const gitLine =
+    git.state === 'not-installed'
+      ? `✗ git not found · ${git.fix?.command ?? ''}`
+      : git.state === 'no-identity'
+        ? `! git ${git.version} has no name or email set · ${(git.copy ?? []).join(' && ')}`
+        : `✓ git ${git.version} · ${identity}`
+  const { cli } = github
+  const ghLine =
+    cli.state === 'ready'
+      ? `✓ gh ${cli.version} · ${cli.path}`
+      : cli.state === 'not-installed'
+        ? `✗ gh not found · ${cli.fix?.command ?? ''}`
+        : cli.state === 'too-old'
+          ? `✗ gh ${cli.version} is older than ${minGhVersion} · ${cli.fix?.command ?? ''}`
+          : `✗ gh isn’t working · ${cli.error ?? ''}`
+  const hostLines =
+    cli.state === 'ready'
+      ? github.hosts.map((host) => {
+          if (host.state === 'ready') return `✓ ${host.host} · signed in as ${host.login ?? '?'}`
+          if (host.state === 'missing-workflow-scope') {
+            return `! ${host.host} · can’t push changes to GitHub Actions workflows · ${host.fix?.command ?? ''}`
+          }
+          if (host.state === 'signed-out') {
+            return `✗ ${host.host} · signed out · ${host.fix?.command ?? ''}`
+          }
+          return `✗ ${host.host} · ${host.error ?? 'couldn’t check'}`
+        })
+      : []
+  return [gitLine, ghLine, ...hostLines]
 }
 
 function formatBanners(banners: Banner[], factories: Factory[]): string[] {
@@ -369,9 +461,13 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
+function describeLead({ agent, model, effort }: TaskLead): string {
+  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+}
+
 function formatRun({ run, conversation }: RunWithConversation): string {
   return [
-    `Run ${run.id}  ${run.agent}  ${run.state}`,
+    `Run ${run.id}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
     `Session ${run.sessionId ?? 'not known yet'}`,
     ...conversation.map((entry) => summarize(entry.line)),
   ].join('\n')
@@ -417,4 +513,10 @@ function printable(text: string): string {
 function isControl(char: string): boolean {
   const code = char.codePointAt(0) ?? 0
   return (code < 0x20 && char !== '\t' && char !== '\n') || (code >= 0x7f && code <= 0x9f)
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100
+  const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')
+  return `${n}${suffix}`
 }

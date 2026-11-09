@@ -1,3 +1,4 @@
+import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
@@ -9,8 +10,10 @@ import type {
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
+import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
+import type { RunSlots } from './slots.ts'
 import type {
   AnswerRequest,
   Attachment,
@@ -20,6 +23,7 @@ import type {
   OutcomeResult,
   PostCommentRequest,
   ReportOutcomeRequest,
+  SetTaskLeadRequest,
   Task,
   TaskBrief,
   TaskDefaults,
@@ -59,6 +63,22 @@ export class DaemonClient {
 
   startTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  }
+
+  setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  useDefaultModel(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
+  }
+
+  moveToBacklog(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  getSlots(): Promise<RunSlots> {
+    return this.#request('GET', '/slots')
   }
 
   listComments(ref: string): Promise<Comment[]> {
@@ -170,6 +190,30 @@ export class DaemonClient {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
   }
 
+  getIntegrations(): Promise<IntegrationsHealth> {
+    return this.#request('GET', '/integrations')
+  }
+
+  checkIntegrations(): Promise<IntegrationsHealth> {
+    return this.#request('POST', '/integrations/check')
+  }
+
+  runFix(input: RunFixRequest): Promise<RunFixResult> {
+    return this.#request('POST', '/integrations/fix', input)
+  }
+
+  getActivity(): Promise<Activity> {
+    return this.#request('GET', '/activity')
+  }
+
+  shutdown(): Promise<void> {
+    return this.#request('POST', '/shutdown')
+  }
+
+  openApp(): Promise<OpenAppResult> {
+    return this.#request('POST', '/app/open')
+  }
+
   addFactory(input: AddFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/dev/factories', input)
   }
@@ -194,9 +238,13 @@ export class DaemonClient {
     return this.#request('POST', '/backups/restore', input)
   }
 
-  async subscribe(onEvent: (event: DaemonEvent) => void): Promise<Subscription> {
+  async subscribe(
+    onEvent: (event: DaemonEvent) => void,
+    { app = false }: { app?: boolean } = {},
+  ): Promise<Subscription> {
     const controller = new AbortController()
-    const res = await this.#fetch('GET', '/events', undefined, controller.signal)
+    const route = app ? '/events?app=1' : '/events'
+    const res = await this.#fetch('GET', route, undefined, controller.signal)
     if (!res.ok || !res.body) throw await requestError(res)
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
 

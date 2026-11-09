@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -21,8 +21,10 @@ const flag = (name: string) => {
 }
 
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
+appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
 
-const sessionId = flag('--session-id') ?? 'no-session'
+const sessionId = flag('--session-id') ?? flag('--resume') ?? 'no-session'
+const model = flag('--model')
 const settingsPath = flag('--settings')
 const settings = settingsPath
   ? (JSON.parse(readFileSync(settingsPath, 'utf8')) as { hooks?: Record<string, unknown> })
@@ -74,6 +76,19 @@ for await (const line of createInterface({ input: process.stdin })) {
   emit({ type: 'user', message: message.message })
   hook('UserPromptSubmit')
   emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
+  if (model?.includes('unavailable')) {
+    emit({
+      type: 'assistant',
+      error: 'model_not_found',
+      message: {
+        model: '<synthetic>',
+        content: [{ type: 'text', text: `There's an issue with the selected model (${model}).` }],
+      },
+    })
+    emit({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error' })
+    hook('Stop')
+    continue
+  }
   const own = stepsIn(message.message.content)
   for (const step of own.length > 0 ? own : everyMessage) await runStep(step)
 }

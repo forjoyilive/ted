@@ -1,4 +1,11 @@
 export {
+  type Activity,
+  noActivity,
+  type OpenAppResult,
+  type RunCounts,
+  workRunning,
+} from './activity.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerPlace,
@@ -37,12 +44,28 @@ export type {
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type FixCommand,
+  type GitHealth,
+  type GitHubCli,
+  type GitHubCliState,
+  type GitHubHost,
+  type GitHubHostState,
+  type GitState,
+  type IntegrationFix,
+  type IntegrationsHealth,
+  integrationFixes,
+  minGhVersion,
+  type RunFixRequest,
+  type RunFixResult,
+} from './integrations.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,
   agentKinds,
   type ConversationEntry,
   type Run,
+  type RunProblem,
   type RunState,
   type RunWithConversation,
   type StartDevRunRequest,
@@ -53,8 +76,12 @@ export {
   defaultMachineSettings,
   type MachineSettings,
   type Profile,
+  type QuitChoice,
+  quitChoices,
   terminalFontSizes,
+  workingRunLimits,
 } from './settings.ts'
+export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
   type AgentStageId,
   type AnswerRequest,
@@ -81,6 +108,7 @@ export {
   priorities,
   type ReportOutcomeRequest,
   type SetActivityRequest,
+  type SetTaskLeadRequest,
   type StageId,
   type Task,
   type TaskBrief,

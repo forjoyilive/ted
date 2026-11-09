@@ -381,6 +381,42 @@
   overflow-wrap: anywhere;
 }
 
+.segmented {
+  position: relative;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-neutral);
+}
+
+.segment {
+  padding: 3px 12px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.segment:has(:checked) {
+  background: var(--control-segment-selected);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+  box-shadow: 0 1px 2px var(--shadow-popover);
+}
+
+.segment:has(:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+}
+
+.radio {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .description {
   max-height: 180px;
   margin: 4px 0 0;

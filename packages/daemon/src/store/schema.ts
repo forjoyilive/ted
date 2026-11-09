@@ -37,6 +37,15 @@ export const tasks = State.SQLite.table({
   },
 })
 
+export const taskQueue = State.SQLite.table({
+  name: 'taskQueue',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    rank: State.SQLite.real(),
+    queuedAt: State.SQLite.text(),
+  },
+})
+
 export const taskBlockers = State.SQLite.table({
   name: 'taskBlockers',
   columns: {
@@ -66,6 +75,10 @@ export const runs = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     agent: State.SQLite.text(),
     sessionId: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    usesDefaultModel: State.SQLite.boolean({ default: false }),
+    problem: State.SQLite.text({ nullable: true }),
     prompt: State.SQLite.text(),
     cwd: State.SQLite.text(),
     taskId: State.SQLite.text({ nullable: true }),
@@ -309,6 +322,23 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskQueued: Events.synced({
+    name: 'v1.TaskQueued',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stage: Schema.String,
+      rank: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  taskDequeued: Events.synced({
+    name: 'v1.TaskDequeued',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskMovedToBacklog: Events.synced({
+    name: 'v1.TaskMovedToBacklog',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -504,6 +534,49 @@ export const events = {
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
   }),
+  taskLeadSet: Events.synced({
+    name: 'v1.TaskLeadSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  runStartedV3: Events.synced({
+    name: 'v3.RunStarted',
+    schema: Schema.Struct({
+      ...runStartedFields,
+      taskId: Schema.NullOr(Schema.String),
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+    }),
+  }),
+  runRestarted: Events.synced({
+    name: 'v1.RunRestarted',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      usesDefaultModel: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  runProblemFound: Events.synced({
+    name: 'v1.RunProblemFound',
+    schema: Schema.Struct({ runId: Schema.String, problem: Schema.String, at: Schema.String }),
+  }),
+  tedCommentPosted: Events.synced({
+    name: 'v1.TedCommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      createdAt: Schema.String,
+    }),
+  }),
 }
 
 const materializers = counted(
@@ -522,6 +595,15 @@ const materializers = counted(
     'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
       tasks.update({ stage, branch, worktree }).where({ id: taskId }),
     'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
+    'v1.TaskQueued': ({ taskId, stage, rank, at }) => [
+      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+      tasks.update({ stage }).where({ id: taskId }),
+    ],
+    'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
+    'v1.TaskMovedToBacklog': ({ taskId }) => [
+      taskQueue.delete().where({ taskId }),
+      tasks.update({ stage: 'backlog' }).where({ id: taskId }),
+    ],
     'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
     'v2.CommentPosted': ({ choices, ...comment }) =>
       comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
@@ -533,6 +615,19 @@ const materializers = counted(
     'v1.RunStarted': (run) =>
       runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
     'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v3.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
+      runs
+        .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
+        .where({ id: runId }),
+    'v1.RunProblemFound': ({ runId, problem }) =>
+      runs.update({ problem, state: 'waiting' }).where({ id: runId }),
+    'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
+      tasks
+        .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
+        .where({ id: taskId }),
+    'v1.TedCommentPosted': (comment) =>
+      comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
     'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
       runs.update({ readOffset: toOffset }).where({ id: runId }),
       ...entries.map(({ offset, line }) =>
@@ -608,6 +703,7 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     tasks,
+    taskQueue,
     taskBlockers,
     taskAttachments,
     runs,
