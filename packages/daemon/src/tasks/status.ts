@@ -14,7 +14,7 @@ export interface TaskFacts {
   runs: readonly RunState[]
   openRequests?: number
   failed?: boolean
-  partlyMerged?: boolean
+  partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
   tedWorking?: boolean
   settingUp?: boolean
@@ -62,7 +62,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
   if (facts.stage === 'done' || facts.archived) return []
   const has: Record<TaskStatusKind, boolean> = {
     failed: facts.failed === true,
-    'partly-merged': facts.partlyMerged === true,
+    'partly-merged': facts.partlyMerged !== undefined,
     'waiting-on-you': (facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting'),
     paused: facts.paused !== undefined,
     working:
@@ -113,6 +113,10 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.agentActivity !== undefined) return facts.agentActivity
+  if (facts.partlyMerged) {
+    const { merged, open } = facts.partlyMerged
+    return `${joinAnd(merged)} merged · ${joinAnd(open)} not yet`
+  }
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {
     return `Queued · ${ordinal(facts.queue.place)}`
@@ -145,4 +149,9 @@ function ordinal(n: number): string {
             ? 'rd'
             : 'th'
   return `${n}${suffix}`
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }

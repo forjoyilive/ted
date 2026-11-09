@@ -57,6 +57,7 @@ export const tasks = State.SQLite.table({
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
+    partlyMergedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -903,6 +904,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  mergeStoppedPartway: Events.synced({
+    name: 'v1.MergeStoppedPartway',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      merged: Schema.Array(Schema.String),
+      open: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskBranchRebased: Events.synced({
     name: 'v1.TaskBranchRebased',
     schema: Schema.Struct({
@@ -1501,6 +1511,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.PullRequestAutoMergeEnabled': (args) =>
     task(args, { name: args.name, method: args.method, requested: args.requested }),
   'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
+  'v1.MergeStoppedPartway': (args) => task(args, { merged: args.merged, open: args.open }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1979,6 +1990,8 @@ const materializers = counted(
           .where({ id: `${taskId}:${name}` }),
       'v1.PullRequestSignedOff': ({ taskId, name, commit }) =>
         pullRequests.update({ signedOffCommit: commit }).where({ id: `${taskId}:${name}` }),
+      'v1.MergeStoppedPartway': ({ taskId, at }) =>
+        tasks.update({ partlyMergedAt: at, changedAt: at }).where({ id: taskId }),
       'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
         pullRequests
           .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })

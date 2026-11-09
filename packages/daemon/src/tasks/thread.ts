@@ -419,6 +419,16 @@ export function threadEvents(
       case 'v1.PullRequestAutoMergeEnabled':
         add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
         break
+      case 'v1.MergeStoppedPartway': {
+        const merged = Array.isArray(data.merged) ? data.merged.map(String) : []
+        const open = Array.isArray(data.open) ? data.open.map(String) : []
+        add(
+          entry,
+          'failure',
+          `Merge stopped partway · ${joinAnd(merged)} merged, ${joinAnd(open)} didn’t. TED doesn’t revert a merged pull request.`,
+        )
+        break
+      }
       case 'v1.TaskBranchRebased':
         add(
           entry,

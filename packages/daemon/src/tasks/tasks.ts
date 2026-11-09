@@ -805,7 +805,13 @@ export function createTasks(options: {
     )
     if (open.length === 0) return []
     const methods = resolution.workflow.settings.repos ?? []
-    return (await pullRequestTargets(task)).flatMap((target) => {
+    const order = factoryRepos(resolution.workflow, factoryOf(task))
+    const rank = (repo: string) => {
+      const i = order.findIndex((e) => sameRepo(e.repo, repo))
+      return i === -1 ? order.length : i
+    }
+    const targets = (await pullRequestTargets(task)).sort((a, b) => rank(a.repo) - rank(b.repo))
+    return targets.flatMap((target) => {
       const repo = open.find((r) => r.name === target.name)
       const pr = repo?.pullRequest
       if (!repo || !pr) return []
@@ -876,6 +882,11 @@ export function createTasks(options: {
   ): Promise<MergeCycle> {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
+    const split = mergeSplit(task)
+    if (split && !task.statuses.includes('partly-merged')) {
+      store.mergeStoppedPartway(taskId, split)
+    }
+    const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
     const { stages } = resolution.workflow
     const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
@@ -885,9 +896,22 @@ export function createTasks(options: {
     }
     if (advancing.has(taskId)) return 'busy'
     const outcome = await holding(task, () =>
-      sendBack(find(taskId), resolution, 'merge', { outcome: 'back', to, findings }, checkRunId),
+      sendBack(
+        find(taskId),
+        resolution,
+        'merge',
+        { outcome: 'back', to, findings: told },
+        checkRunId,
+      ),
     )
     return outcome.request ? 'wait' : 'done'
+  }
+
+  function mergeSplit(task: StoredTask): { merged: string[]; open: string[] } | undefined {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    const merged = opened.filter((r) => r.pullRequest?.state === 'merged').map((r) => r.name)
+    const open = opened.filter((r) => r.pullRequest?.state !== 'merged').map((r) => r.name)
+    return merged.length > 0 && open.length > 0 ? { merged, open } : undefined
   }
 
   async function finishMerge(taskId: string): Promise<MergeCycle> {
@@ -901,6 +925,9 @@ export function createTasks(options: {
     })
     return 'done'
   }
+
+  const partwayFindings = ({ merged, open }: { merged: string[]; open: string[] }) =>
+    `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
 
   const needsSignOff = (target: MergeWork, why: string) =>
     `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
@@ -1090,7 +1117,7 @@ export function createTasks(options: {
           )
         case 'wait':
           setWait(taskId, target.name, step.on)
-          if (step.autoMerge) await enableAutoMerge(gh, task, target, pr)
+          if (step.autoMerge && targets.length === 1) await enableAutoMerge(gh, task, target, pr)
           break
         case 'merge':
           ready.push({ target, pr, noCi: step.noCi })
@@ -1107,7 +1134,22 @@ export function createTasks(options: {
         setWait(taskId, target.name, 'merge')
         return 'wait'
       }
-      await mergePullRequest(gh, target, method, { auto: false })
+      try {
+        await mergePullRequest(gh, target, method, { auto: false })
+      } catch (error) {
+        if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+          setWait(taskId, target.name, 'sign-in')
+          throw error
+        }
+        const now = (await readPullRequests(gh, [target]).catch(() => undefined))?.get(target.name)
+        if (now?.state !== 'MERGED') {
+          if (!mergeSplit(find(taskId))) throw error
+          return mergeSendBack(
+            taskId,
+            `TED couldn’t merge ${target.repo}#${target.number}: ${redactSecrets(textOf(error))}`,
+          )
+        }
+      }
       store.pullRequestMerged(taskId, target.name, {
         method,
         requested: target.method,
@@ -4426,4 +4468,9 @@ function slug(title: string): string {
   const cut = words.slice(0, slugLength + 1)
   const boundary = cut.lastIndexOf('-')
   return `-${boundary > 0 ? cut.slice(0, boundary) : words.slice(0, slugLength)}`
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }

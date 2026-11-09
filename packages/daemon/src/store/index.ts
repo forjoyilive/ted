@@ -413,6 +413,7 @@ export interface TedStore {
     input: { method?: MergeMethod; requested?: MergeMethod; noCi: boolean; byTed: boolean },
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
+  mergeStoppedPartway(taskId: string, input: { merged: string[]; open: string[] }): void
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
@@ -911,6 +912,7 @@ export async function openStore({
     stoppedRuns,
     stoppedWhy,
     failedAt,
+    partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -940,9 +942,17 @@ export async function openStore({
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
+    const opened = repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    const mergedRepos = opened.filter((r) => r.pullRequest?.state === 'merged')
+    const openRepos = opened.filter((r) => r.pullRequest?.state !== 'merged')
+    const partlyMerged =
+      partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
+        ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
+        : undefined
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
+      ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
           at: stoppedAt,
@@ -1886,6 +1896,10 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+      updatedTask(taskId)
+    },
+    mergeStoppedPartway(taskId, { merged, open }) {
+      commit(events.mergeStoppedPartway({ taskId, merged, open, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     isMerged: (taskId) => isMerged(taskId),
