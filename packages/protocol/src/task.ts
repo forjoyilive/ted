@@ -134,25 +134,89 @@ export interface CreateTaskRequest {
   start?: boolean
 }
 
-export type Outcome = 'advance'
+export const commentKinds = [
+  'note',
+  'question',
+  'round',
+  'review',
+  'signoff',
+  'permission',
+  'proposal',
+] as const
+
+export type CommentKind = (typeof commentKinds)[number]
+
+export type CommentAuthor = { kind: 'human' } | { kind: 'run'; runId: string } | { kind: 'ted' }
+
+export type CommentAnswer =
+  | { kind: 'approved'; at: string; text?: string }
+  | { kind: 'changes-requested'; at: string; text: string }
+  | { kind: 'answered'; at: string; choice?: string; text?: string }
+  | { kind: 'withdrawn'; at: string; movedTo: StageId }
 
 export interface Comment {
   id: string
   taskId: string
-  kind: 'note'
+  kind: CommentKind
   body: string
-  author: { kind: 'run'; runId: string }
+  author: CommentAuthor
   createdAt: string
+  stage?: StageId
+  title?: string
+  choices?: string[]
+  gate?: { approveLabel: string; caption?: string }
+  answer?: CommentAnswer
 }
+
+export interface InboxItem {
+  request: Comment
+  task: Task
+}
+
+export type AnswerRequest =
+  | { action: 'approve'; text?: string }
+  | { action: 'request-changes'; text: string }
+  | { action: 'answer'; choice?: string; text?: string }
 
 export interface PostCommentRequest {
   body: string
+  choices?: string[]
 }
 
 export interface SetActivityRequest {
   text: string
 }
 
-export interface ReportOutcomeRequest {
-  outcome: Outcome
+export type ReportOutcomeRequest =
+  | { outcome: 'advance'; skip?: boolean }
+  | { outcome: 'back'; to: AgentStageId; findings: string }
+  | { outcome: 'ask'; question: string; choices?: string[] }
+
+export type Outcome = ReportOutcomeRequest['outcome']
+
+export interface OutcomeResult {
+  task: Task
+  message: string
+  request?: Comment
+}
+
+export const briefHeadings = [
+  'Goal',
+  'Decisions so far',
+  'Current state',
+  'Open questions',
+  'Next step',
+] as const
+
+export interface TaskBrief {
+  taskId: string
+  version: number
+  text: string
+  stage: StageId
+  runId?: string
+  createdAt: string
+}
+
+export interface WriteBriefRequest {
+  text: string
 }

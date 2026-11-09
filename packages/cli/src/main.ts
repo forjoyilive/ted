@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parseArgs, promisify, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
+  type AgentStageId,
   agentKinds,
   type Banner,
   type Factory,
@@ -21,7 +23,17 @@ const usage = `Usage:
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
-  ted outcome advance [--task <id>]          End the current Stage and move the Task on
+  ted comment --choice "<answer>" … "<question>"
+                                             Ask the human a question with choice buttons
+  ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
+                                             (--skip: the Stage had nothing to do; skips its Gate)
+  ted outcome back --to <Stage> --findings <file>
+                                             Send the Task back to an earlier Stage
+  ted outcome ask [--choice "<answer>" …] "<question>"
+                                             Ask the human instead of moving on
+  ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
+                                             without --file)
+  ted brief show                             Show the latest Task brief
   ted status [--task <id>] "<text>"          Set the Task's activity line
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
@@ -47,11 +59,16 @@ function parse() {
       strict: true,
       options: {
         agent: { type: 'string' },
+        choice: { type: 'string', multiple: true },
         cwd: { type: 'string' },
         factory: { type: 'string' },
+        file: { type: 'string' },
+        findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        skip: { type: 'boolean' },
         task: { type: 'string' },
+        to: { type: 'string' },
         yes: { type: 'boolean' },
       },
     })
@@ -93,8 +110,13 @@ try {
     const ref = taskRef()
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
-    await withDaemon(home, (client) => client.postComment(ref, body))
-    console.log('Posted')
+    const choices = options.choice ?? []
+    const comment = await withDaemon(home, (client) =>
+      client.postComment(ref, { body, ...(choices.length > 0 && { choices }) }),
+    )
+    console.log(
+      comment.kind === 'question' ? 'Asked the human. TED sends you their answer.' : 'Posted',
+    )
   } else if (group === 'status' && command !== undefined) {
     const ref = taskRef()
     const text = [command, ...rest].join(' ')
@@ -102,8 +124,50 @@ try {
     console.log('Activity line set')
   } else if (group === 'outcome' && command === 'advance' && rest.length === 0) {
     const ref = taskRef()
-    const task = await withDaemon(home, (client) => client.reportOutcome(ref, 'advance'))
-    console.log(`${task.displayId} moved to ${stageName(task.stage)}`)
+    const skip = options.skip === true
+    const result = await withDaemon(home, (client) =>
+      client.reportOutcome(ref, { outcome: 'advance', ...(skip && { skip }) }),
+    )
+    console.log(result.message)
+  } else if (group === 'outcome' && command === 'back' && rest.length === 0) {
+    const ref = taskRef()
+    const to = options.to?.toLowerCase()
+    if (to === undefined) throw new UsageError('name the Stage to go back to with --to <Stage>')
+    if (options.findings === undefined) {
+      throw new UsageError('give the Findings file with --findings <file>')
+    }
+    const findings = await readFile(path.resolve(options.findings), 'utf8')
+    if (findings.trim() === '') throw new UsageError('the Findings file is empty')
+    const result = await withDaemon(home, (client) =>
+      client.reportOutcome(ref, { outcome: 'back', to: to as AgentStageId, findings }),
+    )
+    console.log(result.message)
+  } else if (group === 'outcome' && command === 'ask') {
+    const ref = taskRef()
+    const question = rest.join(' ') || (await readStdin())
+    if (question.trim() === '') throw new UsageError('give the question as text or on stdin')
+    const choices = options.choice ?? []
+    const result = await withDaemon(home, (client) =>
+      client.reportOutcome(ref, {
+        outcome: 'ask',
+        question,
+        ...(choices.length > 0 && { choices }),
+      }),
+    )
+    console.log(result.message)
+  } else if (group === 'brief' && command === 'write' && rest.length === 0) {
+    const ref = taskRef()
+    const text =
+      options.file === undefined
+        ? await readStdin()
+        : await readFile(path.resolve(options.file), 'utf8')
+    if (text.trim() === '') throw new UsageError('give the Task brief with --file or on stdin')
+    const brief = await withDaemon(home, (client) => client.writeBrief(ref, text))
+    console.log(`Wrote version ${brief.version} of the Task brief`)
+  } else if (group === 'brief' && command === 'show' && rest.length === 0) {
+    const ref = taskRef()
+    const brief = await withDaemon(home, (client) => client.getBrief(ref))
+    process.stdout.write(printable(brief.text))
   } else if (group === 'task' && command === 'create' && rest.length > 0) {
     const title = rest.join(' ')
     const factory = options.factory

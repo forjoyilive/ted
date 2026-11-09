@@ -223,7 +223,7 @@ describe('Codex as the Task Lead', () => {
       return res.body as T
     }
     await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-    const advance = { run: ['ted', 'outcome', 'advance'] }
+    const advance = { run: ['ted', 'outcome', 'advance', '--skip'] }
     const task = await ok<Task>('POST', '/tasks', {
       title: JSON.stringify({
         steps: [

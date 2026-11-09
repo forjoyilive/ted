@@ -286,8 +286,8 @@ describe('ted dev factory and ted task start', () => {
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'On it'] },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-        { run: ['ted', 'outcome', 'advance'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
+        { run: ['ted', 'outcome', 'advance', '--skip'] },
       ],
     })
 

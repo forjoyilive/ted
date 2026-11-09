@@ -145,8 +145,8 @@ describe('TED app', () => {
       steps: [
         { run: ['ted', 'comment', 'Halfway there'] },
         { waitFor: path.join(home, 'go') },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-        { run: ['ted', 'outcome', 'advance'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
+        { run: ['ted', 'outcome', 'advance', '--skip'] },
       ],
     })
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
@@ -828,3 +828,68 @@ async function channelsOf(pid: number): Promise<string[]> {
   )
   return targets.filter((target) => /^(pipe|socket):/.test(target))
 }
+
+describe('Inbox and Gates', () => {
+  test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nLet notes be edited offline.',
+        '## Decisions so far\n\n- Keep both edits on a clash.',
+        '## Current state\n\nThe approach is written up.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nBuild it.\n',
+      ].join('\n\n'),
+    )
+    const gate = [
+      { run: ['ted', 'brief', 'write', '--file', briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ]
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Design review' })
+    await row.waitFor()
+    expect(await row.textContent()).toContain('Let notes be edited offline.')
+    await sidebar(window)
+      .getByRole('button', { name: /^Inbox/ })
+      .getByText('1')
+      .waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Design review', exact: true })
+    await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
+    await thread.getByText('Waiting on you', { exact: true }).waitFor()
+    expect(await card.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Split the sync step in two.')
+    await card.getByRole('button', { name: 'Request changes' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
+    await answered.getByText('You requested changes').waitFor()
+    await answered.getByText('“Split the sync step in two.”').waitFor()
+    await card.getByRole('button', { name: 'Approve' }).click()
+
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Review', { exact: true }).waitFor()
+    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
+    await signoff.waitFor()
+    await signoff.click()
+    await thread
+      .getByRole('region', { name: 'Sign-off', exact: true })
+      .getByRole('button', { name: 'Approve and merge' })
+      .waitFor()
+  })
+})

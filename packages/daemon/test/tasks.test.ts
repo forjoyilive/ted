@@ -94,8 +94,8 @@ const waitForStage = (client: Client, task: Task, stage: string) =>
   }, `${task.displayId} to reach ${stage}`)
 
 const advanceEveryStage = [
-  { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-  { run: ['ted', 'outcome', 'advance'] },
+  { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
+  { run: ['ted', 'outcome', 'advance', '--skip'] },
 ]
 
 const leadRun = async (client: Client, task: Task): Promise<Run> => {
@@ -221,8 +221,8 @@ describe('Tasks', () => {
       client,
       steps(
         { run: ['ted', 'comment', 'Halfway there'] },
-        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-        { run: ['ted', 'outcome', 'advance'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
+        { run: ['ted', 'outcome', 'advance', '--skip'] },
       ),
     )
 

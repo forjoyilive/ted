@@ -1,4 +1,5 @@
 import type {
+  AnswerRequest,
   Attachment,
   BackupsSummary,
   Banner,
@@ -8,6 +9,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  InboxItem,
   LogText,
   MachineSettings,
   Profile,
@@ -32,6 +34,9 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  answerRequest: (commentId: string, answer: AnswerRequest) =>
+    window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,

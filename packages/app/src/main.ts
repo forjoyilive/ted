@@ -2,6 +2,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
 import {
+  type AnswerRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
@@ -25,6 +26,9 @@ import {
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listInbox: (client) => client.listInbox(),
+  answerRequest: (client, commentId, answer) =>
+    client.answerRequest(String(commentId), answer as AnswerRequest),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),

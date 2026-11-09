@@ -57,17 +57,25 @@ export {
 } from './settings.ts'
 export {
   type AgentStageId,
+  type AnswerRequest,
   type Attachment,
   agentStageIds,
+  briefHeadings,
   type ClarifyDepth,
   type Comment,
+  type CommentAnswer,
+  type CommentAuthor,
+  type CommentKind,
   type CopySkip,
   type CreateTaskRequest,
   clarifyDepths,
+  commentKinds,
   type Effort,
   efforts,
   type GitHubWait,
+  type InboxItem,
   type Outcome,
+  type OutcomeResult,
   type PostCommentRequest,
   type Priority,
   priorities,
@@ -75,6 +83,7 @@ export {
   type SetActivityRequest,
   type StageId,
   type Task,
+  type TaskBrief,
   type TaskDefaults,
   type TaskLead,
   type TaskMarker,
@@ -84,6 +93,7 @@ export {
   type TrackStage,
   type TrackState,
   type WorktreeCommandOutcome,
+  type WriteBriefRequest,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

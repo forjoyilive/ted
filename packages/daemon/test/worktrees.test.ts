@@ -87,8 +87,8 @@ const getTask = async (client: Client, id: string) =>
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 
 const advanceEveryStage = [
-  { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
-  { run: ['ted', 'outcome', 'advance'] },
+  { everyMessage: [{ run: ['ted', 'outcome', 'advance', '--skip'] }] },
+  { run: ['ted', 'outcome', 'advance', '--skip'] },
 ]
 
 const workflow = (worktree: string) =>
