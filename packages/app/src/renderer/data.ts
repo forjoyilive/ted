@@ -149,8 +149,10 @@ export function useSettings(): MachineSettings | undefined {
 
 export function useSlots(): RunSlots | undefined {
   const [slots, setSlots] = useState<RunSlots>()
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
     let live = false
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'slots-changed') {
@@ -158,11 +160,14 @@ export function useSlots(): RunSlots | undefined {
         setSlots(event.slots)
       }
     })
-    void ted.getSlots().then((loaded) => {
-      if (!live) setSlots(loaded)
-    })
+    void ted.getSlots().then(
+      (loaded) => {
+        if (!live) setSlots(loaded)
+      },
+      () => undefined,
+    )
     return unsubscribe
-  }, [])
+  }, [epoch])
 
   return slots
 }

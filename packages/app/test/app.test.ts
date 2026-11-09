@@ -1030,6 +1030,30 @@ describe('daemon crashes', () => {
     await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
   })
 
+  test('after reconnecting, the sidebar shows slots that changed while the app was away', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] }),
+    )
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '6000,0,0' })
+    await ted('task', 'start', 'NB-1')
+    const footer = sidebar(window).locator('footer')
+    await footer.getByRole('button', { name: /^1 of \d+ Runs working$/ }).waitFor()
+
+    await killDaemon()
+    await reconnecting(window).waitFor()
+    await ted('task', 'list')
+    await (await daemonClient()).updateSettings({ maxWorkingRuns: 7 })
+
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await footer.getByRole('button', { name: '1 of 7 Runs working' }).waitFor()
+  })
+
   test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
     await app?.evaluate(({ clipboard }) => {
