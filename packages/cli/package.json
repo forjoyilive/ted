@@ -1,0 +1,13 @@
+{
+  "name": "@ted/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "ted": "./src/main.ts"
+  },
+  "dependencies": {
+    "@ted/daemon": "workspace:*",
+    "@ted/protocol": "workspace:*"
+  }
+}

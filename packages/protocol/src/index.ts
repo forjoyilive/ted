@@ -1,0 +1,5 @@
+export { DaemonClient, DaemonRequestError, DaemonUnreachableError } from './client.ts'
+export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
+export { tedHome, tedPaths } from './paths.ts'
+export type { CreateTaskRequest, Task } from './task.ts'
+export { tedVersion } from './version.ts'
