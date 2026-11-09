@@ -423,7 +423,9 @@ describe('ted status and ted doctor', () => {
     )
 
     const doctor = await ted(['doctor'])
-    expect(doctor.stdout).toMatch(/✓ git \d/)
+    expect(doctor.stdout).toMatch(/[✓!] git \d/)
+    expect(doctor.stdout).toMatch(/✓ gh 2\.89\.0 · .*stub-gh\.ts/)
+    expect(doctor.stdout).toContain('✓ github.com · signed in as stub-user')
     expect(doctor.stdout).toContain('No Checks set up · Validate relies on the agent alone')
   })
 

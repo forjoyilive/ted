@@ -10,6 +10,7 @@ export type BannerPlace =
 export interface BannerAction {
   label: string
   opens?: BannerPlace
+  section?: string
 }
 
 export interface Banner {

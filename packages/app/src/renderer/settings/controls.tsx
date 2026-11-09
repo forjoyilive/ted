@@ -13,10 +13,12 @@ export function SettingsPage({ title, children }: { title: string; children: Rea
 
 export function SettingsGroup({
   label,
+  help,
   action,
   children,
 }: {
   label?: string
+  help?: ReactNode
   action?: ReactNode
   children: ReactNode
 }) {
@@ -28,9 +30,12 @@ export function SettingsGroup({
     >
       {label !== undefined && (
         <div className={styles.groupHeader}>
-          <h2 className={styles.groupLabel} id={id}>
-            {label}
-          </h2>
+          <div className={styles.titleLine}>
+            <h2 className={styles.groupLabel} id={id}>
+              {label}
+            </h2>
+            {help !== undefined && <Help>{help}</Help>}
+          </div>
           {action}
         </div>
       )}

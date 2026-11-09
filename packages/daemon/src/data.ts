@@ -11,6 +11,7 @@ import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
+import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
@@ -24,6 +25,7 @@ export interface Services {
   tasks: Tasks
   banners: Banners
   workflows: Workflows
+  integrations: Integrations
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {
@@ -33,7 +35,7 @@ export interface StartedServices extends Omit<Services, 'store'> {
 export interface DataOptions {
   home: string
   version: string
-  startServices: (store: TedStore) => Promise<StartedServices>
+  startServices: (store: TedStore, emit: (event: DaemonEvent) => void) => Promise<StartedServices>
   onStatus?: (status: DataStatus) => void
   now?: () => Date
   dailyCheckMs?: number
@@ -177,7 +179,7 @@ export function createData(options: DataOptions): Data {
 
     await writeStoreMeta(paths.store, { lastOpenedBy: version, lastOpenedAt: now().toISOString() })
     if (rebuilding) await removeStaleStateFiles(paths.store)
-    const started = await options.startServices(store)
+    const started = await options.startServices(store, emit)
     services = { store, ...started, unsubscribe: store.subscribe(emit) }
     setStatus({ state: 'ready' })
     await takeDaily()

@@ -7,11 +7,13 @@ import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
 import { startIdleTimer } from './idle.ts'
+import { createIntegrations } from './integrations.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { createTasks } from './tasks/tasks.ts'
+import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
@@ -22,7 +24,18 @@ export interface DaemonOptions {
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
+  integrations?: DaemonIntegrationsOptions
   onShutdown?: () => void
+}
+
+export interface DaemonIntegrationsOptions {
+  checkOnStart?: boolean
+  ghBin?: string
+  gitBin?: string
+  loginShell?: boolean
+  openTerminal?: OpenTerminal
+  checkEveryMs?: number
+  watchAfterFix?: { everyMs: number; forMs: number }
 }
 
 export interface RunningDaemon {
@@ -48,7 +61,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
-    async startServices(store) {
+    async startServices(store, emit) {
       const runs = await startRunManager({
         home: paths.home,
         store,
@@ -57,6 +70,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
       })
       const banners = createBanners({ store })
+      const given = options.integrations ?? {}
+      const integrations = createIntegrations({
+        store,
+        banners,
+        emit,
+        openTerminal: given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp }),
+        loginShell: given.loginShell ?? false,
+        ...(given.ghBin !== undefined && { ghBin: given.ghBin }),
+        ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
+        ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
+        ...(given.watchAfterFix !== undefined && { watchAfterFix: given.watchAfterFix }),
+      })
+      if (given.checkOnStart) integrations.start()
       const workflows = createWorkflows({
         store,
         banners,
@@ -87,7 +113,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         banners,
         workflows,
+        integrations,
         async close() {
+          integrations.close()
           await tasks.close()
           await runs.close()
         },

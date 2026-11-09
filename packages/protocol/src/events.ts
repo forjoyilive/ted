@@ -2,6 +2,7 @@ import type { Activity } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
+import type { IntegrationsHealth } from './integrations.ts'
 import type { Run } from './run.ts'
 import type { MachineSettings } from './settings.ts'
 import type { Comment, Task } from './task.ts'
@@ -17,5 +18,6 @@ export type DaemonEvent =
   | { type: 'banner-updated'; banner: Banner }
   | { type: 'banner-cleared'; id: string }
   | { type: 'data-status'; status: DataStatus }
+  | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'open-requested' }
