@@ -340,7 +340,7 @@ export function createSimulators(options: {
     }
     await save()
     if (!why.human) {
-      await options.stopApp(record.taskId, record.repo, record.name).catch(() => undefined)
+      void options.stopApp(record.taskId, record.repo, record.name).catch(() => undefined)
       store.simulatorShutDown({
         taskId: record.taskId,
         repo: record.repo,
@@ -391,15 +391,15 @@ export function createSimulators(options: {
     return record
   }
 
-  function shutDownChoice(udid: string, requester: string): DeviceRecord {
+  function shutDownChoice(udid: string, requester: DeviceRecord): DeviceRecord {
     const target = bootedRecord(udid)
     if (!target) throw new RequestError(409, 'That simulator isn’t booted any more')
     const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
     if (recordings.has(udid)) {
       throw new RequestError(409, `${owner}’s simulator is recording, so it can’t be shut down`)
     }
-    if (target.taskId === requester) {
-      throw new RequestError(409, 'Pick another Task’s simulator to shut down')
+    if (target.udid === requester.udid) {
+      throw new RequestError(409, 'Pick another simulator to shut down')
     }
     return target
   }
@@ -488,7 +488,7 @@ export function createSimulators(options: {
                 : `All ${limit()} simulators are booted. Choose one to shut down, then run ${app.name} again.`,
             )
           }
-          await shutDownRecord(shutDownChoice(shutDown, app.taskId), { for: app.displayId })
+          await shutDownRecord(shutDownChoice(shutDown, record), { for: app.displayId })
           await boot(record)
           return { udid: record.udid }
         }
@@ -576,6 +576,12 @@ export function createSimulators(options: {
         const ask = comment.simulator as SimulatorAsk
         const record = recordOf(comment.taskId, ask.repo, ask.app)
         if (!record) throw new RequestError(409, 'the App that asked has stopped')
+        if (store.newWorkHold() !== undefined) {
+          throw new RequestError(
+            409,
+            'The disk is almost full, so TED holds new Apps until there’s space',
+          )
+        }
         const now = await freshBooted()
         if (now.has(record.udid) || now.size < limit()) {
           if (!now.has(record.udid)) await boot(record)
@@ -584,7 +590,7 @@ export function createSimulators(options: {
         if (request.simulator === undefined) {
           throw new RequestError(400, 'pick the simulator to shut down')
         }
-        const target = shutDownChoice(request.simulator, comment.taskId)
+        const target = shutDownChoice(request.simulator, record)
         const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
         const requester = store.getTask(comment.taskId)?.displayId ?? comment.taskId
         await shutDownRecord(target, { for: requester })

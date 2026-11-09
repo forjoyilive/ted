@@ -132,6 +132,10 @@ const workflow = (
     '        kind: ios-simulator',
     '        device: "iPhone 17"',
     `        run: "${run}"`,
+    '      - name: Watch',
+    '        kind: ios-simulator',
+    '        device: "iPhone 17"',
+    '        run: "exec sleep 600"',
   ].join('\n')
 
 async function addFactory(client: Client, run?: string) {
@@ -296,6 +300,23 @@ describe('iOS simulator Apps', () => {
     await eventText(client, first, 'TED shut down iPhone’s simulator to free a slot for NB-2')
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots.booted.map((s) => s.displayId)).toEqual(['NB-2'])
+  })
+
+  test('a Task’s other simulator App can take its first App’s slot', async () => {
+    const client = await start()
+    await addFactory(client)
+    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+    const [booted] = (await client.ok<SimulatorSlots>('GET', '/simulators')).booted
+
+    const watch = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+      name: 'Watch',
+      shutDown: booted?.udid,
+    })
+    expect(watch.simulator?.booted).toBe(true)
+    const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
+    expect(slots.booted.map((s) => s.app)).toEqual(['Watch'])
   })
 
   test('a Run that needs a slot asks the human, and Deny reaches ted run-app', async () => {

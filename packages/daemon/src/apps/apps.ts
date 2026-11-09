@@ -700,6 +700,7 @@ export function createApps(options: AppsOptions): Apps {
       return end('stopped')
     }
     const { task, repo, app } = found
+    if (store.newWorkHold() !== undefined) return 'waiting'
     const got = await sims.wait(instance.waitingFor, simApp(taskId, task, repo.name, app))
     if (got.state === 'pending') return 'waiting'
     const current = await readInstance(dir)
