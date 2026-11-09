@@ -94,8 +94,19 @@ function tool(
       const { diffs, title } = fileChanges(item.changes, cwd)
       return { tool: 'Edit', title, diffs }
     }
-    case 'mcpToolCall':
-      return { tool: 'Tool', title: mcpToolSummary(item) }
+    case 'mcpToolCall': {
+      const output =
+        str(record(item.error).message) ||
+        list(record(item.result).content)
+          .map((part) => str(record(part).text))
+          .filter((text) => text !== '')
+          .join('\n')
+      return {
+        tool: 'Tool',
+        title: mcpToolSummary(item),
+        ...(output !== '' && { output: clip(output) }),
+      }
+    }
     case 'webSearch': {
       const query = str(item.query).trim()
       return { tool: 'Search', title: query === '' ? 'Searched the web' : label(query) }

@@ -151,6 +151,7 @@ export function createConversations(options: {
 }): Conversations {
   const { store, runs, agents, health, disk } = options
   let preamble: Promise<string> | undefined
+  const restarting = new Set<string>()
 
   const requireRun = (runId: string): Run => {
     const run = store.getRun(runId)
@@ -210,6 +211,9 @@ export function createConversations(options: {
       if (run.state === 'finished') {
         throw new RequestError(409, 'This Run has finished, so it can’t take messages')
       }
+      if (restarting.has(runId)) {
+        throw new RequestError(409, 'The Run is restarting. Send your message once it’s back.')
+      }
       await runs.send(runId, text)
       return store.recordRunMessage({ runId, text, lead: isCurrentLead(run) })
     },
@@ -220,6 +224,8 @@ export function createConversations(options: {
       }
       if (run.state === 'finished') throw new RequestError(409, 'This Run has finished')
       if (disk.held()) throw new RequestError(507, 'The disk is full, so TED isn’t restarting Runs')
+      if (restarting.has(runId)) throw new RequestError(409, 'The Run is already restarting')
+      restarting.add(runId)
       try {
         const restarted = await runs.restart(runId, {
           ...(run.model !== undefined && { model: run.model }),
@@ -230,6 +236,8 @@ export function createConversations(options: {
       } catch (error) {
         if (error instanceof RequestError) throw error
         throw new RequestError(409, error instanceof Error ? error.message : String(error))
+      } finally {
+        restarting.delete(runId)
       }
     },
     async stop(runId) {

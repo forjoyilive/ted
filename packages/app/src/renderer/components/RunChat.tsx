@@ -204,7 +204,7 @@ function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now
           {diffs.map(numbered).map(({ n, ...diff }) => (
             <Diff key={n} diff={diff} showPath={diffs.length > 1 || diff.path !== item.title} />
           ))}
-          {diffs.length === 0 && item.output !== undefined && (
+          {(diffs.length === 0 || item.status === 'failed') && item.output !== undefined && (
             <pre className={styles.output}>{item.output}</pre>
           )}
         </>

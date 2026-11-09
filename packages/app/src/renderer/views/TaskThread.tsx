@@ -230,8 +230,10 @@ export function TaskThread({
   const shown = inStage(items, entries, stage)
   const unread = comments.some((c) => c.author.kind !== 'human' && c.readAt === undefined)
   useEffect(() => {
-    if (unread) void ted.markCommentsRead(task.id).catch(() => undefined)
-  }, [unread, task.id])
+    if (unread && shownRun === undefined) {
+      void ted.markCommentsRead(task.id).catch(() => undefined)
+    }
+  }, [unread, task.id, shownRun])
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
