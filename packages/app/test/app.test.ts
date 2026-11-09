@@ -212,6 +212,95 @@ describe('TED app', () => {
       .toBe(true)
   })
 
+  test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const edit = {
+      emit: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 't1',
+              name: 'Edit',
+              input: {
+                file_path: 'notes.ts',
+                old_string: 'by updated\n',
+                new_string: 'by pinned\n',
+              },
+            },
+          ],
+        },
+      },
+    }
+    const done = {
+      emit: {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+        },
+      },
+    }
+    const steps = [
+      { everyMessage: [{ say: 'Noted.' }, { endTurn: true }] },
+      edit,
+      done,
+      { say: 'Pinned notes now sort first.' },
+      { endTurn: true },
+    ]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('idle')
+
+    let window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Pinned notes now sort first.').waitFor()
+    await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
+    await chat.getByRole('button', { name: /^Edit/ }).click()
+    await chat.getByText('by pinned').waitFor()
+    expect(await chat.getByRole('button', { name: 'Restart' }).isEnabled()).toBe(true)
+
+    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    await box.fill('Keep pinned notes in the order they were pinned.')
+    await box.press('Enter')
+    await chat.getByText(/to this Run only/).waitFor()
+    await chat.getByText('Noted.').waitFor()
+    expect(await client.listComments('NB-1')).toEqual([])
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
+    await thread.getByRole('button', { name: 'View message' }).click()
+    await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
+
+    await app?.close()
+    app = undefined
+    window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window
+      .getByRole('region', { name: 'Run chat' })
+      .getByText('Pinned notes now sort first.')
+      .waitFor()
+    await window.getByRole('button', { name: 'Close Task Lead' }).click()
+    await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
+  }, 90_000)
+
   test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
     await ted('task', 'create', 'Fix login')
     const window = await launchApp()
@@ -306,6 +395,60 @@ describe('TED app', () => {
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
   })
+
+  test('Validate’s ✓ row shows each Check’s state, the Blocking findings box, and opens the output', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    const flag = path.join(home, 'failed-once')
+    await commitToOrigin(parent, {
+      '.gitignore': 'stub-*\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; echo 'SearchPanel hangs'; exit 1; fi" }`,
+        '      - { name: Lint, run: "echo linted" }',
+        '',
+      ].join('\n'),
+    })
+    const advance = { run: ['ted', 'outcome', 'advance'] }
+    const steps = JSON.stringify({
+      steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await ted('task', 'start', 'NB-1')
+
+    const sentBack = thread.getByRole('listitem').filter({
+      hasText: 'Validate sent this back to Work (round 1 of 5)',
+    })
+    await sentBack.waitFor({ timeout: 40_000 })
+    const row = sentBack.getByRole('list', { name: 'Checks' })
+    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
+    await row.getByRole('button', { name: '✗ Tests' }).waitFor()
+    await row.getByRole('listitem').filter({ hasText: 'Lint · not run' }).waitFor()
+    await sentBack
+      .getByRole('region', { name: 'Blocking findings' })
+      .getByText(/The Check “Tests”/)
+      .waitFor()
+    await thread.getByText('Checks passed at Validate').waitFor({ timeout: 40_000 })
+
+    await row.getByRole('button', { name: '✗ Tests' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Tests output' })
+    await dialog.getByText('SearchPanel hangs', { exact: true }).waitFor()
+    await dialog.getByRole('tab', { name: 'Typecheck' }).click()
+    await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
+    await window.getByRole('button', { name: 'Close' }).click()
+    await dialog.waitFor({ state: 'detached' })
+  }, 90_000)
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
@@ -1692,6 +1835,104 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'Sign-off', exact: true })
       .getByRole('button', { name: 'Approve and merge' })
       .waitFor()
+  })
+
+  test('two open requests show “2 waiting on you”; chips and the Inbox pick the pinned card', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          {
+            run: [
+              'ted',
+              'outcome',
+              'ask',
+              '--choice',
+              'In the note’s header',
+              'Where should the sync status show?',
+            ],
+          },
+          { run: ['ted', 'comment', '--choice', 'Yes', 'Can the queue retry offline?'] },
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const second = inbox
+      .getByRole('button')
+      .filter({ has: window.getByText('Can the queue retry offline?', { exact: true }) })
+    await second.waitFor()
+    await second.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
+    await pinned.getByText('Can the queue retry offline?').waitFor()
+    const waiting = thread.getByRole('group', { name: '2 waiting on you' })
+    await waiting.getByText('2 waiting on you').waitFor()
+    const chips = waiting.getByRole('button')
+    expect(await chips.allTextContents()).toEqual(['Question · now', 'Question · now'])
+    expect(await chips.nth(1).getAttribute('aria-pressed')).toBe('true')
+
+    const lines = thread.getByRole('button', { name: /^Question from the Task Lead · waiting/ })
+    await expect.poll(() => lines.count()).toBe(2)
+    expect(await lines.nth(1).textContent()).toContain('shown below')
+
+    await chips.nth(0).click()
+    await pinned.getByText('Where should the sync status show?').waitFor()
+    expect(await chips.nth(0).getAttribute('aria-pressed')).toBe('true')
+    expect(await thread.getByRole('region', { name: 'Question', exact: true }).count()).toBe(1)
+  })
+
+  test('answered and superseded requests collapse to grey cards; Show request opens the card read-only', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const supersede =
+      'id=$(ted outcome ask "Should an empty search show recent notes or nothing?" | sed -n "s/.*(request \\([^)]*\\)).*/\\1/p"); ted ask --supersedes "$id" --choice "The 5 most recent notes" --choice "A hint" "Empty search: show the 5 most recent notes, or a hint?"'
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ run: ['sh', '-c', supersede] }, { endTurn: true }] }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const headline = (text: string) =>
+      inbox.getByRole('button').filter({ has: window.getByText(text, { exact: true }) })
+    const row = headline('Empty search: show the 5 most recent notes, or a hint?')
+    await row.waitFor()
+    expect(await inbox.getByRole('listitem').count()).toBe(1)
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const superseded = thread.getByRole('region', { name: 'Question, superseded' })
+    await superseded.getByText('Superseded by a newer question from the Task Lead').waitFor()
+    expect(await thread.getByRole('group', { name: /waiting on you/ }).count()).toBe(0)
+
+    const pinned = thread.getByRole('region', { name: 'Question', exact: true })
+    await pinned.getByRole('button', { name: 'The 5 most recent notes' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Question, answered' })
+    await answered.getByText('You answered: The 5 most recent notes').waitFor()
+    await expect.poll(() => pinned.count()).toBe(0)
+
+    await answered.getByRole('button', { name: 'Show request' }).click()
+    const full = answered.getByRole('region', { name: 'Question, read-only' })
+    await full.getByText('Empty search: show the 5 most recent notes, or a hint?').waitFor()
+    expect(await full.getByRole('textbox').count()).toBe(0)
+    expect(await full.getByRole('button', { name: 'A hint' }).isDisabled()).toBe(true)
+    await answered.getByRole('button', { name: 'Hide request' }).click()
+    await expect.poll(() => full.count()).toBe(0)
   })
 })
 

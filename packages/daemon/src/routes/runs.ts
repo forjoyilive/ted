@@ -1,5 +1,10 @@
 import path from 'node:path'
-import { type AgentKind, agentKinds, type StartDevRunRequest } from '@ted/protocol'
+import {
+  type AgentKind,
+  agentKinds,
+  type SendRunMessageRequest,
+  type StartDevRunRequest,
+} from '@ted/protocol'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from '../diagnostics.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { type Route, readJson } from './route.ts'
@@ -44,6 +49,55 @@ export const runRoutes: Route[] = [
       }
       return [201, await runs.start({ agent, prompt, cwd })]
     },
+  },
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/chat$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.chat(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/messages$/,
+    async handle({ req, params: [id = ''] }, { conversations }) {
+      const body = (await readJson(req)) as Partial<SendRunMessageRequest> | null
+      const text = typeof body?.text === 'string' ? body.text.trim() : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      return [201, await conversations.send(id, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/restart$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [
+      200,
+      await conversations.restart(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/stop$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.stop(id)],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/runs$/,
+    handle: async ({ params: [ref = ''] }, { conversations }) => [200, conversations.taskRuns(ref)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+      200,
+      conversations.openTab(ref, runId),
+    ],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+      200,
+      conversations.closeTab(ref, runId),
+    ],
   },
   {
     method: 'GET',

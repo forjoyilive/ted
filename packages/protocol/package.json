@@ -15,6 +15,7 @@
     "./factory": "./src/factory.ts",
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",
-    "./storage": "./src/storage.ts"
+    "./storage": "./src/storage.ts",
+    "./checks": "./src/checks.ts"
   }
 }

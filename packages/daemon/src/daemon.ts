@@ -18,6 +18,7 @@ import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
+import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
@@ -196,6 +197,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
         logsDir: paths.logs,
+        libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })
@@ -231,8 +233,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
+      const conversations = createConversations({ store, runs, agents, health, disk })
       return {
         runs,
+        conversations,
         tasks,
         banners,
         workflows,

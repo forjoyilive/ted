@@ -15,6 +15,7 @@ type Step =
   | { exit: number }
   | { everyMessage: Step[] }
   | { authError: true }
+  | { emit: Record<string, unknown> }
 
 const argv = process.argv.slice(2)
 
@@ -84,6 +85,7 @@ let everyMessage: Step[] = []
 
 async function runStep(step: Step): Promise<void> {
   if ('everyMessage' in step) everyMessage = step.everyMessage
+  else if ('emit' in step) emit(step.emit)
   else if ('authError' in step) {
     emit({
       type: 'assistant',

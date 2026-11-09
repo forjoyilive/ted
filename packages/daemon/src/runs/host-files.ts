@@ -21,7 +21,7 @@ export type DriveAgent = (io: {
 
 export type HostRecord =
   | { t: 'start'; v: 1; hostPid: number; agentPid: number | null }
-  | { t: 'out'; line: string }
+  | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
   | { t: 'exit'; code: number | null; signal: string | null; error?: string }
 

@@ -36,6 +36,7 @@ function task(fields: Partial<Task> & { displayId: string }): Task {
     markers: [],
     track: [],
     runs: [],
+    tabs: [],
     repos: [],
     createdBy: 'human',
     commentBox: 'no-run',

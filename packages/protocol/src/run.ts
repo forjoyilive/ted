@@ -26,6 +26,7 @@ export interface Run {
 export interface ConversationEntry {
   offset: number
   line: string
+  at?: string
 }
 
 export interface RunWithConversation {

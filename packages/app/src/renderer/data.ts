@@ -2,12 +2,15 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   Banner,
+  CheckRun,
   Comment,
   DataStatus,
   Factory,
   InboxItem,
   MachineSettings,
+  RunChat,
   RunSlots,
+  RunSummary,
   StageEntry,
   StageId,
   Task,
@@ -125,6 +128,20 @@ export function useComments(taskId: string): Comment[] {
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
+
+export function useCheckRuns(taskId: string): CheckRun[] {
+  const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
+  const pick = useCallback(
+    (event: TedEvent) =>
+      event.type === 'check-run-updated' && event.checkRun.taskId === taskId
+        ? event.checkRun
+        : undefined,
+    [taskId],
+  )
+  return useLive(load, pick, byStartedAt)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {
@@ -360,4 +377,80 @@ export function useAgentHealth(): AgentHealth[] {
   }, [epoch])
 
   return health
+}
+
+function useReloading<T>(
+  load: () => Promise<T>,
+  affects: (event: TedEvent) => boolean,
+  key: string,
+): T | undefined {
+  const [value, setValue] = useState<T>()
+  const { epoch } = useConnection()
+  const loadRef = useRef(load)
+  const affectsRef = useRef(affects)
+  loadRef.current = load
+  affectsRef.current = affects
+
+  useEffect(() => {
+    void epoch
+    void key
+    let active = true
+    let running = false
+    let again = false
+    setValue(undefined)
+    const run = () => {
+      if (running) {
+        again = true
+        return
+      }
+      running = true
+      loadRef
+        .current()
+        .then(
+          (loaded) => {
+            if (active) setValue(loaded)
+          },
+          () => undefined,
+        )
+        .finally(() => {
+          running = false
+          if (active && again) {
+            again = false
+            run()
+          }
+        })
+    }
+    const unsubscribe = ted.onEvent((event) => {
+      if (affectsRef.current(event)) run()
+    })
+    run()
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [key, epoch])
+
+  return value
+}
+
+export function useRunChat(runId: string): RunChat | undefined {
+  return useReloading(
+    () => ted.getRunChat(runId),
+    (event) =>
+      (event.type === 'run-output' && event.runId === runId) ||
+      (event.type === 'run-updated' && event.run.id === runId),
+    runId,
+  )
+}
+
+export function useTaskRuns(taskId: string): RunSummary[] {
+  return (
+    useReloading(
+      () => ted.listTaskRuns(taskId),
+      (event) =>
+        (event.type === 'run-updated' && event.run.taskId === taskId) ||
+        (event.type === 'task-updated' && event.task.id === taskId),
+      taskId,
+    ) ?? []
+  )
 }

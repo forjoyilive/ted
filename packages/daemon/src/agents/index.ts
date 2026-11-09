@@ -4,7 +4,13 @@ import type { Agent } from './agent.ts'
 import { claudeAgent } from './claude.ts'
 import { codexAgent } from './codex.ts'
 
-export type { Agent, AgentHealthSpec, AgentLaunch, AuthCheck } from './agent.ts'
+export type {
+  Agent,
+  AgentChatEntry,
+  AgentHealthSpec,
+  AgentLaunch,
+  AuthCheck,
+} from './agent.ts'
 
 export interface Agents {
   get(kind: AgentKind): Agent

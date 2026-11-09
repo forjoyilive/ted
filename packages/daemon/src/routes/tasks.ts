@@ -13,6 +13,7 @@ import {
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
+  type RunChecksRequest,
   type SetActivityRequest,
   type TaskLead,
   type WriteBriefRequest,
@@ -160,7 +161,18 @@ export const taskRoutes: Route[] = [
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       const choices = choiceList(body?.choices)
-      return [201, await tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
+      const supersedes = body?.supersedes
+      if (supersedes !== undefined && (typeof supersedes !== 'string' || supersedes === '')) {
+        throw new HttpError(400, 'supersedes must be a request’s ID')
+      }
+      return [
+        201,
+        await tasks.comment(ref, caller, {
+          body: text,
+          ...(choices && { choices }),
+          ...(supersedes !== undefined && { supersedes }),
+        }),
+      ]
     },
   },
   {
@@ -223,6 +235,49 @@ export const taskRoutes: Route[] = [
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const outcome = outcomeRequest(await readJson(req))
       return [200, await tasks.reportOutcome(ref, caller, outcome)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/checks$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<RunChecksRequest> | null
+      const name = typeof body?.name === 'string' ? body.name.trim() : undefined
+      return [201, await tasks.runChecks(ref, caller, name === '' ? undefined : name)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/check-runs\/([^/]+)$/,
+    runToken: true,
+    async handle({ params: [id = ''], caller }, { tasks }) {
+      return [200, await tasks.checkRun(id, caller)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/check-runs\/([^/]+)\/checks\/(\d+)\/output$/,
+    async handle({ params: [id = '', position = ''] }, { tasks }) {
+      return [200, await tasks.checkOutput(id, Number(position))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/check-runs$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.listCheckRuns(task.id)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/send-backs$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.listSendBacks(task.id)]
     },
   },
   {

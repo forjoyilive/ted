@@ -1,3 +1,4 @@
+import type { ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -138,6 +139,7 @@ export interface Task {
   track: TrackStage[]
   commentBox: CommentBox
   runs: TaskRun[]
+  tabs: ConversationTab[]
   repos: TaskRepo[]
   createdBy: CreatedBy
   createdAt: string
@@ -216,6 +218,7 @@ export type CommentAnswer =
   | { kind: 'answered'; at: string; choice?: string; text?: string }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'superseded'; at: string; by: string }
 
 export interface Comment {
   id: string
@@ -242,6 +245,8 @@ export interface ThreadEvent {
   tone: ThreadEventTone
   text: string
   findings?: string
+  runId?: string
+  checkRunId?: string
 }
 
 export interface InboxItem {
@@ -257,6 +262,7 @@ export type AnswerRequest =
 export interface PostCommentRequest {
   body: string
   choices?: string[]
+  supersedes?: string
 }
 
 export interface SetActivityRequest {

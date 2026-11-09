@@ -28,6 +28,10 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
   return [file.text.trim(), ...gate].join('\n\n')
 }
 
+export async function preambleText(): Promise<string> {
+  return (await readFile(new URL('preamble.md', defaults), 'utf8')).trim()
+}
+
 export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,
@@ -35,10 +39,9 @@ export async function taskLeadPrompt(
   attachmentFile?: (attachment: Attachment) => string,
   setupReport?: string,
 ): Promise<string> {
-  const preamble = await readFile(new URL('preamble.md', defaults), 'utf8')
   return [
     ...(setupReport !== undefined ? [setupReport] : []),
-    preamble.trim(),
+    await preambleText(),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
