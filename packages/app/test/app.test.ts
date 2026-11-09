@@ -374,7 +374,7 @@ describe('TED app', () => {
 
     await row.getByRole('button', { name: '✗ Tests' }).click()
     const dialog = window.getByRole('dialog', { name: 'Tests output' })
-    await dialog.getByText('SearchPanel hangs').waitFor()
+    await dialog.getByText('SearchPanel hangs', { exact: true }).waitFor()
     await dialog.getByRole('tab', { name: 'Typecheck' }).click()
     await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
     await window.getByRole('button', { name: 'Close' }).click()
