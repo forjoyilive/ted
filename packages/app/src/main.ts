@@ -2,6 +2,8 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
 import {
+  type AgentKind,
+  agentKinds,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
@@ -84,6 +86,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
   actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  agentHealth: (client) => client.agentHealth(),
+  checkAgentHealth: (client) => client.checkAgentHealth(),
+  fixAgent: (client, agent) => {
+    const kind = agentKinds.find((k) => k === agent)
+    if (!kind) throw new Error('unknown agent')
+    return client.fixAgent(kind satisfies AgentKind)
+  },
 }
 
 const pictureSize = 256

@@ -183,6 +183,25 @@ export const localFolders = State.SQLite.table({
   },
 })
 
+export const agentPauses = State.SQLite.table({
+  name: 'agentPauses',
+  columns: {
+    agent: State.SQLite.text({ primaryKey: true }),
+    reason: State.SQLite.text(),
+    since: State.SQLite.text(),
+  },
+})
+
+export const heldRuns = State.SQLite.table({
+  name: 'heldRuns',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    agent: State.SQLite.text(),
+    sessionId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 const stageEnteredFields = {
   id: Schema.String,
   taskId: Schema.String,
@@ -405,6 +424,27 @@ export const events = {
     name: 'v1.BannerCleared',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
+  agentPaused: Events.synced({
+    name: 'v1.AgentPaused',
+    schema: Schema.Struct({ agent: Schema.String, reason: Schema.String, at: Schema.String }),
+  }),
+  agentResumed: Events.synced({
+    name: 'v1.AgentResumed',
+    schema: Schema.Struct({ agent: Schema.String, at: Schema.String }),
+  }),
+  taskRunHeld: Events.synced({
+    name: 'v1.TaskRunHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskRunReleased: Events.synced({
+    name: 'v1.TaskRunReleased',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -499,6 +539,11 @@ const materializers = counted(
     'v1.BannerDismissed': ({ id, until }) =>
       banners.update({ dismissedUntil: until }).where({ id }),
     'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
+    'v1.AgentPaused': ({ agent, reason, at }) =>
+      agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
+    'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
+    'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+    'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
   }),
 )
 
@@ -518,6 +563,8 @@ const state = State.SQLite.makeState({
     machineSettings,
     machineSettingValues,
     banners,
+    agentPauses,
+    heldRuns,
   },
   materializers,
 })

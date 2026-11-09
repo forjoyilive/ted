@@ -21,6 +21,7 @@ try {
   daemon = await startDaemon({
     home: tedHome(),
     version: tedVersion,
+    loginShell: true,
     ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
     ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
     ...(values['exit-when-idle'] && {

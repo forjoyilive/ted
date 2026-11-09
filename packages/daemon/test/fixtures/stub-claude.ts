@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -13,8 +14,44 @@ type Step =
   | { endTurn: true; usage?: Record<string, number> }
   | { exit: number }
   | { everyMessage: Step[] }
+  | { authError: true }
 
 const argv = process.argv.slice(2)
+
+interface StubHealth {
+  version?: string
+  signedIn?: boolean
+}
+
+function stubHealth(): StubHealth {
+  try {
+    return JSON.parse(
+      readFileSync(path.join(process.env.TED_HOME ?? '', 'stub-claude.json'), 'utf8'),
+    ) as StubHealth
+  } catch {
+    return {}
+  }
+}
+
+function healthReply(): { text: string; code: number } | undefined {
+  const health = stubHealth()
+  if (argv[0] === '--version')
+    return { text: `${health.version ?? '2.1.319'} (Claude Code)\n`, code: 0 }
+  if (argv[0] === 'auth' && argv[1] === 'status') {
+    const loggedIn = health.signedIn !== false
+    const status = loggedIn
+      ? { loggedIn, authMethod: 'claude.ai', email: 'stub@example.com', subscriptionType: 'max' }
+      : { loggedIn }
+    return { text: `${JSON.stringify(status)}\n`, code: loggedIn ? 0 : 1 }
+  }
+  return undefined
+}
+
+const reply = healthReply()
+if (reply) {
+  process.stdout.write(reply.text, () => process.exit(reply.code))
+  await new Promise(() => {})
+}
 const flag = (name: string) => {
   const i = argv.indexOf(name)
   return i === -1 ? undefined : argv[i + 1]
@@ -45,7 +82,22 @@ let everyMessage: Step[] = []
 
 async function runStep(step: Step): Promise<void> {
   if ('everyMessage' in step) everyMessage = step.everyMessage
-  else if ('say' in step) say(step.say)
+  else if ('authError' in step) {
+    emit({
+      type: 'assistant',
+      error: 'authentication_failed',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Not logged in · Please run /login' }],
+      },
+    })
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: true,
+      result: 'Not logged in · Please run /login',
+    })
+  } else if ('say' in step) say(step.say)
   else if ('hook' in step) hook(step.hook)
   else if ('lines' in step) {
     for (let i = 1; i <= step.lines; i++) {

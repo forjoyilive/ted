@@ -1,4 +1,5 @@
 import { type Banner, bannerOrder, isShowing } from '@ted/protocol/banner'
+import { agentProblem } from '@ted/protocol/health'
 
 const visible = (banners: readonly Banner[], now: Date) =>
   banners.filter((b) => isShowing(b, now)).sort(bannerOrder)
@@ -30,7 +31,11 @@ export function factoriesStoppingWork(banners: readonly Banner[]): Set<string> {
 }
 
 export function settingsStopsWork(banners: readonly Banner[]): boolean {
-  return banners.some((b) => b.severity === 'stops-work' && b.action?.opens?.kind === 'settings')
+  return banners.some(
+    (b) =>
+      b.severity === 'stops-work' &&
+      (b.action?.opens?.kind === 'settings' || b.problem === agentProblem),
+  )
 }
 
 export function nextReturn(banners: readonly Banner[], now = new Date()): number | undefined {

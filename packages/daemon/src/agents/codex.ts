@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { type RunState, tedVersion } from '@ted/protocol'
-import type { Agent } from './agent.ts'
+import type { Agent, AuthCheck } from './agent.ts'
 import type { CodexPlan } from './codex-driver.ts'
 
 const driver = fileURLToPath(new URL('./codex-driver.ts', import.meta.url))
@@ -28,12 +28,42 @@ const stateByMethod: Record<string, RunState> = {
   applyPatchApproval: 'waiting',
 }
 
+const withoutRemoved = (env: NodeJS.ProcessEnv) =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k)))
+
+function codexAuth({
+  code,
+  stdout,
+  stderr,
+}: {
+  code: number | null
+  stdout: string
+  stderr: string
+}): AuthCheck {
+  const text = `${stdout}\n${stderr}`
+  if (code !== 0 || /not logged in/i.test(text)) return { signedIn: false }
+  if (/chatgpt/i.test(text))
+    return { signedIn: true, account: 'Signed in with ChatGPT · subscription' }
+  if (/api key/i.test(text)) return { signedIn: true, account: 'Signed in with an API key' }
+  return { signedIn: true }
+}
+
+function isUnauthorized(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const info = (error as { codexErrorInfo?: unknown }).codexErrorInfo
+  return (
+    info === 'unauthorized' || (typeof info === 'object' && info !== null && 'unauthorized' in info)
+  )
+}
+
 interface CodexLine {
   id?: unknown
   method?: unknown
   params?: {
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
+    error?: unknown
+    turn?: { error?: unknown }
     tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
 }
@@ -63,7 +93,7 @@ export function codexAgent(binary: string): Agent {
       return {
         command: binary,
         args: ['app-server', ...config.flatMap((c) => ['-c', c])],
-        env: Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k))),
+        env: withoutRemoved(env),
         input: JSON.stringify(plan),
         files: {},
         driver,
@@ -88,6 +118,22 @@ export function codexAgent(binary: string): Agent {
       if (message?.method !== 'thread/started') return undefined
       const id = message.params?.thread?.id
       return typeof id === 'string' ? id : undefined
+    },
+    authErrorFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'error') return isUnauthorized(message.params?.error)
+      if (message?.method === 'turn/completed') return isUnauthorized(message.params?.turn?.error)
+      return false
+    },
+    environment: withoutRemoved,
+    health: {
+      minimumVersion: '0.128.0',
+      versionArgs: ['--version'],
+      authArgs: ['login', 'status'],
+      auth: codexAuth,
+      signIn: 'codex login',
+      update: 'codex update',
+      install: 'npm install -g @openai/codex',
     },
     tokensFrom(line) {
       const message = parse(line)

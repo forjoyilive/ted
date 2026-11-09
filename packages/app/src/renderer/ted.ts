@@ -1,4 +1,6 @@
 import type {
+  AgentHealth,
+  AgentKind,
   Attachment,
   BackupsSummary,
   Banner,
@@ -67,5 +69,8 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
+  checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
+  fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

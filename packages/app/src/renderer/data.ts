@@ -1,4 +1,5 @@
 import type {
+  AgentHealth,
   Banner,
   Comment,
   DaemonEvent,
@@ -149,4 +150,27 @@ export function useBanners(): Banner[] {
   }, [banners, now])
 
   return banners
+}
+
+export function useAgentHealth(): AgentHealth[] {
+  const [health, setHealth] = useState<AgentHealth[]>([])
+
+  useEffect(() => {
+    const merge = (incoming: AgentHealth[]) =>
+      setHealth((current) => {
+        const byAgent = new Map(current.map((h) => [h.agent, h]))
+        for (const h of incoming) {
+          const known = byAgent.get(h.agent)
+          if (!known || known.checkedAt <= h.checkedAt) byAgent.set(h.agent, h)
+        }
+        return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+      })
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'agent-health-changed') merge([event.health])
+    })
+    void ted.agentHealth().then(merge)
+    return unsubscribe
+  }, [])
+
+  return health
 }

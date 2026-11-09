@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { RunState } from '@ted/protocol'
-import type { Agent } from './agent.ts'
+import type { Agent, AuthCheck } from './agent.ts'
 
 const stateByHook: Record<string, RunState> = {
   UserPromptSubmit: 'working',
@@ -14,6 +14,37 @@ const stateByHook: Record<string, RunState> = {
 }
 
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
+
+const withoutRemoved = (env: NodeJS.ProcessEnv) =>
+  Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k)))
+
+const authFailure = /\/login|not logged in|authentication|invalid api key|oauth token/i
+
+function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): AuthCheck {
+  let status: {
+    loggedIn?: unknown
+    authMethod?: unknown
+    email?: unknown
+    subscriptionType?: unknown
+  }
+  try {
+    status = JSON.parse(stdout)
+  } catch {
+    return { signedIn: code === 0 }
+  }
+  if (status.loggedIn !== true) return { signedIn: false }
+  const plan =
+    typeof status.subscriptionType === 'string' && status.subscriptionType !== ''
+      ? `Claude ${status.subscriptionType.charAt(0).toUpperCase()}${status.subscriptionType.slice(1)}`
+      : undefined
+  const billing = status.authMethod === 'claude.ai' ? 'subscription' : 'API key'
+  const parts = [
+    ...(typeof status.email === 'string' ? [`Signed in as ${status.email}`] : ['Signed in']),
+    ...(plan ? [plan] : []),
+    billing,
+  ]
+  return { signedIn: true, account: parts.join(' · ') }
+}
 
 const userMessage = (text: string) =>
   JSON.stringify({ type: 'user', message: { role: 'user', content: text } })
@@ -49,7 +80,7 @@ export function claudeAgent(binary: string): Agent {
           '--permission-mode',
           'auto',
         ],
-        env: Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k))),
+        env: withoutRemoved(env),
         input: userMessage(prompt),
         files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
         sessionId,
@@ -67,6 +98,31 @@ export function claudeAgent(binary: string): Agent {
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
     sessionIdFrom: () => undefined,
+    authErrorFrom(line) {
+      let message: { type?: unknown; error?: unknown; is_error?: unknown; result?: unknown }
+      try {
+        message = JSON.parse(line)
+      } catch {
+        return false
+      }
+      if (message?.type === 'assistant') return message.error === 'authentication_failed'
+      return (
+        message?.type === 'result' &&
+        message.is_error === true &&
+        typeof message.result === 'string' &&
+        authFailure.test(message.result)
+      )
+    },
+    environment: withoutRemoved,
+    health: {
+      minimumVersion: '2.1.111',
+      versionArgs: ['--version'],
+      authArgs: ['auth', 'status'],
+      auth: claudeAuth,
+      signIn: 'claude auth login',
+      update: 'claude update',
+      install: 'curl -fsSL https://claude.ai/install.sh | bash',
+    },
     tokensFrom(line) {
       let message: { type?: unknown; usage?: Record<string, unknown> }
       try {

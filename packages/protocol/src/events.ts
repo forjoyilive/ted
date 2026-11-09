@@ -1,6 +1,7 @@
 import type { Banner } from './banner.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
+import type { AgentHealth } from './health.ts'
 import type { MachineSettings } from './settings.ts'
 import type { Comment, Task } from './task.ts'
 
@@ -14,3 +15,4 @@ export type DaemonEvent =
   | { type: 'banner-updated'; banner: Banner }
   | { type: 'banner-cleared'; id: string }
   | { type: 'data-status'; status: DataStatus }
+  | { type: 'agent-health-changed'; health: AgentHealth }

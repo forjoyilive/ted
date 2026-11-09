@@ -6,6 +6,9 @@ import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
+import { createAgentHealth } from './health/agent-health.ts'
+import { createEnvironment } from './health/environment.ts'
+import { openInTerminal } from './health/terminal.ts'
 import { startIdleTimer } from './idle.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
@@ -22,6 +25,10 @@ export interface DaemonOptions {
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
+  loginShell?: boolean
+  openTerminal?: (command: string, env: NodeJS.ProcessEnv) => Promise<void>
+  healthIntervalMs?: number
+  fixPollMs?: number
 }
 
 export interface RunningDaemon {
@@ -38,24 +45,44 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw error
   })
+  const environment = createEnvironment({ loginShell: options.loginShell ?? false })
+  const environmentRead = environment.reload()
   const agents = createAgents({
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
+    env: environment.current,
   })
+  const openTerminal =
+    options.openTerminal ??
+    ((command: string, env: NodeJS.ProcessEnv) =>
+      openInTerminal({ command, env, scriptsDir: paths.fixScripts }))
   const attachments = createAttachments(paths.attachments)
   const data = createData({
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     async startServices(store) {
+      await environmentRead
       const runs = await startRunManager({
         home: paths.home,
         store,
         agents,
         tokens: runTokens,
+        env: environment.current,
         ...(idle && { idle }),
       })
       const banners = createBanners({ store })
+      const health = createAgentHealth({
+        agents,
+        environment,
+        store,
+        banners,
+        home: paths.home,
+        runEnv: () => runs.environment(),
+        openTerminal,
+        ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
+        ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
+      })
       const workflows = createWorkflows({
         store,
         banners,
@@ -77,16 +104,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         worktreesDir: paths.worktrees,
         defaultLead: () => agents.defaultLead(),
+        health,
         attachmentFile: (attachment) => attachments.file(attachment),
         logsDir: paths.logs,
         ...(idle && { idle }),
       })
+      health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       return {
         runs,
         tasks,
         banners,
         workflows,
+        health,
+        subscribe: (listener) => health.subscribe(listener),
         async close() {
+          health.close()
           await tasks.close()
           await runs.close()
         },

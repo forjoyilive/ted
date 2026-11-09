@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
 
@@ -13,6 +14,7 @@ type Step =
   | { approval: 'command' | 'fileChange' }
   | { endTurn: true }
   | { exit: number }
+  | { authError: true }
 
 interface Message {
   id?: number | string
@@ -23,6 +25,34 @@ interface Message {
 }
 
 const argv = process.argv.slice(2)
+
+function stubHealth(): { version?: string; signedIn?: boolean } {
+  try {
+    return JSON.parse(
+      readFileSync(path.join(process.env.TED_HOME ?? '', 'stub-codex.json'), 'utf8'),
+    )
+  } catch {
+    return {}
+  }
+}
+
+function healthReply(): { text: string; code: number } | undefined {
+  const health = stubHealth()
+  if (argv[0] === '--version')
+    return { text: `codex-cli ${health.version ?? '0.160.0'}\n`, code: 0 }
+  if (argv[0] === 'login' && argv[1] === 'status') {
+    return health.signedIn === false
+      ? { text: 'Not logged in\n', code: 1 }
+      : { text: 'Logged in using ChatGPT\n', code: 0 }
+  }
+  return undefined
+}
+
+const reply = healthReply()
+if (reply) {
+  process.stdout.write(reply.text, () => process.exit(reply.code))
+  await new Promise(() => {})
+}
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
 
 const send = (message: Message) => process.stdout.write(`${JSON.stringify(message)}\n`)
@@ -44,7 +74,14 @@ const status = (status: Record<string, unknown>) =>
   notify('thread/status/changed', { threadId, status })
 
 async function runStep(step: Step): Promise<void> {
-  if ('say' in step) say(step.say)
+  if ('authError' in step) {
+    notify('error', {
+      threadId,
+      turnId: 'turn-1',
+      willRetry: false,
+      error: { message: 'unauthorized', codexErrorInfo: 'unauthorized' },
+    })
+  } else if ('say' in step) say(step.say)
   else if ('lines' in step) {
     for (let i = 1; i <= step.lines; i++) {
       say(`line ${i}`)

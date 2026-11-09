@@ -1,0 +1,80 @@
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-card);
+}
+
+.stopsWork {
+  border-color: var(--status-failed-border);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 26px;
+}
+
+.name {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+  line-height: 1.45;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.readyIcon {
+  flex-shrink: 0;
+  color: var(--status-success-fg);
+}
+
+.problemIcon {
+  flex-shrink: 0;
+  color: var(--status-failed-fg);
+}
+
+.onIcon {
+  stroke: var(--text-on-accent);
+}
+
+.onIconFill {
+  fill: var(--text-on-accent);
+}
+
+.lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 26px;
+}
+
+.line {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-12-5);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.code {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+
+.error {
+  color: var(--status-failed-fg);
+}

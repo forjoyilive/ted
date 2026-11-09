@@ -37,6 +37,16 @@ export type {
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type AgentHealth,
+  type AgentHealthState,
+  agentDisplayNames,
+  agentHealthStates,
+  agentProblem,
+  type FixCommand,
+  pausedReason,
+  runsPaused,
+} from './health.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,

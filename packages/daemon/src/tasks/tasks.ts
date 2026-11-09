@@ -6,6 +6,7 @@ import type {
   Attachment,
   Comment,
   Outcome,
+  Run,
   Task,
   TaskDefaults,
   TaskRepo,
@@ -16,6 +17,7 @@ import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -63,6 +65,7 @@ export function createTasks(options: {
   worktreesDir: string
   logsDir: string
   defaultLead: () => AgentKind
+  health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
   idle?: IdleTimer
 }): Tasks {
@@ -75,9 +78,12 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     defaultLead,
+    health,
     attachmentFile,
   } = options
   const starting = new Set<string>()
+  const relaunching = new Set<string>()
+  const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
@@ -183,21 +189,36 @@ export function createTasks(options: {
     repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
+    resumeSession?: string,
   ): Promise<void> {
-    const prompt = await taskLeadPrompt(
-      task,
-      resolution.workflow,
-      task.stage as AgentStageId,
-      attachmentFile,
-      setupReport,
-    )
+    const agent = task.lead?.agent ?? factoryLead(resolution).agent
+    if (!(await health.ready(agent))) {
+      store.holdTaskRun({
+        taskId: task.id,
+        agent,
+        ...(resumeSession !== undefined && { sessionId: resumeSession }),
+      })
+      return
+    }
+    const prompt =
+      resumeSession === undefined
+        ? await taskLeadPrompt(
+            task,
+            resolution.workflow,
+            task.stage as AgentStageId,
+            attachmentFile,
+            setupReport,
+          )
+        : continueMessage
     await runs.start({
-      agent: task.lead?.agent ?? factoryLead(resolution).agent,
+      agent,
       prompt,
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      ...(resumeSession !== undefined && { resume: resumeSession }),
     })
+    store.releaseTaskRun(task.id)
   }
 
   async function setUpAndLaunch(
@@ -230,7 +251,18 @@ export function createTasks(options: {
   async function resume(taskId: string): Promise<void> {
     const task = find(taskId)
     const repo = task.repos.find((r) => !r.removed)
-    if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
+    const held = store.heldRuns().find((h) => h.taskId === taskId)
+    const leadLive = task.runs.some((r) => r.id === task.leadRunId)
+    if (!repo || task.stage === 'backlog' || task.stage === 'done') {
+      if (held) store.releaseTaskRun(taskId)
+      return
+    }
+    if (held ? leadLive : task.leadRunId) return
+    if (held?.sessionId !== undefined) {
+      const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
+      const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
+      return launch(task, resolution, repo, env, undefined, held.sessionId)
+    }
     const factory = factoryOf(task)
     const resolution = await workflows.resolve(factory, { fetch: false })
     const recorded = store.recordedSetup(task.id, repo.name)
@@ -337,8 +369,56 @@ export function createTasks(options: {
     }
   }
 
+  function relaunch(taskId: string): void {
+    if (relaunching.has(taskId)) return
+    relaunching.add(taskId)
+    inBackground(`continue ${taskId}`, () =>
+      resume(taskId).finally(() => relaunching.delete(taskId)),
+    )
+  }
+
+  async function leadStopped(run: Run): Promise<void> {
+    if (run.taskId === undefined) return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
+      return
+    }
+    const [checked] = await health.check([run.agent])
+    if (checked?.state === 'ready') return
+    store.holdTaskRun({
+      taskId: task.id,
+      agent: run.agent,
+      ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
+    })
+  }
+
+  runs.observe({
+    authFailed(run) {
+      if (run.state !== 'finished') interrupted.add(run.id)
+      health.authFailed(run.agent)
+    },
+    finished(run) {
+      interrupted.delete(run.id)
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    },
+  })
+
+  health.onReady((agent) => {
+    for (const held of store.heldRuns()) if (held.agent === agent) relaunch(held.taskId)
+    for (const runId of [...interrupted]) {
+      const run = store.getRun(runId)
+      if (run && run.state !== 'finished' && run.agent !== agent) continue
+      interrupted.delete(runId)
+      if (run && run.state !== 'finished') {
+        runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
+      }
+    }
+  })
+
+  const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
-    if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
+    if (heldAtStart.has(task.id)) relaunch(task.id)
+    else if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
@@ -433,6 +513,9 @@ export function createTasks(options: {
     },
   }
 }
+
+const continueMessage =
+  'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
 
 function firstLine(text: string): string {
   return (

@@ -1,4 +1,5 @@
-import type { Banner, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, Task } from '@ted/protocol'
+import { agentProblem, runsPaused } from '@ted/protocol/health'
 import { useEffect, useReducer, useState } from 'react'
 import styles from './App.module.css'
 import {
@@ -9,7 +10,7 @@ import {
 } from './banners.ts'
 import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useBanners, useFactories, useSettings, useTasks } from './data.ts'
+import { useAgentHealth, useBanners, useFactories, useSettings, useTasks } from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
@@ -35,12 +36,20 @@ const factoryViewTitles = {
 function sectionsStoppingWork(banners: readonly Banner[]) {
   const stopping: Partial<Record<SettingsSectionId, boolean>> = {}
   for (const banner of banners) {
+    if (banner.severity === 'stops-work' && banner.problem === agentProblem) stopping.agents = true
     const place = banner.action?.opens
     if (banner.severity !== 'stops-work' || place?.kind !== 'settings') continue
     const section = settingsSectionIds.find((id) => id === place.section)
     if (section !== undefined) stopping[section] = true
   }
   return stopping
+}
+
+function pausedFooter(health: readonly AgentHealth[]) {
+  const paused = health
+    .filter((h) => h.state !== 'ready')
+    .reduce((total, h) => total + h.pausedRuns, 0)
+  return paused > 0 ? { paused: runsPaused(paused) } : {}
 }
 
 const stubTitles = { search: 'Search', 'add-factory': 'Add Factory' }
@@ -84,6 +93,7 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [settingsOpen, newTaskOpen])
   const banners = useBanners()
+  const agentHealth = useAgentHealth()
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
@@ -212,6 +222,7 @@ export function App() {
           [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
         )}
         settingsProblem={settingsStopsWork(banners)}
+        footer={pausedFooter(agentHealth)}
         dispatch={dispatch}
         onNewTask={openNewTask}
       />

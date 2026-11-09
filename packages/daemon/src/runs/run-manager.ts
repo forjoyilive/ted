@@ -24,6 +24,12 @@ export interface RunManagerOptions {
   tokens: RunTokens
   idle?: IdleTimer
   cliPath?: string
+  env?: () => NodeJS.ProcessEnv
+}
+
+export interface RunObserver {
+  finished?(run: Run): void
+  authFailed?(run: Run): void
 }
 
 export interface StartRunInput {
@@ -32,12 +38,15 @@ export interface StartRunInput {
   cwd: string
   taskId?: string
   env?: Record<string, string>
+  resume?: string
 }
 
 export interface RunManager {
   start(input: StartRunInput): Promise<Run>
   send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
+  observe(observer: RunObserver): void
+  environment(): NodeJS.ProcessEnv
   close(): Promise<void>
 }
 
@@ -52,7 +61,29 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   await writeTedShim(binDir, options.cliPath ?? defaultCli)
 
   const following = new Map<string, Promise<void>>()
+  const observers = new Set<RunObserver>()
   let closed = false
+
+  const environment = (): NodeJS.ProcessEnv => {
+    const base = options.env?.() ?? process.env
+    return {
+      ...base,
+      TED_HOME: home,
+      PATH: [binDir, base.PATH].filter(Boolean).join(path.delimiter),
+    }
+  }
+
+  function tell(what: keyof RunObserver, runId: string): void {
+    const run = store.getRun(runId)
+    if (!run) return
+    for (const observer of observers) {
+      try {
+        observer[what]?.(run)
+      } catch (error) {
+        console.error(`a Run observer failed:`, error)
+      }
+    }
+  }
 
   function follow(runId: string): void {
     const release = options.idle?.hold()
@@ -85,11 +116,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const entries: ConversationEntry[] = []
     let state: RunState | undefined
     let sessionId: string | undefined
+    let authFailed = false
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({ offset, line: record.line })
         state = agent.stateFrom(record.line) ?? state
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
+        authFailed ||= agent.authErrorFrom(record.line)
       } else if (record.t === 'exit') state = 'finished'
     }
     if (hostGone) state = 'finished'
@@ -99,13 +132,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(state && { state }),
       ...(sessionId !== undefined && { sessionId }),
     })
+    if (authFailed) tell('authFailed', runId)
+    if (state === 'finished') tell('finished', runId)
     return state === 'finished'
   }
 
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
   return {
-    async start({ agent: kind, prompt, cwd, taskId, env = {} }) {
+    async start({ agent: kind, prompt, cwd, taskId, env = {}, resume }) {
       const agent = agents.get(kind)
       const id = randomUUID()
       const runDir = path.join(runsDir, id)
@@ -114,13 +149,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         prompt,
         runDir,
         env: {
-          ...process.env,
+          ...environment(),
           ...env,
           TED_HOME: home,
           TED_RUN: id,
           TED_RUN_TOKEN: tokens.issue(id),
-          PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+          PATH: environment().PATH,
         },
+        ...(resume !== undefined && { resume }),
       })
       for (const [name, content] of Object.entries(launch.files)) {
         await writeFile(path.join(runDir, name), content, { mode: 0o600 })
@@ -176,6 +212,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await done
       }
     },
+    observe(observer) {
+      observers.add(observer)
+    },
+    environment,
     async close() {
       closed = true
       await Promise.all(following.values())

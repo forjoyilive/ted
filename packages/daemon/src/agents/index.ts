@@ -1,44 +1,29 @@
-import { accessSync, constants, statSync } from 'node:fs'
-import path from 'node:path'
 import type { AgentKind } from '@ted/protocol'
+import { findExecutable } from '../health/cli.ts'
 import type { Agent } from './agent.ts'
 import { claudeAgent } from './claude.ts'
 import { codexAgent } from './codex.ts'
 
-export type { Agent, AgentLaunch } from './agent.ts'
+export type { Agent, AgentHealthSpec, AgentLaunch, AuthCheck } from './agent.ts'
 
 export interface Agents {
   get(kind: AgentKind): Agent
   defaultLead(): AgentKind
 }
 
-export function createAgents(options: { claudeBin?: string; codexBin?: string }): Agents {
+export function createAgents(options: {
+  claudeBin?: string
+  codexBin?: string
+  env?: () => NodeJS.ProcessEnv
+}): Agents {
   const byKind: Record<AgentKind, Agent> = {
     claude: claudeAgent(options.claudeBin ?? 'claude'),
     codex: codexAgent(options.codexBin ?? 'codex'),
   }
+  const env = options.env ?? (() => process.env)
+  const installed = (kind: AgentKind) => findExecutable(byKind[kind].binary, env()) !== undefined
   return {
     get: (kind) => byKind[kind],
-    defaultLead: () =>
-      !isInstalled(byKind.claude.binary) && isInstalled(byKind.codex.binary) ? 'codex' : 'claude',
-  }
-}
-
-function isInstalled(binary: string): boolean {
-  const candidates = binary.includes(path.sep)
-    ? [binary]
-    : (process.env.PATH ?? '')
-        .split(path.delimiter)
-        .filter(Boolean)
-        .map((dir) => path.join(dir, binary))
-  return candidates.some(isExecutableFile)
-}
-
-function isExecutableFile(file: string): boolean {
-  try {
-    accessSync(file, constants.X_OK)
-    return statSync(file).isFile()
-  } catch {
-    return false
+    defaultLead: () => (!installed('claude') && installed('codex') ? 'codex' : 'claude'),
   }
 }

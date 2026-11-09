@@ -39,11 +39,13 @@ import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
+  agentPauses,
   banners,
   comments,
   conversationEntries,
   events,
   factories,
+  heldRuns,
   localFolders,
   machineSettings,
   machineSettingValues,
@@ -115,6 +117,12 @@ export interface AcceptedLayer {
   acceptedAt: string
 }
 
+export interface HeldRun {
+  taskId: string
+  agent: AgentKind
+  sessionId?: string
+}
+
 export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
@@ -172,6 +180,12 @@ export interface TedStore {
   clearBanner(id: string): void
   getBanner(id: string): Banner | undefined
   listBanners(): Banner[]
+  pauseAgent(agent: AgentKind, reason: string | undefined): void
+  agentPauses(): Partial<Record<AgentKind, string>>
+  holdTaskRun(held: HeldRun): void
+  releaseTaskRun(taskId: string): void
+  heldRuns(): HeldRun[]
+  pausedRunCount(agent: AgentKind): number
   exportEventlog(): { fileName: string; data: Uint8Array }
   close(): Promise<void>
 }
@@ -267,6 +281,11 @@ export async function openStore({
   const entryRows = (taskId: string) =>
     store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
 
+  const pauses = (): Partial<Record<AgentKind, string>> =>
+    Object.fromEntries(store.query(queryDb(agentPauses)).map((row) => [row.agent, row.reason]))
+
+  const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
+
   const toTask = ({
     branch,
     worktree,
@@ -290,9 +309,15 @@ export async function openStore({
         ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
         : []
     })
+    const paused = pauses()
+    const held = heldRow(row.id)
+    const pausedReason =
+      (held && paused[held.agent as AgentKind]) ??
+      live.map((r) => paused[r.agent as AgentKind]).find((reason) => reason !== undefined)
     const facts: TaskFacts = {
       stage,
       runs: live.map((r) => r.state as RunState),
+      ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
@@ -324,7 +349,15 @@ export async function openStore({
       track: track(stage, entries),
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
-        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
+        .map((r) => {
+          const reason = paused[r.agent as AgentKind]
+          return {
+            id: r.id,
+            agent: r.agent as AgentKind,
+            state: r.state as RunState,
+            ...(reason !== undefined && { paused: reason }),
+          }
+        }),
     }
   }
 
@@ -702,6 +735,54 @@ export async function openStore({
     },
     getBanner,
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
+    pauseAgent(agent, reason) {
+      const current = pauses()[agent]
+      if (current === reason) return
+      const at = new Date().toISOString()
+      store.commit(
+        reason === undefined
+          ? events.agentResumed({ agent, at })
+          : events.agentPaused({ agent, reason, at }),
+      )
+      const affected = new Set([
+        ...store
+          .query(queryDb(runs.where({ agent })))
+          .filter((r) => r.state !== 'finished' && r.taskId !== null)
+          .map((r) => r.taskId as string),
+        ...store.query(queryDb(heldRuns.where({ agent }))).map((h) => h.taskId),
+      ])
+      for (const taskId of affected) updatedTask(taskId)
+    },
+    agentPauses: pauses,
+    holdTaskRun({ taskId, agent, sessionId }) {
+      const current = heldRow(taskId)
+      if (current && current.agent === agent && (current.sessionId ?? undefined) === sessionId) {
+        return
+      }
+      store.commit(
+        events.taskRunHeld({
+          taskId,
+          agent,
+          sessionId: sessionId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    releaseTaskRun(taskId) {
+      if (!heldRow(taskId)) return
+      store.commit(events.taskRunReleased({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    heldRuns: () =>
+      store.query(queryDb(heldRuns.orderBy('at', 'asc'))).map((row) => ({
+        taskId: row.taskId,
+        agent: row.agent as AgentKind,
+        ...(row.sessionId !== null && { sessionId: row.sessionId }),
+      })),
+    pausedRunCount: (agent) =>
+      store.query(queryDb(runs.where({ agent }))).filter((r) => r.state !== 'finished').length +
+      store.query(queryDb(heldRuns.where({ agent }))).length,
     exportEventlog: () => ({
       fileName: eventlogName,
       data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),

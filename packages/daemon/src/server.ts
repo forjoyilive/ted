@@ -259,6 +259,25 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/agents\/health$/,
+    handle: async (_, { health }) => [200, health.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/health\/check$/,
+    handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/([^/]+)\/fix$/,
+    async handle({ params: [agent = ''] }, { health }) {
+      const kind = agentKinds.find((k) => k === agent)
+      if (!kind) throw new HttpError(404, 'no such agent')
+      return [200, await health.fix(kind)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/dev\/factories$/,
     async handle({ req }, { store, reposDir, workflows }) {
