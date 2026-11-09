@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import http from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -9,6 +10,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import {
   api,
+  appHeaders,
   killRunHosts,
   makeTempHome,
   rawRequest,
@@ -89,6 +91,44 @@ test('an open event stream keeps a daemon started with --exit-when-idle running'
   expect(child.exitCode).toBeNull()
 
   subscription.close()
+  const [code] = await exited
+  expect(code).toBe(0)
+})
+
+test('a request still in flight keeps a daemon started with --exit-when-idle running', async () => {
+  child = spawnDaemonProcess(['--exit-when-idle'], {
+    ...process.env,
+    TED_HOME: home,
+    TED_IDLE_EXIT_MS: '300',
+  })
+  const exited = once(child, 'exit')
+  const port = await waitForPort()
+  const body = JSON.stringify({ prompt: '' })
+  const response = new Promise<number>((resolve, reject) => {
+    const req = http.request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'POST',
+        path: '/dev/runs',
+        headers: {
+          ...appHeaders(testAppToken, 'POST', '/dev/runs', body),
+          'content-length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.resume()
+        resolve(res.statusCode ?? 0)
+      },
+    )
+    req.on('error', reject)
+    req.flushHeaders()
+    setTimeout(() => req.end(body), 900)
+  })
+
+  expect(await response).toBe(400)
+  expect(child.exitCode).toBeNull()
+
   const [code] = await exited
   expect(code).toBe(0)
 })

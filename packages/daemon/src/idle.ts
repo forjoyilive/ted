@@ -1,5 +1,4 @@
 export interface IdleTimer {
-  reset(): void
   hold(): () => void
   cancel(): void
 }
@@ -19,7 +18,6 @@ export function startIdleTimer({
   }
   restart()
   return {
-    reset: restart,
     hold() {
       holds++
       restart()
