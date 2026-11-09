@@ -315,10 +315,66 @@ export async function fetchBranch(
   }
 }
 
+export async function isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean> {
+  return git(repo, ...noHooks, 'merge-base', '--is-ancestor', ancestor, commit).then(
+    () => true,
+    () => false,
+  )
+}
+
+export async function mergeBase(repo: string, a: string, b: string): Promise<string> {
+  return git(repo, ...noHooks, 'merge-base', a, b)
+}
+
+export async function changeId(repo: string, from: string, to: string): Promise<string> {
+  const { stdout: diff } = await execFileAsync(
+    'git',
+    [...noHooks, 'diff', '--no-ext-diff', '--no-textconv', '--binary', from, to, '--'],
+    { cwd: repo, env: env(), maxBuffer: 256 * 1024 * 1024 },
+  )
+  if (diff === '') return ''
+  const id = await new Promise<string>((resolve, reject) => {
+    const child = execFile(
+      'git',
+      [...noHooks, 'patch-id', '--stable'],
+      { cwd: repo, env: env(), maxBuffer: 1024 * 1024 },
+      (error, stdout) => (error ? reject(error) : resolve(stdout)),
+    )
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(diff)
+  })
+  return id.split(' ')[0] ?? ''
+}
+
 export async function headCommit(worktree: string): Promise<string> {
   return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
 }
 
 export async function moveBranchTo(worktree: string, commit: string): Promise<void> {
-  await git(worktree, ...noHooks, '-c', 'core.hooksPath=/dev/null', 'reset', '--keep', commit)
+  const keys = await git(worktree, 'config', '--name-only', '--get-regexp', '^filter\\.').catch(
+    () => '',
+  )
+  const filters = new Set(
+    keys
+      .split('\n')
+      .map((key) => /^filter\.(.+)\.[^.]+$/.exec(key.trim())?.[1])
+      .filter((name): name is string => name !== undefined),
+  )
+  const noFilters = [...filters].flatMap((name) => [
+    ...['clean', 'smudge', 'process'].flatMap((part) => ['-c', `filter.${name}.${part}=`]),
+    '-c',
+    `filter.${name}.required=false`,
+  ])
+  await git(
+    worktree,
+    ...noHooks,
+    ...noFilters,
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'submodule.recurse=false',
+    'reset',
+    '--keep',
+    commit,
+  )
 }

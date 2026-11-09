@@ -144,15 +144,17 @@ export async function mergePullRequest(
 export async function rebasePullRequest(
   gh: Pick<Gh, 'graphql'>,
   pr: RemotePullRequest,
-): Promise<void> {
-  await gh.graphql(
+): Promise<string | undefined> {
+  const result = (await gh.graphql(
     `mutation($id: ID!, $head: GitObjectID!) {
   updatePullRequestBranch(input: {pullRequestId: $id, expectedHeadOid: $head, updateMethod: REBASE}) {
     pullRequest { headRefOid }
   }
 }`,
     { id: pr.id, head: pr.headRefOid },
-  )
+  )) as { data?: { updatePullRequestBranch?: { pullRequest?: { headRefOid?: unknown } } } }
+  const head = result?.data?.updatePullRequestBranch?.pullRequest?.headRefOid
+  return typeof head === 'string' && head !== pr.headRefOid ? head : undefined
 }
 
 export async function deleteBranch(gh: Pick<Gh, 'api'>, target: MergeTarget): Promise<void> {

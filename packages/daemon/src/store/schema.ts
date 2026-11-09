@@ -357,6 +357,7 @@ export const pullRequests = State.SQLite.table({
     mergedWithoutCi: State.SQLite.boolean({ nullable: true }),
     autoMerge: State.SQLite.text({ nullable: true }),
     waitingOn: State.SQLite.text({ nullable: true }),
+    signedOffCommit: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -723,6 +724,15 @@ export const events = {
       requested: Schema.NullOr(Schema.String),
       noCi: Schema.Boolean,
       byTed: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestSignedOff: Events.synced({
+    name: 'v1.PullRequestSignedOff',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
       at: Schema.String,
     }),
   }),
@@ -1462,9 +1472,11 @@ const materializers = counted(
             waitingOn: null,
           })
           .where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestSignedOff': ({ taskId, name, commit }) =>
+        pullRequests.update({ signedOffCommit: commit }).where({ id: `${taskId}:${name}` }),
       'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
         pullRequests
-          .update({ pushedCommit: commit, pushedAt: at })
+          .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })
           .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),

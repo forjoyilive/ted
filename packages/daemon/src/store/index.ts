@@ -317,6 +317,7 @@ export interface TedStore {
     input: { method?: MergeMethod; requested?: MergeMethod; noCi: boolean; byTed: boolean },
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
+  pullRequestSignedOff(taskId: string, name: string, commit: string): void
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
@@ -553,6 +554,7 @@ export async function openStore({
             }),
             ...(row.autoMerge !== null && { autoMerge: row.autoMerge as MergeMethod }),
             ...(row.waitingOn !== null && { waiting: row.waitingOn as GitHubWait }),
+            ...(row.signedOffCommit !== null && { signedOff: row.signedOffCommit }),
           },
         }),
     }
@@ -1527,6 +1529,17 @@ export async function openStore({
       updatedTask(taskId)
     },
     isMerged: (taskId) => isMerged(taskId),
+    pullRequestSignedOff(taskId, name, signedOff) {
+      commit(
+        events.pullRequestSignedOff({
+          taskId,
+          name,
+          commit: signedOff,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
     setLocalFolder(repo, path) {
       commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
     },

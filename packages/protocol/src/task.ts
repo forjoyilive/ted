@@ -207,6 +207,7 @@ export interface TaskPullRequest {
   merged?: { at: string; method?: MergeMethod; noCi: boolean }
   autoMerge?: MergeMethod
   waiting?: GitHubWait
+  signedOff?: string
 }
 
 export interface ArchiveTaskRequest {

@@ -32,6 +32,8 @@ interface StubMerge {
   autoMergeAllowed?: boolean
   deleteBranchOnMerge?: boolean
   rebaseConflict?: boolean
+  rebaseAddsCommit?: boolean
+  isDraft?: boolean
   merged?: boolean
   autoMerge?: string
   mergedWith?: string
@@ -121,7 +123,7 @@ function pullRequests(variables: Record<string, unknown>) {
       pullRequest: {
         id: `PR_${number}`,
         state: merge.merged ? 'MERGED' : 'OPEN',
-        isDraft: false,
+        isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),
         mergeable: merge.mergeable ?? 'MERGEABLE',
         mergeStateStatus: merge.mergeState ?? 'CLEAN',
@@ -158,6 +160,11 @@ function rebaseBranch(): string {
     const repo = path.join(work, 'repo')
     runGit(repo, 'checkout', '-q', branch)
     runGit(repo, 'rebase', '-q', 'origin/main')
+    if (merge.rebaseAddsCommit) {
+      writeFileSync(path.join(repo, 'extra.txt'), 'not signed off\n')
+      runGit(repo, 'add', 'extra.txt')
+      runGit(repo, 'commit', '-qm', 'extra')
+    }
     runGit(repo, 'push', '-q', '--force', 'origin', `HEAD:refs/heads/${branch}`)
   } finally {
     rmSync(work, { recursive: true, force: true })

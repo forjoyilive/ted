@@ -204,7 +204,7 @@ export function createTasks(options: {
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const pullRequestQueue = new Map<string, Promise<void>>()
   const merging = new Set<string>()
-  const rebaseAsked = new Map<string, string>()
+  const rebaseAsked = new Map<string, { from: string; to: string }>()
   const autoMergeTried = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
   let pumping: Promise<void> | undefined
@@ -593,12 +593,16 @@ export function createTasks(options: {
     }
   }
 
-  function pullRequestWork(taskId: string, what: 'first' | 'again' | 'ready' | 'close'): void {
+  function pullRequestWork(
+    taskId: string,
+    what: 'first' | 'again' | 'ready' | 'close' | 'signoff',
+  ): void {
     const prs = pullRequests
     if (!prs) return
     const task = find(taskId)
     const work = async () => {
       if (what === 'close') return prs.close(taskId)
+      if (what === 'signoff') return recordSignOff(taskId)
       const current = find(taskId)
       const targets = await pullRequestTargets(current)
       if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
@@ -611,6 +615,14 @@ export function createTasks(options: {
       if (pullRequestQueue.get(taskId) === settled) pullRequestQueue.delete(taskId)
     })
     inBackground(`update ${task.displayId}’s pull requests`, () => next)
+  }
+
+  function recordSignOff(taskId: string): void {
+    for (const repo of find(taskId).repos) {
+      const pr = repo.pullRequest
+      if (repo.removed || !pr || pr.state !== 'ready' || repo.pushFailed || !repo.pushed) continue
+      store.pullRequestSignedOff(taskId, repo.name, repo.pushed.commit)
+    }
   }
 
   type MergeCycle = 'done' | 'wait' | 'busy'
@@ -675,7 +687,7 @@ export function createTasks(options: {
         {
           ...target,
           number: pr.number,
-          expectedHead: repo.pushed?.commit ?? '',
+          expectedHead: pr.signedOff ?? '',
           hasCi: repo.pushed?.ci ?? true,
           method: method as MergeMethod,
         },
@@ -733,23 +745,20 @@ export function createTasks(options: {
     taskId: string,
     findings: string,
     checkRunId?: string,
+    toValidate = false,
   ): Promise<MergeCycle> {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
-    if (!resolution.workflow.stages.includes('work')) {
-      console.error(`couldn’t send ${task.displayId} back to Work: Work is off`)
+    const { stages } = resolution.workflow
+    const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
+    if (!stages.includes(to)) {
+      console.error(`couldn’t send ${task.displayId} back to ${stageTitle(to)}: it’s off`)
       return 'wait'
     }
     if (advancing.has(taskId)) return 'busy'
     const outcome = await holding(task, () =>
-      sendBack(
-        find(taskId),
-        resolution,
-        'merge',
-        { outcome: 'back', to: 'work', findings },
-        checkRunId,
-      ),
+      sendBack(find(taskId), resolution, 'merge', { outcome: 'back', to, findings }, checkRunId),
     )
     return outcome.request ? 'wait' : 'done'
   }
@@ -766,23 +775,52 @@ export function createTasks(options: {
     return 'done'
   }
 
+  const needsSignOff = (target: MergeWork, why: string) =>
+    `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
+
   async function adoptRebase(
     task: StoredTask,
     target: MergeWork,
     head: string,
   ): Promise<MergeCycle> {
-    const key = `${task.id}:${target.name}`
+    rebaseAsked.delete(`${task.id}:${target.name}`)
+    const signedOff = target.expectedHead
     const fetched = await git.fetchBranch(target.worktree, {
       url: target.url,
       branch: target.branch,
-      haves: [target.expectedHead],
+      haves: [signedOff],
     })
-    if (fetched !== head) return 'wait'
-    rebaseAsked.delete(key)
-    if ((await git.headCommit(target.worktree)) !== target.expectedHead) {
+    const baseTip = await git.fetchBranch(target.worktree, {
+      url: target.url,
+      branch: target.base,
+      haves: [signedOff],
+    })
+    const oldBase = await git.mergeBase(target.worktree, signedOff, baseTip)
+    const pureRebase =
+      fetched === head &&
+      (await git.isAncestor(target.worktree, baseTip, head)) &&
+      (await git.changeId(target.worktree, oldBase, signedOff)) ===
+        (await git.changeId(target.worktree, baseTip, head))
+    if (!pureRebase) {
       return mergeSendBack(
         task.id,
-        `TED rebased ${target.name} onto ${target.base} on GitHub, but the worktree has commits that weren’t signed off. Bring them through Validate for a new sign-off.`,
+        needsSignOff(
+          target,
+          `The branch on GitHub after TED’s rebase isn’t the signed-off work rebased onto ${target.base}.`,
+        ),
+        undefined,
+        true,
+      )
+    }
+    if ((await git.headCommit(target.worktree)) !== signedOff) {
+      return mergeSendBack(
+        task.id,
+        needsSignOff(
+          target,
+          `The worktree for ${target.name} has commits that weren’t signed off.`,
+        ),
+        undefined,
+        true,
       )
     }
     await git.moveBranchTo(target.worktree, head)
@@ -827,6 +865,18 @@ export function createTasks(options: {
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
     if (targets.length === 0) return finishMerge(taskId)
+    const unsigned = targets.find((t) => t.expectedHead === '')
+    if (unsigned) {
+      return mergeSendBack(
+        taskId,
+        needsSignOff(
+          unsigned,
+          `TED has no signed-off commit for ${unsigned.name}: its branch couldn’t be pushed at sign-off.`,
+        ),
+        undefined,
+        true,
+      )
+    }
     const gh = options.gh
     if (!gh) return 'wait'
     let remote: Map<string, RemotePullRequest>
@@ -865,23 +915,35 @@ export function createTasks(options: {
         case 'closed':
           setWait(taskId, target.name, 'merge')
           break
-        case 'changed':
-          if (rebaseAsked.get(key) === target.expectedHead)
+        case 'changed': {
+          const asked = rebaseAsked.get(key)
+          if (asked?.from === target.expectedHead && asked.to === step.head) {
             return adoptRebase(task, target, step.head)
+          }
           return mergeSendBack(
             taskId,
-            `The pull request ${target.repo}#${target.number} changed on GitHub after sign-off: its branch is at ${step.head}, not ${target.expectedHead}. Find out what changed, then bring the Task back through Validate for a new sign-off.`,
+            needsSignOff(
+              target,
+              `The pull request’s branch changed on GitHub after sign-off: it’s at ${step.head}.`,
+            ),
+            undefined,
+            true,
           )
+        }
         case 'ready':
-          pullRequestWork(taskId, 'ready')
-          return 'wait'
+          return mergeSendBack(
+            taskId,
+            needsSignOff(target, `${target.repo}#${target.number} is still a draft.`),
+            undefined,
+            true,
+          )
         case 'conflict':
           return mergeSendBack(taskId, conflictFindings(target))
         case 'behind':
-          if (rebaseAsked.get(key) !== target.expectedHead) {
+          if (rebaseAsked.get(key)?.from !== target.expectedHead) {
             try {
-              await rebasePullRequest(gh, pr)
-              rebaseAsked.set(key, target.expectedHead)
+              const to = await rebasePullRequest(gh, pr)
+              if (to !== undefined) rebaseAsked.set(key, { from: target.expectedHead, to })
             } catch (error) {
               if (/conflict/i.test(textOf(error))) {
                 return mergeSendBack(taskId, conflictFindings(target))
@@ -1440,10 +1502,14 @@ export function createTasks(options: {
     resolution: WorkflowResolution,
     next: AgentStageId | 'done',
     message: string | undefined,
+    { signedOff = false }: { signedOff?: boolean } = {},
   ): Promise<Task> {
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (next === 'validate') pullRequestWork(task.id, 'first')
-    if (next === 'merge') pullRequestWork(task.id, 'ready')
+    if (next === 'merge' && !signedOff) {
+      pullRequestWork(task.id, 'ready')
+      pullRequestWork(task.id, 'signoff')
+    }
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
     } else if (next === 'validate' && message !== undefined) {
@@ -2426,6 +2492,8 @@ export function createTasks(options: {
             )
             return answered
           }
+          const signedOff = next === 'merge'
+          if (signedOff) pullRequestWork(task.id, 'signoff')
           await move(
             now,
             resolution,
@@ -2433,6 +2501,7 @@ export function createTasks(options: {
             next === 'done'
               ? undefined
               : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
+            { signedOff },
           )
           return answered
         }
@@ -2581,7 +2650,9 @@ export function createTasks(options: {
           gate: gateButtons(workflow, stage),
         })
         if (stage === 'validate') pullRequestWork(task.id, 'again')
-        if (stage === 'review') pullRequestWork(task.id, 'ready')
+        if (stage === 'review' || workflow.next(stage) === 'merge') {
+          pullRequestWork(task.id, 'ready')
+        }
         return {
           task: publicTask(task.id),
           message: `Waiting for the human at the ${name}. TED sends you their answer.`,

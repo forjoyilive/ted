@@ -76,6 +76,8 @@ interface GhMerge {
   allowed?: string[]
   autoMergeAllowed?: boolean
   rebaseConflict?: boolean
+  rebaseAddsCommit?: boolean
+  isDraft?: boolean
   merged?: boolean
   autoMerge?: string
   mergedWith?: string
@@ -386,6 +388,80 @@ describe('Approve and merge', () => {
       return current.status?.kind === 'waiting-for-github' ? current : undefined
     }, 'Waiting for GitHub sign-in')
     expect(waiting.status).toEqual({ kind: 'waiting-for-github', on: 'sign-in' })
+  })
+})
+
+describe('Merging only what the human signed off', () => {
+  const sentBack = (client: Client, task: Task) =>
+    waitUntil(async () => {
+      const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+      return events.find((e) => e.text.startsWith('Merge sent this back to Validate'))
+    }, 'the send-back to Validate')
+
+  const commitIn = (cwd: string, file: string) =>
+    run(
+      'sh',
+      [
+        '-c',
+        `echo x >> ${file} && git add ${file} && git -c user.name=T -c user.email=t@example.com commit -qm ${file}`,
+      ],
+      { cwd },
+    )
+
+  test('TED merges the signed-off commit, never a commit the Task Lead made after it', async () => {
+    const client = await start()
+    const { task, signoff } = await toSignoff(client)
+    const before = (await getTask(client, task.id)).repos[0]
+    const signedOff = before?.pushed?.commit
+    await commitIn(before?.worktree ?? '', 'late.txt')
+
+    await approve(client, signoff)
+    const done = await waitForStage(client, task, 'done')
+
+    const [merge] = await merges()
+    expect(merge?.at(-1)).toBe(signedOff)
+    expect(done.repos[0]?.pullRequest?.signedOff).toBe(signedOff)
+    expect(await branchHead(done.repos[0]?.branch ?? '')).toBe(signedOff)
+  })
+
+  test('a pull request still a draft at Merge goes back to Validate, and nothing is pushed', async () => {
+    const client = await start({ merge: { isDraft: true } })
+    const { task, signoff } = await toSignoff(client)
+    const pushedAt = (await getTask(client, task.id)).repos[0]?.pushed?.at
+    await approve(client, signoff)
+
+    const back = await sentBack(client, task)
+    expect(back.findings).toContain('still a draft')
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).repos[0]?.pushed?.at).toBe(pushedAt)
+  })
+
+  test('a branch changed on GitHub after sign-off goes back to Validate', async () => {
+    const client = await start()
+    const { task, signoff } = await toSignoff(client)
+    const branch = (await getTask(client, task.id)).repos[0]?.branch ?? ''
+    const work = await mkdtemp(path.join(scratch, 'other-'))
+    await run('git', ['clone', '-q', origin, 'repo'], { cwd: work })
+    const repo = path.join(work, 'repo')
+    await run('git', ['checkout', '-q', branch], { cwd: repo })
+    await commitIn(repo, 'sneaky.txt')
+    await run('git', ['push', '-q', 'origin', 'HEAD'], { cwd: repo })
+
+    await approve(client, signoff)
+    const back = await sentBack(client, task)
+    expect(back.findings).toContain('changed on GitHub after sign-off')
+    expect(await merges()).toEqual([])
+  })
+
+  test('a rebase that adds anything beyond the signed-off work goes back to Validate', async () => {
+    const client = await start({ merge: { mergeState: 'BEHIND', rebaseAddsCommit: true } })
+    const { task, signoff } = await toSignoff(client)
+    await commitToOrigin(scratch, { 'other.txt': 'someone else’s change\n' })
+    await approve(client, signoff)
+
+    const back = await sentBack(client, task)
+    expect(back.findings).toContain('isn’t the signed-off work rebased onto main')
+    expect(await merges()).toEqual([])
   })
 })
 
