@@ -18,6 +18,8 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { type ChangedFile, changedFiles, useTaskChanges } from '../changes.ts'
+import { AppLogView } from '../components/AppLogView.tsx'
+import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
@@ -278,20 +280,30 @@ export function TaskPanes({
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
   const [changesView, setChangesView] = useState<{ taskId: string; view: ChangesView }>()
+  const [app, setApp] = useState<{ taskId: string; app: ShownApp }>()
   useEffect(() => {
     if (answeredId !== undefined) {
       setShown(undefined)
       setChangesView(undefined)
+      setApp(undefined)
     }
   }, [answeredId])
   const changes = useTaskChanges(task)
   const view = changesView?.taskId === task.id ? changesView.view : undefined
   const showChanges = (next: ChangesView | undefined) =>
     setChangesView(next && { taskId: task.id, view: next })
+  const shownApp = app?.taskId === task.id ? app.app : undefined
+  const openApp = (chosen: ShownApp) => {
+    showChanges(undefined)
+    setShell(undefined)
+    setApp({ taskId: task.id, app: chosen })
+  }
+  const closeApp = () => setApp(undefined)
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
   const show = (runId: string | undefined) => {
     showChanges(undefined)
+    setApp(undefined)
     setShown({ taskId: task.id, runId })
   }
   const openRun = (runId: string) => {
@@ -410,6 +422,9 @@ export function TaskPanes({
           onCloseRun={closeRun}
           hidden={covered}
           lines={{ current: lineComments, onOpen: openLine }}
+          shownApp={shownApp}
+          onOpenApp={openApp}
+          onCloseApp={closeApp}
         />
       )}
       <TaskDetails
@@ -418,6 +433,8 @@ export function TaskPanes({
         factories={factories}
         onOpenRun={openRun}
         onOpenShell={openShell}
+        shownApp={shownApp}
+        onOpenApp={openApp}
         hidden={all}
         changes={
           <ChangesSection
@@ -450,6 +467,9 @@ export function TaskThread({
   onCloseRun,
   hidden = false,
   lines,
+  shownApp,
+  onOpenApp,
+  onCloseApp,
 }: {
   task: Task
   backLink: string | undefined
@@ -464,6 +484,9 @@ export function TaskThread({
   onCloseRun: (runId: string) => void
   hidden?: boolean
   lines?: LineLinks | undefined
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
+  onCloseApp?: (() => void) | undefined
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -595,7 +618,14 @@ export function TaskThread({
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
       <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
-      {shownRun !== undefined ? (
+      {shownApp !== undefined ? (
+        <AppLogView
+          key={`${shownApp.repo}/${shownApp.name}`}
+          task={task}
+          shown={shownApp}
+          onBack={() => onCloseApp?.()}
+        />
+      ) : shownRun !== undefined ? (
         <RunChat
           key={shownRun}
           runId={shownRun}
@@ -701,7 +731,13 @@ export function TaskThread({
                 onOpen={(c) => lines?.onOpen(c)}
               />
               {open.length > 1 && <WaitingRow requests={open} pinnedId={pinned.id} onPin={pin} />}
-              <RequestCard key={pinned.id} request={pinned} task={task} onOpenRun={onOpenRun} />
+              <RequestCard
+                key={pinned.id}
+                request={pinned}
+                task={task}
+                onOpenRun={onOpenRun}
+                onOpenApp={onOpenApp}
+              />
             </div>
           ) : (
             <div className={styles.pinned}>
@@ -776,6 +812,8 @@ export function TaskDetails({
   onOpenShell,
   changes,
   hidden = false,
+  shownApp,
+  onOpenApp,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -784,6 +822,8 @@ export function TaskDetails({
   onOpenShell: (repo: string) => void
   changes?: ReactNode
   hidden?: boolean
+  shownApp?: ShownApp | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -919,6 +959,7 @@ export function TaskDetails({
       <CodeSection task={task} onOpenShell={onOpenShell} />
       {changes}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
+      <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
       <TaskBriefSection task={task} />
     </aside>
   )

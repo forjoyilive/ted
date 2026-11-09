@@ -5,6 +5,9 @@ import type {
   AgentKind,
   AgentStageId,
   AnswerRequest,
+  AppLog,
+  AppRef,
+  AppStarter,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -50,6 +53,7 @@ import type {
   SubAgent,
   SubAgentWait,
   Task,
+  TaskApp,
   TaskBrief,
   TaskChanges,
   TaskDefaults,
@@ -71,6 +75,7 @@ import {
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
+import { type AppsOptions, type AppTask, createApps } from '../apps/apps.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -327,6 +332,11 @@ export interface Tasks {
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   addQueueSource(source: QueueSource): () => void
   mergesInFlight(): number
+  listApps(ref: string, caller: Caller): Promise<TaskApp[]>
+  startApp(ref: string, caller: Caller, app: AppRef): Promise<TaskApp>
+  stopApp(ref: string, app: AppRef): Promise<TaskApp>
+  restartApp(ref: string, app: AppRef): Promise<TaskApp>
+  appLog(ref: string, app: AppRef): Promise<AppLog>
   close(): Promise<void>
 }
 
@@ -356,6 +366,8 @@ export function createTasks(options: {
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
+  appsDir?: string
+  apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
 }): Tasks {
   const {
     store,
@@ -430,6 +442,65 @@ export function createTasks(options: {
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
+  const apps = createApps({
+    appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
+    store,
+    ...(options.env !== undefined && { env: options.env }),
+    ...(options.idle !== undefined && { idle: options.idle }),
+    ...options.apps,
+    emit: (event) => {
+      for (const listener of listeners) listener(event)
+    },
+    keep(taskId) {
+      const task = store.getTask(taskId)
+      return task !== undefined && !task.archived && task.stage !== 'done'
+    },
+    task: appTask,
+  })
+
+  async function appTask(taskId: string): Promise<AppTask> {
+    const task = find(taskId)
+    const live = task.repos.filter((r) => !r.removed)
+    if (live.length === 0) return { displayId: task.displayId, repos: [] }
+    const factory = factoryOf(task)
+    const entries = factoryRepos(
+      (await resolveWorkflow(factory, { fetch: false })).workflow,
+      factory,
+    )
+    return {
+      displayId: task.displayId,
+      repos: live.map((repo) => {
+        const entry = repoEntry(entries, repo)
+        return {
+          name: repo.name,
+          worktree: repo.worktree,
+          env: store.recordedSetup(task.id, repo.name)?.env ?? entry?.env ?? {},
+          apps: entry?.apps ?? [],
+        }
+      }),
+    }
+  }
+
+  function appCaller(
+    ref: string,
+    caller: Caller,
+  ): { task: StoredTask; by: AppStarter; runId?: string } {
+    if (caller.kind === 'run') {
+      const { task, runId } = ownTask(ref, caller)
+      const by = store.getRun(runId)?.parentRunId === undefined ? 'task-lead' : 'sub-agent'
+      return { task, by, runId }
+    }
+    return { task: find(ref), by: 'human' }
+  }
+
+  function runnableApps(ref: string, caller: Caller) {
+    const found = appCaller(ref, caller)
+    if (found.task.archived)
+      throw new RequestError(409, `${found.task.displayId} is archived, so its Apps don’t run`)
+    if (found.task.stage === 'done')
+      throw new RequestError(409, `${found.task.displayId} is Done, so its Apps don’t run`)
+    return found
+  }
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
@@ -2010,9 +2081,10 @@ export function createTasks(options: {
     },
     reviewerFor: (task) => reviewerFor(task),
     async envFor(task, repo) {
+      const appVars = await apps.envFor(task.id)
       const recorded = store.recordedSetup(task.id, repo.name)?.env
-      if (recorded) return recorded
-      return repoEntry(await entriesOf(factoryOf(task)), repo)?.env ?? {}
+      if (recorded) return { ...recorded, ...appVars }
+      return { ...(repoEntry(await entriesOf(factoryOf(task)), repo)?.env ?? {}), ...appVars }
     },
     async permissionsFor(task) {
       const resolution = await taskWorkflow(task, { fetch: false })
@@ -2184,6 +2256,7 @@ export function createTasks(options: {
         const repo = liveNow(entry)
         if (!repo) continue
         repoSetups.get(`${task.id}:${repo.name}`)?.abort()
+        await apps.stopRepo(task.id, repo.name).catch(() => undefined)
         const teardown = await tearDown(task, repo, entry)
         await git.removeWorktree(clonePath(reposDir, repo), repo.worktree).catch((error) => {
           console.error(`couldn’t remove ${task.displayId}’s ${repo.name} worktree:`, error)
@@ -2449,6 +2522,9 @@ export function createTasks(options: {
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
     await pullRequestQueue.get(task.id)
     subAgents.dropFor(task.id)
+    await apps.stopTask(task.id).catch((error: unknown) => {
+      console.error(`couldn’t stop ${task.displayId}’s Apps:`, error)
+    })
     await Promise.all(
       store
         .taskRunList(task.id)
@@ -2669,7 +2745,7 @@ export function createTasks(options: {
       prompt,
       cwd,
       taskId: task.id,
-      env: { ...env, TED_TASK: task.displayId },
+      env: { ...env, ...(await apps.envFor(task.id)), TED_TASK: task.displayId },
       permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
       ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
@@ -6111,6 +6187,24 @@ export function createTasks(options: {
       await pumping
       stopping.abort()
       await Promise.all(background)
+      await apps.close()
+    },
+    listApps(ref, caller) {
+      return apps.list(appCaller(ref, caller).task.id)
+    },
+    startApp(ref, caller, app) {
+      const { task, by, runId } = runnableApps(ref, caller)
+      return apps.start(task.id, app, by, runId)
+    },
+    stopApp(ref, app) {
+      return apps.stop(find(ref).id, app)
+    },
+    restartApp(ref, app) {
+      const { task, by } = runnableApps(ref, { kind: 'app' })
+      return apps.restart(task.id, app, by)
+    },
+    appLog(ref, app) {
+      return apps.log(find(ref).id, app)
     },
   }
 }

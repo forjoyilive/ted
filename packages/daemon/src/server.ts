@@ -24,6 +24,7 @@ import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
+import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
@@ -144,6 +145,7 @@ async function settled(data: Data): Promise<void> {
 const routes: Route[] = [
   ...taskRoutes,
   ...shellRoutes,
+  ...appRoutes,
   ...factoryRoutes,
   ...machineRoutes,
   ...libraryRoutes,

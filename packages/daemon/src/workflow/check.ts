@@ -1,6 +1,9 @@
 import {
   type AgentStageId,
   agentStageIds,
+  appEnvName,
+  appKinds,
+  isLoopbackUrl,
   isModelName,
   type LayerKind,
   type StageId,
@@ -170,6 +173,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   const settings: WorkflowSettings = { stages: {} }
   const checkNodes = new Map<CheckSettings, Node | null>()
   let repoNames: Set<string> | undefined
+  const appEnvNames = new Set<string>()
   const file = displayPath(context.kind, 'workflow.yaml')
   const lineCounter = new LineCounter()
   const doc = parseDocument(text, { lineCounter })
@@ -486,13 +490,99 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         }
         case 'apps':
           if (!isSeq(node)) error(node, '`apps` must be a list')
-          else repo.apps = node.toJSON() as unknown[]
+          else {
+            checkApps(node)
+            repo.apps = node.toJSON() as unknown[]
+          }
           break
         default:
           warn(entry.key, `unknown key \`${entry.name}\` in a repo`)
       }
     }
     return repo
+  }
+
+  function checkApps(list: Node & { items: unknown[] }): void {
+    for (const item of list.items as (Node | null)[]) {
+      if (!isMap(item)) {
+        error(item, 'each App must be a map')
+        continue
+      }
+      const kind = scalar(item.get('kind', true) as Node | undefined) ?? 'web'
+      const name = scalar(item.get('name', true) as Node | undefined)
+      for (const entry of entries(item)) {
+        const node = entry.value
+        switch (entry.name) {
+          case 'name':
+            if (!isText(node) || (scalar(node) as string).trim() === '') {
+              error(node, 'an App `name` must be text')
+            } else {
+              const envName = appEnvName((scalar(node) as string).trim())
+              if (appEnvNames.has(envName)) {
+                error(node, `two Apps would both set \`TED_APP_${envName}_PORT\``)
+              } else appEnvNames.add(envName)
+            }
+            break
+          case 'run':
+            if (!isText(node) || (scalar(node) as string).trim() === '') {
+              error(node, 'an App `run` must be a command')
+            }
+            break
+          case 'kind':
+            if (!oneOf(node, [...appKinds])) {
+              error(node, '`kind` must be web, command or ios-simulator')
+            }
+            break
+          case 'url': {
+            const url = scalar(node)
+            if (typeof url !== 'string' || !isLoopbackUrl(url.replaceAll(`\${PORT}`, '1'))) {
+              error(
+                node,
+                `an App \`url\` must be a localhost address, such as http://localhost:\${PORT}`,
+              )
+            } else if (kind !== 'web') warn(entry.key, 'only a web App has a `url`')
+            break
+          }
+          case 'ready':
+            if (!oneOf(node, ['url', 'start'])) error(node, '`ready` must be url or start')
+            break
+          case 'port': {
+            const port = scalar(node)
+            if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+              error(node, '`port` must be a number from 1 to 65535')
+            }
+            break
+          }
+          case 'device':
+            if (!isText(node)) error(node, '`device` must be text')
+            break
+          case 'env':
+            if (!isMap(node)) {
+              error(node, 'an App `env` must be a map of names to text')
+              break
+            }
+            for (const variable of entries(node)) {
+              const v = scalar(variable.value)
+              if (typeof v === 'object' || v === undefined) {
+                error(variable.value, 'an App `env` value must be text')
+              } else if (
+                variable.name.toUpperCase() === 'PORT' ||
+                isReservedEnvName(variable.name)
+              ) {
+                warn(
+                  variable.key,
+                  `TED sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
+                )
+              }
+            }
+            break
+          default:
+            warn(entry.key, `unknown key \`${entry.name}\` in an App`)
+        }
+      }
+      if (typeof name !== 'string') error(item, 'each App needs a `name`')
+      else if (!item.has('run')) error(item, `the App ${name} needs a \`run\` command`)
+    }
   }
 
   function checkWorktree(value: Node | null): RepoSettings['worktree'] {

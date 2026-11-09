@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./task": "./src/task.ts",
+    "./app": "./src/app.ts",
     "./run": "./src/run.ts",
     "./banner": "./src/banner.ts",
     "./health": "./src/health.ts",

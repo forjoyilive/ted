@@ -22,11 +22,13 @@ import {
 } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { stageName } from '../views/TaskViews.tsx'
+import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent } from './DesignReview.tsx'
 import { Help } from './Help.tsx'
+import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -269,11 +271,13 @@ export function RequestCard({
   task,
   readOnly = false,
   onOpenRun,
+  onOpenApp,
 }: {
   request: Comment
   task: Task
   readOnly?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
+  onOpenApp?: ((app: ShownApp) => void) | undefined
 }) {
   const now = useNow()
   const [text, setText] = useState('')
@@ -363,6 +367,9 @@ export function RequestCard({
         )
       ) : (
         shown !== undefined && shown !== '' && <Summary text={shown} />
+      )}
+      {request.kind === 'signoff' && request.stage === 'review' && !readOnly && (
+        <PreviewRow task={task} onOpenApp={onOpenApp} />
       )}
       {request.round && (
         <RoundQuestions

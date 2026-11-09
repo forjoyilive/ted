@@ -5,6 +5,7 @@ import type {
   AgentStageId,
   AnswerAutomationRequest,
   AnswerRequest,
+  AppLog,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
@@ -91,6 +92,7 @@ import type {
   StartPlanRequest,
   StorageSummary,
   Task,
+  TaskApp,
   TaskChanges,
   TaskDefaults,
   TaskLead,
@@ -258,6 +260,19 @@ export const ted = {
     window.ted.request('discardLineComments', taskId) as Promise<void>,
   sendLineComments: (taskId: string) =>
     window.ted.request('sendLineComments', taskId) as Promise<Comment>,
+  listApps: (taskId: string) => window.ted.request('listApps', taskId) as Promise<TaskApp[]>,
+  startApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('startApp', taskId, repo, name) as Promise<TaskApp>,
+  stopApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('stopApp', taskId, repo, name) as Promise<TaskApp>,
+  restartApp: (taskId: string, repo: string, name: string) =>
+    window.ted.request('restartApp', taskId, repo, name) as Promise<TaskApp>,
+  appLog: (taskId: string, repo: string, name: string) =>
+    window.ted.request('appLog', taskId, repo, name) as Promise<AppLog>,
+  openAppPreview: (taskId: string, repo: string, name: string) =>
+    window.ted.request('openAppPreview', taskId, repo, name) as Promise<void>,
+  openHostedPreview: (taskId: string, repo: string) =>
+    window.ted.request('openHostedPreview', taskId, repo) as Promise<void>,
   setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
     window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>

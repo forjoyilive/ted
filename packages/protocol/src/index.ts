@@ -6,6 +6,16 @@ export {
   workRunning,
 } from './activity.ts'
 export {
+  type AppLog,
+  type AppRef,
+  type AppStarter,
+  type AppState,
+  appEnvName,
+  appStates,
+  isLoopbackUrl,
+  type TaskApp,
+} from './app.ts'
+export {
   type AppAuth,
   appAuthScheme,
   bodyHash,
