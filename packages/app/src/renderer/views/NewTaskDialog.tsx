@@ -90,8 +90,13 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
   }, [factory])
 
   const chosenFactory = factories.find((f) => f.id === factory)
+  const fetching = source !== undefined && source.lookup === undefined
   const canCreate =
-    chosenFactory !== undefined && description.trim() !== '' && uploading === 0 && !busy
+    chosenFactory !== undefined &&
+    description.trim() !== '' &&
+    uploading === 0 &&
+    !busy &&
+    !fetching
 
   function lookUp(url: string, identifier: string) {
     const ticket = ++lookups.current
@@ -102,11 +107,12 @@ export function NewTaskDialog({ factories, tasks, factoryId, onClose }: NewTaskD
         setSource({ url, identifier, lookup })
         if (lookup.state !== 'found') return
         const { issue } = lookup
+        const previous = filled.current
         setTitle((current) =>
-          current.trim() === '' || current === filled.current.title ? issue.title : current,
+          current.trim() === '' || current === previous.title ? issue.title : current,
         )
         setPriority((current) =>
-          current === 'none' || current === filled.current.priority ? issue.priority : current,
+          current === 'none' || current === previous.priority ? issue.priority : current,
         )
         filled.current = { title: issue.title, priority: issue.priority }
       },
@@ -467,6 +473,8 @@ function SourceCard({
   onKeySaved: () => void
 }) {
   const { lookup } = source
+  const [showing, setShowing] = useState(false)
+  const linearDescription = lookup?.state === 'found' ? lookup.issue.description : undefined
   const heading =
     lookup?.state === 'found'
       ? `${lookup.issue.identifier} · ${lookup.issue.title}`
@@ -487,6 +495,16 @@ function SourceCard({
                   TED copied the title, Priority and branch name from Linear. The issue’s
                   description goes to the Task Lead as context.
                 </Help>
+                {linearDescription !== undefined && (
+                  <button
+                    type="button"
+                    className={styles.keyLink}
+                    aria-expanded={showing}
+                    onClick={() => setShowing((open) => !open)}
+                  >
+                    {showing ? 'Hide Linear’s description' : 'Show Linear’s description'}
+                  </button>
+                )}
               </>
             ) : (
               'Source set. The Task links to this issue.'
@@ -502,6 +520,11 @@ function SourceCard({
           <CloseIcon size={11} />
         </button>
       </fieldset>
+      {showing && linearDescription !== undefined && (
+        <section aria-label="Linear’s description">
+          <pre className={styles.sourceDescription}>{linearDescription}</pre>
+        </section>
+      )}
       {lookup?.state === 'failed' && (
         <p className={styles.sourceProblem} role="status">
           {lookup.error}

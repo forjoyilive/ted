@@ -177,6 +177,11 @@ describe('New Task dialog with a Linear URL', () => {
     await card.getByText('NOTE-212 · Search ignores accents').waitFor()
     expect(await open.getByLabel('Title').inputValue()).toBe('Search ignores accents')
     expect(await open.getByLabel('Priority').inputValue()).toBe('high')
+    await card.getByRole('button', { name: 'Show Linear’s description' }).click()
+    await open
+      .getByLabel('Linear’s description')
+      .getByText('Typing “cafe” should find “Café”.')
+      .waitFor()
 
     await open.getByLabel('Start now').uncheck()
     await open.getByRole('button', { name: 'Create', exact: true }).click()

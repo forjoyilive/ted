@@ -151,6 +151,21 @@
   font-size: var(--text-12);
 }
 
+.sourceDescription {
+  max-height: 160px;
+  margin: 0 10px 10px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sourceProblem {
   margin: 0 12px 10px;
   color: var(--status-failed-fg);
