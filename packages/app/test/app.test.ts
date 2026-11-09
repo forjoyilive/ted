@@ -191,6 +191,58 @@ describe('TED app', () => {
     await details.getByText('Model unavailable').waitFor({ state: 'detached' })
   })
 
+  test('the thread header shows the status, the live activity line and the Stage track', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const go = (n: number) => path.join(home, `go-${n}`)
+    const steps = JSON.stringify({
+      steps: [
+        { run: ['ted', 'comment', 'Read the brief'] },
+        { run: ['ted', 'status', 'Running Checks · Tests (2 of 3)'] },
+        { waitFor: go(1) },
+        { hook: 'PermissionRequest' },
+        { waitFor: go(2) },
+        { run: ['ted', 'outcome', 'advance'] },
+        { run: ['ted', 'comment', 'Asking the questions'] },
+        { endTurn: true },
+      ],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const header = thread.locator('header')
+    await header.getByText('· Not started').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await header.getByText('Working', { exact: true }).waitFor()
+    await header.getByText('· Running Checks · Tests (2 of 3)').waitFor()
+    await header.getByRole('img', { name: 'Claude Code, working' }).waitFor()
+    await writeFile(go(1), '')
+    await header.getByText('Waiting on you', { exact: true }).waitFor()
+    await writeFile(go(2), '')
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    await header.getByText('Clarify', { exact: true }).waitFor()
+    expect(await header.getByText('· Running Checks').count()).toBe(0)
+
+    const intake = header.getByRole('button', { name: 'Intake, done' })
+    await intake.click()
+    expect(await intake.getAttribute('aria-pressed')).toBe('true')
+    await thread.getByText('Asking the questions', { exact: true }).waitFor({ state: 'detached' })
+    await thread.getByText('Read the brief', { exact: true }).waitFor()
+    await header.getByRole('button', { name: 'Clarify, now' }).click()
+    await thread.getByText('Read the brief', { exact: true }).waitFor({ state: 'detached' })
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    await header.getByRole('button', { name: 'Clarify, now' }).click()
+    await thread.getByText('Read the brief', { exact: true }).waitFor()
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    expect(
+      await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
+    ).toBeNull()
+  })
+
   test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {
     await launchApp()
     const pid = await daemonPid()

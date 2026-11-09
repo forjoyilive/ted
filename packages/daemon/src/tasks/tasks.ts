@@ -39,6 +39,7 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   comment(ref: string, caller: Caller, body: string): Comment
+  setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
@@ -210,7 +211,11 @@ export function createTasks(options: {
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
     const file = stage === 'done' ? undefined : workflow.stageFile(stage)
-    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers }
+    const order = workflow.order.map((id) => ({
+      stage: id,
+      enabled: workflow.stages.includes(id),
+    }))
+    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
   }
 
   async function start(ref: string): Promise<Task> {
@@ -312,6 +317,11 @@ export function createTasks(options: {
     comment(ref, caller, body) {
       const { task, runId } = ownTask(ref, caller)
       return store.postComment({ taskId: task.id, body, authorRunId: runId })
+    },
+
+    setActivity(ref, caller, text) {
+      const { task, runId } = ownTask(ref, caller)
+      return store.setActivity(task.id, text, runId)
     },
 
     async reportOutcome(ref, caller, _outcome) {

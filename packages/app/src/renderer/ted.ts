@@ -7,6 +7,7 @@ import type {
   Factory,
   MachineSettings,
   Run,
+  StageEntry,
   Task,
   TaskDefaults,
   TaskLead,
@@ -32,6 +33,8 @@ export const ted = {
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
+  listStageEntries: (taskId: string) =>
+    window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,

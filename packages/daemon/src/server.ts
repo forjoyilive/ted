@@ -2,6 +2,7 @@ import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import {
   type AddFactoryRequest,
   type AgentKind,
@@ -15,6 +16,7 @@ import {
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
+  type SetActivityRequest,
   type StartDevRunRequest,
   type TaskLead,
 } from '@ted/protocol'
@@ -61,6 +63,7 @@ interface Route {
 }
 
 const maxBodyBytes = 1024 * 1024
+const maxActivityLength = 200
 
 const routes: Route[] = [
   {
@@ -133,6 +136,20 @@ const routes: Route[] = [
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       return [201, tasks.comment(ref, caller, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/activity$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<SetActivityRequest> | null
+      const text = typeof body?.text === 'string' ? oneLine(body.text) : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      if ([...text].length > maxActivityLength) {
+        throw new HttpError(400, `the activity line is limited to ${maxActivityLength} characters`)
+      }
+      return [200, tasks.setActivity(ref, caller, text)]
     },
   },
   {
@@ -432,6 +449,19 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
       ...(level !== undefined && { effort: level }),
     }
   }
+}
+
+function oneLine(text: string): string {
+  return [...stripVTControlCharacters(text)]
+    .map((c) => (isControl(c) ? ' ' : c))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isControl(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

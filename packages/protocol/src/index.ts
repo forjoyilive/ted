@@ -42,16 +42,23 @@ export {
   clarifyDepths,
   type Effort,
   efforts,
+  type GitHubWait,
   type Outcome,
   type PostCommentRequest,
   type Priority,
   priorities,
   type ReportOutcomeRequest,
+  type SetActivityRequest,
   type SetTaskLeadRequest,
   type StageId,
   type Task,
   type TaskDefaults,
   type TaskLead,
+  type TaskMarker,
+  type TaskRun,
+  type TaskStatus,
+  type TrackStage,
+  type TrackState,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'
