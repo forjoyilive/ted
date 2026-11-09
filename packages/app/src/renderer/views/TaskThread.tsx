@@ -36,7 +36,7 @@ export function TaskThread({
       )}
       <header className={styles.taskHeader}>
         <div className={styles.headerRow}>
-          <span className={styles.taskMeta}>{task.displayId} · Created by you</span>
+          <span className={styles.taskMeta}>{`${task.displayId}  ·  Created by you`}</span>
           <RunIcons runs={task.runs} />
         </div>
         <div className={styles.headerRow}>
