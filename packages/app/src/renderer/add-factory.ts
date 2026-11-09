@@ -1,6 +1,7 @@
 import type { RepoCheck, RepoSource } from '@ted/protocol/factory'
 import { repoNamePattern } from '@ted/protocol/factory'
 import type { IntegrationFix, IntegrationsHealth } from '@ted/protocol/integrations'
+import { plural } from './words.ts'
 
 export interface RepoRow {
   id: string
@@ -67,7 +68,6 @@ export interface Footer {
   problem: boolean
 }
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`
 const listed = (names: string[]) =>
   names.length <= 1
     ? (names[0] ?? '')

@@ -82,6 +82,7 @@ import {
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
+import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -104,8 +105,14 @@ import type {
   StoredTask,
   TedStore,
 } from '../store/index.ts'
+import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
-import { type CheckSettings, checkLayer, type WorkflowSettings } from '../workflow/check.ts'
+import {
+  type CheckSettings,
+  checkLayer,
+  githubRepoOf,
+  type WorkflowSettings,
+} from '../workflow/check.ts'
 import { readGitLayer } from '../workflow/layers.ts'
 import {
   boardStages,
@@ -260,6 +267,7 @@ export interface CreateTaskInput
   > {
   title?: string
   source?: string
+  sentryId?: string
   followUp?: string
   factory?: string
   blockedBy?: string[]
@@ -519,6 +527,7 @@ export function createTasks(options: {
       (await resolveWorkflow(factory, { fetch: false })).workflow,
       factory,
     )
+    const setupApps = task.setup ? await approvedSetupApps(task) : undefined
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
@@ -528,7 +537,7 @@ export function createTasks(options: {
           name: repo.name,
           worktree: repo.worktree,
           env: store.recordedSetup(task.id, repo.name)?.env ?? entry?.env ?? {},
-          apps: entry?.apps ?? [],
+          apps: setupApps ? (setupApps.get(repo.name) ?? []) : (entry?.apps ?? []),
         }
       }),
     }
@@ -914,27 +923,83 @@ export function createTasks(options: {
   const checkLog = (task: Task, checkRunId: string, position: number) =>
     path.join(checkDir(task, checkRunId), `${position + 1}.log`)
 
-  async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
+  async function approvedSetup(task: StoredTask) {
     const factory = factoryOf(task)
     const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
-    if (!primary) return []
+    if (!primary) return undefined
     const found = await readGitLayer(primary.worktree, 'HEAD').catch(() => undefined)
-    if (!found) return []
+    if (!found) return undefined
     const layer = checkLayer({ kind: 'factory', files: found.files, primaryRepo: factory.repo })
-    if (!layer.valid) return []
+    if (!layer.valid) return undefined
     const proposal = store
       .listComments(task.id)
       .findLast(
         (c) => c.gate && c.stage === 'design' && c.answer?.kind === 'approved' && c.design?.setup,
       )?.design?.setup
+    return proposal && { primary, settings: layer.settings, proposal }
+  }
+
+  async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
+    const approved = await approvedSetup(task)
+    if (!approved) return []
+    const { primary, settings, proposal } = approved
     const key = (name: string, command: string, repo: string | undefined) =>
       [name, command, repo ?? primary.name].join('\0')
-    const approved = new Set(
-      (proposal?.checks ?? []).filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
+    const passed = new Set(
+      proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
     )
-    return (layer.settings.stages.validate?.checks ?? []).filter((c) =>
-      approved.has(key(c.name, c.run, c.repo)),
+    return (settings.stages.validate?.checks ?? []).filter((c) =>
+      passed.has(key(c.name, c.run, c.repo)),
     )
+  }
+
+  async function approvedSetupApps(task: StoredTask): Promise<Map<string, AppDeclaration[]>> {
+    const approved = await approvedSetup(task)
+    if (!approved) return new Map()
+    const { primary, settings, proposal } = approved
+    const passed = (names: readonly string[], app: AppDeclaration) =>
+      proposal.apps.some(
+        (a) =>
+          a.passed &&
+          a.name === app.name &&
+          a.run === app.run &&
+          names.includes(a.repo ?? primary.name),
+      )
+    const remoteRepo = (remote: string | undefined) =>
+      remote === undefined ? undefined : githubRepoOf(remote)
+    const repos = settings.repos ?? []
+    return new Map(
+      task.repos
+        .filter((r) => !r.removed)
+        .map((r) => {
+          const listed =
+            r === primary
+              ? repos[0]
+              : repos.slice(1).find((s) => {
+                  const repo = remoteRepo(s.remote)
+                  return repo !== undefined && sameRepo(repo, r.repo)
+                })
+          const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
+          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a))
+          return [r.name, apps] as const
+        }),
+    )
+  }
+
+  async function startSetupApps(task: StoredTask): Promise<string | undefined> {
+    const lines: string[] = []
+    for (const [repo, declared] of await approvedSetupApps(task)) {
+      for (const app of declared) {
+        const started = await apps.start(task.id, { name: app.name, repo }, 'task-lead').then(
+          (shown) => `- ${app.name}: ${shown.state}${shown.url ? ` at ${shown.url}` : ''}`,
+          (error: unknown) => `- ${app.name}: didn’t start: ${messageOf(error)}`,
+        )
+        lines.push(started)
+      }
+    }
+    return lines.length === 0
+      ? undefined
+      : `# Apps\n\nTED started the approved Apps from this branch:\n\n${lines.join('\n')}`
   }
 
   async function beginChecks(
@@ -978,6 +1043,7 @@ export function createTasks(options: {
         checks: plan,
         taskDisplayId: task.displayId,
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
+        env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
         signal: stopping.signal,
         onStart: (position) => store.checkStarted(checkRun.id, position),
@@ -1035,8 +1101,13 @@ export function createTasks(options: {
       const { workflow } = resolution
       const instructions = message ?? nextStageMessage(workflow, 'validate')
       const started = await beginChecks(task, resolution, 'validate')
+      const withApps = async (text: string) => {
+        const current = find(taskId)
+        const apps = current.setup ? await startSetupApps(current) : undefined
+        return apps === undefined ? text : `${text}\n\n${apps}`
+      }
       if (!started) {
-        await deliver(task, instructions)
+        await deliver(task, await withApps(instructions))
         return
       }
       const result = await started.done
@@ -1046,7 +1117,9 @@ export function createTasks(options: {
       if (result.outcome === 'passed') {
         await deliver(
           current,
-          `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
+          await withApps(
+            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
+          ),
         )
         return
       }
@@ -1113,6 +1186,7 @@ export function createTasks(options: {
       title: task.title,
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
+      ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
     }
   }
 
@@ -2918,6 +2992,16 @@ export function createTasks(options: {
         line: withLines(`- ${c.createdAt}: ${flat(plainText(c))}`, c),
       })),
       ...answers.flatMap((c) => {
+        const task = store.getTask(taskId)
+        const planNote = task && heldPlanNote(task, c)
+        if (planNote !== undefined) {
+          return [
+            {
+              at: c.answer?.at ?? c.createdAt,
+              line: `- ${c.answer?.at ?? c.createdAt}: ${planNote}`,
+            },
+          ]
+        }
         const answer = answerText(c)
         return answer === undefined
           ? []
@@ -3314,10 +3398,43 @@ export function createTasks(options: {
     })
   }
 
-  async function tellLeadAboutPlan(taskId: string, text: string): Promise<void> {
+  function planSizeCheck(taskId: string, planId: string): Comment | undefined {
+    return store
+      .listComments(taskId)
+      .findLast((c) => c.sizeCheck && c.answer?.kind === 'answered' && c.answer.planId === planId)
+  }
+
+  function heldPlanNote(task: StoredTask, comment: Comment): string | undefined {
+    if (comment.answer?.kind !== 'answered' || comment.answer.planId === undefined) return undefined
+    const planId = comment.answer.planId
+    const plan = store.plans.get(planId)
+    if (plan && plan.state !== 'ended') return undefined
+    const planTitle = plan?.title ?? `Plan: ${task.title}`
+    const approved = store.plans
+      .requests(planId)
+      .findLast((r) => r.kind === 'proposal' && r.answer?.kind === 'approved')?.answer
+    if (approved?.kind === 'approved' && approved.created) {
+      return planApprovedLeadMessage({
+        displayId: task.displayId,
+        planTitle,
+        narrowed: { title: task.title, description: task.description },
+        created: approved.created,
+        text: approved.text ?? '',
+      })
+    }
+    const outcome = !plan ? 'deleted' : plan.outcome === 'failed' ? 'failed' : 'stopped'
+    return planEndedLeadMessage({ planTitle, outcome })
+  }
+
+  async function tellLeadAboutPlan(taskId: string, planId: string, text: string): Promise<void> {
     const task = store.getTask(taskId)
-    const run = task && liveLead(task)
-    if (!run) return
+    if (!task) return
+    const run = liveLead(task)
+    if (!run) {
+      const sizeCheck = planSizeCheck(taskId, planId)
+      if (sizeCheck) store.holdAnswer(sizeCheck.id)
+      return
+    }
     await runs.send(run.id, text).catch((error: unknown) => {
       console.error(
         `couldn’t tell the Task Lead of ${task.displayId} about its planning chat:`,
@@ -3340,6 +3457,7 @@ export function createTasks(options: {
     store.taskPlanEnded(task.id, input.planId, 'approved')
     await tellLeadAboutPlan(
       task.id,
+      input.planId,
       planApprovedLeadMessage({ displayId: task.displayId, ...input }),
     )
   }
@@ -3348,7 +3466,7 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
     store.taskPlanEnded(task.id, input.planId, input.outcome)
-    await tellLeadAboutPlan(task.id, planEndedLeadMessage(input))
+    await tellLeadAboutPlan(task.id, input.planId, planEndedLeadMessage(input))
   }
 
   function planOutside(task: StoredTask, comment: Comment): void {
@@ -4417,9 +4535,9 @@ export function createTasks(options: {
         return undefined
       },
     )
-    const hasSettings = resolution?.layers.some(
-      (l) => l.layer === 'factory' && l.status !== 'absent',
-    )
+    const hasSettings = resolution
+      ? resolution.layers.some((l) => l.layer === 'factory' && l.status !== 'absent')
+      : factoryHasSettings(factory.id)
     const task = await store.createTask({
       title: `Set up ${factory.name}`,
       description: hasSettings ? laterSetupDescription : firstSetupDescription,
@@ -4430,7 +4548,7 @@ export function createTasks(options: {
       setup: true,
     })
     reportSetup(factory.id)
-    if (!resolution || (hasSettings && !byHand)) return task
+    if (hasSettings && !byHand) return task
     return start(task.id)
   }
 
@@ -5388,6 +5506,7 @@ export function createTasks(options: {
         start: startNow,
         lead,
         source: sourceUrl,
+        sentryId,
         followUp,
         ...fields
       },
@@ -5441,7 +5560,12 @@ export function createTasks(options: {
         ...(fields.description !== undefined && { description: fields.description.trim() }),
         title: name,
         ...(fields.priority === undefined && issue && { priority: issue.priority }),
-        ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
+        ...(sourceUrl !== undefined && {
+          source: {
+            ...taskSource(sourceUrl, issue),
+            ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
+          },
+        }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
         startRequested: startNow === true && !held,

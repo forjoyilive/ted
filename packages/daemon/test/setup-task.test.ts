@@ -5,13 +5,23 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { Banner, CheckRun, Comment, Factory, InboxItem, RunSlots, Task } from '@ted/protocol'
+import type {
+  Banner,
+  CheckRun,
+  Comment,
+  Factory,
+  InboxItem,
+  RunSlots,
+  Task,
+  TaskApp,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { resolveWorkflow, setupWorkflow } from '../src/workflow/resolve.ts'
 import {
   api,
   commitToOrigin,
+  killAppHosts,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -21,6 +31,7 @@ import {
 
 const execFileAsync = promisify(execFile)
 const stubGh = fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url))
+const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
 
 let home: string
 let cleanup: () => Promise<void>
@@ -53,6 +64,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
+  await killAppHosts(home)
   await killRunHosts(home)
   process.env = { ...savedEnv }
   await cleanup()
@@ -180,6 +192,20 @@ describe('creating the setup Task', () => {
     expect((await banners(client)).some((b) => b.problem === 'setup-unfinished')).toBe(false)
   })
 
+  test('an empty repo, whose Workflow TED can’t read yet, still gets its setup Task started', async () => {
+    const bare = path.join(scratch, 'acme', 'widgets.git')
+    await rm(bare, { recursive: true, force: true })
+    await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', bare])
+    const client = await start()
+    await addWidgets(client)
+    const setup = await setupTask(client)
+    const started = await waitUntil(async () => {
+      const now = await getTask(client, setup.id)
+      return now.stage !== 'backlog' ? now : undefined
+    }, 'the setup Task to start')
+    expect(started.stage).not.toBe('backlog')
+  })
+
   test('New setup Task is refused while one is open, and the banner offers one when none is', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
     const client = await start()
@@ -244,9 +270,11 @@ describe('the proposal', () => {
         {
           name: 'Web',
           kind: 'web',
+          run: `'${process.execPath}' '${stubApp}'`,
           ready: 'ready in 9s at localhost:5174',
           passed: true,
         },
+        { name: 'Changed', kind: 'command', run: 'true', ready: 'exits at once', passed: true },
       ],
       files: [
         { path: '.ted/notes.md', about: 'Factory notes' },
@@ -305,6 +333,18 @@ describe('the proposal', () => {
         '    checks:',
         '      - { name: Unit, run: "true" }',
         `      - { name: Sneaky, run: "touch ${path.join(scratch, 'sneaky')}" }`,
+        'repos:',
+        '  - name: widgets',
+        '    apps:',
+        '      - name: Web',
+        '        kind: command',
+        `        run: "'${process.execPath}' '${stubApp}'"`,
+        '      - name: Sneaky App',
+        '        kind: command',
+        `        run: "touch ${path.join(scratch, 'sneaky-app')}"`,
+        '      - name: Changed',
+        '        kind: command',
+        `        run: "touch ${path.join(scratch, 'changed-app')}"`,
         '',
       ].join('\n'),
     )
@@ -342,7 +382,10 @@ describe('the proposal', () => {
             { name: 'Unit', command: 'true', passed: true, durationMs: 1200 },
             { name: 'End-to-end', passed: false, reason: 'Fails on main: needs the API running' },
           ],
-          apps: [{ name: 'Web', kind: 'web', passed: true }],
+          apps: [
+            { name: 'Web', kind: 'web', run: `'${process.execPath}' '${stubApp}'`, passed: true },
+            { name: 'Changed', run: 'true' },
+          ],
           files: [
             { path: '.ted/notes.md' },
             { path: '.ted/workflow.yaml' },
@@ -358,6 +401,13 @@ describe('the proposal', () => {
     }, 'the Validate Checks')
     expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'TED settings'])
     expect(existsSync(path.join(scratch, 'sneaky'))).toBe(false)
+    const web = await waitUntil(async () => {
+      const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)
+      return apps.find((a) => a.name === 'Web' && a.state === 'running') && apps
+    }, 'TED to start the proposed App')
+    expect(web.map((a) => a.name)).toEqual(['Web'])
+    expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
+    expect(existsSync(path.join(scratch, 'changed-app'))).toBe(false)
     await answer('review')
 
     const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
@@ -398,12 +448,12 @@ describe('the proposal', () => {
       ),
     })
     await client.ok('POST', `/tasks/${task.id}/start`)
-    await waitUntil(async () => {
+    const said = await waitUntil(async () => {
       const t = await getTask(client, task.id)
-      return t.stage === 'design' && t.runs[0]?.state === 'idle'
+      if (t.stage !== 'design' || t.runs[0]?.state !== 'idle') return undefined
+      const text = JSON.stringify((await client.getRun(t.leadRunId ?? '')).conversation)
+      return text.includes('# Design') && text.includes('tutorial Comments') ? text : undefined
     }, 'Design to finish its turn')
-    const run = await client.getRun((await getTask(client, task.id)).leadRunId ?? '')
-    const said = JSON.stringify(run.conversation)
     expect(said).toContain('only a setup Task proposes TED settings')
     expect(said).toContain('only a setup Task’s Task Lead posts tutorial Comments')
   }, 30_000)

@@ -1,6 +1,6 @@
 // Ported from agent-orchestrator (Apache-2.0): backend/internal/lifecycle/reactions.go and
-// backend/internal/domain/pr.go. TED changed: all of a Task's notices go in one message, GitHub text
-// is redacted and fenced with a per-message nonce, and what was sent is kept in TED's store.
+// domain/pr.go. TED changed: one message per Task, GitHub text redacted and fenced with a
+// per-message nonce, and what was sent kept in TED’s store.
 import { randomUUID } from 'node:crypto'
 import type { PullRequestPreview, StageId } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'

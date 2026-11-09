@@ -1,4 +1,5 @@
-import { type DiffRow, type LineComment, lineLabel } from '@ted/protocol'
+import type { DiffRow, LineComment } from '@ted/protocol'
+import { lineLabel } from '@ted/protocol/changes'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { useConnection } from '../data.ts'

@@ -1,10 +1,12 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from '../src/index.ts'
+import { tryLock, waitForLock } from '../src/lock.ts'
 import { makeTempHome } from './helpers.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -61,3 +63,13 @@ test('only one of several daemons starting at once wins', async () => {
     for (const reason of losers) expect(reason).toBeInstanceOf(DaemonAlreadyRunningError)
   }
 }, 60_000)
+
+test('a host waits out a brief probe of its lock, but not a lock someone keeps', async () => {
+  const file = path.join(home, 'host.lock')
+  const probe = tryLock(file)
+  setTimeout(() => probe?.release(), 100)
+  const won = await waitForLock(file, 2_000)
+  expect(won).toBeDefined()
+  expect(await waitForLock(file, 200)).toBeUndefined()
+  won?.release()
+})

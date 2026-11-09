@@ -142,6 +142,7 @@ export const taskSources = State.SQLite.table({
     linearTitle: State.SQLite.text({ nullable: true }),
     linearBranchName: State.SQLite.text({ nullable: true }),
     linearDescription: State.SQLite.text({ nullable: true }),
+    sentryShortId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -961,6 +962,10 @@ export const events = {
       linearDescription: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
+  }),
+  taskSourceSentrySet: Events.synced({
+    name: 'v1.TaskSourceSentrySet',
+    schema: Schema.Struct({ taskId: Schema.String, shortId: Schema.String, at: Schema.String }),
   }),
   taskStarted: Events.synced({
     name: 'v1.TaskStarted',
@@ -2486,6 +2491,8 @@ const materializers = counted(
         tasks.update({ stage, needsPlanningAt: null, changedAt: at }).where({ id: taskId }),
       ],
       'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
+      'v1.TaskSourceSentrySet': ({ taskId, shortId }) =>
+        taskSources.update({ sentryShortId: shortId }).where({ taskId }),
       'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
         tasks.update({ stage, branch, worktree }).where({ id: taskId }),
       'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),

@@ -16,6 +16,7 @@ import {
   appEnvName,
   type Comment,
   type DaemonEvent,
+  isSimulatorApp,
   type SimulatorSlots,
   type TaskApp,
 } from '@ted/protocol'
@@ -300,7 +301,7 @@ export function createApps(options: AppsOptions): Apps {
     const state = stateOf(instance)
     const live = state === 'running' || state === 'starting'
     const ended = instance?.ended
-    const simulator = app.kind === 'ios-simulator' ? sims.info(taskId, repo, app.name) : undefined
+    const simulator = isSimulatorApp(app) ? sims.info(taskId, repo, app.name) : undefined
     return {
       repo,
       name: app.name,
@@ -384,7 +385,7 @@ export function createApps(options: AppsOptions): Apps {
     let dirty = false
     for (const repo of task.repos) {
       for (const app of repo.apps) {
-        if (app.kind === 'ios-simulator') continue
+        if (isSimulatorApp(app)) continue
         const key = `${repo.name}/${slug(app.name)}`
         const owner = `${taskId}/${key}`
         const fixed = app.port
@@ -481,7 +482,7 @@ export function createApps(options: AppsOptions): Apps {
     if (state === 'running' || state === 'starting' || state === 'waiting') {
       return toApp(taskId, repo.name, app, existing)
     }
-    if (app.kind === 'ios-simulator' && !sims.supported) {
+    if (isSimulatorApp(app) && !sims.supported) {
       throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
     }
     const hold = store.newWorkHold()
@@ -491,7 +492,7 @@ export function createApps(options: AppsOptions): Apps {
         `The disk is almost full, so TED holds new Apps until there’s space`,
       )
     }
-    if (app.kind === 'ios-simulator') {
+    if (isSimulatorApp(app)) {
       const got = await sims.acquire(simApp(taskId, task, repo.name, app), by, start)
       if ('waiting' in got) {
         const instance: Instance = {
@@ -787,7 +788,7 @@ export function createApps(options: AppsOptions): Apps {
     const apps: TaskApp[] = []
     for (const repo of task.repos) {
       for (const app of repo.apps) {
-        if (app.kind === 'ios-simulator' && !sims.supported) continue
+        if (isSimulatorApp(app) && !sims.supported) continue
         apps.push(
           toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
         )
@@ -874,7 +875,7 @@ export function createApps(options: AppsOptions): Apps {
 
   async function simulatorApp(taskId: string, ref: AppRef) {
     const found = await find(taskId, ref)
-    if (found.app.kind !== 'ios-simulator' || !sims.supported) {
+    if (!isSimulatorApp(found.app) || !sims.supported) {
       throw new RequestError(409, `${found.app.name} isn’t an iOS simulator App`)
     }
     return found
@@ -938,7 +939,7 @@ export function createApps(options: AppsOptions): Apps {
         if (await stopNow(taskId, repo.name, app.name)) {
           store.appStopped({ taskId, repo: repo.name, name: app.name })
         }
-        if (app.kind === 'ios-simulator') await sims.shutDown(taskId, repo.name, app.name)
+        if (isSimulatorApp(app)) await sims.shutDown(taskId, repo.name, app.name)
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
       })
     },

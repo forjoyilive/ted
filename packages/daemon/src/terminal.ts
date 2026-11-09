@@ -4,12 +4,9 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { findBin } from './cli-env.ts'
 import { RequestError } from './errors.ts'
+import { shellQuote } from './node-entry.ts'
 
 export type OpenTerminal = (command: string, env: NodeJS.ProcessEnv) => Promise<void>
-
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'\\''`)}'`
-}
 
 export function terminalScript(
   command: string,

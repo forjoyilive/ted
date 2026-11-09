@@ -81,6 +81,12 @@ export interface AppLog {
   truncated: boolean
 }
 
+export function isSimulatorApp<T extends { kind: AppKind }>(
+  app: T,
+): app is T & { kind: 'ios-simulator' } {
+  return app.kind === 'ios-simulator'
+}
+
 export function appEnvName(name: string): string {
   return name.toUpperCase().replace(/[^A-Z0-9]/g, '_')
 }

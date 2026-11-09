@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 
 export class DaemonAlreadyRunningError extends Error {
   constructor() {
-    super(`TED's daemon is already running`)
+    super(`TED’s daemon is already running`)
   }
 }
 
@@ -31,6 +31,15 @@ export function tryLock(lockPath: string): Lock | undefined {
       db.exec('ROLLBACK')
       db.close()
     },
+  }
+}
+
+export async function waitForLock(lockPath: string, ms: number): Promise<Lock | undefined> {
+  const until = Date.now() + ms
+  for (;;) {
+    const lock = tryLock(lockPath)
+    if (lock || Date.now() >= until) return lock
+    await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
 

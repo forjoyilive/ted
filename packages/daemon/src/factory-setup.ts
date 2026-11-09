@@ -16,6 +16,7 @@ import {
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import { cloneRemoved } from './factories.ts'
+import { exists } from './files.ts'
 import * as git from './git.ts'
 import { type Gh, GhError } from './github/gh.ts'
 import type { IdleTimer } from './idle.ts'
@@ -793,11 +794,4 @@ async function checkFolder(folder: string): Promise<string> {
   const found = await stat(folder).catch(() => undefined)
   if (!found?.isDirectory()) throw new RequestError(400, `there’s no folder at ${folder}`)
   return path.normalize(folder)
-}
-
-function exists(file: string): Promise<boolean> {
-  return stat(file).then(
-    () => true,
-    () => false,
-  )
 }

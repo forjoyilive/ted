@@ -1,6 +1,5 @@
 import type { RunSlots, SimulatorSlots } from '@ted/protocol'
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+import { plural } from './words.ts'
 
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''

@@ -135,6 +135,25 @@ describe('Search and commands (⌘K)', () => {
       .waitFor()
   })
 
+  test('finds planning chats by title and opens one', async () => {
+    const { window, ted } = await launch()
+    await ted.startPlan({
+      factory: 'NB',
+      message: `Offline editing\n${JSON.stringify({ steps: [{ endTurn: true }] })}`,
+    })
+
+    await openPalette(window)
+    await palette(window).getByRole('combobox').fill('offline')
+    const plans = palette(window).getByRole('group', { name: 'Plans' })
+    await plans.getByRole('option', { name: /Offline editing/ }).click()
+
+    await palette(window).waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Planning chat' })
+      .getByRole('heading', { name: 'Offline editing' })
+      .waitFor()
+  })
+
   test('commands run from the palette, including the open Task’s actions', async () => {
     const { window, ted } = await launch()
     await ted.createTask({ factory: 'NB', title: 'Sync notes', description: 'y', start: false })

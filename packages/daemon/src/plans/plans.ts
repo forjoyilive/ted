@@ -36,6 +36,7 @@ import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
 import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
 import { copyFiles } from '../tasks/worktree.ts'
+import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
@@ -99,10 +100,6 @@ const maxMessageLength = 100_000
 
 const refuseRun = (caller: Caller) => {
   if (caller.kind !== 'app') throw new RequestError(403, 'Only the human changes planning chats')
-}
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function firstLine(text: string, max = 500): string {
@@ -606,10 +603,11 @@ export function createPlans(options: PlansOptions): Plans {
     )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
+    const lead = linkedTask(plan)?.lead
     const created = await createProposalTasks(store, proposal, shape, {
       firstPieceId: task?.id,
       factoryId: plan.factoryId,
-      fields: (row) => ({ plan: { planId: plan.id, row } }),
+      fields: (row) => ({ ...(lead && { lead }), plan: { planId: plan.id, row } }),
     })
     const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
     const answered = saved.answerRequest(request.id, {

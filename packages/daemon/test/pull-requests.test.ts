@@ -96,7 +96,7 @@ const commitStep = {
   ],
 }
 
-async function walkToSignoff(client: Client, withCommits: boolean) {
+async function walkToSignoff(client: Client, withCommits: boolean, extra = {}) {
   const list = [
     {
       everyMessage: [
@@ -112,6 +112,7 @@ async function walkToSignoff(client: Client, withCommits: boolean) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({ steps: list }),
     factory: 'NB',
+    ...extra,
   })
   await client.ok('POST', `/tasks/${task.id}/start`)
   await waitUntil(async () => {
@@ -177,6 +178,31 @@ describe('Pushing and pull requests', () => {
       await run('git', ['rev-list', '--count', `main..refs/heads/${repo.branch}`], { cwd: origin })
     ).stdout.trim()
     expect(ahead).toBe('3')
+  })
+
+  test('a Task from a Sentry issue says Fixes <short ID> in its pull request body', async () => {
+    const client = await start()
+    const url = 'https://acme.sentry.io/issues/4242/'
+    for (const [body, error] of [
+      [{ sentryId: 'NOTEBOOK-1A' }, 'sentryId needs a source'],
+      [
+        { source: url, sentryId: 'not an id' },
+        'sentryId must be a Sentry short ID, such as NOTEBOOK-1A',
+      ],
+    ] as const) {
+      expect(
+        await client.call('POST', '/tasks', { title: 'Crash', factory: 'NB', ...body }),
+      ).toEqual({ status: 400, body: { error } })
+    }
+    const task = await walkToSignoff(client, true, { source: url, sentryId: 'NOTEBOOK-1A' })
+    expect(task.source).toEqual({ url, sentry: { shortId: 'NOTEBOOK-1A' } })
+
+    const [create] = await waitUntil(async () => {
+      const found = await prCalls('create')
+      return found.length > 0 ? found : undefined
+    }, 'the pull request')
+    expect(create?.stdin).toContain('\n\nFixes NOTEBOOK-1A')
+    expect(create?.stdin).toContain(url)
   })
 
   test('a Task with no commits gets no push and no pull request', async () => {

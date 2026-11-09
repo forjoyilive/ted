@@ -3,6 +3,7 @@ import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
+import { plural } from '../words.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './storage.module.css'
@@ -15,8 +16,6 @@ const when = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
 })
 const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 function backupTitle(backup: StoredBackup): string {
   const at = new Date(backup.takenAt)

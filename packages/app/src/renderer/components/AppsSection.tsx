@@ -1,4 +1,5 @@
 import type { SimulatorSlots, Task, TaskApp } from '@ted/protocol'
+import { isSimulatorApp } from '@ted/protocol/app'
 import { useEffect, useRef, useState } from 'react'
 import {
   appStatusLine,
@@ -154,7 +155,7 @@ function AppRow({
             <OpenIcon />
           </button>
         )}
-        {app.kind === 'ios-simulator' && (
+        {isSimulatorApp(app) && (
           <button
             type="button"
             className={styles.action}
@@ -183,7 +184,7 @@ function AppRow({
             className={styles.action}
             aria-label={`Run ${app.name}`}
             title="Run"
-            aria-expanded={app.kind === 'ios-simulator' ? choosing !== undefined : undefined}
+            aria-expanded={isSimulatorApp(app) ? choosing !== undefined : undefined}
             disabled={busy || !runnable}
             onClick={run}
           >

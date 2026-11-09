@@ -445,7 +445,7 @@ describe('Factory settings', () => {
           name: 'Web',
           kind: 'web',
           run: 'npm run web -- --port $PORT',
-          url: 'http://localhost:$PORT',
+          url: `http://localhost:\${PORT}`,
         })
         repos.push({
           repo: 'acme/api',
@@ -474,7 +474,7 @@ describe('Factory settings', () => {
           '    apps:',
           '      - name: Web',
           '        run: npm run web -- --port $PORT',
-          '        url: http://localhost:$PORT',
+          `        url: http://localhost:\${PORT}`,
           '  - name: api',
           '    remote: https://github.com/acme/api.git',
           '    apps:',

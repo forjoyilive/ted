@@ -223,7 +223,7 @@ describe('Factory settings draft', () => {
         Date.parse('2026-11-09T12:00:00Z'),
       ),
     ).toBe(
-      'TED is using the last valid version, from 3f9c2e1, 2 days ago. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.',
+      'TED is using the last valid version, from 3f9c2e1, 2d ago. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.',
     )
   })
 })

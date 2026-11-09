@@ -1,14 +1,14 @@
 import { spawn } from 'node:child_process'
 import { closeSync, fstatSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
 import { watchExitWith } from '../exit-with.ts'
-import { tryLock } from '../lock.ts'
+import { waitForLock } from '../lock.ts'
 import { type AppHostRecord, type AppLaunchFile, appFiles } from './host-files.ts'
 
 const dir = process.argv[2]
 if (!dir) throw new Error('usage: apps/host.ts <app-dir>')
 delete process.env.ELECTRON_RUN_AS_NODE
 const files = appFiles(dir)
-const lock = tryLock(files.lock)
+const lock = await waitForLock(files.lock, 2_000)
 if (!lock) throw new Error(`another host already runs ${dir}`)
 const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as AppLaunchFile
 const records = openSync(files.records, 'a', 0o600)

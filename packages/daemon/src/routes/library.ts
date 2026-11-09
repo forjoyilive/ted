@@ -1,6 +1,6 @@
 import { agentRoles, type LibraryChanges } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
-import { agentChoice, keepStageFiles, record, stageFiles, stageSettings } from './factories.ts'
+import { keepStageFiles, record, roleChoice, stageFiles, stageSettings } from './factories.ts'
 import { type Route, readJson } from './route.ts'
 
 export const libraryRoutes: Route[] = [
@@ -47,7 +47,7 @@ function libraryChanges(given: unknown): LibraryChanges {
     const agents = record(body.agents)
     changes.agents = {}
     for (const role of agentRoles) {
-      if (agents[role] !== undefined) changes.agents[role] = agentChoice(agents[role], role)
+      if (agents[role] !== undefined) changes.agents[role] = roleChoice(agents[role], role)
     }
   }
   return changes

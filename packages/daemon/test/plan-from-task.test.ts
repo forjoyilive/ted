@@ -89,8 +89,12 @@ async function start() {
 
 type Client = Awaited<ReturnType<typeof start>>
 
-async function tooBigTask(client: Client): Promise<{ task: Task; sizeCheck: Comment }> {
+async function tooBigTask(
+  client: Client,
+  extra: Record<string, unknown> = {},
+): Promise<{ task: Task; sizeCheck: Comment }> {
   const task = await client.ok<Task>('POST', '/tasks', {
+    ...extra,
     title: steps(
       { everyMessage: [{ endTurn: true }] },
       { run: ['ted', 'outcome', 'advance'] },
@@ -165,7 +169,8 @@ const threadLines = async (client: Client, task: Task) =>
 describe('Plan in chat from a Task', () => {
   test('opens a chat linked to the Task, which waits in Clarify; approval narrows it and its Task Lead carries on', async () => {
     const client = await start()
-    const { task, sizeCheck } = await tooBigTask(client)
+    const lead = { agent: 'claude', effort: 'high' }
+    const { task, sizeCheck } = await tooBigTask(client, { lead })
     const { answered, planId } = await planInChat(
       client,
       sizeCheck,
@@ -226,8 +231,13 @@ describe('Plan in chat from a Task', () => {
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     const sync = tasks.find((t) => t.title === 'Sync queue')
     const badge = tasks.find((t) => t.title === 'Offline badge')
-    expect(sync).toMatchObject({ stage: 'backlog', blockedBy: [task.id], createdBy: 'planning' })
-    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [] })
+    expect(sync).toMatchObject({
+      stage: 'backlog',
+      blockedBy: [task.id],
+      createdBy: 'planning',
+      lead,
+    })
+    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [], lead })
     expect(await getTask(client, task.id)).toMatchObject({
       stage: 'clarify',
       title: 'Local note cache',
@@ -276,6 +286,38 @@ describe('Plan in chat from a Task', () => {
     const after = await getTask(client, task.id)
     expect(after.stage).toBe('clarify')
     expect(after.activity).not.toBe('Planning in chat')
+  })
+
+  test('a chat that ends while no Task Lead Run is live tells the next Run', async () => {
+    const client = await start()
+    const { task, sizeCheck } = await tooBigTask(client)
+    const { planId } = await planInChat(
+      client,
+      sizeCheck,
+      { say: 'Let us plan' },
+      { endTurn: true },
+    )
+    await waitForPlan(client, planId, (d) => d.plan.status === 'idle', 'the planner to idle')
+    const stoppedRun = (await getTask(client, task.id)).leadRunId
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await waitUntil(async () => {
+      const run = await client.getRun(stoppedRun ?? '')
+      return run.run.state === 'finished' || undefined
+    }, 'the Task Lead to stop')
+    await client.ok('POST', `/plans/${planId}/stop`)
+    await waitForPlan(client, planId, (d) => d.plan.status === 'stopped', 'the chat to stop')
+
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const told = await waitUntil(
+      async () => {
+        const now = await getTask(client, task.id)
+        if (!now.leadRunId || now.leadRunId === stoppedRun) return undefined
+        return (await leadMessages(client, now)).find((m) => m.includes('without an approved plan'))
+      },
+      'the next Run to hear the chat ended',
+      20_000,
+    )
+    expect(told).toContain('ted clarify too-big')
   })
 
   test('archiving the Task mid-plan unlocks row 1 and notes why; approval then creates every row', async () => {

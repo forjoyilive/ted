@@ -129,8 +129,26 @@ describe('search over the store', () => {
       tasks: [],
       comments: [],
       factories: [],
+      plans: [],
       automations: [],
     })
+  })
+
+  test('finds planning chats by title, open ones first, then this Factory’s, newest first', async () => {
+    const { notebook, site } = await twoFactories()
+    const chat = (factoryId: string, title: string) =>
+      store.plans.start({ factoryId, title, message: 'Plan it', agent: 'claude' })
+    const old = chat(site.id, 'Offline editing, first try')
+    store.plans.ended(old.id, { outcome: 'finished' })
+    const there = chat(notebook.id, 'Offline sync')
+    const here = chat(site.id, 'Offline mode')
+    chat(site.id, 'Unrelated plan')
+
+    expect(search(store, { query: 'offline', factoryId: site.id }).plans).toEqual([
+      { planId: here.id, factoryId: site.id, title: 'Offline mode', ended: false },
+      { planId: there.id, factoryId: notebook.id, title: 'Offline sync', ended: false },
+      { planId: old.id, factoryId: site.id, title: 'Offline editing, first try', ended: true },
+    ])
   })
 
   test('finds Automations by name, this Factory’s first and those that are on before off', async () => {

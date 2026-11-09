@@ -36,6 +36,12 @@ export function gitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv
   return { ...base, GIT_TERMINAL_PROMPT: '0' }
 }
 
+export function loginShell(env: NodeJS.ProcessEnv): string {
+  const given = env.SHELL
+  if (given?.startsWith('/')) return given
+  return process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh'
+}
+
 export function ghEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...base, GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' }
 }

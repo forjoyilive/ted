@@ -33,6 +33,13 @@ export interface FactoryHit {
   name: string
 }
 
+export interface PlanHit {
+  planId: string
+  factoryId: string
+  title: string
+  ended: boolean
+}
+
 export interface AutomationHit {
   automationId: string
   factoryId: string
@@ -45,10 +52,17 @@ export interface SearchResults {
   tasks: TaskHit[]
   comments: CommentHit[]
   factories: FactoryHit[]
+  plans: PlanHit[]
   automations: AutomationHit[]
 }
 
-export const searchLimits = { tasks: 20, comments: 10, factories: 10, automations: 10 } as const
+export const searchLimits = {
+  tasks: 20,
+  comments: 10,
+  factories: 10,
+  plans: 10,
+  automations: 10,
+} as const
 
 export function foldText(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()

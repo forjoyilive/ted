@@ -1,4 +1,5 @@
 import type { PullRequestPreview, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
+import { isSimulatorApp } from '@ted/protocol/app'
 import { age, ago } from './requests.ts'
 
 export interface HostedPreview {
@@ -36,7 +37,7 @@ export const isLive = (app: TaskApp) =>
 
 export function needsSlot(app: TaskApp, slots: SimulatorSlots | undefined): boolean {
   return (
-    app.kind === 'ios-simulator' &&
+    isSimulatorApp(app) &&
     slots !== undefined &&
     app.simulator?.booted !== true &&
     slots.booted.length >= slots.limit

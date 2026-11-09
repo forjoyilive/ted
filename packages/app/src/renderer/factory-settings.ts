@@ -13,6 +13,7 @@ import type {
 import { agentRoles, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
+import { ago } from './requests.ts'
 
 export type RepoField =
   | 'name'
@@ -278,22 +279,22 @@ export function agentEdited(draft: SettingsDraft, loaded: SettingsDraft, role: A
 }
 
 export function lastRunText(checkTry: CheckTry, now: number): string {
-  const ago = timeAgo(Date.parse(checkTry.finishedAt ?? checkTry.startedAt), now)
+  const since = ago(checkTry.finishedAt ?? checkTry.startedAt, now)
   const took = checkTry.durationMs === undefined ? '' : `${duration(checkTry.durationMs)} · `
-  if (checkTry.setupFailed === true) return `✗ Setup failed · ${ago}`
+  if (checkTry.setupFailed === true) return `✗ Setup failed · ${since}`
   switch (checkTry.state) {
     case 'running':
       return `Running · ${duration(now - Date.parse(checkTry.startedAt))}`
     case 'passed':
-      return `✓ ${took}${ago}`
+      return `✓ ${took}${since}`
     case 'timed-out':
-      return `✗ Timed out · ${ago}`
+      return `✗ Timed out · ${since}`
     case 'stopped':
-      return `Stopped · ${ago}`
+      return `Stopped · ${since}`
     default:
       return checkTry.exitCode === 127
-        ? `✗ Command not found · ${ago}`
-        : `✗ Exit ${checkTry.exitCode ?? '?'} · ${ago}`
+        ? `✗ Command not found · ${since}`
+        : `✗ Exit ${checkTry.exitCode ?? '?'} · ${since}`
   }
 }
 
@@ -303,17 +304,6 @@ export function duration(ms: number): string {
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`
   return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
-}
-
-export function timeAgo(then: number, now: number): string {
-  const seconds = Math.max(0, Math.round((now - then) / 1000))
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return days === 1 ? '1 day ago' : `${days} days ago`
 }
 
 export function driftLine(
@@ -334,10 +324,10 @@ export function lastValidLine(invalid: LibraryInvalid & { url?: string }, now: n
     if (!invalid.lastValid) {
       return 'TED has no earlier valid version, so TED’s defaults apply. Saving from here replaces the broken file.'
     }
-    return `TED is using the last valid version, from ${invalid.lastValid.version}, ${timeAgo(Date.parse(invalid.lastValid.at), now)}. This page shows that version. Saving from here replaces the broken file.`
+    return `TED is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This page shows that version. Saving from here replaces the broken file.`
   }
   if (!invalid.lastValid) {
     return 'TED has no earlier valid version, so the inherited settings apply. Saving from here replaces the broken file.'
   }
-  return `TED is using the last valid version, from ${invalid.lastValid.version}, ${timeAgo(Date.parse(invalid.lastValid.at), now)}. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.`
+  return `TED is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.`
 }

@@ -194,7 +194,7 @@ export function Board({
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
   const chips = filterChips(filters, factories)
-  const empty = boardEmpty(tasks, filters)
+  const empty = boardEmpty(tasks, filters, text)
 
   function endDrag() {
     setDragging(undefined)
@@ -511,7 +511,13 @@ export function Board({
         {empty === 'no-matches' && (
           <div className={styles.emptyOverlay}>
             <EmptyState card title="No Tasks match these filters">
-              <Button size="small" onClick={() => onFilters({})}>
+              <Button
+                size="small"
+                onClick={() => {
+                  setText('')
+                  onFilters({})
+                }}
+              >
                 Clear filters
               </Button>
             </EmptyState>

@@ -3,6 +3,7 @@ import type {
   CommentHit,
   Factory,
   FactoryHit,
+  PlanHit,
   SearchField,
   SearchResults,
   TaskHit,
@@ -111,6 +112,21 @@ function automationContent(hit: AutomationHit, factories: readonly Factory[]) {
       <span className={styles.meta}>
         <span>{factoryName(factories, hit.factoryId)}</span>
         {!hit.on && <span>Off</span>}
+      </span>
+    </>
+  )
+}
+
+function planContent(hit: PlanHit, factories: readonly Factory[]) {
+  return (
+    <>
+      <span className={styles.ref}>Plan</span>
+      <span className={styles.main}>
+        <span className={styles.title}>{hit.title}</span>
+      </span>
+      <span className={styles.meta}>
+        <span>{factoryName(factories, hit.factoryId)}</span>
+        {hit.ended && <span>Ended</span>}
       </span>
     </>
   )
@@ -249,13 +265,14 @@ export function SearchPalette({
         run: () => onOpenTask(hit.taskId, hit.factoryId),
       })
     }
-    for (const hit of found?.factories ?? []) {
+    for (const hit of found?.plans ?? []) {
       items.push({
-        key: `factory:${hit.factoryId}`,
-        group: 'Factories',
-        label: hit.name,
-        content: factoryContent(hit),
-        run: () => onOpenFactory(hit.factoryId),
+        key: `plan:${hit.planId}`,
+        group: 'Plans',
+        label: hit.title,
+        content: planContent(hit, context.factories),
+        run: () =>
+          context.dispatch({ type: 'open-plan', factoryId: hit.factoryId, planId: hit.planId }),
       })
     }
     for (const hit of found?.automations ?? []) {
@@ -269,6 +286,15 @@ export function SearchPalette({
             type: 'open',
             screen: { kind: 'factory', factoryId: hit.factoryId, view: 'automations' },
           }),
+      })
+    }
+    for (const hit of found?.factories ?? []) {
+      items.push({
+        key: `factory:${hit.factoryId}`,
+        group: 'Factories',
+        label: hit.name,
+        content: factoryContent(hit),
+        run: () => onOpenFactory(hit.factoryId),
       })
     }
   }

@@ -1,5 +1,6 @@
 import type { DaemonEvent, ShellOutput, ShellSize, TaskShell } from '@ted/protocol'
 import * as pty from 'node-pty'
+import { loginShell } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import type { IdleTimer } from './idle.ts'
 
@@ -48,12 +49,6 @@ interface Shell {
 }
 
 const keyOf = (taskId: string, repo: string) => `${taskId}\0${repo}`
-
-export function loginShell(env: NodeJS.ProcessEnv): string {
-  const given = env.SHELL
-  if (given?.startsWith('/')) return given
-  return process.platform === 'darwin' ? '/bin/zsh' : '/bin/sh'
-}
 
 export function createShells(options: ShellsOptions): Shells {
   const shells = new Map<string, Shell>()

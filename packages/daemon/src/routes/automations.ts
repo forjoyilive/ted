@@ -1,21 +1,16 @@
 import {
-  type AgentKind,
   type AnswerAutomationRequest,
   type AutomationInput,
   type AutomationSchedule,
   type AutomationTemplateId,
-  agentKinds,
   automationTemplateIds,
   type CreateAutomationRequest,
   type EditAutomationRequest,
-  type Effort,
-  efforts,
-  isModelName,
   type Weekday,
   weekdays,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
-import { type Route, readJson } from './route.ts'
+import { agentChoice, bodyObject, optionalText, type Route, readJson } from './route.ts'
 
 const factoryQuery = '(?:\\?factory=([^&]*))?'
 const ref = '([^/?]+)'
@@ -40,8 +35,8 @@ export const automationRoutes: Route[] = [
     path: path(`/automations/schedule-preview`),
     fileToken: true,
     async handle({ req }, { automations }) {
-      const body = record(await readJson(req))
-      const timeZone = optionalString(body.timeZone, 'timeZone')
+      const body = bodyObject(await readJson(req))
+      const timeZone = optionalText(body.timeZone, 'timeZone')
       return [200, automations.preview(scheduleInput(body.schedule), timeZone)]
     },
   },
@@ -125,7 +120,7 @@ export const automationRoutes: Route[] = [
     path: path(`/automation-runs/comments`),
     runToken: true,
     async handle({ req, caller }, { automations }) {
-      const body = record(await readJson(req))
+      const body = bodyObject(await readJson(req))
       const text = typeof body.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       const choices = optionalStrings(body.choices, 'choices')
@@ -136,29 +131,16 @@ export const automationRoutes: Route[] = [
     method: 'POST',
     path: path(`/automation-requests/${ref}/answer`),
     async handle({ req, params: [id = ''] }, { automations }) {
-      const body = record(await readJson(req))
+      const body = bodyObject(await readJson(req))
       const answer: AnswerAutomationRequest = {}
-      const choice = optionalString(body.choice, 'choice')
-      const text = optionalString(body.text, 'text')
+      const choice = optionalText(body.choice, 'choice')
+      const text = optionalText(body.text, 'text')
       if (choice !== undefined) answer.choice = choice
       if (text !== undefined) answer.text = text
       return [200, await automations.answer(id, answer)]
     },
   },
 ]
-
-function record(value: unknown): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new HttpError(400, 'body must be a JSON object')
-  }
-  return value as Record<string, unknown>
-}
-
-function optionalString(value: unknown, name: string): string | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
-  return value
-}
 
 function optionalStrings(value: unknown, name: string): string[] | undefined {
   if (value === undefined) return undefined
@@ -171,7 +153,7 @@ function optionalStrings(value: unknown, name: string): string[] | undefined {
 const clock = /^([01]\d|2[0-3]):[0-5]\d$/
 
 function scheduleInput(value: unknown): AutomationSchedule {
-  const given = record(value)
+  const given = bodyObject(value)
   const at = () => {
     if (typeof given.at !== 'string' || !clock.test(given.at)) {
       throw new HttpError(400, 'schedule.at must be a time as HH:MM')
@@ -215,9 +197,9 @@ function scheduleInput(value: unknown): AutomationSchedule {
 
 function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 'template'>> {
   const out: Partial<Omit<AutomationInput, 'template'>> = {}
-  const name = optionalString(body.name, 'name')
-  const prompt = optionalString(body.prompt, 'prompt')
-  const timeZone = optionalString(body.timeZone, 'timeZone')
+  const name = optionalText(body.name, 'name')
+  const prompt = optionalText(body.prompt, 'prompt')
+  const timeZone = optionalText(body.timeZone, 'timeZone')
   if (name !== undefined) out.name = name
   if (prompt !== undefined) {
     if (Buffer.byteLength(prompt) > maxPromptBytes) throw new HttpError(413, 'prompt is too long')
@@ -225,22 +207,7 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
   }
   if (timeZone !== undefined) out.timeZone = timeZone
   if (body.schedule !== undefined) out.schedule = scheduleInput(body.schedule)
-  if (body.agent !== undefined) {
-    if (!agentKinds.includes(body.agent as AgentKind)) {
-      throw new HttpError(400, `agent must be ${agentKinds.join(' or ')}`)
-    }
-    out.agent = body.agent as AgentKind
-  }
-  if (body.model !== undefined) {
-    if (!isModelName(body.model)) throw new HttpError(400, 'model isn’t a model name')
-    out.model = body.model
-  }
-  if (body.effort !== undefined) {
-    if (!efforts.includes(body.effort as Effort)) {
-      throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
-    }
-    out.effort = body.effort as Effort
-  }
+  Object.assign(out, agentChoice(body))
   if (body.on !== undefined) {
     if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be true or false')
     out.on = body.on
@@ -249,13 +216,13 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
 }
 
 function createInput(value: unknown): CreateAutomationRequest {
-  const body = record(value)
+  const body = bodyObject(value)
   const { name, prompt, schedule, ...rest } = fields(body)
   if (name === undefined) throw new HttpError(400, 'name is required')
   if (prompt === undefined) throw new HttpError(400, 'prompt is required')
   if (schedule === undefined) throw new HttpError(400, 'schedule is required')
   const input: CreateAutomationRequest = { name, prompt, schedule, ...rest }
-  const factory = optionalString(body.factory, 'factory')
+  const factory = optionalText(body.factory, 'factory')
   if (factory !== undefined) input.factory = factory
   if (body.template !== undefined) {
     if (!automationTemplateIds.includes(body.template as AutomationTemplateId)) {
@@ -271,7 +238,7 @@ function createInput(value: unknown): CreateAutomationRequest {
 }
 
 function editInput(value: unknown): EditAutomationRequest {
-  const body = record(value)
+  const body = bodyObject(value)
   if (body.template !== undefined) throw new HttpError(400, 'the template is chosen at creation')
   const { model, effort, ...rest } = body
   const out: EditAutomationRequest = fields({

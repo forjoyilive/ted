@@ -34,8 +34,9 @@ export function inboxEmpty({
 export function boardEmpty(
   tasks: readonly Task[],
   filters: ListFilters,
+  text = '',
 ): 'no-tasks' | 'no-matches' | undefined {
   if (!tasks.some((t) => !t.archived)) return 'no-tasks'
-  if (filterTasks(tasks, filters).length === 0) return 'no-matches'
+  if (filterTasks(tasks, filters, text).length === 0) return 'no-matches'
   return undefined
 }

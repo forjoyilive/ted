@@ -4,6 +4,7 @@ import {
   type FactoryHit,
   foldText,
   matchesTerms,
+  type PlanHit,
   type SearchField,
   type SearchResults,
   type SearchTaskState,
@@ -63,7 +64,7 @@ function taskField(
 export function search(store: TedStore, { query, factoryId }: SearchRequest): SearchResults {
   const terms = searchTerms(query)
   if (terms.length === 0) {
-    return { query, tasks: [], comments: [], factories: [], automations: [] }
+    return { query, tasks: [], comments: [], factories: [], plans: [], automations: [] }
   }
   const exact = foldText(query.trim())
   const tasks = store.listTasks()
@@ -126,6 +127,21 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
     .map((f) => ({ factoryId: f.id, name: f.name }))
 
   const factoryIds = new Set(store.listFactories().map((f) => f.id))
+  const planHits: PlanHit[] = store.plans
+    .list()
+    .filter((p) => factoryIds.has(p.factoryId) && matchesTerms(terms, p.title))
+    .sort(
+      (a, b) =>
+        Number(a.state === 'ended') - Number(b.state === 'ended') ||
+        here(a.factoryId) - here(b.factoryId) ||
+        b.createdAt.localeCompare(a.createdAt),
+    )
+    .map((p) => ({
+      planId: p.id,
+      factoryId: p.factoryId,
+      title: p.title,
+      ended: p.state === 'ended',
+    }))
   const automationHits: AutomationHit[] = store.automations
     .list()
     .filter((a) => factoryIds.has(a.factoryId) && matchesTerms(terms, a.name))
@@ -137,6 +153,7 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
     tasks: taskHits.slice(0, searchLimits.tasks),
     comments: commentHits.slice(0, searchLimits.comments),
     factories: factoryHits.slice(0, searchLimits.factories),
+    plans: planHits.slice(0, searchLimits.plans),
     automations: automationHits.slice(0, searchLimits.automations),
   }
 }

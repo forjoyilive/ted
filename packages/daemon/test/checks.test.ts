@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
@@ -520,6 +520,56 @@ describe('the Checks’ environment', () => {
     ]) {
       expect(env[name], name).toBeUndefined()
     }
+  }, 90_000)
+
+  test('Checks run in the login shell and environment TED read at start, not the daemon’s own', async () => {
+    const loginBin = path.join(scratch, 'login-bin')
+    await mkdir(loginBin)
+    await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
+    await chmod(path.join(loginBin, 'login-tool'), 0o755)
+    const shell = path.join(scratch, 'fake-login-shell')
+    const seen = path.join(scratch, 'check-saw')
+    await writeFile(
+      shell,
+      [
+        '#!/bin/sh',
+        `if [ "$1" = "-lc" ]; then echo login-shell > '${seen}'; exec /bin/sh -c "$2"; fi`,
+        `PATH='${loginBin}':"$PATH"`,
+        'export PATH',
+        'exec /bin/sh -c "$4"',
+        '',
+      ].join('\n'),
+    )
+    await chmod(shell, 0o755)
+    await workflow(`      - { name: Tool, run: "login-tool ran >> '${seen}'" }`)
+    const realShell = process.env.SHELL
+    process.env.SHELL = shell
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      integrations: { loginShell: true },
+    }).finally(() => {
+      process.env.SHELL = realShell
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+    const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+      const res = await client.call(method, route, body)
+      if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+      return res.body as T
+    }
+    const task = await startTask(
+      { ...client, ok },
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        advance,
+      ),
+    )
+    const [run] = await finishedRuns({ ...client, ok }, task, 1)
+    expect(states(run)).toEqual([['Tool', 'passed']])
+    expect(await readFile(seen, 'utf8')).toBe('login-shell\nran')
   }, 90_000)
 })
 

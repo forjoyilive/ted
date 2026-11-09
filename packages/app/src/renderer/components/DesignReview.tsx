@@ -287,6 +287,7 @@ function SetupProposalView({ setup }: { setup: SetupProposal }) {
               <li key={app.name} className={styles.appRow}>
                 <Result passed={app.passed} />
                 <span className={styles.setupName}>{app.name}</span>
+                <code className={styles.command}>{app.run ?? ''}</code>
                 <span className={styles.meta}>{app.repo ?? ''}</span>
                 {app.passed ? (
                   <span className={styles.appReady}>{`${app.kind} · ${app.ready}`}</span>

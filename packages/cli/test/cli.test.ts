@@ -494,7 +494,7 @@ describe('ted automation', () => {
     ])
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
-    expect(sentry).toContain('Fixes <SENTRY-SHORT-ID>')
+    expect(sentry).toContain('--sentry-id')
   })
 })
 

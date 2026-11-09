@@ -27,10 +27,9 @@ import {
   planStatusChip,
   requestHeading,
   requestState,
-  timeOf,
   when,
 } from '../plans.ts'
-import { ago, useNow } from '../requests.ts'
+import { ago, clockTime, useNow } from '../requests.ts'
 import { agentLabels, modelChoices } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
@@ -628,7 +627,7 @@ function EventLine({ text, at, good }: { text: string; at: string; good?: boolea
     <p className={styles.event}>
       <span className={good ? `${styles.dot} ${styles.goodDot}` : styles.dot} aria-hidden />
       <span className={styles.eventText}>{text}</span>
-      <span className={styles.eventTime}>{timeOf(at)}</span>
+      <span className={styles.eventTime}>{clockTime(at)}</span>
     </p>
   )
 }
@@ -841,7 +840,7 @@ function QueuedChat({ plan }: { plan: Plan }) {
     <div className={styles.queued}>
       <div className={styles.queuedBody}>
         <div className={styles.bubble}>
-          <span className={styles.bubbleHead}>{`You · ${timeOf(plan.createdAt)}`}</span>
+          <span className={styles.bubbleHead}>{`You · ${clockTime(plan.createdAt)}`}</span>
           <p className={styles.bubbleText}>{plan.message}</p>
         </div>
         <p className={styles.waitNote}>
