@@ -47,6 +47,7 @@ export interface StoredPlan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  from?: { planId: string; title: string; context: string }
   fromTask?: PlanTaskLink
 }
 
@@ -74,9 +75,10 @@ export interface PlanStore {
   start(
     input: Pick<
       StoredPlan,
-      'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask'
+      'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask' | 'from'
     >,
   ): StoredPlan
+  retried(id: string, retry: { fresh: boolean; checkout: PlanCheckout[] }): void
   detachTask(id: string, reason: PlanTaskGone): void
   rename(id: string, title: string): void
   delete(id: string): void
@@ -122,6 +124,13 @@ export function createPlanStore({
     createdAt: row.createdAt,
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.fromPlanId !== null && {
+      from: {
+        planId: row.fromPlanId,
+        title: row.fromPlanTitle ?? '',
+        context: row.context ?? '',
+      },
+    }),
     ...(row.fromTaskId !== null && {
       fromTask: {
         taskId: row.fromTaskId,
@@ -171,17 +180,22 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, fromTask, ...input }) {
+    start({ model, effort, fromTask, from, ...input }) {
       const id = randomUUID()
       const at = now()
       commit(
-        events.planStarted({
-          ...input,
-          id,
-          model: model ?? null,
-          effort: effort ?? null,
-          at,
-        }),
+        events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
+        ...(from
+          ? [
+              events.planContinued({
+                id,
+                fromPlanId: from.planId,
+                fromTitle: from.title,
+                context: from.context,
+                at,
+              }),
+            ]
+          : []),
         ...(fromTask
           ? [
               events.planStartedFromTask({
@@ -214,6 +228,15 @@ export function createPlanStore({
     },
     began: (id, checkout) =>
       planEvent(id, (at) => events.planRunBegan({ id, checkout: JSON.stringify(checkout), at })),
+    retried: (id, { fresh, checkout }) =>
+      planEvent(id, (at) =>
+        events.planRetried({
+          id,
+          fresh,
+          checkout: checkout.length === 0 ? null : JSON.stringify(checkout),
+          at,
+        }),
+      ),
     resumeQueued: (id, error) =>
       planEvent(id, (at) => events.planRunResumeQueued({ id, error, at })),
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),

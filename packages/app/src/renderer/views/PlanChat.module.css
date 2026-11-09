@@ -386,6 +386,12 @@
   font-size: var(--text-13);
 }
 
+.endedRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .queued {
   display: flex;
   flex: 1;

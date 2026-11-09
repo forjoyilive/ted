@@ -637,7 +637,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       if (!start) throw new Error(`Run ${runId}'s host never started`)
       stopRequested.add(runId)
-      if (!isLockHeld(runFiles(runDir).lock)) return void (await done)
+      let held = isLockHeld(runFiles(runDir).lock)
+      for (let waited = 0; !held && waited < stopGraceMs; waited += pollMs) {
+        const ended = await Promise.race([done.then(() => true), sleep(pollMs).then(() => false)])
+        if (ended) return
+        held = isLockHeld(runFiles(runDir).lock)
+      }
+      if (!held) return void (await done)
       const pid = await hostPid(runDir, start)
       signal(pid, 'SIGTERM')
       if ((await Promise.race([done, timeout])) === 'timeout') {

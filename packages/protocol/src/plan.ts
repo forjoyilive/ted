@@ -69,6 +69,8 @@ export interface Plan {
   runId?: string
   proposedTasks?: number
   createdTasks: number
+  waitingOn?: string
+  fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
 }
 
@@ -89,6 +91,7 @@ export interface StartPlanRequest {
   agent?: AgentKind
   model?: string
   effort?: Effort
+  from?: string
 }
 
 export function planTitle(message: string): string {

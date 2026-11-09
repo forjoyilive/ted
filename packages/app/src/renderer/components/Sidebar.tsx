@@ -9,6 +9,7 @@ import styles from './Sidebar.module.css'
 export interface FactoryBadges {
   waiting?: number
   failed?: boolean
+  plansFailed?: boolean
   stopsWork?: boolean
   drift?: number
   automationFailed?: boolean
@@ -314,6 +315,15 @@ export function Sidebar({
                     )}
                     {view === 'automations' && badge.automationFailed && (
                       <span role="img" aria-label="An Automation failed" className={styles.subDot}>
+                        <DotIcon className={styles.failedDot} />
+                      </span>
+                    )}
+                    {view === 'plans' && badge.plansFailed && (
+                      <span
+                        role="img"
+                        aria-label="A planning chat failed"
+                        className={styles.subDot}
+                      >
                         <DotIcon className={styles.failedDot} />
                       </span>
                     )}

@@ -143,6 +143,7 @@ export const ted = {
   renamePlan: (id: string, title: string) =>
     window.ted.request('renamePlan', id, title) as Promise<Plan>,
   stopPlan: (id: string) => window.ted.request('stopPlan', id) as Promise<Plan>,
+  retryPlan: (id: string) => window.ted.request('retryPlan', id) as Promise<Plan>,
   deletePlan: (id: string) => window.ted.request('deletePlan', id) as Promise<{ deleted: true }>,
   planInbox: () => window.ted.request('planInbox') as Promise<PlanInboxItem[]>,
   answerPlanRequest: (id: string, answer: AnswerRequest) =>

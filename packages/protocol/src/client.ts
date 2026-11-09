@@ -276,6 +276,10 @@ export class DaemonClient {
     return this.#request('POST', `/plans/${encodeURIComponent(id)}/stop`, {})
   }
 
+  retryPlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/retry`, {})
+  }
+
   deletePlan(id: string): Promise<{ deleted: true }> {
     return this.#request('DELETE', `/plans/${encodeURIComponent(id)}`)
   }

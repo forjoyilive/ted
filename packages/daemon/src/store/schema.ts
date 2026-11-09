@@ -647,6 +647,9 @@ export const plans = State.SQLite.table({
     createdAt: State.SQLite.text(),
     startedAt: State.SQLite.text({ nullable: true }),
     finishedAt: State.SQLite.text({ nullable: true }),
+    fromPlanId: State.SQLite.text({ nullable: true }),
+    fromPlanTitle: State.SQLite.text({ nullable: true }),
+    context: State.SQLite.text({ nullable: true }),
     fromTaskId: State.SQLite.text({ nullable: true }),
     fromTaskDisplayId: State.SQLite.text({ nullable: true }),
     fromTaskTitle: State.SQLite.text({ nullable: true }),
@@ -2099,6 +2102,25 @@ export const events = {
     name: 'v1.PlanRequestAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
   }),
+  planContinued: Events.synced({
+    name: 'v1.PlanContinued',
+    schema: Schema.Struct({
+      id: Schema.String,
+      fromPlanId: Schema.String,
+      fromTitle: Schema.String,
+      context: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  planRetried: Events.synced({
+    name: 'v1.PlanRetried',
+    schema: Schema.Struct({
+      id: Schema.String,
+      fresh: Schema.Boolean,
+      checkout: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   planStartedFromTask: Events.synced({
     name: 'v1.PlanStartedFromTask',
     schema: Schema.Struct({
@@ -2986,6 +3008,19 @@ const materializers = counted(
         planRequests.insert({ ...request, createdAt: at }),
       'v1.PlanRequestAnswered': ({ id, answer }) => planRequests.update({ answer }).where({ id }),
       'v1.PlanTaskCreated': (link) => planTasks.insert(link).onConflict('taskId', 'ignore'),
+      'v1.PlanContinued': ({ id, fromPlanId, fromTitle, context }) =>
+        plans.update({ fromPlanId, fromPlanTitle: fromTitle, context }).where({ id }),
+      'v1.PlanRetried': ({ id, fresh, checkout }) =>
+        plans
+          .update({
+            state: fresh ? 'queued' : 'started',
+            resume: fresh ? null : 'queued',
+            outcome: null,
+            error: null,
+            finishedAt: null,
+            checkout,
+          })
+          .where({ id }),
       'v1.PlanStartedFromTask': ({ id, taskId, displayId, taskTitle, sizeCheckId }) =>
         plans
           .update({

@@ -19,7 +19,7 @@ import type {
   SlotHolder,
   StartPlanRequest,
 } from '@ted/protocol'
-import { planProposal, planTitle } from '@ted/protocol'
+import { planProposal, planRequestLabel, planTitle } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -38,6 +38,7 @@ import { copyFiles } from '../tasks/worktree.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
+  earlierPlanContext,
   type PlanTaskContext,
   planApprovedMessage,
   planChangesMessage,
@@ -79,6 +80,7 @@ export interface Plans {
   taskGone(taskId: string, reason: PlanTaskGone): void
   rename(id: string, title: string, caller: Caller): Promise<Plan>
   stop(id: string, caller: Caller): Promise<Plan>
+  retry(id: string, caller: Caller): Promise<Plan>
   delete(id: string, caller: Caller): Promise<void>
   removeFactory(factoryId: string): Promise<void>
   inbox(): Promise<PlanInboxItem[]>
@@ -116,6 +118,7 @@ export function createPlans(options: PlansOptions): Plans {
   const saved = store.plans
   const starting = new Set<string>()
   const limited = new Set<string>()
+  const retrying = new Set<string>()
   let closed = false
 
   const plansDir = path.join(options.home, 'plans')
@@ -298,9 +301,17 @@ export function createPlans(options: PlansOptions): Plans {
     )
   }
 
+  const cleaning = new Map<string, Promise<void>>()
+
   function cleanUp(id: string): void {
     const plan = saved.get(id)
-    void discard(plan?.checkout ?? [], folderOf(id))
+    const before = cleaning.get(id) ?? Promise.resolve()
+    const done = before
+      .then(() => discard(plan?.checkout ?? [], folderOf(id)))
+      .finally(() => {
+        if (cleaning.get(id) === done) cleaning.delete(id)
+      })
+    cleaning.set(id, done)
   }
 
   function envFor(plan: StoredPlan, factory: StoredFactory, entries: FactoryRepoEntry[]) {
@@ -349,7 +360,13 @@ export function createPlans(options: PlansOptions): Plans {
       await runs.start({
         id,
         agent: plan.agent,
-        prompt: `${plannerInstructions({ factory, entries, folder: folderOf(id), ...withTask(plan) })}\n\n${plan.message}`,
+        prompt: `${plannerInstructions({
+          factory,
+          entries,
+          folder: folderOf(id),
+          ...withTask(plan),
+          ...(plan.from && { earlier: plan.from.context }),
+        })}\n\n${plan.message}`,
         cwd: single ?? folderOf(id),
         name: 'Planner',
         permissions: 'auto',
@@ -466,7 +483,9 @@ export function createPlans(options: PlansOptions): Plans {
     const factory = factoryOf(plan)
     const status = statusOf(plan)
     const place = slots?.queue.find((q) => q.kind === 'planning' && q.planId === plan.id)?.place
-    const latest = saved.requests(plan.id).findLast((r) => r.kind === 'proposal')
+    const requests = saved.requests(plan.id)
+    const latest = requests.findLast((r) => r.kind === 'proposal')
+    const waitingOn = requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
     const paused =
       status === 'paused' ? (store.agentPauses()[plan.agent] ?? 'usage limit') : undefined
     return {
@@ -488,6 +507,14 @@ export function createPlans(options: PlansOptions): Plans {
       ...(store.getRun(plan.id) && { runId: plan.id }),
       ...(latest?.proposal && { proposedTasks: latest.proposal.rows.length }),
       createdTasks: saved.createdTasks(plan.id).length,
+      ...(status === 'waiting' && waitingOn && { waitingOn: planRequestLabel(waitingOn) }),
+      ...(plan.from && {
+        fromPlan: {
+          id: plan.from.planId,
+          title: plan.from.title,
+          ...(saved.get(plan.from.planId) === undefined && { deleted: true }),
+        },
+      }),
       ...fromTaskOf(plan),
     }
   }
@@ -705,6 +732,13 @@ export function createPlans(options: PlansOptions): Plans {
       refuseRun(caller)
       const factory = factoryByRef(input.factory)
       startable(factory)
+      const from = input.from === undefined ? undefined : find(input.from)
+      if (from && from.factoryId !== factory.id) {
+        throw new RequestError(400, 'plan more from a chat in the same Factory')
+      }
+      if (from && (from.state !== 'ended' || from.outcome === 'failed')) {
+        throw new RequestError(409, 'plan more only from a finished or stopped planning chat')
+      }
       const message = input.message.trim()
       if (message === '') throw new RequestError(400, 'say what you want to plan')
       if (message.length > maxMessageLength) {
@@ -715,6 +749,18 @@ export function createPlans(options: PlansOptions): Plans {
         title: planTitle(message) || 'Planning chat',
         message,
         ...(await plannerFor(factory, input)),
+        ...(from && {
+          from: {
+            planId: from.id,
+            title: from.title,
+            context: earlierPlanContext({
+              title: from.title,
+              message: from.message,
+              requests: saved.requests(from.id),
+              tasks: createdTasks(from.id),
+            }),
+          },
+        }),
       })
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
@@ -789,6 +835,46 @@ export function createPlans(options: PlansOptions): Plans {
         await runs.stop(run.id).catch((error: unknown) => console.error(error))
       }
       cleanUp(plan.id)
+      pump()
+      return describe(saved.get(plan.id) ?? plan, await slotsNow())
+    },
+    async retry(id, caller) {
+      refuseRun(caller)
+      const plan = find(id)
+      if (plan.state !== 'ended' || plan.outcome !== 'failed') {
+        throw new RequestError(409, 'only a failed planning chat can be retried')
+      }
+      const factory = factoryOf(plan)
+      if (!factory) throw new RequestError(404, `no planning chat ${id}`)
+      startable(factory)
+      const run = store.getRun(plan.id)
+      if (run && run.sessionId === undefined) {
+        throw new RequestError(
+          409,
+          'The planner never started a session, so there’s nothing to resume. Start a new planning chat.',
+        )
+      }
+      if (!run) {
+        saved.retried(plan.id, { fresh: true, checkout: [] })
+      } else {
+        if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is retrying')
+        retrying.add(plan.id)
+        try {
+          await cleaning.get(plan.id)
+          const checkout = await checkOut(plan, factory, await entriesOf(factory)).catch(
+            (error: unknown) => {
+              throw new RequestError(409, `Couldn’t check out the repos: ${messageOf(error)}`)
+            },
+          )
+          if (saved.get(plan.id)?.outcome !== 'failed') {
+            await discard(checkout, folderOf(plan.id))
+            throw new RequestError(409, 'only a failed planning chat can be retried')
+          }
+          saved.retried(plan.id, { fresh: false, checkout })
+        } finally {
+          retrying.delete(plan.id)
+        }
+      }
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },

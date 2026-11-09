@@ -24,7 +24,7 @@ function record(value: unknown): Record<string, unknown> {
 
 function startInput(value: unknown): StartPlanRequest {
   const body = record(value)
-  const { factory, message, agent, model, effort } = body
+  const { factory, message, agent, model, effort, from } = body
   if (typeof factory !== 'string' || factory.trim() === '') {
     throw new HttpError(400, 'name the Factory')
   }
@@ -38,9 +38,13 @@ function startInput(value: unknown): StartPlanRequest {
   if (effort !== undefined && !efforts.includes(effort as Effort)) {
     throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
   }
+  if (from !== undefined && (typeof from !== 'string' || from === '')) {
+    throw new HttpError(400, 'from must be a planning chat ID')
+  }
   return {
     factory,
     message,
+    ...(typeof from === 'string' && { from }),
     ...(agent !== undefined && { agent: agent as AgentKind }),
     ...(typeof model === 'string' && { model }),
     ...(effort !== undefined && { effort: effort as Effort }),
@@ -86,6 +90,14 @@ export const planRoutes: Route[] = [
     method: 'POST',
     path: path(`/plans/${ref}/stop`),
     handle: async ({ caller, params: [id = ''] }, { plans }) => [200, await plans.stop(id, caller)],
+  },
+  {
+    method: 'POST',
+    path: path(`/plans/${ref}/retry`),
+    handle: async ({ caller, params: [id = ''] }, { plans }) => [
+      200,
+      await plans.retry(id, caller),
+    ],
   },
   {
     method: 'DELETE',
