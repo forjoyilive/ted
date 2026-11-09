@@ -61,6 +61,7 @@ function Row({
 }
 
 function holderRuns(holder: SlotHolder): string {
+  if (holder.kind === 'automation') return 'Automation Run'
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
@@ -126,15 +127,25 @@ export function WorkingRunsPopover({
         <div className={styles.body}>
           {slots.holders.length > 0 && (
             <Group label="Working">
-              {slots.holders.map((holder) => (
-                <Row
-                  key={holder.taskId}
-                  lead={holder.displayId}
-                  title={holder.title}
-                  detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
-                  trailing={slotCount(holder.runs)}
-                />
-              ))}
+              {slots.holders.map((holder) =>
+                holder.kind === 'automation' ? (
+                  <Row
+                    key={holder.runId}
+                    lead="Auto"
+                    title={holder.name}
+                    detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
+                    trailing={slotCount(holder.runs)}
+                  />
+                ) : (
+                  <Row
+                    key={holder.taskId}
+                    lead={holder.displayId}
+                    title={holder.title}
+                    detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
+                    trailing={slotCount(holder.runs)}
+                  />
+                ),
+              )}
             </Group>
           )}
           {slots.queue.length > 0 && (
@@ -151,6 +162,14 @@ export function WorkingRunsPopover({
                     place
                     title={`${entry.displayId} · ${entry.name}`}
                     detail={`${name(entry.factoryId)} · Sub-agent`}
+                  />
+                ) : entry.kind === 'automation' ? (
+                  <Row
+                    key={entry.runId}
+                    lead={ordinal(entry.place)}
+                    place
+                    title={entry.name}
+                    detail={`${name(entry.factoryId)} · Automation Run`}
                   />
                 ) : (
                   <Row

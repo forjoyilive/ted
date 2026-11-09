@@ -333,6 +333,7 @@ export interface CreateTaskRequest {
   blockedBy?: string[]
   attachments?: AttachmentRef[]
   source?: string
+  followUp?: string
   start?: boolean
 }
 

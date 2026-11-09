@@ -127,7 +127,32 @@ describe('search over the store', () => {
       tasks: [],
       comments: [],
       factories: [],
+      automations: [],
     })
+  })
+
+  test('finds Automations by name, this Factory’s first and those that are on before off', async () => {
+    const { notebook, site } = await twoFactories()
+    const automation = (factoryId: string, on: boolean) =>
+      store.automations.create(
+        {
+          factoryId,
+          name: 'Sentry crash intake',
+          prompt: 'Look',
+          schedule: { kind: 'daily', at: '09:00' },
+          timeZone: 'UTC',
+          agent: 'claude',
+          on,
+        },
+        new Date().toISOString(),
+      )
+    const off = automation(notebook.id, false)
+    const here = automation(site.id, true)
+
+    expect(search(store, { query: 'sentry', factoryId: site.id }).automations).toEqual([
+      { automationId: here.id, factoryId: site.id, name: 'Sentry crash intake', on: true },
+      { automationId: off.id, factoryId: notebook.id, name: 'Sentry crash intake', on: false },
+    ])
   })
 })
 

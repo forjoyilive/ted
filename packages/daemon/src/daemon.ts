@@ -4,8 +4,10 @@ import path from 'node:path'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
+import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
+import { createEnvironment } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
@@ -14,7 +16,6 @@ import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
-import { createEnvironment } from './health/environment.ts'
 import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
@@ -63,6 +64,13 @@ export interface DaemonOptions {
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
+  automations?: DaemonAutomationsOptions
+}
+
+export interface DaemonAutomationsOptions {
+  now?: () => number
+  checkEveryMs?: number
+  graceMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -194,7 +202,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         emit,
         openTerminal,
-        loginShell: given.loginShell ?? false,
+        environment,
         ...(ghBin !== undefined && { ghBin }),
         ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
         ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
@@ -243,6 +251,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         scratchDir: paths.scratch,
         emit,
+        env: environment.current,
         ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
       })
       const factorySettings = createFactorySettings({
@@ -294,13 +303,30 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
+        env: environment.current,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
-      wake = () => tasks.wake()
+      const automationOptions = options.automations ?? {}
+      const automations = createAutomations({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        banners,
+        workflows,
+        queue: tasks,
+        ...(idle && { idle }),
+        ...automationOptions,
+      })
+      wake = () => {
+        tasks.wake()
+        automations.check()
+      }
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
       const excludeFromBackups =
@@ -334,6 +360,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         store,
         banners,
         tasks,
+        automations,
         factories,
         checkTries,
         storage: () => storage,
@@ -358,6 +385,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        automations,
         runs,
         conversations,
         tasks,
@@ -373,6 +401,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         checkTries,
         library,
         async close() {
+          automations.close()
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()

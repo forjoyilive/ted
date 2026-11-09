@@ -349,6 +349,26 @@ describe('Git health', () => {
 })
 
 describe('Fix in the user’s terminal', () => {
+  test('a GitHub Fix opens the terminal with the daemon’s environment, as an agent Fix does', async () => {
+    const shared = { ...process.env, PATH: '/login/bin:/usr/bin' }
+    const environment = { current: () => shared, reload: async () => shared }
+    const envs: NodeJS.ProcessEnv[] = []
+    integrations = createIntegrations({
+      store,
+      banners: createBanners({ store }),
+      ghBin: stubGh,
+      environment,
+      openTerminal: async (_command, env) => {
+        envs.push(env)
+      },
+      watchAfterFix: { everyMs: 20, forMs: 100 },
+    })
+
+    await integrations.fix({ fix: 'gh-login', host: 'github.com' })
+
+    expect(envs).toEqual([shared])
+  })
+
   test('the script sets the login PATH, echoes the command and runs it', () => {
     const script = terminalScript('gh auth login --web --hostname github.com -s workflow', {
       PATH: "/opt/homebrew/bin:/it's/here",

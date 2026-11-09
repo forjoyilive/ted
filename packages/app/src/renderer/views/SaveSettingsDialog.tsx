@@ -123,7 +123,8 @@ export function SaveSettingsDialog({
             <p>
               <strong>This save turns on Bypass.</strong> Every Run in {factoryName} will act
               without asking: it can run any command, change any file and use the network. Use it
-              only when Runs happen in an isolated machine or VM.
+              only when Runs happen in an isolated machine or VM. Automations always run in Auto
+              permissions.
             </p>
             <label>
               <input

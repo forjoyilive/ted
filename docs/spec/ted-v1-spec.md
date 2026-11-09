@@ -763,7 +763,7 @@ At Run start TED gives the agent: (KRI-11, KRI-19, KRI-22, KRI-60)
 
 ### 7.8 Permission modes
 
-- One `permissions` setting, Factory layer only: `auto` (default) or `bypass`. It applies to every Run in the Factory: Task Leads, sub-agents, reviewers, Automations and Planning Runs. (KRI-20, KRI-53)
+- One `permissions` setting, Factory layer only: `auto` (default) or `bypass`. It applies to Task Leads, sub-agents, reviewers and Planning Runs. Automation Runs always run in `auto`, whatever the Factory sets, because they read untrusted content (Sentry, Linear and GitHub issues) with no human watching. (KRI-20, KRI-53)
 - **`auto`:** Claude Code `--permission-mode auto` with prompts routed to TED; Codex `-s workspace-write -a on-request`. Prompts become `permission` Comments. If Claude’s auto mode isn’t available (unsupported model, or disabled by an org admin), TED uses manual mode with every prompt in the Inbox and notes it on the Run. (KRI-53)
 - **`bypass`:** Claude Code `bypassPermissions`; Codex `danger-full-access` with no approvals. Only for Factories whose Runs happen in an isolated machine or VM. (KRI-53)
 - A permission request is a Comment from the Run with **Deny** and **Approve**, shown in the thread, the Inbox and as a row in the Run chat. A Run waiting on one shows as waiting. Approve and Deny apply to that request only; no “always allow” in v1. A permission request whose Run stops is withdrawn. (KRI-20, KRI-53, KRI-56)
@@ -793,7 +793,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted status "…"` | Set the activity line. | KRI-11 |
 | `ted run start --agent <kind> [--model] [--effort] --prompt-file <file> [--name] [--own-worktree]` | Start a sub-agent. | KRI-11, KRI-53, KRI-63 |
 | `ted run wait <id>` / `ted run send <id>` | Wait for a sub-agent’s final message / send it a follow-up. | KRI-11 |
-| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
+| `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>] [--description "<text>"]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
 | `ted task start <id>` | Start a Task from Backlog. | KRI-15 |
 | `ted task block <id> --by <id>` / `ted task unblock` | Add or remove a blocker. | KRI-55 |
 | `ted task repos set`, `add`, `remove <name>` | Set the Task’s Repos. | KRI-58 |

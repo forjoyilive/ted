@@ -8,6 +8,7 @@ import type {
   RestoreBackupResult,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
+import type { Automations } from './automations/automations.ts'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
@@ -30,6 +31,7 @@ import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
   store: TedStore
+  automations: Automations
   runs: RunManager
   tasks: Tasks
   banners: Banners
