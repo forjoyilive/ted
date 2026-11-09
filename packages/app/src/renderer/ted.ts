@@ -41,11 +41,13 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SetTaskReposRequest,
   StageEntry,
   StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
+  TaskReposResult,
   ThreadEvent,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
@@ -144,6 +146,8 @@ export const ted = {
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  setTaskRepos: (taskId: string, request: SetTaskReposRequest) =>
+    window.ted.request('setTaskRepos', taskId, request) as Promise<TaskReposResult>,
   chooseFolder: (title: string) =>
     window.ted.request('chooseFolder', title) as Promise<string | undefined>,
   homeFolder: () => window.ted.request('homeFolder') as Promise<string>,

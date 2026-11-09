@@ -26,10 +26,12 @@ import type {
   OutcomeResult,
   Priority,
   ReportOutcomeRequest,
+  RepoSetupReport,
   RoundInput,
   Run,
   RunSlots,
   SetClarifyDepthRequest,
+  SetTaskReposRequest,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -39,6 +41,7 @@ import type {
   TaskDefaults,
   TaskLead,
   TaskRepo,
+  TaskReposResult,
   TaskSource,
   ThreadEvent,
   ValidateJudgments,
@@ -61,6 +64,7 @@ import type {
   LoopCheck,
   LoopVerdict,
   NewTask,
+  NewWorktree,
   RecordedSetup,
   RunFlags,
   StoredFactory,
@@ -119,6 +123,14 @@ import {
 import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
+  chosenEntries,
+  type FactoryRepoEntry,
+  factoryRepos,
+  findRepo,
+  repoEntry,
+  sameRepo,
+} from './repos.ts'
+import {
   clarifySignoffCaption,
   depthNames,
   depthOrder,
@@ -129,13 +141,7 @@ import {
 } from './rounds.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
-import {
-  type CommandResult,
-  copyFiles,
-  outputTail,
-  primaryRepoWorktree,
-  runWorktreeCommand,
-} from './worktree.ts'
+import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
@@ -184,6 +190,8 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  setRepos(ref: string, caller: Caller, request: SetTaskReposRequest): Promise<TaskReposResult>
+  repoSetup(ref: string, repo: string, caller: Caller): Promise<RepoSetupReport>
   runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
   checkRun(id: string, caller: Caller): Promise<CheckRunReport>
   checkOutput(id: string, position: number): Promise<{ text: string; log: string }>
@@ -253,6 +261,8 @@ export function createTasks(options: {
   const holds = new Map<string, number>()
   const beginning = new Map<string, Promise<void>>()
   const settingUp = new Map<string, AbortController>()
+  const repoSetups = new Map<string, AbortController>()
+  const changingRepos = new Map<string, Promise<TaskReposResult>>()
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
@@ -538,18 +548,24 @@ export function createTasks(options: {
     only?: string,
   ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
     const factory = factoryOf(task)
-    const settings = primaryRepoWorktree(resolution.workflow, factory)
+    const entries = factoryRepos(resolution.workflow, factory)
+    const repos = await Promise.all(
+      task.repos
+        .filter((r) => !r.removed)
+        .map(async (r) => {
+          const entry = repoEntry(entries, r)
+          return {
+            name: entry?.name ?? r.name,
+            worktree: r.worktree,
+            baseBranch: entry?.baseBranch ?? (await git.defaultBranch(r.worktree)),
+            env: entry?.env ?? {},
+          }
+        }),
+    )
     const plan = await planChecks({
       checks: resolution.workflow.settings.stages.validate?.checks ?? [],
-      repos: task.repos
-        .filter((r) => !r.removed)
-        .map((r) => ({
-          name: r.name,
-          worktree: r.worktree,
-          baseBranch: settings.baseBranch,
-          env: r.name === settings.name ? settings.env : {},
-        })),
-      primary: settings.name,
+      repos,
+      primary: entries[0]?.name ?? '',
       ...(only !== undefined && { only }),
     })
     if (plan.length === 0) return undefined
@@ -673,19 +689,20 @@ export function createTasks(options: {
   async function pullRequestTargets(task: StoredTask): Promise<PullRequestTarget[]> {
     const factory = factoryOf(task)
     const { workflow } = await resolveWorkflow(factory, { fetch: false })
-    const primary = primaryRepoWorktree(workflow, factory)
+    const entries = factoryRepos(workflow, factory)
     const live = task.repos.filter((r) => !r.removed)
     return Promise.all(
-      live.map(async (r) => ({
-        name: r.name,
-        repo: r.repo,
-        branch: r.branch,
-        worktree: r.worktree,
-        url: factory.repos.find((f) => f.repo === r.repo)?.cloneUrl ?? factory.cloneUrl,
-        base:
-          workflow.settings.repos?.find((s) => s.name === r.name)?.base_branch ??
-          (r.name === primary.name ? primary.baseBranch : await git.defaultBranch(r.worktree)),
-      })),
+      live.map(async (r) => {
+        const entry = repoEntry(entries, r)
+        return {
+          name: r.name,
+          repo: r.repo,
+          branch: r.branch,
+          worktree: r.worktree,
+          url: entry?.cloneUrl ?? factory.cloneUrl,
+          base: entry?.baseBranch ?? (await git.defaultBranch(r.worktree)),
+        }
+      }),
     )
   }
 
@@ -1121,15 +1138,14 @@ export function createTasks(options: {
     async envFor(task, repo) {
       const recorded = store.recordedSetup(task.id, repo.name)?.env
       if (recorded) return recorded
-      const factory = factoryOf(task)
-      const resolution = await resolveWorkflow(factory, { fetch: false })
-      return primaryRepoWorktree(resolution.workflow, factory).env
+      return repoEntry(await entriesOf(factoryOf(task)), repo)?.env ?? {}
     },
     async permissionsFor(task) {
       const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
       return resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto'
     },
-    clonePathFor: (task) => clonePath(reposDir, factoryOf(task)),
+    clonePathFor: (repo) => clonePath(reposDir, repo),
+    runFolder: async (task) => runFolderOf(find(task.id), await entriesOf(factoryOf(task))),
     worktreesDir,
     pump: () => void pump(),
     inBackground: (what, work) => inBackground(what, work),
@@ -1162,6 +1178,218 @@ export function createTasks(options: {
 
   const atIdlePoint = (run: Run) =>
     run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
+
+  async function setRepos(
+    ref: string,
+    caller: Caller,
+    request: SetTaskReposRequest,
+  ): Promise<TaskReposResult> {
+    const task =
+      caller.kind === 'run' ? taskLead(ref, caller, 'changes the Task’s repos').task : find(ref)
+    const work = (changingRepos.get(task.id) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => changeRepos(task.id, caller, request))
+    changingRepos.set(task.id, work)
+    try {
+      return await work
+    } finally {
+      if (changingRepos.get(task.id) === work) changingRepos.delete(task.id)
+    }
+  }
+
+  async function changeRepos(
+    taskId: string,
+    caller: Caller,
+    request: SetTaskReposRequest,
+  ): Promise<TaskReposResult> {
+    await beginning.get(taskId)?.catch(() => undefined)
+    const task = find(taskId)
+    if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
+    if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+    const factory = factoryOf(task)
+    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factory)
+    if (entries.length < 2) {
+      throw new RequestError(
+        409,
+        `${factory.name} has one repo, so its Tasks always use ${entries[0]?.name ?? 'it'}`,
+      )
+    }
+    const names = entries.map((e) => e.name).join(', ')
+    const named = (refs: readonly string[]) =>
+      refs.map((ref) => {
+        const entry = findRepo(entries, ref)
+        if (!entry) {
+          throw new RequestError(
+            400,
+            `${factory.name} has no repo named “${ref}”; its repos are ${names}`,
+          )
+        }
+        return entry
+      })
+    const current = chosenEntries(task.chosenRepos, entries)
+    const wanted =
+      'set' in request
+        ? named(request.set)
+        : 'add' in request
+          ? [...current, ...named(request.add)]
+          : current.filter((e) => !named(request.remove).includes(e))
+    const next = entries.filter((e) => wanted.includes(e))
+    if (next.length === 0) throw new RequestError(400, 'a Task needs at least one repo')
+    const adding = next.filter((e) => !current.includes(e))
+    const removing = current.filter((e) => !next.includes(e))
+    const live = (entry: FactoryRepoEntry) =>
+      task.repos.find((r) => !r.removed && sameRepo(r.repo, entry.repo))
+    for (const entry of removing) {
+      const open = task.repos.find(
+        (r) =>
+          sameRepo(r.repo, entry.repo) &&
+          (r.pullRequest?.state === 'draft' || r.pullRequest?.state === 'ready'),
+      )?.pullRequest
+      if (open) {
+        throw new RequestError(
+          409,
+          `${entry.name} has an open pull request (#${open.number}), so it stays in ${task.displayId}’s repos`,
+        )
+      }
+    }
+    const confirm = 'confirm' in request && request.confirm === true
+    const toConfirm = confirm
+      ? []
+      : (
+          await Promise.all(
+            removing.map(async (entry) => {
+              const repo = live(entry)
+              if (!repo) return undefined
+              const base = entry.baseBranch ?? (await git.defaultBranch(repo.worktree))
+              const commits = await git.commitsAhead(repo.worktree, `origin/${base}`).catch(() => 0)
+              return commits > 0 ? { name: entry.name, commits } : undefined
+            }),
+          )
+        ).filter((c) => c !== undefined)
+    const unchanged = (extra: { confirm?: typeof toConfirm }) => ({
+      task: publicTask(task.id),
+      repos: current.map((e) => e.name),
+      added: [],
+      removed: [],
+      ...extra,
+    })
+    if (toConfirm.length > 0) return unchanged({ confirm: toConfirm })
+    const changed = adding.length > 0 || removing.length > 0
+    if (changed) {
+      store.setTaskRepos(task.id, {
+        repos: next.map((e) => e.repo),
+        names: next.map((e) => e.name),
+        by: caller.kind === 'run' ? 'task-lead' : 'human',
+        ...(caller.kind === 'run' && { runId: caller.runId }),
+      })
+    }
+    await beginning.get(task.id)?.catch(() => undefined)
+    const now = find(task.id)
+    const liveNow = (entry: FactoryRepoEntry) =>
+      now.repos.find((r) => !r.removed && sameRepo(r.repo, entry.repo))
+    const created: string[] = []
+    if (now.repos.some((r) => !r.removed) && now.branch !== undefined) {
+      for (const entry of next.filter((e) => !liveNow(e))) {
+        const made = await openWorktree(now, factory, entry, now.branch, false)
+        store.worktreeCreated(task.id, made)
+        created.push(made.name)
+        const repo = find(task.id).repos.find((r) => r.name === made.name && !r.removed)
+        const setup = entry.setup
+        if (repo && setup) {
+          const step = {
+            repo,
+            setup: { command: setup.run, timeoutMs: setup.timeoutMs, env: entry.env },
+          }
+          inBackground(`set up ${task.displayId}’s ${repo.name} worktree`, () =>
+            setUpAdded(task.id, step, caller.kind !== 'run'),
+          )
+        }
+      }
+      for (const entry of removing) {
+        const repo = liveNow(entry)
+        if (!repo) continue
+        repoSetups.get(`${task.id}:${repo.name}`)?.abort()
+        const teardown = await tearDown(task, repo, entry)
+        await git.removeWorktree(clonePath(reposDir, repo), repo.worktree).catch((error) => {
+          console.error(`couldn’t remove ${task.displayId}’s ${repo.name} worktree:`, error)
+        })
+        store.worktreeRemoved(task.id, repo.name, teardown)
+      }
+    }
+    if (!changed && created.length === 0) return unchanged({})
+    const added = [...new Set([...adding.map((e) => e.name), ...created])]
+    if (caller.kind !== 'run') {
+      const run = liveLead(find(task.id))
+      if (run) await runs.send(run.id, reposChangedMessage(find(task.id), adding, removing))
+    }
+    return {
+      task: publicTask(task.id),
+      repos: next.map((e) => e.name),
+      added,
+      removed: removing.map((e) => e.name),
+    }
+  }
+
+  function reposChangedMessage(
+    task: StoredTask,
+    adding: readonly FactoryRepoEntry[],
+    removing: readonly FactoryRepoEntry[],
+  ): string {
+    const names = task.repos
+      .filter((r) => !r.removed)
+      .map((r) => r.name)
+      .join(', ')
+    const lines = [
+      `The human changed this Task’s repos. They are now: ${names}.`,
+      ...adding.map((e) => {
+        const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, e.repo))
+        const where = repo ? ` Its worktree is ${repo.worktree}, on branch ${repo.branch}.` : ''
+        const setup = e.setup ? ' TED is running its setup command and tells you when it ends.' : ''
+        return `- Added ${e.name} (${e.repo}).${where}${setup}`
+      }),
+      ...removing.map((e) => `- Removed ${e.name} (${e.repo}). Its worktree is gone.`),
+    ]
+    return lines.join('\n')
+  }
+
+  async function setUpAdded(taskId: string, step: SetupStep, tellLead: boolean): Promise<void> {
+    const key = `${taskId}:${step.repo.name}`
+    if (repoSetups.has(key)) return
+    const cancel = new AbortController()
+    repoSetups.set(key, cancel)
+    try {
+      const task = find(taskId)
+      const signal = AbortSignal.any([stopping.signal, cancel.signal])
+      const finished = await runSetup(task, step.repo, step.setup, signal, { untilStopped: false })
+      if (!finished || !tellLead) return
+      const run = liveLead(find(taskId))
+      if (!run) return
+      await runs.send(
+        run.id,
+        finished.report ??
+          `TED finished setting up the ${step.repo.name} worktree: \`${step.setup.command}\` passed.`,
+      )
+    } finally {
+      repoSetups.delete(key)
+    }
+  }
+
+  async function repoSetup(ref: string, caller: Caller, name: string): Promise<RepoSetupReport> {
+    const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+    const repo = task.repos.findLast((r) => r.name === name || sameRepo(r.repo, name))
+    if (!repo || repo.removed) return { name, state: 'none', output: '' }
+    const setup = repo.setup
+    const done = setup !== undefined && setup.state !== 'running'
+    return {
+      name: repo.name,
+      worktree: repo.worktree,
+      state: setup?.state ?? 'none',
+      ...(setup && { command: setup.command }),
+      ...(setup?.exitCode !== undefined && { exitCode: setup.exitCode }),
+      output: done ? await outputTail(commandLog(task, 'setup', repo.name)) : '',
+    }
+  }
 
   function liveLead(task: StoredTask): Run | undefined {
     if (!task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return undefined
@@ -1206,14 +1434,17 @@ export function createTasks(options: {
 
   async function freshLead(task: StoredTask, run: Run): Promise<void> {
     const factory = factoryOf(task)
-    const repo = task.repos.find((r) => !r.removed)
-    if (!repo) throw new Error(`${task.displayId} has no worktree`)
+    if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
     const resolution = await resolveWorkflow(factory, { fetch: false })
-    const env =
-      store.recordedSetup(task.id, repo.name)?.env ??
-      primaryRepoWorktree(resolution.workflow, factory).env
+    const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
     await runs.stop(run.id)
-    await launch(task, resolution, repo, env)
+    await launch(task, resolution, env)
+  }
+
+  function leadEnv(task: StoredTask, entries: readonly FactoryRepoEntry[]): Record<string, string> {
+    const repo = task.repos.find((r) => !r.removed)
+    if (!repo) return {}
+    return store.recordedSetup(task.id, repo.name)?.env ?? repoEntry(entries, repo)?.env ?? {}
   }
 
   function askAboutModel(run: Run): void {
@@ -1326,15 +1557,18 @@ export function createTasks(options: {
     return lookup?.state === 'found' ? lookup.issue : undefined
   }
 
-  async function branchFor(clone: string, task: Task): Promise<string> {
+  async function branchFor(clones: readonly string[], task: Task): Promise<string> {
+    const [first] = clones
+    if (first === undefined) throw new Error(`${task.displayId} has no clone`)
     const suggested = task.source?.linear?.branchName
     const base =
-      suggested !== undefined && (await git.isValidBranchName(clone, suggested))
+      suggested !== undefined && (await git.isValidBranchName(first, suggested))
         ? suggested
         : ['ted/', task.displayId.toLowerCase(), slug(task.title)].join('')
     for (let n = 1; ; n++) {
       const branch = n === 1 ? base : `${base}-${n}`
-      if (!(await git.branchExists(clone, branch))) return branch
+      const taken = await Promise.all(clones.map((clone) => git.branchExists(clone, branch)))
+      if (!taken.some(Boolean)) return branch
     }
   }
 
@@ -1349,55 +1583,164 @@ export function createTasks(options: {
     )
     const factory = factoryOf(task)
     const clone = clonePath(reposDir, factory)
+    const live = task.repos.filter((r) => !r.removed)
+    const clones = [clone, ...live.map((r) => clonePath(reposDir, r))]
     for (const worktree of subAgents.ownWorktrees(task)) {
-      await git.removeWorktree(clone, worktree).catch((error: unknown) => {
+      await removeFromAny(clones, worktree).catch((error: unknown) => {
         console.error(`couldn’t remove a sub-agent worktree of ${task.displayId}:`, error)
       })
     }
-    const settings = primaryRepoWorktree(resolution.workflow, factory)
-    const removed: {
-      name: string
-      teardown?: { command: string; outcome: WorktreeCommandOutcome }
-    }[] = []
-    for (const repo of task.repos.filter((r) => !r.removed)) {
-      const teardown = settings.name === repo.name ? settings.teardown : undefined
-      let result: CommandResult | undefined
-      if (teardown) {
-        result = await runWorktreeCommand({
-          command: teardown,
-          cwd: repo.worktree,
-          env: commandEnv(task, settings.env),
-          log: commandLog(task, 'teardown', repo.name),
-          signal: stopping.signal,
-        }).catch((error: unknown) => {
-          console.error(`couldn’t run teardown for ${task.displayId}:`, error)
-          return { outcome: 'failed' as const }
-        })
-        if (result.outcome !== 'passed') {
-          console.error(
-            `teardown for ${task.displayId} in ${repo.name} ${result.outcome}; removing the worktree anyway`,
-          )
-        }
-      }
-      await git.removeWorktree(clone, repo.worktree)
-      removed.push({
-        name: repo.name,
-        ...(teardown &&
-          result &&
-          result.outcome !== 'interrupted' && {
-            teardown: { command: teardown.run, outcome: result.outcome },
-          }),
-      })
+    const entries = factoryRepos(resolution.workflow, factory)
+    const removed: { name: string; teardown?: TeardownRecord }[] = []
+    for (const repo of live) {
+      const teardown = await tearDown(task, repo, repoEntry(entries, repo))
+      await git.removeWorktree(clonePath(reposDir, repo), repo.worktree)
+      removed.push({ name: repo.name, ...(teardown && { teardown }) })
     }
     if (task.repos.length === 0 && task.worktree) await git.removeWorktree(clone, task.worktree)
     await rm(path.join(worktreesDir, task.displayId), { recursive: true, force: true })
     for (const { name, teardown } of removed) store.worktreeRemoved(task.id, name, teardown)
   }
 
+  type TeardownRecord = { command: string; outcome: WorktreeCommandOutcome }
+
+  async function removeFromAny(clones: readonly string[], worktree: string): Promise<void> {
+    let failure: unknown
+    for (const clone of new Set(clones)) {
+      try {
+        await git.removeWorktree(clone, worktree)
+        return
+      } catch (error) {
+        failure = error
+      }
+    }
+    throw failure
+  }
+
+  async function tearDown(
+    task: StoredTask,
+    repo: TaskRepo,
+    entry: FactoryRepoEntry | undefined,
+  ): Promise<TeardownRecord | undefined> {
+    const teardown = entry?.teardown
+    if (!teardown) return undefined
+    const result: CommandResult = await runWorktreeCommand({
+      command: teardown,
+      cwd: repo.worktree,
+      env: commandEnv(task, entry.env),
+      log: commandLog(task, 'teardown', repo.name),
+      signal: stopping.signal,
+    }).catch((error: unknown) => {
+      console.error(`couldn’t run teardown for ${task.displayId}:`, error)
+      return { outcome: 'failed' as const }
+    })
+    if (result.outcome !== 'passed') {
+      console.error(
+        `teardown for ${task.displayId} in ${repo.name} ${result.outcome}; removing the worktree anyway`,
+      )
+    }
+    return result.outcome === 'interrupted'
+      ? undefined
+      : { command: teardown.run, outcome: result.outcome }
+  }
+
+  async function entriesOf(
+    factory: StoredFactory,
+    resolution?: WorkflowResolution,
+  ): Promise<FactoryRepoEntry[]> {
+    const { workflow } = resolution ?? (await resolveWorkflow(factory, { fetch: false }))
+    return factoryRepos(workflow, factory)
+  }
+
+  function runFolderOf(task: StoredTask, entries: readonly FactoryRepoEntry[]): string | undefined {
+    if (entries.length > 1) return path.join(worktreesDir, task.displayId)
+    return task.repos.find((r) => !r.removed)?.worktree
+  }
+
+  function cloneFor(factory: StoredFactory, entry: FactoryRepoEntry): Promise<string> {
+    return ensureClone(
+      { banners, reposDir },
+      entry.primary ? factory : { ...factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
+    )
+  }
+
+  async function openWorktree(
+    task: StoredTask,
+    factory: StoredFactory,
+    entry: FactoryRepoEntry,
+    branch: string,
+    fresh: boolean,
+  ): Promise<NewWorktree & { branch: string; worktree: string }> {
+    const clone = await cloneFor(factory, entry)
+    await git.fetch(clone)
+    const base = entry.baseBranch ?? (await git.defaultBranch(clone))
+    const worktree = path.join(worktreesDir, task.displayId, entry.name)
+    await mkdir(path.dirname(worktree), { recursive: true })
+    const add = fresh ? git.addWorktree : git.restoreWorktree
+    await add(clone, { path: worktree, branch, from: `origin/${base}` }).catch((error: unknown) => {
+      throw new RequestError(
+        409,
+        `couldn’t make ${task.displayId}’s ${entry.name} worktree from origin/${base}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
+    const copy = await copyFiles(store.localFolder(entry.repo), worktree, entry.copy).catch(
+      async (error: unknown) => {
+        await git.removeWorktree(clone, worktree).catch(() => undefined)
+        if (fresh) await git.deleteBranch(clone, branch).catch(() => undefined)
+        throw new RequestError(
+          409,
+          `couldn’t copy files into ${task.displayId}’s ${entry.name} worktree: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      },
+    )
+    return { name: entry.name, repo: entry.repo, branch, worktree, ...copy }
+  }
+
+  function setupSteps(task: StoredTask, entries: readonly FactoryRepoEntry[]): SetupStep[] {
+    return entries.flatMap((entry) => {
+      const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, entry.repo))
+      const setup = entry.setup
+      return repo && setup
+        ? [{ repo, setup: { command: setup.run, timeoutMs: setup.timeoutMs, env: entry.env } }]
+        : []
+    })
+  }
+
+  function interruptedSetups(task: StoredTask): SetupStep[] {
+    return task.repos.flatMap((repo) => {
+      const recorded = store.recordedSetup(task.id, repo.name)
+      return !repo.removed && recorded && repo.setup?.state === 'running'
+        ? [{ repo, setup: recorded }]
+        : []
+    })
+  }
+
+  function failedSetupReports(task: StoredTask): Promise<string[]> {
+    return Promise.all(
+      task.repos.flatMap((repo) => {
+        const setup = repo.setup
+        const state = setup?.state
+        if (repo.removed || !setup || state === undefined || state === 'passed') return []
+        if (state === 'running') return []
+        return [
+          outputTail(commandLog(task, 'setup', repo.name)).then((output) =>
+            setupFailure(
+              setup.command,
+              {
+                outcome: state,
+                ...(setup.exitCode !== undefined && { exitCode: setup.exitCode }),
+              },
+              output,
+            ),
+          ),
+        ]
+      }),
+    )
+  }
+
   async function launch(
     task: StoredTask,
     resolution: WorkflowResolution,
-    repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
     { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
@@ -1417,6 +1760,9 @@ export function createTasks(options: {
     }
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
+    const entries = factoryRepos(resolution.workflow, factoryOf(current))
+    const cwd = runFolderOf(current, entries)
+    if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
     const prompt = [
       ...(resumeSession === undefined
         ? [
@@ -1426,6 +1772,13 @@ export function createTasks(options: {
               task.stage as AgentStageId,
               attachmentFile,
               setupReport,
+              {
+                factory: entries.map(({ name, repo, primary }) => ({ name, repo, primary })),
+                task: current.repos
+                  .filter((r) => !r.removed)
+                  .map((r) => ({ name: r.name, worktree: r.worktree })),
+                folder: cwd,
+              },
             ),
             ...(note !== undefined ? [note] : []),
           ]
@@ -1438,7 +1791,7 @@ export function createTasks(options: {
     const run = await runs.start({
       agent,
       prompt,
-      cwd: repo.worktree,
+      cwd,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
       permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
@@ -1630,13 +1983,13 @@ export function createTasks(options: {
   async function setUpAndLaunch(
     task: StoredTask,
     resolution: WorkflowResolution,
-    repo: TaskRepo,
-    setup: RecordedSetup,
+    steps: readonly SetupStep[],
+    env: Record<string, string>,
     pickUp?: string,
   ): Promise<void> {
     const release = hold(task.id)
     try {
-      await setUpThenLaunch(task, resolution, repo, setup, pickUp)
+      await setUpThenLaunch(task, resolution, steps, env, pickUp)
     } finally {
       release()
     }
@@ -1645,37 +1998,62 @@ export function createTasks(options: {
   async function setUpThenLaunch(
     task: StoredTask,
     resolution: WorkflowResolution,
-    repo: TaskRepo,
-    setup: RecordedSetup,
+    steps: readonly SetupStep[],
+    env: Record<string, string>,
     pickUp?: string,
   ): Promise<void> {
     const before = find(task.id)
     if (before.stopped || before.archived) return
     if (store.queue().some((q) => q.id === task.id)) store.dequeue(task.id)
-    store.worktreeSetupStarted(task.id, repo.name, setup)
-    const log = commandLog(task, 'setup', repo.name)
     const cancel = new AbortController()
     settingUp.set(task.id, cancel)
+    const reports: string[] = []
+    for (const { repo, setup } of steps) store.worktreeSetupStarted(task.id, repo.name, setup)
+    try {
+      for (const { repo, setup } of steps) {
+        const signal = AbortSignal.any([stopping.signal, cancel.signal])
+        const finished = await runSetup(task, repo, setup, signal, { untilStopped: true })
+        if (!finished) return
+        if (finished.report !== undefined) reports.push(finished.report)
+      }
+    } finally {
+      settingUp.delete(task.id)
+    }
+    await launch(
+      find(task.id),
+      resolution,
+      env,
+      reports.length > 0 ? reports.join('\n\n') : undefined,
+      { ...(pickUp !== undefined && { pickUp }) },
+    )
+  }
+
+  async function runSetup(
+    task: StoredTask,
+    repo: TaskRepo,
+    setup: RecordedSetup,
+    signal: AbortSignal,
+    { untilStopped }: { untilStopped: boolean },
+  ): Promise<{ result: CommandResult; report?: string } | undefined> {
+    store.worktreeSetupStarted(task.id, repo.name, setup)
+    const log = commandLog(task, 'setup', repo.name)
     const result = await runWorktreeCommand({
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),
       log,
-      signal: AbortSignal.any([stopping.signal, cancel.signal]),
-    }).finally(() => settingUp.delete(task.id))
+      signal,
+    })
     const now = find(task.id)
-    if (result.outcome === 'interrupted' || now.archived || now.stopped) return
+    if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {
+      return undefined
+    }
     store.worktreeSetupFinished(task.id, repo.name, {
       outcome: result.outcome,
       ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
     })
-    const report =
-      result.outcome === 'passed'
-        ? undefined
-        : setupFailure(setup.command, result, await outputTail(log))
-    await launch(find(task.id), resolution, repo, setup.env, report, {
-      ...(pickUp !== undefined && { pickUp }),
-    })
+    if (result.outcome === 'passed') return { result }
+    return { result, report: setupFailure(setup.command, result, await outputTail(log)) }
   }
 
   async function resume(taskId: string): Promise<void> {
@@ -1706,28 +2084,15 @@ export function createTasks(options: {
     if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
       const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
       const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
-      return launch(task, resolution, repo, env, undefined, { resumeSession: held.sessionId })
+      return launch(task, resolution, env, undefined, { resumeSession: held.sessionId })
     }
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, { fetch: false })
-    const recorded = store.recordedSetup(task.id, repo.name)
-    const setup = repo.setup
-    if (recorded && setup?.state === 'running') {
-      return setUpAndLaunch(task, resolution, repo, recorded)
-    }
-    const report =
-      setup && setup.state !== 'passed' && setup.state !== 'running'
-        ? setupFailure(
-            setup.command,
-            {
-              outcome: setup.state,
-              ...(setup.exitCode !== undefined && { exitCode: setup.exitCode }),
-            },
-            await outputTail(commandLog(task, 'setup', repo.name)),
-          )
-        : undefined
-    const env = recorded?.env ?? primaryRepoWorktree(resolution.workflow, factory).env
-    await launch(task, resolution, repo, env, report)
+    const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
+    const interrupted = interruptedSetups(task)
+    if (interrupted.length > 0) return setUpAndLaunch(task, resolution, interrupted, env)
+    const reports = await failedSetupReports(task)
+    await launch(task, resolution, env, reports.length > 0 ? reports.join('\n\n') : undefined)
   }
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
@@ -2403,6 +2768,7 @@ export function createTasks(options: {
   async function clearAway(taskId: string): Promise<void> {
     if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
     settingUp.get(taskId)?.abort()
+    for (const [key, cancel] of repoSetups) if (key.startsWith(`${taskId}:`)) cancel.abort()
     await beginning.get(taskId)?.catch(() => undefined)
     settingUp.get(taskId)?.abort()
     subAgents.dropFor(taskId)
@@ -2437,130 +2803,89 @@ export function createTasks(options: {
   async function launchQueued(taskId: string): Promise<void> {
     const task = find(taskId)
     const factory = factoryOf(task)
-    const repo = task.repos.find((r) => !r.removed)
-    if (repo) {
+    if (task.repos.some((r) => !r.removed)) {
       const resolution = await resolveWorkflow(factory, { fetch: false })
-      const recorded = store.recordedSetup(task.id, repo.name)
+      const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
       const pickUp = freshRunNote(task)
-      if (recorded && repo.setup?.state === 'running') {
-        await setUpAndLaunch(find(task.id), resolution, repo, recorded, pickUp)
+      const interrupted = interruptedSetups(task)
+      if (interrupted.length > 0) {
+        await setUpAndLaunch(find(task.id), resolution, interrupted, env, pickUp)
       } else {
-        const env = recorded?.env ?? primaryRepoWorktree(resolution.workflow, factory).env
-        await launch(find(task.id), resolution, repo, env, undefined, { pickUp })
+        await launch(find(task.id), resolution, env, undefined, { pickUp })
       }
       store.dequeue(task.id)
       return
     }
     if (task.repos.length > 0) return reopenWorktree(task)
-    {
-      const clone = await ensureClone({ banners, reposDir }, factory)
-      await git.fetch(clone)
-      const resolution = await resolveWorkflow(factory, { fetch: false })
-      if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
-      const stage = resolution.workflow.next('backlog') as AgentStageId
-      const settings = primaryRepoWorktree(resolution.workflow, factory)
-      const branch = await branchFor(clone, task)
-      const worktree = path.join(worktreesDir, task.displayId, settings.name)
-      await mkdir(path.dirname(worktree), { recursive: true })
-      await git
-        .addWorktree(clone, { path: worktree, branch, from: `origin/${settings.baseBranch}` })
-        .catch((error: unknown) => {
-          throw new RequestError(
-            409,
-            `couldn’t make ${task.displayId}’s worktree from origin/${settings.baseBranch}: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
-      const copy = await copyFiles(store.localFolder(factory.repo), worktree, settings.copy).catch(
-        async (error: unknown) => {
-          await git.removeWorktree(clone, worktree)
-          await git.deleteBranch(clone, branch)
-          throw new RequestError(
-            409,
-            `couldn’t copy files into ${task.displayId}’s worktree: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        },
-      )
-      store.startTask({
-        taskId: task.id,
-        stage,
-        branch,
-        worktree,
-        entry: entryFor(resolution, stage),
-        repo: { name: settings.name, repo: factory.repo, ...copy },
-      })
-      const started = find(task.id)
-      const repo = started.repos.find((r) => r.name === settings.name)
-      if (!repo) throw new Error(`${task.displayId} has no worktree record`)
-      const setup = settings.setup
-      if (setup) {
-        inBackground(`set up ${task.displayId}’s worktree`, () =>
-          setUpAndLaunch(started, resolution, repo, {
-            command: setup.run,
-            timeoutMs: setup.timeoutMs,
-            env: settings.env,
-          }),
-        )
-      } else {
-        await launch(started, resolution, repo, settings.env)
+    const resolution = await resolveWorkflow(factory, { fetch: false })
+    if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
+    const stage = resolution.workflow.next('backlog') as AgentStageId
+    const chosen = chosenEntries(
+      find(task.id).chosenRepos,
+      factoryRepos(resolution.workflow, factory),
+    )
+    const clones = await Promise.all(chosen.map((entry) => cloneFor(factory, entry)))
+    const branch = await branchFor(clones, task)
+    const opened: (NewWorktree & { branch: string; worktree: string })[] = []
+    try {
+      for (const entry of chosen)
+        opened.push(await openWorktree(task, factory, entry, branch, true))
+    } catch (error) {
+      for (const made of opened) {
+        const clone = clonePath(reposDir, made)
+        await git.removeWorktree(clone, made.worktree).catch(() => undefined)
+        await git.deleteBranch(clone, branch).catch(() => undefined)
       }
+      throw error
+    }
+    const [first, ...rest] = opened
+    if (!first) throw new Error(`${task.displayId}’s Factory has no repo`)
+    const { branch: _, worktree, ...repo } = first
+    store.startTask({
+      taskId: task.id,
+      stage,
+      branch,
+      worktree,
+      entry: entryFor(resolution, stage),
+      repo,
+    })
+    for (const made of rest) store.worktreeCreated(task.id, made)
+    const started = find(task.id)
+    const env = chosen[0]?.env ?? {}
+    const steps = setupSteps(started, chosen)
+    if (steps.length > 0) {
+      inBackground(`set up ${task.displayId}’s worktree`, () =>
+        setUpAndLaunch(started, resolution, steps, env),
+      )
+    } else {
+      await launch(started, resolution, env)
     }
   }
 
   async function reopenWorktree(task: StoredTask): Promise<void> {
     const factory = factoryOf(task)
-    const clone = await ensureClone({ banners, reposDir }, factory)
-    await git.fetch(clone)
     const resolution = await resolveWorkflow(factory, { fetch: false })
-    const settings = primaryRepoWorktree(resolution.workflow, factory)
-    const old = task.repos.find((r) => r.name === settings.name) ?? task.repos[0]
-    if (!old) return
-    await mkdir(path.dirname(old.worktree), { recursive: true })
-    await git
-      .restoreWorktree(clone, {
-        path: old.worktree,
-        branch: old.branch,
-        from: `origin/${settings.baseBranch}`,
-      })
-      .catch((error: unknown) => {
-        throw new RequestError(
-          409,
-          `couldn’t make ${task.displayId}’s worktree again from ${old.branch}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-    const copy =
-      old.name === settings.name
-        ? await copyFiles(store.localFolder(factory.repo), old.worktree, settings.copy).catch(
-            (error: unknown) => {
-              console.error(`couldn’t copy files into ${task.displayId}’s worktree:`, error)
-              return { copied: [], skipped: [] }
-            },
-          )
-        : { copied: [], skipped: [] }
-    store.worktreeCreated(task.id, {
-      name: old.name,
-      repo: old.repo,
-      branch: old.branch,
-      worktree: old.worktree,
-      ...copy,
-    })
+    const chosen = chosenEntries(task.chosenRepos, factoryRepos(resolution.workflow, factory))
+    const fallback = task.branch ?? task.repos[0]?.branch
+    if (fallback === undefined) return
+    for (const entry of chosen) {
+      const old = task.repos.findLast((r) => sameRepo(r.repo, entry.repo))
+      store.worktreeCreated(
+        task.id,
+        await openWorktree(task, factory, entry, old?.branch ?? fallback, false),
+      )
+    }
     store.dequeue(task.id)
     const started = find(task.id)
-    const repo = started.repos.find((r) => r.name === old.name)
-    if (!repo) throw new Error(`${task.displayId} has no worktree record`)
     const pickUp = freshRunNote(started)
-    const setup = old.name === settings.name ? settings.setup : undefined
-    if (setup) {
+    const env = chosen[0]?.env ?? {}
+    const steps = setupSteps(started, chosen)
+    if (steps.length > 0) {
       inBackground(`set up ${task.displayId}’s worktree`, () =>
-        setUpAndLaunch(
-          started,
-          resolution,
-          repo,
-          { command: setup.run, timeoutMs: setup.timeoutMs, env: settings.env },
-          pickUp,
-        ),
+        setUpAndLaunch(started, resolution, steps, env, pickUp),
       )
     } else {
-      await launch(started, resolution, repo, settings.env, undefined, { pickUp })
+      await launch(started, resolution, env, undefined, { pickUp })
     }
   }
 
@@ -3103,6 +3428,15 @@ export function createTasks(options: {
     if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
+    }
+  }
+
+  for (const task of store.listTasks()) {
+    if (task.archived || task.leadRunId === undefined) continue
+    for (const step of interruptedSetups(find(task.id))) {
+      inBackground(`set up ${task.displayId}’s ${step.repo.name} worktree`, () =>
+        setUpAdded(task.id, step, true),
+      )
     }
   }
 
@@ -3780,6 +4114,10 @@ export function createTasks(options: {
 
     useDefaultModel,
 
+    setRepos,
+
+    repoSetup: (ref, name, caller) => repoSetup(ref, caller, name),
+
     async setupLog(ref, name) {
       const task = find(ref)
       if (!task.repos.some((r) => r.name === name)) {
@@ -4050,6 +4388,8 @@ function oneLine(text: string, max = 200): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
+
+type SetupStep = { repo: TaskRepo; setup: RecordedSetup }
 
 function setupFailure(command: string, result: CommandResult, output: string): string {
   const how =

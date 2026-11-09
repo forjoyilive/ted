@@ -1,0 +1,56 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.option input {
+  margin: 0;
+}
+
+.option input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: var(--radius-control);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+}
+
+.confirm p {
+  margin: 0;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.error {
+  margin: 0;
+  color: var(--status-failed-fg);
+  font-size: var(--text-12);
+}

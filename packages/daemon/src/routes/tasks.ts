@@ -22,6 +22,7 @@ import {
   type RunChecksRequest,
   type SetActivityRequest,
   type SetClarifyDepthRequest,
+  type SetTaskReposRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
@@ -230,6 +231,22 @@ export const taskRoutes: Route[] = [
     },
   },
   {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/repos$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      return [200, await tasks.setRepos(ref, caller, reposRequest(await readJson(req)))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup$/,
+    runToken: true,
+    async handle({ params: [ref = '', name = ''], caller }, { tasks }) {
+      return [200, await tasks.repoSetup(ref, name, caller)]
+    },
+  },
+  {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup-log$/,
     async handle({ params: [ref = '', name = ''] }, { tasks }) {
@@ -385,6 +402,31 @@ export const taskRoutes: Route[] = [
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.board(id)],
   },
 ]
+
+const maxRepoRefs = 20
+
+function reposRequest(body: unknown): SetTaskReposRequest {
+  const given = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  const list = (value: unknown, key: string): string[] => {
+    if (
+      !Array.isArray(value) ||
+      value.length > maxRepoRefs ||
+      !value.every((v) => typeof v === 'string' && v.trim() !== '' && v.length <= 200)
+    ) {
+      throw new HttpError(400, `${key} must be a list of repo names`)
+    }
+    return value.map((v: string) => v.trim())
+  }
+  if (given.confirm !== undefined && typeof given.confirm !== 'boolean') {
+    throw new HttpError(400, 'confirm must be true or false')
+  }
+  const confirm = given.confirm === true
+  const keys = ['set', 'add', 'remove'].filter((k) => given[k] !== undefined)
+  if (keys.length !== 1) throw new HttpError(400, 'give exactly one of set, add or remove')
+  if (given.set !== undefined) return { set: list(given.set, 'set'), confirm }
+  if (given.add !== undefined) return { add: list(given.add, 'add') }
+  return { remove: list(given.remove, 'remove'), confirm }
+}
 
 function agentChoice(body: unknown): TaskLead {
   const { agent, model, effort } = (body ?? {}) as Record<string, unknown>
