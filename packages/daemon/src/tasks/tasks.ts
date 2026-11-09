@@ -135,6 +135,7 @@ export function createTasks(options: {
   const applying = new Set<string>()
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
+  const sendingComments = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -614,7 +615,10 @@ export function createTasks(options: {
     return {
       comments: store
         .listComments(taskId)
-        .filter((c) => c.author.kind === 'human' && c.delivered === undefined),
+        .filter(
+          (c) =>
+            c.author.kind === 'human' && c.delivered === undefined && !sendingComments.has(c.id),
+        ),
       answers: store.heldAnswers(taskId),
     }
   }
@@ -652,11 +656,18 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
-    for (const c of waitingForRun(taskId).comments) {
-      store.commentsDelivered([c.id], run.id)
-      await runs.send(run.id, humanMessage(c.body)).catch((error: unknown) => {
-        console.error(`couldn’t send a Comment to Run ${run.id}:`, error)
-      })
+    for (const c of waitingForRun(taskId).comments) await sendComment(run.id, c)
+  }
+
+  async function sendComment(runId: string, comment: Comment): Promise<void> {
+    sendingComments.add(comment.id)
+    try {
+      await runs.send(runId, humanMessage(comment.body))
+      store.commentsDelivered([comment.id], runId)
+    } catch (error) {
+      console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
+    } finally {
+      sendingComments.delete(comment.id)
     }
   }
 
@@ -664,10 +675,7 @@ export function createTasks(options: {
     const posted = store.postComment({ taskId: task.id, body, author: { kind: 'human' } })
     const run = liveLead(find(task.id))
     if (!run) return posted
-    store.commentsDelivered([posted.id], run.id)
-    await runs.send(run.id, humanMessage(posted.body)).catch((error: unknown) => {
-      console.error(`couldn’t send a Comment to Run ${run.id}:`, error)
-    })
+    await sendComment(run.id, posted)
     return store.getComment(posted.id) ?? posted
   }
 
