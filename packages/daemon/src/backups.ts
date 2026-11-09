@@ -17,7 +17,7 @@ export interface Backups {
   takePreUpdate(dataFrom: string | undefined): Promise<Backup>
   saveBeforeRestore(dataFrom: string | undefined): Promise<Backup>
   takeDaily(eventlog: EventlogCopy): Promise<Backup | undefined>
-  restore(name: string): Promise<void>
+  restore(name: string, beforeSwap: () => Promise<void>): Promise<void>
   newestPreUpdate(readableBy: string): Promise<Backup | undefined>
 }
 
@@ -176,7 +176,7 @@ export function createBackups(options: {
         })(),
       )
     },
-    async restore(name) {
+    async restore(name, beforeSwap) {
       const backup = (await readManifests()).find((b) => b.name === name)
       if (!backup) throw new Error(`no backup ${name}`)
       const incoming = `${paths.store}.restoring`
@@ -184,6 +184,12 @@ export function createBackups(options: {
       await rm(incoming, { recursive: true, force: true })
       await rm(outgoing, { recursive: true, force: true })
       await cp(path.join(dir, name, 'store'), incoming, { recursive: true })
+      try {
+        await beforeSwap()
+      } catch (error) {
+        await rm(incoming, { recursive: true, force: true })
+        throw error
+      }
       await rename(paths.store, outgoing).catch((error: NodeJS.ErrnoException) => {
         if (error.code !== 'ENOENT') throw error
       })

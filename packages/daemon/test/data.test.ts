@@ -211,6 +211,51 @@ describe('restore', () => {
     }
   })
 
+  test('can restore the oldest before-restore backup, which the restore’s own copy would push out', async () => {
+    const ted = await start('1.0.0')
+    const daily = ((await ted.call('GET', '/backups')).body as BackupsSummary).backups[0]
+    await ted.call('POST', '/tasks', { title: 'Kept in the oldest copy' })
+    for (let i = 0; i < 3; i++) {
+      const res = await ted.call('POST', '/backups/restore', { name: daily?.name })
+      expect(res.status).toBe(200)
+    }
+    const oldest = ((await ted.call('GET', '/backups')).body as BackupsSummary).backups
+      .filter((b) => b.kind === 'before-restore')
+      .at(-1)
+
+    const res = await ted.call('POST', '/backups/restore', { name: oldest?.name })
+
+    expect(res.status).toBe(200)
+    expect(((await ted.call('GET', '/tasks')).body as Task[]).map((t) => t.title)).toEqual([
+      'Kept in the oldest copy',
+    ])
+  })
+
+  test('fails when the restored data can’t be opened, and keeps the copy of the data before', async () => {
+    let ted = await start('1.0.0')
+    await ted.call('PATCH', '/settings', { appearance: 'dark' })
+    await stop()
+    await pretendTheStateSchemaChanged()
+    ted = await start('1.0.1')
+    const newer = ((await ted.call('GET', '/backups')).body as BackupsSummary).backups.find(
+      (b) => b.kind === 'pre-update',
+    )
+    if (!newer) throw new Error('no pre-update backup')
+    await editEventlogOf(
+      path.join(home, 'backups', newer.name),
+      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name = 'v1.AppearanceChanged'`,
+    )
+
+    const res = await ted.call('POST', '/backups/restore', { name: newer?.name })
+
+    expect(res.status).toBe(500)
+    expect(res.body.error).toMatch(
+      new RegExp(
+        `^Restored ${newer?.name}, but TED couldn’t open it: This data needs a newer TED\\. Your data from before the restore is in backup before-restore-\\d{8}-\\d{6}\\.$`,
+      ),
+    )
+  })
+
   test('refuses a name that isn’t a backup', async () => {
     const ted = await start('1.0.0')
 

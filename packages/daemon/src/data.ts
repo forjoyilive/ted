@@ -212,8 +212,12 @@ export function createData(options: DataOptions): Data {
   function unavailable(): RequestError {
     if (status.state === 'failed') return new RequestError(503, 'TED couldn’t update its data')
     if (status.state === 'needs-newer') {
-      const needs = status.lastOpenedBy ? majorMinor(status.lastOpenedBy) : 'a newer version'
-      return new RequestError(503, `This data needs TED ${needs} or later`)
+      return new RequestError(
+        503,
+        status.lastOpenedBy
+          ? `This data needs TED ${majorMinor(status.lastOpenedBy)} or later`
+          : 'This data needs a newer TED',
+      )
     }
     return new RequestError(503, 'TED is updating its data')
   }
@@ -262,8 +266,9 @@ export function createData(options: DataOptions): Data {
         const work = (async () => {
           setStatus({ state: 'opening' })
           const meta = await readStoreMeta(paths.store)
-          saved = await backups.saveBeforeRestore(meta?.lastOpenedBy)
-          await backups.restore(name)
+          await backups.restore(name, async () => {
+            saved = await backups.saveBeforeRestore(meta?.lastOpenedBy)
+          })
           await openData({ backUp: false })
         })()
         opening = work.catch(() => undefined)
@@ -272,6 +277,12 @@ export function createData(options: DataOptions): Data {
         } catch (error) {
           setStatus(await failedStatus(error instanceof Error ? error.message : String(error)))
           throw error
+        }
+        if (!services) {
+          throw new RequestError(
+            500,
+            `Restored ${name}, but TED couldn’t open it: ${unavailable().message}. Your data from before the restore is in backup ${saved?.name}.`,
+          )
         }
         return { restored: name, saved: saved?.name ?? '', stoppedRuns: running.length }
       } finally {
