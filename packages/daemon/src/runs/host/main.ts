@@ -4,7 +4,7 @@ import { closeSync, openSync, readFileSync, readSync, writeFileSync, writeSync }
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
-import { tryLock } from '../../lock.ts'
+import { waitForLock } from '../../lock.ts'
 import {
   type DriveAgent,
   type HostDriver,
@@ -20,7 +20,7 @@ if (!runDir) throw new Error('usage: host/main.ts <run-dir>')
 delete process.env.ELECTRON_RUN_AS_NODE
 const files = runFiles(runDir)
 
-const lock = tryLock(files.lock)
+const lock = await waitForLock(files.lock, 2_000)
 if (!lock) throw new Error(`another host already runs ${runDir}`)
 
 const earlierStarts = (() => {

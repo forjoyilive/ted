@@ -291,7 +291,12 @@ describe('Plan in chat from a Task', () => {
   test('a chat that ends while no Task Lead Run is live tells the next Run', async () => {
     const client = await start()
     const { task, sizeCheck } = await tooBigTask(client)
-    const { planId } = await planInChat(client, sizeCheck, { say: 'Let us plan' }, { endTurn: true })
+    const { planId } = await planInChat(
+      client,
+      sizeCheck,
+      { say: 'Let us plan' },
+      { endTurn: true },
+    )
     await waitForPlan(client, planId, (d) => d.plan.status === 'idle', 'the planner to idle')
     const stoppedRun = (await getTask(client, task.id)).leadRunId
     await client.ok('POST', `/tasks/${task.id}/stop`)

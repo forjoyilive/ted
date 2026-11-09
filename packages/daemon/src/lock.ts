@@ -34,6 +34,15 @@ export function tryLock(lockPath: string): Lock | undefined {
   }
 }
 
+export async function waitForLock(lockPath: string, ms: number): Promise<Lock | undefined> {
+  const until = Date.now() + ms
+  for (;;) {
+    const lock = tryLock(lockPath)
+    if (lock || Date.now() >= until) return lock
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
 export function acquireLock(lockPath: string): Lock {
   const lock = tryLock(lockPath)
   if (!lock) throw new DaemonAlreadyRunningError()
