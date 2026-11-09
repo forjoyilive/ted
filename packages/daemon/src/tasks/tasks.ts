@@ -229,6 +229,9 @@ export interface Tasks {
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: ReportOutcomeRequest): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  talkThrough(commentId: string): Promise<Comment>
+  doneTalking(commentId: string): Promise<Comment>
+  closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
   brief(ref: string, caller: Caller): TaskBrief
   inbox(): InboxItem[]
@@ -2721,7 +2724,9 @@ export function createTasks(options: {
             `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
           )
         }
-        const answered = roundsThisVisit(task).some((c) => c.answer?.kind === 'answered')
+        const answered = roundsThisVisit(task).some(
+          (c) => c.answer?.kind === 'answered' && c.answer.talkedThrough === undefined,
+        )
         if (task.clarifyDepth === 'few' && answered) {
           throw new RequestError(
             409,
@@ -2973,6 +2978,99 @@ export function createTasks(options: {
         roundAnswerMessage(comment, answers, find(task.id).clarifyDepth),
       )
       return answered
+    })
+  }
+
+  function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
+    const round = store.getComment(commentId)
+    if (!round) throw new RequestError(404, `no Comment ${commentId}`)
+    if (round.kind !== 'round')
+      throw new RequestError(400, 'only a Clarify round can be talked through')
+    if (round.answer) throw new RequestError(409, 'this round has already been answered')
+    return { task: find(round.taskId), round }
+  }
+
+  function talkLead(task: StoredTask): Run {
+    const run = liveLead(task)
+    if (!run) {
+      throw new RequestError(
+        409,
+        `${task.displayId}’s Task Lead isn’t running, so there’s no one to talk it through with`,
+      )
+    }
+    return run
+  }
+
+  function talkMessages(runId: string, since: string, until: string): number {
+    const run = store.getRun(runId)
+    if (!run) return 0
+    const within = (at: string | undefined) => at !== undefined && at >= since && at <= until
+    const human = store.runMessages(runId).filter((m) => m.queued !== true && within(m.at))
+    const agent = agents
+      .get(run.agent)
+      .chat(store.conversation(runId), run.cwd)
+      .filter((entry) => entry.kind === 'agent' && within(entry.at))
+    return human.length + agent.length
+  }
+
+  async function talkThrough(commentId: string): Promise<Comment> {
+    const { task, round } = openTalkRound(commentId)
+    const run = talkLead(task)
+    if (round.talk?.runId === run.id) return round
+    const talking = store.startRoundTalk(round.id, run.id)
+    await deliver(
+      task,
+      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
+    )
+    return talking
+  }
+
+  async function doneTalking(commentId: string): Promise<Comment> {
+    const { task, round } = openTalkRound(commentId)
+    if (!round.talk) throw new RequestError(409, 'this round isn’t being talked through')
+    if (round.talk.doneAt !== undefined) return round
+    talkLead(task)
+    const done = store.roundTalkDone(round.id)
+    await deliver(
+      task,
+      [
+        `The human is done talking Round ${round.round?.number ?? ''} through.`,
+        'Write a summary of the talk to a file: each question and what you agreed, then what is still open. Post it with `ted ask --close --summary <file>`; TED posts it as your note and closes the round as answered in Talk it through.',
+        'If anything is still open, ask it in a new round with `ted ask --round <file>` after closing this one.',
+      ].join('\n\n'),
+    )
+    return done
+  }
+
+  async function closeRound(ref: string, caller: Caller, summary: string): Promise<Comment> {
+    const { task, runId } = taskLead(ref, caller, 'closes a round')
+    const text = summary.trim()
+    if (text === '') throw new RequestError(400, 'the summary is empty')
+    return holding(task, async () => {
+      const round = store
+        .listComments(task.id)
+        .find((c) => c.kind === 'round' && c.answer === undefined && c.talk !== undefined)
+      if (!round?.talk) {
+        throw new RequestError(
+          409,
+          'no round is being talked through; `ted ask --close` closes a round after the human clicks Talk it through',
+        )
+      }
+      const note = store.postComment({
+        taskId: task.id,
+        body: text,
+        author: { kind: 'run', runId },
+      })
+      const at = new Date().toISOString()
+      return answerRequest(task, round, {
+        kind: 'answered',
+        at,
+        talkedThrough: {
+          runId: round.talk.runId,
+          summaryId: note.id,
+          messages: talkMessages(round.talk.runId, round.talk.startedAt, note.createdAt),
+        },
+      })
     })
   }
 
@@ -4923,6 +5021,10 @@ export function createTasks(options: {
     answered() {
       return answeredItems(store.listAnsweredRequests(), store.listTasks(), new Date())
     },
+
+    talkThrough: (id) => talkThrough(id),
+    doneTalking: (id) => doneTalking(id),
+    closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 
     async answer(id, request) {
       const answering = store.getComment(id)

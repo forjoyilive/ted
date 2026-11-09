@@ -48,6 +48,8 @@ const usage = `Usage:
                                              Post a Clarify round: a JSON file with a title, an
                                              optional summary and questions, each with its
                                              recommended answer and optional choices
+  ted ask --close --summary <file>           Close the round the human talked through with you,
+                                             posting the file as your summary note
   ted clarify depth none|few|grilling "<why>"
                                              Pick the Clarify depth and say why
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
@@ -140,6 +142,8 @@ function parse() {
         supersedes: { type: 'string' },
         skip: { type: 'boolean' },
         changes: { type: 'string' },
+        close: { type: 'boolean' },
+        summary: { type: 'string' },
         task: { type: 'string' },
         to: { type: 'string' },
         yes: { type: 'boolean' },
@@ -254,6 +258,19 @@ try {
       comment.kind === 'question'
         ? `Asked the human (request ${comment.id}). TED sends you their answer.`
         : 'Posted',
+    )
+  } else if (
+    group === 'ask' &&
+    options.close === true &&
+    options.summary !== undefined &&
+    command === undefined
+  ) {
+    const ref = taskRef()
+    const summary = await readFile(path.resolve(options.summary), 'utf8')
+    if (summary.trim() === '') throw new UsageError('the summary file is empty')
+    const round = await withDaemon(home, (client) => client.closeRound(ref, { summary }))
+    console.log(
+      `Closed Round ${round.round?.number ?? ''} as answered in Talk it through and posted your summary. If anything is still open, ask it in a new round with \`ted ask --round <file>\`.`,
     )
   } else if (group === 'ask' && options.round !== undefined && command === undefined) {
     const ref = taskRef()

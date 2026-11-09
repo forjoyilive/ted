@@ -290,6 +290,9 @@ export const comments = State.SQLite.table({
     readAt: State.SQLite.text({ nullable: true }),
     answerHeld: State.SQLite.boolean({ default: false }),
     failedRunId: State.SQLite.text({ nullable: true }),
+    talkRunId: State.SQLite.text({ nullable: true }),
+    talkStartedAt: State.SQLite.text({ nullable: true }),
+    talkDoneAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -917,6 +920,14 @@ export const events = {
   commentAnswered: Events.synced({
     name: 'v1.CommentAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
+  }),
+  roundTalkStarted: Events.synced({
+    name: 'v1.RoundTalkStarted',
+    schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  roundTalkDone: Events.synced({
+    name: 'v1.RoundTalkDone',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
   taskBriefWritten: Events.synced({
     name: 'v1.TaskBriefWritten',
@@ -2134,6 +2145,9 @@ const materializers = counted(
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+      'v1.RoundTalkStarted': ({ id, runId, at }) =>
+        comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
+      'v1.RoundTalkDone': ({ id, at }) => comments.update({ talkDoneAt: at }).where({ id }),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
         sendBacks.insert({ ...row, fromStage: from, toStage: to }),

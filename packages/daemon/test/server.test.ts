@@ -132,6 +132,8 @@ describe('daemon HTTP API', () => {
 describe('the token in daemon.json and the app’s token', () => {
   test.each([
     ['answer a request', 'POST', '/comments/c1/answer', { action: 'approve' }],
+    ['talk a round through', 'POST', '/comments/c1/talk', {}],
+    ['end a talk', 'POST', '/comments/c1/done-talking', {}],
     ['change settings', 'PATCH', '/settings', { developerMode: true }],
     ['start a Run outside a Task', 'POST', '/dev/runs', { prompt: 'x', cwd: '/' }],
     ['message a Run', 'POST', '/runs/r1/messages', { text: 'go ahead' }],

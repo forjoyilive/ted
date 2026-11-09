@@ -454,7 +454,7 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
   }
 }
 
-function Composer({ run }: { run: RunSummary }) {
+function Composer({ run, placeholder }: { run: RunSummary; placeholder?: string | undefined }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
@@ -497,7 +497,7 @@ function Composer({ run }: { run: RunSummary }) {
           aria-label="Message to this Run"
           placeholder={
             live
-              ? `Message the ${run.name}’s Run…`
+              ? (placeholder ?? `Message the ${run.name}’s Run…`)
               : 'This Run has finished. Its chat is read-only.'
           }
           disabled={!live}
@@ -559,7 +559,21 @@ function Composer({ run }: { run: RunSummary }) {
   )
 }
 
-function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) | undefined }) {
+interface ChatFrame {
+  header?: ((run: RunSummary) => ReactNode) | undefined
+  aboveComposer?: ReactNode
+  placeholder?: string | undefined
+}
+
+function ChatBody({
+  chat,
+  onStopTask,
+  frame,
+}: {
+  chat: Chat
+  onStopTask: (() => void) | undefined
+  frame: ChatFrame
+}) {
   const { run, items } = chat
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const now = useTicking(running)
@@ -577,7 +591,7 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
 
   return (
     <>
-      <RunBar run={run} onStopTask={onStopTask} />
+      {frame.header ? frame.header(run) : <RunBar run={run} onStopTask={onStopTask} />}
       <div
         ref={list}
         className={styles.items}
@@ -590,7 +604,8 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
           <ChatRow key={`${item.kind}:${item.id}`} item={item} run={run} now={now} />
         ))}
       </div>
-      <Composer run={run} />
+      {frame.aboveComposer}
+      <Composer run={run} placeholder={frame.placeholder} />
     </>
   )
 }
@@ -598,15 +613,16 @@ function ChatBody({ chat, onStopTask }: { chat: Chat; onStopTask: (() => void) |
 export function RunChat({
   runId,
   onStopTask,
+  ...frame
 }: {
   runId: string
   onStopTask?: (() => void) | undefined
-}) {
+} & ChatFrame) {
   const chat = useRunChat(runId)
   return (
     <section className={styles.chat} aria-label="Run chat">
       {chat ? (
-        <ChatBody chat={chat} onStopTask={onStopTask} />
+        <ChatBody chat={chat} onStopTask={onStopTask} frame={frame} />
       ) : (
         <p className={styles.loading}>Loading the Run…</p>
       )}

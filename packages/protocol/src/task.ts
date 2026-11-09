@@ -383,6 +383,22 @@ export interface RoundAnswer {
   changed: boolean
 }
 
+export interface RoundTalk {
+  runId: string
+  startedAt: string
+  doneAt?: string
+}
+
+export interface TalkedThrough {
+  runId: string
+  summaryId: string
+  messages: number
+}
+
+export interface CloseRoundRequest {
+  summary: string
+}
+
 export interface RoundAnswerInput {
   answer: string
   note?: string
@@ -391,7 +407,14 @@ export interface RoundAnswerInput {
 export type CommentAnswer =
   | { kind: 'approved'; at: string; text?: string }
   | { kind: 'changes-requested'; at: string; text: string }
-  | { kind: 'answered'; at: string; choice?: string; text?: string; answers?: RoundAnswer[] }
+  | {
+      kind: 'answered'
+      at: string
+      choice?: string
+      text?: string
+      answers?: RoundAnswer[]
+      talkedThrough?: TalkedThrough
+    }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
@@ -411,6 +434,7 @@ export interface Comment {
   title?: string
   choices?: string[]
   round?: Round
+  talk?: RoundTalk
   gate?: CommentGate
   permission?: PermissionAsk
   answer?: CommentAnswer
