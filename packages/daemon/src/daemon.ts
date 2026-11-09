@@ -32,6 +32,7 @@ import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
+import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
@@ -352,6 +353,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...options.simulators,
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        sandbox: createSandbox({
+          tedHome: paths.home,
+          env: environment.current,
+          ...(process.env.TED_SANDBOX_BIN && { program: process.env.TED_SANDBOX_BIN }),
+        }),
       })
       const shells = createShells({
         async target(ref, repo) {

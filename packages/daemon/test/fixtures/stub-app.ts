@@ -1,3 +1,4 @@
+import { writeFileSync } from 'node:fs'
 import http from 'node:http'
 
 const port = Number(process.env.PORT)
@@ -18,6 +19,14 @@ const server = http.createServer((_, res) => {
   )
 })
 server.listen(port, '127.0.0.1', () => console.log(`stub app listening on ${port}`))
+for (const file of (process.env.STUB_APP_TOUCH ?? '').split(':').filter(Boolean)) {
+  try {
+    writeFileSync(file, '')
+    console.log(`wrote ${file}`)
+  } catch {
+    console.log(`refused ${file}`)
+  }
+}
 const lines = Number(process.env.STUB_APP_LINES ?? '0')
 for (let n = 1; n <= lines; n++) console.log(`line ${String(n).padStart(5, '0')}`)
 if (crashAfter > 0) {

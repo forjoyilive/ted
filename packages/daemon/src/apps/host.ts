@@ -32,7 +32,8 @@ const writeLog = (chunk: Buffer) => {
   }
 }
 
-const child = spawn('/bin/sh', ['-c', launch.run], {
+const [shell = '/bin/sh', ...flags] = launch.shell ?? ['/bin/sh', '-c']
+const child = spawn(shell, [...flags, launch.run], {
   cwd: launch.cwd,
   detached: true,
   stdio: ['ignore', 'pipe', 'pipe'],
