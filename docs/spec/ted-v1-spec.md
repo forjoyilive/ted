@@ -1058,7 +1058,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
   - Done: typing shows **Comment only** and **Follow up**.
   - After sign-off with the merge pending: red **Send and cancel merge** (9.2).
   - Archived: no box.
-- ⌘↵ sends from the comment box. (KRI-56)
+- ↵ sends from the comment box, and from the answer box of a request card (Request changes at a Gate, never Approve); ⌘↵ sends too. When the box has two buttons, ↵ presses the primary one (**Send and resume**, **Follow up**). ⇧↵ adds a new line. Nothing sends while an input method is composing, or when the text is empty. Boxes that hold a document (Edit description, New Task description, Automation prompt, Factory notes, Stage files, a Clarify round’s answers) keep ↵ as a new line. (KRI-56, KRI-204)
 - **Attachments in Comments:** images, and HTML in a sandboxed frame. No artifacts gallery. (KRI-20)
 - **The human attaches files** to any Comment by dragging them onto the comment box or pasting, as in the New Task dialog. A sent Comment can’t be edited or deleted, because it goes into the live Run at once; the human corrects it with another Comment. (GAP-63, Nabha’s review)
 
@@ -1071,6 +1071,7 @@ Figma: KRI-63 Task details (Run chat in a Conversation tab; “Steering · messa
 - **Steering a working Run** (the Task Lead’s or a sub-agent’s): (KRI-8 consistency pass, steering)
   - **Send ↵** queues the message for the agent’s next step. It shows at once, marked “Queued”.
   - **Interrupt and send ⌘↵** stops the current turn, not the Run, then sends.
+  - ⇧↵ adds a new line. Planning chats and Automation Run chats send with ↵ the same way. (KRI-204)
   - **■** stops the turn without sending. Messages queued before it stay queued, with Send now and Delete, until the human sends them or sends another message, which delivers them first. (KRI-108)
   - Hovering a queued message shows **Send now** (interrupts the turn and delivers it) and **Delete**, with a (?) “Only until the agent has read it.” (KRI-63 note from Nabha’s review, KRI-80)
   - **TED holds queued messages**, not the CLI. Both CLIs take a message the moment it is written to them and offer no way to remove one, so TED keeps it in its own store and delivers it at the agent’s next tool-call boundary, where it lands in the same turn. Once delivered, the message is no longer “Queued” and Delete goes away. (KRI-80, `docs/research/kri-80/`)
@@ -1135,7 +1136,7 @@ Fixed; rebinding is later (KRI-35). KRI-56’s map wins over shortcuts the proto
 
 - **Global:** ⌘K search and commands; ⌘N or `C` New Task; `G` `I` Inbox, `G` `A` All Tasks, `G` `B` Board, `G` `L` List, `G` `P` Plans; ⌘1–⌘9 Factory 1–9; ⌘[ / ⌘] back and forward; Esc closes an open Task back to where it came from, and leaves Settings; ⌘, Settings; `?` or ⌘/ shortcut sheet; ⌘Q quit.
 - **Moving:** `J`/`K` or ↓/↑ next and previous; on the Board `H`/`L` or ←/→ change column; Enter opens.
-- **Answering:** `R` reply; `A` Approve; ⇧`A` Accept all recommended; ⇧`R` Request changes; ⌘↵ sends from the comment box and presses the primary button of any dialog. `A` and ⇧`A` take two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
+- **Answering:** `R` reply; `A` Approve; ⇧`A` Accept all recommended; ⇧`R` Request changes; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` and ⇧`A` take two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
 - **Task actions:** `S` Start, Resume or Retry; `P` Priority menu; `B` Blocked by; `E` Edit title and description; ⌥↑/⌥↓ move in rank (Manual only); ⌘⌫ Archive; ⌃` open the Task’s shell. Stop and Delete have no shortcut.
 - **Filter:** `/` focuses the Board or List filter box.
 - Plain number keys stay free for answering choices later (KRI-46).

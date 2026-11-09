@@ -190,7 +190,7 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
-  test('the thread shows event lines, and ⌘↵ sends a Comment into the Task Lead’s Run', async () => {
+  test('the thread shows event lines; ↵ sends a Comment, ⇧↵ adds a line and ⌘↵ sends too', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
@@ -204,9 +204,20 @@ describe('TED app', () => {
     await thread.getByText('You created this Task').waitFor()
     const box = thread.getByRole('textbox', { name: 'Comment' })
     expect(await box.getAttribute('placeholder')).toBe('Comment…')
+    await box.press('Enter')
+    await box.fill('   ')
+    await box.press('Enter')
+    expect(await box.inputValue()).toBe('   ')
     await box.fill('Keep the old export format.')
-    await box.press('ControlOrMeta+Enter')
+    await box.press('Shift+Enter')
+    await box.pressSequentially('Same for CSV.')
+    expect(await box.inputValue()).toBe('Keep the old export format.\nSame for CSV.')
+    await box.press('Enter')
     await thread.getByText('Goes to the next Task Lead Run').waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    expect((await (await daemonClient()).listComments('NB-1')).map((c) => c.body)).toEqual([
+      'Keep the old export format.\nSame for CSV.',
+    ])
 
     await ted('task', 'start', 'NB-1')
 

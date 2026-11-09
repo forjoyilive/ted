@@ -1,5 +1,6 @@
 import type { Attachment, CommentBox as BoxState, Task } from '@ted/protocol'
 import { type ClipboardEvent, type DragEvent, useRef, useState } from 'react'
+import { sendOnEnter } from '../composer-keys.ts'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
@@ -140,11 +141,9 @@ export function CommentBox({
         value={text}
         onChange={(event) => setText(event.target.value)}
         onPaste={onPaste}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
-          event.preventDefault()
-          void send(resumes ? 'resume' : done ? 'follow-up' : undefined)
-        }}
+        onKeyDown={sendOnEnter(
+          () => void send(resumes ? 'resume' : done ? 'follow-up' : undefined),
+        )}
       />
       {(files.length > 0 || uploading > 0) && (
         <ul className={styles.files} aria-label="Attached files">
@@ -196,6 +195,7 @@ export function CommentBox({
         <Button
           variant={cancels ? 'danger' : resumes || done ? 'secondary' : 'primary'}
           disabled={sending || !ready || (cancels && !typed)}
+          {...(!resumes && !done && { shortcut: '↵' })}
           onClick={() => void send()}
         >
           {done ? 'Comment only' : cancels ? 'Send and cancel merge' : 'Send'}
@@ -204,6 +204,7 @@ export function CommentBox({
           <Button
             variant="primary"
             disabled={sending || !ready}
+            shortcut="↵"
             onClick={() => void send('resume')}
           >
             Send and resume
@@ -213,6 +214,7 @@ export function CommentBox({
           <Button
             variant="primary"
             disabled={sending || !ready}
+            shortcut="↵"
             onClick={() => void send('follow-up')}
           >
             Follow up

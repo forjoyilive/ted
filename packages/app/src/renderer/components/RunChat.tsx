@@ -3,6 +3,7 @@
 // grouping of calls, and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChat } from '../data.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -541,11 +542,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
           disabled={!live}
           value={text}
           onChange={(event) => setText(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-            event.preventDefault()
-            void send(event.metaKey || event.ctrlKey)
-          }}
+          onKeyDown={sendOnEnter((command) => void send(command))}
         />
         <span className={styles.boxHelp}>
           <Help>
