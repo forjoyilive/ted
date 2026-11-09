@@ -121,6 +121,7 @@ export function createTasks(options: {
   } = options
   const starting = new Set<string>()
   const relaunching = new Set<string>()
+  const heldPickUps = new Map<string, string>()
   const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
@@ -205,6 +206,7 @@ export function createTasks(options: {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      if (unmergedBlockers(task.id).length > 0) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
@@ -550,14 +552,17 @@ export function createTasks(options: {
   ): Promise<void> {
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
+    const note = pickUp ?? (resumeSession === undefined ? heldPickUps.get(task.id) : undefined)
     if (!(await health.ready(agent))) {
       store.holdTaskRun({
         taskId: task.id,
         agent,
         ...(resumeSession !== undefined && { sessionId: resumeSession }),
       })
+      if (note !== undefined) heldPickUps.set(task.id, note)
       return
     }
+    heldPickUps.delete(task.id)
     const prompt =
       resumeSession === undefined
         ? [
@@ -568,7 +573,7 @@ export function createTasks(options: {
               attachmentFile,
               setupReport,
             ),
-            ...(pickUp !== undefined ? [pickUp] : []),
+            ...(note !== undefined ? [note] : []),
           ].join('\n\n')
         : continueMessage
     await runs.start({
@@ -992,7 +997,7 @@ export function createTasks(options: {
     const [checked] = await health.check([run.agent])
     if (checked?.state === 'ready') return
     const now = store.getTask(task.id)
-    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
+    if (!now || now.leadRunId !== run.id || now.stage === 'done' || now.waitsForBlockers) return
     store.holdTaskRun({
       taskId: task.id,
       agent: run.agent,

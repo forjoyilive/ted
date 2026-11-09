@@ -339,3 +339,92 @@ describe('blockers from inside a Run', () => {
     expect(idle.runs).toHaveLength(1)
   })
 })
+
+describe('blockers while the agent can’t run', () => {
+  const signedIn = (value: boolean) =>
+    writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: value }))
+
+  async function waitingTask(client: Client, gate: string) {
+    const briefFile = path.join(scratch, 'brief.md')
+    await writeFile(
+      briefFile,
+      '## Goal\n\nParse dates.\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nParser half done.\n\n## Open questions\n\nNone.\n\n## Next step\n\nWait for NB-1.\n',
+    )
+    const blocker = await create(client, doneWhen(gate))
+    const running = await create(
+      client,
+      steps(
+        { endTurn: true },
+        {
+          everyMessage: [
+            { run: ['ted', 'task', 'block', '--by', 'NB-1'] },
+            { run: ['ted', 'brief', 'write', '--file', briefFile] },
+            { endTurn: true },
+          ],
+        },
+      ),
+      { start: true },
+    )
+    const first = await waitFor(client, running, (t) => t.runs[0]?.state === 'idle', 'to go idle')
+    return { blocker, running, runId: first.leadRunId ?? '' }
+  }
+
+  test('a Task Lead stopped to wait for a blocker while signed out stays stopped after signing in', async () => {
+    const client = await startTed()
+    const gate = path.join(scratch, 'gate')
+    const { blocker, running, runId } = await waitingTask(client, gate)
+
+    await signedIn(false)
+    await block(client, running, blocker)
+    await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await signedIn(true)
+    await client.ok('POST', '/agents/health/check')
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+
+    const after = await getTask(client, running.id)
+    expect(after.status?.kind).toBe('blocked')
+    expect(after.runs).toEqual([])
+
+    await client.ok('POST', `/tasks/${blocker.id}/start`)
+    await writeFile(gate, '')
+    await waitFor(
+      client,
+      running,
+      (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
+      'to get a fresh Run once NB-1 merges',
+    )
+  })
+
+  test('a pick-up held because the agent signed out keeps its note for the Run that starts later', async () => {
+    const client = await startTed()
+    const gate = path.join(scratch, 'gate')
+    const { blocker, running, runId } = await waitingTask(client, gate)
+    await block(client, running, blocker)
+    await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
+    await client.ok('POST', `/tasks/${blocker.id}/start`)
+    await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+
+    await signedIn(false)
+    const realNow = Date.now
+    Date.now = () => realNow() + 60_000
+    try {
+      await writeFile(gate, '')
+      await waitFor(client, running, (t) => t.status?.kind === 'paused', 'to be held as paused')
+    } finally {
+      Date.now = realNow
+    }
+    await signedIn(true)
+    await client.ok('POST', '/agents/health/check')
+
+    const fresh = await waitFor(
+      client,
+      running,
+      (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
+      'to get a fresh Run',
+    )
+    const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
+    expect(prompt).toContain('# Picking up after a blocker')
+    expect(prompt).toContain('Parser half done.')
+  })
+})
