@@ -147,6 +147,7 @@ async function handle(
     throw new HttpError(507, cantSaveMessage)
   }
   const reply = await route.route.handle(context(route.params), { ...options, ...services })
+  if (req.method !== 'GET') await services.store.persisted()
   if (reply) sendJson(res, ...reply)
 
   function context(params: string[]): RequestContext {

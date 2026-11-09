@@ -470,6 +470,7 @@ export interface TedStore {
   heldRuns(): HeldRun[]
   pausedRunCount(agent: AgentKind): number
   exportEventlog(): { fileName: string; data: Uint8Array }
+  persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
   onWriteResult(listener: (error?: unknown) => void): () => void
@@ -479,6 +480,8 @@ export interface TedStore {
 function pick(values: Record<string, unknown>, names: string[]): Record<string, unknown> {
   return Object.fromEntries(Object.entries(values).filter(([name]) => names.includes(name)))
 }
+
+const persistTimeoutMs = 10_000
 
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
@@ -532,6 +535,23 @@ export async function openStore({
       throw error
     }
   }) as typeof store.commit
+
+  const internals = store[StoreInternalsSymbol]
+  const persisted = async () => {
+    const committed = Effect.runSync(internals.syncProcessor.syncState.get).localHead
+    const deadline = Date.now() + persistTimeoutMs
+    for (;;) {
+      const written = Effect.runSync(internals.clientSession.leaderThread.syncState.get).localHead
+      if (
+        written.global > committed.global ||
+        (written.global === committed.global && written.client >= committed.client)
+      ) {
+        return
+      }
+      if (Date.now() > deadline) throw new Error('the event log did not save in time')
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    }
+  }
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
@@ -2286,6 +2306,7 @@ export async function openStore({
       fileName: eventlogName,
       data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),
     }),
+    persisted,
     holdNewWork(reason) {
       if (reason === newWorkHeld) return
       newWorkHeld = reason
