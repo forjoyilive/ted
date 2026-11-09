@@ -8,6 +8,8 @@ import type {
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 
+export const depthOrder: readonly ClarifyDepth[] = ['none', 'few', 'grilling']
+
 export const depthNames: Record<ClarifyDepth, string> = {
   auto: 'Auto',
   none: 'None',

@@ -7,6 +7,7 @@ import type {
   CheckRun,
   CheckRunReport,
   CheckRunTrigger,
+  ClarifyDepth,
   Comment,
   CommentAnswer,
   DaemonEvent,
@@ -96,6 +97,7 @@ import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts
 import {
   clarifySignoffCaption,
   depthNames,
+  depthOrder,
   pickDepth,
   roundAnswerMessage,
   roundAnswerSummary,
@@ -1072,6 +1074,14 @@ export function createTasks(options: {
 
   function openRound(task: Task): Comment | undefined {
     return store.listComments(task.id).find((c) => c.kind === 'round' && c.answer === undefined)
+  }
+
+  function humanDepth(taskId: string): ClarifyDepth | undefined {
+    const set = store
+      .taskLog(taskId)
+      .findLast((e) => e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human')
+    const depth = set?.data.depth as ClarifyDepth | undefined
+    return depth === 'auto' ? undefined : depth
   }
 
   async function postRound(
@@ -2382,6 +2392,13 @@ export function createTasks(options: {
         )
       }
       if (depth === 'auto') throw new RequestError(400, 'pick none, few or grilling')
+      const floor = humanDepth(task.id)
+      if (floor !== undefined && depthOrder.indexOf(depth) < depthOrder.indexOf(floor)) {
+        throw new RequestError(
+          403,
+          `the human set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
+        )
+      }
       return store.setClarifyDepth(task.id, {
         depth,
         by: 'task-lead',

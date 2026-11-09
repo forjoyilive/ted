@@ -377,6 +377,33 @@ describe('Clarify rounds', () => {
     expect(bad.status).toBe(400)
   })
 
+  test('after the human sets the depth, the Task Lead can raise it but not go below it', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      advance,
+      { waitFor: client.waitFile('human-set') },
+      depth('none', 'nothing to ask'),
+      depth('few', 'one round will do'),
+      depth('grilling', 'it touches the server'),
+      depth('few', 'back to one round'),
+      depth('none', 'nothing left to ask'),
+      { endTurn: true },
+    )
+    await waitForStage(client, task, 'clarify')
+    await client.ok('PUT', `/tasks/${task.id}/clarify-depth`, { depth: 'few' })
+    await client.go('human-set')
+    await waitUntil(
+      async () => (await commandResults(client, task)).length >= 6,
+      'five depth picks',
+    )
+    const picks = (await commandResults(client, task)).slice(-5)
+    expect(picks.map((r) => r.code === 0)).toEqual([false, true, true, true, false])
+    expect(picks[0]?.stderr).toMatch(/the human set the Clarify depth/)
+    expect(picks[4]?.stderr).toMatch(/the human set the Clarify depth/)
+    expect(await getTask(client, task.id)).toMatchObject({ clarifyDepth: 'few' })
+  })
+
   test('an open round is withdrawn when the Task goes back to Intake', async () => {
     const client = await start()
     const findings = path.join(scratch, 'findings.md')
