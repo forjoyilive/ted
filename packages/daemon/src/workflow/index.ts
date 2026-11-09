@@ -1,3 +1,4 @@
+export { type AgentChoices, resolveAgentChoices } from './agent-choices.ts'
 export {
   type AgentChoice,
   type CheckedLayer,

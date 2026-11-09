@@ -66,6 +66,10 @@ export const runs = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     agent: State.SQLite.text(),
     sessionId: State.SQLite.text(),
+    model: State.SQLite.text({ nullable: true }),
+    effort: State.SQLite.text({ nullable: true }),
+    usesDefaultModel: State.SQLite.boolean({ default: false }),
+    problem: State.SQLite.text({ nullable: true }),
     prompt: State.SQLite.text(),
     cwd: State.SQLite.text(),
     taskId: State.SQLite.text({ nullable: true }),
@@ -92,7 +96,7 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
-    authorRunId: State.SQLite.text(),
+    authorRunId: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -409,6 +413,49 @@ export const events = {
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
   }),
+  taskLeadSet: Events.synced({
+    name: 'v1.TaskLeadSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  runStartedV3: Events.synced({
+    name: 'v3.RunStarted',
+    schema: Schema.Struct({
+      ...runStartedFields,
+      taskId: Schema.NullOr(Schema.String),
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+    }),
+  }),
+  runRestarted: Events.synced({
+    name: 'v1.RunRestarted',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      usesDefaultModel: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  runProblemFound: Events.synced({
+    name: 'v1.RunProblemFound',
+    schema: Schema.Struct({ runId: Schema.String, problem: Schema.String, at: Schema.String }),
+  }),
+  tedCommentPosted: Events.synced({
+    name: 'v1.TedCommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      createdAt: Schema.String,
+    }),
+  }),
 }
 
 const materializers = counted(
@@ -431,6 +478,18 @@ const materializers = counted(
     'v1.RunStarted': (run) =>
       runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
     'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v3.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+    'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
+      runs
+        .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
+        .where({ id: runId }),
+    'v1.RunProblemFound': ({ runId, problem }) =>
+      runs.update({ problem, state: 'waiting' }).where({ id: runId }),
+    'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
+      tasks
+        .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
+        .where({ id: taskId }),
+    'v1.TedCommentPosted': (comment) => comments.insert({ ...comment, authorRunId: null }),
     'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
       runs.update({ readOffset: toOffset }).where({ id: runId }),
       ...entries.map(({ offset, line }) =>

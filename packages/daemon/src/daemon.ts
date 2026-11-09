@@ -25,6 +25,7 @@ export interface DaemonOptions {
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
   integrations?: DaemonIntegrationsOptions
+  onShutdown?: () => void
 }
 
 export interface DaemonIntegrationsOptions {
@@ -102,7 +103,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         reposDir: paths.repos,
         worktreesDir: paths.worktrees,
-        defaultLead: () => agents.defaultLead(),
+        agents,
         attachmentFile: (attachment) => attachments.file(attachment),
         logsDir: paths.logs,
         ...(idle && { idle }),
@@ -131,6 +132,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     runTokens,
     attachments,
     reposDir: paths.repos,
+    appStreams: new Set(),
+    onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
     ...(idle && { idle }),
   })

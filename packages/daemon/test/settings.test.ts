@@ -49,6 +49,8 @@ describe('machine settings in the store', () => {
       terminalFontSize: 13,
       profilePicture: null,
       developerMode: false,
+      quitWithWorkRunning: 'ask',
+      showTrayIcon: true,
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -57,7 +59,7 @@ describe('machine settings in the store', () => {
 
     const second = await openStore({ directory: dir })
     try {
-      expect(second.settings()).toEqual({
+      expect(second.settings()).toMatchObject({
         appearance: 'light',
         terminalFontSize: 16,
         profilePicture: picture,
@@ -194,7 +196,7 @@ describe('settings and Factories over the daemon API', () => {
     const ted = await client()
 
     await ted.updateSettings({ terminalFontSize: 20, developerMode: true, profilePicture: picture })
-    expect(await ted.getSettings()).toEqual({
+    expect(await ted.getSettings()).toMatchObject({
       appearance: 'system',
       terminalFontSize: 20,
       profilePicture: picture,

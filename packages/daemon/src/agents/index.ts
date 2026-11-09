@@ -9,6 +9,7 @@ export type { Agent, AgentLaunch } from './agent.ts'
 
 export interface Agents {
   get(kind: AgentKind): Agent
+  installed(kind: AgentKind): boolean
   defaultLead(): AgentKind
 }
 
@@ -19,6 +20,7 @@ export function createAgents(options: { claudeBin?: string; codexBin?: string })
   }
   return {
     get: (kind) => byKind[kind],
+    installed: (kind) => isInstalled(byKind[kind].binary),
     defaultLead: () =>
       !isInstalled(byKind.claude.binary) && isInstalled(byKind.codex.binary) ? 'codex' : 'claude',
   }

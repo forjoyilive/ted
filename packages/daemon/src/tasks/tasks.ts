@@ -1,17 +1,19 @@
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type {
-  AgentKind,
   AgentStageId,
   Attachment,
   Comment,
   Outcome,
+  Run,
   Task,
   TaskDefaults,
+  TaskLead,
   TaskRepo,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { clarifyDepths } from '@ted/protocol'
+import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
@@ -19,7 +21,9 @@ import * as git from '../git.ts'
 import type { IdleTimer } from '../idle.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { NewTask, RecordedSetup, StoredTask, TedStore } from '../store/index.ts'
+import type { NewTask, RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/index.ts'
+import { resolveAgentChoices } from '../workflow/agent-choices.ts'
+import type { WorkflowSettings } from '../workflow/check.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import {
@@ -48,6 +52,8 @@ export interface Tasks {
   comment(ref: string, caller: Caller, body: string): Comment
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
+  setLead(ref: string, lead: TaskLead): Task
+  useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
   close(): Promise<void>
 }
@@ -62,7 +68,7 @@ export function createTasks(options: {
   reposDir: string
   worktreesDir: string
   logsDir: string
-  defaultLead: () => AgentKind
+  agents: Agents
   attachmentFile: (attachment: Attachment) => string
   idle?: IdleTimer
 }): Tasks {
@@ -74,11 +80,13 @@ export function createTasks(options: {
     reposDir,
     worktreesDir,
     logsDir,
-    defaultLead,
+    agents,
     attachmentFile,
   } = options
   const starting = new Set<string>()
   const advancing = new Set<string>()
+  const applying = new Set<string>()
+  const asked = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
 
@@ -101,6 +109,98 @@ export function createTasks(options: {
     ...env,
     TED_TASK: task.displayId,
   })
+
+  const leadFrom = (settings?: WorkflowSettings) =>
+    resolveAgentChoices(settings, {
+      claude: agents.installed('claude'),
+      codex: agents.installed('codex'),
+    }).lead
+
+  const sameChoice = (lead: TaskLead, run: Run) =>
+    lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
+
+  const atIdlePoint = (run: Run) =>
+    run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
+
+  function liveLead(task: StoredTask): Run | undefined {
+    if (!task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return undefined
+    const run = store.getRun(task.leadRunId)
+    return run && run.state !== 'finished' ? run : undefined
+  }
+
+  async function applyLead(taskId: string): Promise<void> {
+    if (applying.has(taskId)) return
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!task?.lead || !run || sameChoice(task.lead, run) || !atIdlePoint(run)) return
+    applying.add(taskId)
+    try {
+      const lead = task.lead
+      if (lead.agent !== run.agent) await freshLead(task, run)
+      else {
+        await restartLead(run, {
+          ...(lead.model !== undefined && { model: lead.model }),
+          ...(lead.effort !== undefined && { effort: lead.effort }),
+          usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
+        })
+      }
+    } finally {
+      applying.delete(taskId)
+    }
+    await applyLead(taskId)
+  }
+
+  async function restartLead(run: Run, flags: RunFlags): Promise<void> {
+    await runs.restart(run.id, flags)
+    if (run.problem === 'model-unavailable') {
+      const now = flags.usesDefaultModel ? 'the CLI’s default model' : `the model ${flags.model}`
+      await runs.send(
+        run.id,
+        `TED restarted you on ${now} because ${run.model} isn’t available. Your last message got no answer; carry on from where you were.`,
+      )
+    }
+  }
+
+  async function freshLead(task: StoredTask, run: Run): Promise<void> {
+    const factory = factoryOf(task)
+    const repo = task.repos.find((r) => !r.removed)
+    if (!repo) throw new Error(`${task.displayId} has no worktree`)
+    const resolution = await workflows.resolve(factory, { fetch: false })
+    const env =
+      store.recordedSetup(task.id, repo.name)?.env ??
+      primaryRepoWorktree(resolution.workflow, factory).env
+    await runs.stop(run.id)
+    await launch(task, resolution, repo, env)
+  }
+
+  function askAboutModel(run: Run): void {
+    if (run.problem !== 'model-unavailable') return void asked.delete(run.id)
+    const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || asked.has(run.id)) return
+    asked.add(run.id)
+    store.postTedComment({
+      taskId: task.id,
+      kind: 'question',
+      body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. TED won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
+    })
+  }
+
+  let closed = false
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type !== 'run-updated' || event.run.taskId === undefined) return
+    const { run } = event
+    setImmediate(() => {
+      if (closed) return
+      askAboutModel(run)
+      if (run.taskId !== undefined) {
+        const taskId = run.taskId
+        inBackground('apply the Task Lead setting', () => applyLead(taskId))
+      }
+    })
+  })
+  for (const task of store.listTasks()) {
+    inBackground('apply the Task Lead setting', () => applyLead(task.id))
+  }
 
   function find(ref: string): StoredTask {
     const task = store.getTask(ref)
@@ -191,12 +291,15 @@ export function createTasks(options: {
       attachmentFile,
       setupReport,
     )
+    const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     await runs.start({
-      agent: task.lead?.agent ?? factoryLead(resolution).agent,
+      agent: lead.agent,
       prompt,
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      ...(lead.model !== undefined && { model: lead.model }),
+      ...(lead.effort !== undefined && { effort: lead.effort }),
     })
   }
 
@@ -262,17 +365,6 @@ export function createTasks(options: {
     return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
   }
 
-  function factoryLead({ workflow }: WorkflowResolution): TaskDefaults['lead'] {
-    const { agent, model, effort } = workflow.settings.lead ?? {}
-    return {
-      agent: (agent as AgentKind | undefined) ?? defaultLead(),
-      ...(model !== undefined && { model }),
-      ...(effort !== undefined && {
-        effort: effort as NonNullable<TaskDefaults['lead']['effort']>,
-      }),
-    }
-  }
-
   async function start(ref: string): Promise<Task> {
     const task = find(ref)
     const factory = factoryOf(task)
@@ -284,6 +376,7 @@ export function createTasks(options: {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
       const resolution = await workflows.resolve(factory, { fetch: false })
+      if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       const stage = resolution.workflow.next('backlog') as AgentStageId
       const settings = primaryRepoWorktree(resolution.workflow, factory)
       const branch = await branchFor(clone, task)
@@ -344,29 +437,36 @@ export function createTasks(options: {
   }
 
   return {
-    async create({ title, factory: key, blockedBy = [], start: startNow, ...fields }) {
+    async create({ title, factory: key, blockedBy = [], start: startNow, lead, ...fields }) {
       const name = title?.trim() || firstLine(fields.description ?? '')
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
       const factory =
         key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      let failure: unknown
+      const resolution = factory
+        ? await workflows.resolve(factory).catch((error: unknown) => {
+            failure = error
+            return undefined
+          })
+        : undefined
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
         title: name,
+        lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
         startRequested: startNow === true,
         ...(factory && { factoryId: factory.id }),
       })
       if (!factory) return task
-      const resolution = await workflows.resolve(factory).catch((error: unknown) => {
+      if (!resolution) {
         console.error(
           `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
-          error,
+          failure,
         )
-        return undefined
-      })
+      }
       if (!resolution || blockers.length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
@@ -378,7 +478,7 @@ export function createTasks(options: {
       const resolution = await workflows.resolve(factory, { fetch: false })
       const depth = resolution.workflow.settings.stages.clarify?.depth
       return {
-        lead: factoryLead(resolution),
+        lead: leadFrom(resolution.workflow.settings),
         clarifyDepth: clarifyDepths.find((d) => d === depth) ?? 'auto',
       }
     },
@@ -419,6 +519,32 @@ export function createTasks(options: {
       }
     },
 
+    setLead(ref, lead) {
+      const task = store.setTaskLead(find(ref).id, lead)
+      inBackground('apply the Task Lead setting', () => applyLead(task.id))
+      return task
+    },
+
+    async useDefaultModel(ref) {
+      const task = find(ref)
+      const run = liveLead(task)
+      if (run?.problem !== 'model-unavailable' || applying.has(task.id)) {
+        throw new RequestError(409, `${task.displayId}’s Task Lead isn’t waiting on its model`)
+      }
+      applying.add(task.id)
+      try {
+        await restartLead(run, {
+          ...(run.model !== undefined && { model: run.model }),
+          ...(run.effort !== undefined && { effort: run.effort }),
+          usesDefaultModel: true,
+        })
+      } finally {
+        applying.delete(task.id)
+      }
+      const { worktree: _, ...current } = find(task.id)
+      return current
+    },
+
     async setupLog(ref, name) {
       const task = find(ref)
       if (!task.repos.some((r) => r.name === name)) {
@@ -428,6 +554,8 @@ export function createTasks(options: {
     },
 
     async close() {
+      closed = true
+      unsubscribe()
       stopping.abort()
       await Promise.all(background)
     },

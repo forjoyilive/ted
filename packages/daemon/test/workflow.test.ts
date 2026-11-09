@@ -3,6 +3,7 @@ import {
   checkLayer,
   type LayerFiles,
   readDefaultLayer,
+  resolveAgentChoices,
   resolveWorkflow,
 } from '../src/workflow/index.ts'
 
@@ -99,6 +100,38 @@ describe('layers', () => {
     expect(settings.lead).toEqual({ agent: 'claude', model: 'opus', effort: 'low' })
     expect(settings.reviewer).toEqual({ agent: 'codex', model: 'o4' })
     expect(settings.planner).toEqual({ agent: 'claude' })
+  })
+
+  test('unset agents default to Claude Code if installed, else Codex; the reviewer to the other kind', async () => {
+    const both = { claude: true, codex: true }
+    const onlyCodex = { claude: false, codex: true }
+    const onlyClaude = { claude: true, codex: false }
+    const none = resolveWorkflow([await defaults()]).settings
+
+    expect(resolveAgentChoices(none, both)).toEqual({
+      lead: { agent: 'claude' },
+      reviewer: { agent: 'codex' },
+      planner: { agent: 'claude' },
+    })
+    expect(resolveAgentChoices(none, onlyCodex)).toEqual({
+      lead: { agent: 'codex' },
+      reviewer: { agent: 'codex' },
+      planner: { agent: 'codex' },
+    })
+    expect(resolveAgentChoices(none, onlyClaude).reviewer).toEqual({ agent: 'claude' })
+
+    const set = resolveWorkflow([
+      await defaults(),
+      factory({
+        'workflow.yaml':
+          'version: 1\nlead: { agent: codex, model: gpt-6-astra, effort: xhigh }\nreviewer: { agent: same, effort: low }\nplanner: { model: opus }\n',
+      }),
+    ]).settings
+    expect(resolveAgentChoices(set, both)).toEqual({
+      lead: { agent: 'codex', model: 'gpt-6-astra', effort: 'xhigh' },
+      reviewer: { agent: 'codex', effort: 'low' },
+      planner: { agent: 'claude', model: 'opus' },
+    })
   })
 
   test('a Stage file in a more specific layer replaces the inherited one as a whole', async () => {

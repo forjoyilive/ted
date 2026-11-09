@@ -7,12 +7,17 @@ import {
   type AgentKind,
   agentKinds,
   type Banner,
+  DaemonClient,
+  DaemonUnreachableError,
+  type Effort,
+  efforts,
   type Factory,
   type IntegrationsHealth,
   isShowing,
   minGhVersion,
   type RunWithConversation,
   readDaemonInfo,
+  type TaskLead,
   tedHome,
   tedPaths,
 } from '@ted/protocol'
@@ -21,6 +26,7 @@ const usage = `Usage:
   ted help                                   Show this list of commands
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
+  ted open                                   Bring the open TED app to the front
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
   ted status [--task <id>] "<text>"          Set the Task's activity line
@@ -29,6 +35,10 @@ const usage = `Usage:
   ted task start <id>                        Start a Task from Backlog
   ted backup list                            List backups of TED's data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
+  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+                                             Set the Task Lead's agent, model and effort
+  ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
+                                             when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
@@ -49,6 +59,9 @@ function parse() {
       options: {
         agent: { type: 'string' },
         cwd: { type: 'string' },
+        'default-model': { type: 'boolean' },
+        effort: { type: 'string' },
+        model: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
@@ -90,6 +103,8 @@ try {
     await status()
   } else if (group === 'doctor' && command === undefined) {
     await doctor()
+  } else if (group === 'open' && command === undefined) {
+    await openApp()
   } else if (group === 'comment') {
     const ref = taskRef()
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
@@ -132,6 +147,30 @@ try {
     )
   } else if (group === 'backup' && command === 'restore' && rest.length === 1) {
     await restoreBackup(rest[0] ?? '')
+  } else if (
+    group === 'task' &&
+    command === 'lead' &&
+    rest.length === 1 &&
+    options['default-model']
+  ) {
+    const ref = rest[0] ?? ''
+    const task = await withDaemon(home, (client) => client.useDefaultModel(ref))
+    console.log(`${task.displayId}’s Task Lead now runs on the default model`)
+  } else if (group === 'task' && command === 'lead' && rest.length === 2) {
+    const [ref = '', agent = ''] = rest
+    const { model, effort } = options
+    if (!agentKinds.includes(agent as AgentKind))
+      throw new UsageError('agent must be claude or codex')
+    if (effort !== undefined && !efforts.includes(effort as Effort)) {
+      throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
+    }
+    const lead: TaskLead = {
+      agent: agent as AgentKind,
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort: effort as Effort }),
+    }
+    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
@@ -240,6 +279,23 @@ async function problems(): Promise<{ pid: number | undefined; banners: string[];
   }
 }
 
+async function openApp(): Promise<void> {
+  const info = await readDaemonInfo(home)
+  const token = process.env.TED_RUN_TOKEN || info?.token
+  const result = await (info ? new DaemonClient(info, token).openApp() : undefined)?.catch(
+    (error: unknown) => {
+      if (error instanceof DaemonUnreachableError) return undefined
+      throw error
+    },
+  )
+  if (!result?.opened) {
+    console.error('ted: TED isn’t open. Open it from your app launcher.')
+    process.exitCode = 1
+    return
+  }
+  console.log('Opened TED')
+}
+
 async function status(): Promise<void> {
   const { pid, banners } = await problems()
   console.log(`TED’s background process is running (pid ${pid ?? 'unknown'})`)
@@ -337,9 +393,13 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
+function describeLead({ agent, model, effort }: TaskLead): string {
+  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+}
+
 function formatRun({ run, conversation }: RunWithConversation): string {
   return [
-    `Run ${run.id}  ${run.agent}  ${run.state}`,
+    `Run ${run.id}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
     `Session ${run.sessionId ?? 'not known yet'}`,
     ...conversation.map((entry) => summarize(entry.line)),
   ].join('\n')

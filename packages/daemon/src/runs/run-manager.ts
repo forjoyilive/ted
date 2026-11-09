@@ -1,15 +1,16 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, open, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { AgentKind, ConversationEntry, Run, RunState } from '@ted/protocol'
-import type { Agents } from '../agents/index.ts'
+import type { AgentKind, ConversationEntry, Run, RunProblem, RunState } from '@ted/protocol'
+import type { AgentLaunch, Agents } from '../agents/index.ts'
+import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
 import type { RunTokens } from '../run-token.ts'
-import type { TedStore } from '../store/index.ts'
+import type { RunFlags, TedStore } from '../store/index.ts'
 import { type HostRecord, type LaunchFile, runFiles } from './host-files.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
@@ -26,7 +27,7 @@ export interface RunManagerOptions {
   cliPath?: string
 }
 
-export interface StartRunInput {
+export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
   prompt: string
   cwd: string
@@ -36,8 +37,10 @@ export interface StartRunInput {
 
 export interface RunManager {
   start(input: StartRunInput): Promise<Run>
+  restart(runId: string, flags: RunFlags): Promise<Run>
   send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
+  stopAll(): Promise<void>
   close(): Promise<void>
 }
 
@@ -53,6 +56,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const following = new Map<string, Promise<void>>()
   let closed = false
+  let shuttingDown = false
+  const refuseWhileShuttingDown = () => {
+    if (shuttingDown) throw new RequestError(503, 'TED is shutting down')
+  }
 
   function follow(runId: string): void {
     const release = options.idle?.hold()
@@ -85,11 +92,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const entries: ConversationEntry[] = []
     let state: RunState | undefined
     let sessionId: string | undefined
+    let problem: RunProblem | undefined
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({ offset, line: record.line })
         state = agent.stateFrom(record.line) ?? state
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
+        problem = agent.problemFrom(record.line) ?? problem
       } else if (record.t === 'exit') state = 'finished'
     }
     if (hostGone) state = 'finished'
@@ -98,14 +107,33 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       entries,
       ...(state && { state }),
       ...(sessionId !== undefined && { sessionId }),
+      ...(problem !== undefined && { problem }),
     })
     return state === 'finished'
   }
 
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
-  return {
-    async start({ agent: kind, prompt, cwd, taskId, env = {} }) {
+  async function writeLaunch(runDir: string, cwd: string, launch: AgentLaunch): Promise<void> {
+    for (const [name, content] of Object.entries(launch.files)) {
+      await writeFile(path.join(runDir, name), content, { mode: 0o600 })
+    }
+    const launchFile: LaunchFile = {
+      command: launch.command,
+      args: launch.args,
+      cwd,
+      input: launch.input,
+      ...(launch.driver !== undefined && { driver: launch.driver }),
+    }
+    const file = runFiles(runDir).launch
+    const tmp = `${file}.${process.pid}.tmp`
+    await writeFile(tmp, JSON.stringify(launchFile), { mode: 0o600 })
+    await rename(tmp, file)
+  }
+
+  const manager: RunManager = {
+    async start({ agent: kind, prompt, cwd, taskId, env = {}, model, effort }) {
+      refuseWhileShuttingDown()
       const agent = agents.get(kind)
       const id = randomUUID()
       const runDir = path.join(runsDir, id)
@@ -121,19 +149,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           TED_RUN_TOKEN: tokens.issue(id),
           PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
         },
+        ...(model !== undefined && { model }),
+        ...(effort !== undefined && { effort }),
       })
-      for (const [name, content] of Object.entries(launch.files)) {
-        await writeFile(path.join(runDir, name), content, { mode: 0o600 })
-      }
-      const launchFile: LaunchFile = {
-        command: launch.command,
-        args: launch.args,
-        cwd,
-        input: launch.input,
-        ...(launch.driver !== undefined && { driver: launch.driver }),
-      }
-      await writeFile(runFiles(runDir).launch, JSON.stringify(launchFile), { mode: 0o600 })
+      await writeLaunch(runDir, cwd, launch)
 
+      refuseWhileShuttingDown()
       const run = store.startRun({
         id,
         agent: agent.kind,
@@ -141,6 +162,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         prompt,
         cwd,
         ...(taskId !== undefined && { taskId }),
+        ...(model !== undefined && { model }),
+        ...(effort !== undefined && { effort }),
       })
       spawn(process.execPath, [hostMain, runDir], {
         detached: true,
@@ -150,6 +173,34 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }).unref()
       follow(id)
       return run
+    },
+    async restart(runId, flags) {
+      refuseWhileShuttingDown()
+      const run = store.getRun(runId)
+      if (!run || run.state === 'finished' || !following.has(runId)) {
+        throw new Error(`Run ${runId} isn't live`)
+      }
+      if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
+      const runDir = path.join(runsDir, runId)
+      const start = await startRecord(runDir)
+      if (!start) throw new Error(`Run ${runId}'s host never started`)
+      const launch = agents.get(run.agent).launch({
+        prompt: '',
+        runDir,
+        env: {},
+        resume: run.sessionId,
+        ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
+        ...(flags.effort !== undefined && { effort: flags.effort }),
+      })
+      await writeLaunch(runDir, run.cwd, launch)
+      const before = await startRecordCount(runDir)
+      const restarted = store.restartRun(runId, flags)
+      signal(start.hostPid, 'SIGHUP')
+      for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
+        if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s agent didn't restart`)
+        await sleep(pollMs)
+      }
+      return restarted
     },
     async send(runId, text) {
       const input = runFiles(path.join(runsDir, runId)).input
@@ -171,16 +222,21 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (!isLockHeld(runFiles(runDir).lock)) return void (await done)
       signal(start.hostPid, 'SIGTERM')
       if ((await Promise.race([done, timeout])) === 'timeout') {
-        signal(start.agentPid, 'SIGKILL')
+        signal((await lastStartRecord(runDir))?.agentPid ?? null, 'SIGKILL')
         signal(start.hostPid, 'SIGKILL')
         await done
       }
+    },
+    async stopAll() {
+      shuttingDown = true
+      await Promise.all([...following.keys()].map((runId) => manager.stop(runId)))
     },
     async close() {
       closed = true
       await Promise.all(following.values())
     },
   }
+  return manager
 }
 
 export async function startRecord(
@@ -201,6 +257,18 @@ export async function startRecord(
   const record = JSON.parse(head.slice(0, end)) as HostRecord
   return record.t === 'start' ? record : undefined
 }
+
+async function startRecords(runDir: string): Promise<Extract<HostRecord, { t: 'start' }>[]> {
+  const log = await readFile(runFiles(runDir).log, 'utf8').catch(() => '')
+  return log
+    .split('\n')
+    .filter((line) => line.startsWith('{"t":"start"'))
+    .map((line) => JSON.parse(line) as Extract<HostRecord, { t: 'start' }>)
+}
+
+const lastStartRecord = async (runDir: string) => (await startRecords(runDir)).at(-1)
+
+const startRecordCount = async (runDir: string) => (await startRecords(runDir)).length
 
 function signal(pid: number | null, name: NodeJS.Signals): void {
   try {
