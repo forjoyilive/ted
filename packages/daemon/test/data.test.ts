@@ -74,7 +74,7 @@ describe('store migrations', () => {
 
     const updates = statuses.filter((s) => s.state === 'updating')
     expect(updates.length).toBeGreaterThan(0)
-    expect(updates.at(-1)).toMatchObject({ version: '1.1.0', done: 2, total: 2 })
+    expect(updates.at(-1)).toMatchObject({ version: '1.1.0', done: 4, total: 4 })
     expect(statuses.at(-1)).toEqual({ state: 'ready' })
     expect((await ted.call('GET', '/tasks')).body).toEqual(before)
     expect((await ted.call('GET', '/data-status')).body).toEqual({ state: 'ready' })
@@ -134,9 +134,9 @@ describe('store migrations', () => {
     ted = await start('1.1.0')
 
     const status = (await ted.call('GET', '/data-status')).body as DataStatus
-    expect(status).toMatchObject({ state: 'failed', version: '1.1.0', total: 2 })
+    expect(status).toMatchObject({ state: 'failed', version: '1.1.0', total: 4 })
     if (status.state !== 'failed') throw new Error('not failed')
-    expect(status.error).toBe('v2.TaskCreated: Missing key at ["id"]')
+    expect(status.error).toBe('v1.TaskRanked: Missing key at ["taskId"]')
     expect(status.restore).toMatchObject({ kind: 'pre-update', dataFrom: '1.0.0' })
     const tasks = await ted.call('GET', '/tasks')
     expect(tasks.status).toBe(503)

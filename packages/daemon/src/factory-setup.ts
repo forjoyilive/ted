@@ -15,6 +15,7 @@ import {
 } from '@ted/protocol'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
+import { cloneRemoved } from './factories.ts'
 import * as git from './git.ts'
 import { type Gh, GhError } from './github/gh.ts'
 import type { IdleTimer } from './idle.ts'
@@ -331,6 +332,7 @@ export function createFactories(options: FactoriesOptions): Factories {
   async function cloneOne(factory: StoredFactory, { repo, cloneUrl }: StoredFactoryRepo) {
     const clone = path.join(reposDir, ...repo.split('/'))
     try {
+      await cloneRemoved(clone)
       const inFlight = cloning.get(clone)
       if (inFlight) {
         setRepo(factory, { repo, state: 'cloning' })

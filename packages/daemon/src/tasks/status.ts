@@ -1,4 +1,11 @@
-import type { GitHubWait, RunState, StageId, TaskMarker, TaskStatus } from '@ted/protocol'
+import type {
+  GitHubWait,
+  RunState,
+  StageId,
+  TaskMarker,
+  TaskStatus,
+  TaskStatusKind,
+} from '@ted/protocol'
 
 export interface TaskFacts {
   stage: StageId
@@ -16,10 +23,11 @@ export interface TaskFacts {
   github?: GitHubWait
   needsPlanning?: boolean
   agentActivity?: string
+  archived?: boolean
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
-  if (facts.stage === 'done') return undefined
+  if (facts.stage === 'done' || facts.archived) return undefined
   if (facts.failed) return { kind: 'failed' }
   if (facts.partlyMerged) return { kind: 'partly-merged' }
   if ((facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting')) {
@@ -38,7 +46,25 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   return undefined
 }
 
+export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
+  if (facts.stage === 'done' || facts.archived) return []
+  const has: Record<TaskStatusKind, boolean> = {
+    failed: facts.failed === true,
+    'partly-merged': facts.partlyMerged === true,
+    'waiting-on-you': (facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting'),
+    paused: facts.paused !== undefined,
+    working:
+      facts.tedWorking === true || facts.settingUp === true || facts.runs.includes('working'),
+    stopped: facts.stopped === true,
+    blocked: (facts.blockedBy?.length ?? 0) > 0,
+    queued: facts.queue !== undefined,
+    'waiting-for-github': facts.github !== undefined,
+  }
+  return (Object.keys(has) as TaskStatusKind[]).filter((kind) => has[kind])
+}
+
 export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): TaskMarker[] {
+  if (facts.archived) return []
   const blocker = facts.blockedBy?.[0]
   return [
     ...(facts.needsPlanning ? [{ kind: 'needs-planning' } as const] : []),
@@ -49,6 +75,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 }
 
 export function taskActivity(facts: TaskFacts): string | undefined {
+  if (facts.archived) return undefined
   if (facts.checking) {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`

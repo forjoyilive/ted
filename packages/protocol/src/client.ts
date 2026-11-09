@@ -25,15 +25,19 @@ import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.
 import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
+import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
   InboxItem,
+  MoveTaskRequest,
   OutcomeResult,
   PostCommentRequest,
+  Priority,
   ReportOutcomeRequest,
+  SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
   TaskBrief,
@@ -97,6 +101,19 @@ export class DaemonClient {
 
   moveToBacklog(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
+  }
+
+  setPriority(ref: string, priority: Priority): Promise<Task> {
+    const body: SetPriorityRequest = { priority }
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
+  }
+
+  archiveTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`)
   }
 
   getSlots(): Promise<RunSlots> {
@@ -321,6 +338,14 @@ export class DaemonClient {
 
   getDataStatus(): Promise<DataStatus> {
     return this.#request('GET', '/data-status')
+  }
+
+  getStorage(): Promise<StorageSummary> {
+    return this.#request('GET', '/storage')
+  }
+
+  removeUnusedClones(): Promise<RemoveClonesResult> {
+    return this.#request('POST', '/storage/remove-clones')
   }
 
   listBackups(): Promise<BackupsSummary> {
