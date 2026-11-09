@@ -24,6 +24,8 @@ Used by `/wayfinder`.
 
 Every code change gets a review before it merges to `main`, usually from Codex (`/codex-review`). Fix or answer each confirmed finding before merging.
 
+A change also gets a security review (`/security-review`) before merging if it touches any of these: starting agents or running shell commands, messages between processes, credentials or tokens, network requests, or reading and writing files outside the repo being worked on.
+
 ## Designs: Figma
 
 - File: https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=0-1 (file key `SLTyztzQXHFdz4sk3TcePk`)
