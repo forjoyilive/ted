@@ -100,13 +100,12 @@ export function claudeAgent(binary: string): Agent {
     acceptedTextFrom(line) {
       const message = parse(line)
       if (message?.type !== 'user') return undefined
-      const content = message.message?.content
-      if (typeof content === 'string') return content
-      if (!Array.isArray(content)) return undefined
-      const texts = (content as { type?: unknown; text?: unknown }[]).flatMap((part) =>
-        part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
-      )
-      return texts.length > 0 ? texts.join('\n') : undefined
+      return textParts(message.message?.content)
+    },
+    agentTextFrom(line) {
+      const message = parse(line)
+      if (message?.type !== 'assistant' || message.error !== undefined) return undefined
+      return textParts(message.message?.content)
     },
     sessionIdFrom: () => undefined,
     authErrorFrom(line) {
@@ -170,6 +169,15 @@ interface ClaudeLine {
   hook_event?: unknown
   error?: unknown
   message?: { content?: unknown }
+}
+
+function textParts(content: unknown): string | undefined {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return undefined
+  const texts = (content as { type?: unknown; text?: unknown }[]).flatMap((part) =>
+    part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
+  )
+  return texts.length > 0 ? texts.join('\n') : undefined
 }
 
 function parse(line: string): ClaudeLine | undefined {
