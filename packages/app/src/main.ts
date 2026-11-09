@@ -50,10 +50,10 @@ import {
   type SaveLibraryRequest,
   type SaveSettingsRequest,
   type StartPlanRequest,
-  type Task,
   tedHome,
   tedPaths,
   tedVersion,
+  type WaitingRequest,
 } from '@ted/protocol'
 import {
   app,
@@ -74,12 +74,11 @@ import {
 import {
   appMenu,
   closeNotice,
+  dockBadge,
   type MenuCommand,
   type MenuEntry,
   type MenuState,
-  mergedNotice,
   type Platform,
-  problemNotice,
   quitAnswer,
   quitDialog,
   quitPlan,
@@ -94,6 +93,12 @@ import {
   recordLoginItem,
   startsInBackground,
 } from './login-item.ts'
+import {
+  createNotifications,
+  type Notifier,
+  recordingNotifier,
+  silentNotifier,
+} from './notifications.ts'
 import {
   isFigmaLink,
   keepFramesInPlace,
@@ -146,6 +151,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
+  listWaiting: (client) => client.listWaiting(),
   listPlans: (client, factory) =>
     client.listPlans(typeof factory === 'string' ? factory : undefined),
   getPlan: (client, id) => client.getPlan(String(id)),
@@ -559,7 +565,7 @@ let client: DaemonClient | undefined
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
 let quitting = false
-let state: MenuState = { activity: noActivity, banners: [] }
+let state: MenuState = { activity: noActivity, waiting: 0, banners: [] }
 let settings: MachineSettings = defaultMachineSettings
 let bannerTimer: NodeJS.Timeout | undefined
 let loginItem: LoginItem | undefined
@@ -614,6 +620,10 @@ function forward(event: DaemonEvent): void {
     loadState().catch((error: unknown) => console.error('loading settings failed:', error))
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
+  if (event.type === 'inbox-changed') {
+    state = { ...state, waiting: event.waiting.length }
+    notifications.waiting(event.waiting)
+  }
   if (event.type === 'banner-raised' || event.type === 'banner-updated') {
     state = {
       ...state,
@@ -623,32 +633,99 @@ function forward(event: DaemonEvent): void {
   if (event.type === 'banner-cleared') {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
-  if (event.type === 'banner-raised') notifyProblem(event.banner)
-  if (event.type === 'task-updated') notifyMerged(event.task)
+  if (event.type === 'banner-raised') notifications.problem(event.banner)
+  if (event.type === 'task-updated') notifications.merged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
 }
 
-function notifyProblem(banner: Banner): void {
-  const notice = problemNotice(banner)
-  if (!notice || hiddenWindow || !Notification.isSupported()) return
-  const shown = new Notification({ title: notice.title, body: notice.body })
-  shown.on('click', () => run(notice.opens))
-  shown.show()
+interface NotificationState {
+  asked: boolean
+  off: boolean
 }
 
-const mergedNotified = new Set<string>()
+const notificationFile = () => path.join(app.getPath('userData'), 'notifications.json')
 
-function notifyMerged(task: Task): void {
-  const notice = mergedNotice(task, Date.now())
-  if (!notice || mergedNotified.has(task.id)) return
-  mergedNotified.add(task.id)
-  if (!settings.notifyTaskMerged || hiddenWindow || !Notification.isSupported()) return
-  const shown = new Notification({ title: notice.title, body: notice.body })
-  shown.on('click', () => run(notice.opens))
-  shown.show()
+function readNotificationState(): NotificationState {
+  try {
+    const saved = JSON.parse(readFileSync(notificationFile(), 'utf8')) as Partial<NotificationState>
+    return { asked: saved.asked === true, off: saved.off === true }
+  } catch {
+    return { asked: false, off: false }
+  }
 }
+
+let notificationState: NotificationState | undefined
+
+function currentNotificationState(): NotificationState {
+  notificationState ??= readNotificationState()
+  return notificationState
+}
+
+function saveNotificationState(changes: Partial<NotificationState>): void {
+  const before = currentNotificationState()
+  const next = { ...before, ...changes }
+  if (next.asked === before.asked && next.off === before.off) return
+  notificationState = next
+  writeFile(notificationFile(), JSON.stringify(next)).catch((error: unknown) =>
+    console.error('saving the notification state failed:', error),
+  )
+  if (next.off !== before.off) sendToRenderer({ type: 'notifications-off', off: next.off })
+}
+
+const liveNotifications = new Set<Notification>()
+
+function electronNotifier(): Notifier {
+  return {
+    show(notice, onClick) {
+      if (!Notification.isSupported()) {
+        saveNotificationState({ off: true })
+        return { close: () => undefined }
+      }
+      const shown = new Notification(notice)
+      liveNotifications.add(shown)
+      shown.on('click', onClick)
+      shown.on('show', () => saveNotificationState({ off: false }))
+      shown.on('failed', () => saveNotificationState({ off: true }))
+      shown.on('close', () => liveNotifications.delete(shown))
+      shown.show()
+      return {
+        close: () => {
+          liveNotifications.delete(shown)
+          shown.close()
+        },
+      }
+    },
+    badge(count) {
+      if (platform === 'darwin') app.dock?.setBadge(dockBadge(count))
+      if (platform === 'linux') app.setBadgeCount(count)
+    },
+  }
+}
+
+function makeNotifier(): Notifier {
+  const log = process.env.TED_NOTIFY_LOG
+  if (log) {
+    const failing = process.env.TED_NOTIFY_STATUS === 'off'
+    return recordingNotifier(log, () => saveNotificationState({ off: true }), failing)
+  }
+  return hiddenWindow ? silentNotifier : electronNotifier()
+}
+
+const notifier = makeNotifier()
+
+const notifications = createNotifications({
+  notifier,
+  settings: () => settings,
+  open: (notice) => run(notice.opens),
+  asksPermission: platform === 'darwin',
+  asked: () => currentNotificationState().asked,
+  markAsked: () => saveNotificationState({ asked: true }),
+})
+
+const notificationsPane =
+  'x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=design.kriya.ted'
 
 function run(command: MenuCommand): void {
   if (command.kind === 'quit') return void requestQuit()
@@ -689,8 +766,8 @@ function wantsTray(): boolean {
 function refresh(): void {
   const now = new Date()
   Menu.setApplicationMenu(Menu.buildFromTemplate(toElectron(appMenu(platform, state, now))))
-  const waiting = state.activity.waitingOnYou
-  if (platform === 'linux') app.setBadgeCount(waiting)
+  const { waiting } = state
+  notifier.badge(waiting)
   window?.setTitle(windowTitle(platform, waiting))
 
   if (!wantsTray()) {
@@ -702,7 +779,7 @@ function refresh(): void {
     icon.setTemplateImage(!warning)
     tray ??= new Tray(icon)
     tray.setImage(icon)
-    if (platform === 'darwin') tray.setTitle(trayLabel(state.activity))
+    if (platform === 'darwin') tray.setTitle(trayLabel(waiting))
     tray.setToolTip(waiting > 0 ? `TED · ${waiting} waiting on you` : 'TED')
     tray.setContextMenu(Menu.buildFromTemplate(toElectron(statusMenu(state, now))))
   }
@@ -879,7 +956,7 @@ async function createWindow(): Promise<void> {
     height: 800,
     minWidth: 900,
     minHeight: 560,
-    title: windowTitle(platform, state.activity.waitingOnYou),
+    title: windowTitle(platform, state.waiting),
     show: !hiddenWindow,
     webPreferences: {
       backgroundThrottling: !hiddenWindow,
@@ -910,11 +987,13 @@ async function loadState(): Promise<void> {
       ? await client.updateSettings({ firstLaunchDone: true })
       : loaded,
   )
-  const [activity, banners]: [Activity, Banner[]] = await Promise.all([
+  const [activity, banners, waiting]: [Activity, Banner[], WaitingRequest[]] = await Promise.all([
     client.getActivity(),
     client.listBanners(),
+    client.listWaiting(),
   ])
-  state = { ...state, activity, banners }
+  state = { ...state, activity, banners, waiting: waiting.length }
+  notifications.waiting(waiting)
   refresh()
 }
 
@@ -925,6 +1004,7 @@ async function loadStateWhenReady(): Promise<void> {
 function onConnection(connection: DaemonConnection): void {
   sendToRenderer({ type: 'connection', connection })
   if (connection.state === 'connected') {
+    notifications.forget()
     client = supervisor?.client
     loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
   } else if (connection.state === 'stopped' && !hiddenWindow) {
@@ -957,6 +1037,10 @@ async function start(): Promise<void> {
     },
     openLoginItemsSettings: async () => {
       if (platform === 'darwin') await shell.openExternal(loginItemsPane)
+    },
+    notificationsOff: async () => currentNotificationState().off,
+    openNotificationSettings: async () => {
+      if (platform === 'darwin') await shell.openExternal(notificationsPane)
     },
     restartDaemon: () => supervised.restart(),
     updateStatus: async () => updateStatus,

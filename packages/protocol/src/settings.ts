@@ -27,7 +27,10 @@ export interface MachineSettings {
   startAtLogin: boolean
   stayAwake: boolean
   restartIdleRuns: boolean
+  notifyInboxItems: boolean
+  notifyProblems: boolean
   notifyTaskMerged: boolean
+  notifySound: boolean
   listViews: Readonly<Record<string, ListView>>
   firstLaunchDone: boolean
   billing: Readonly<Record<AgentKind, Billing>>
@@ -47,7 +50,10 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   restartIdleRuns: true,
+  notifyInboxItems: true,
+  notifyProblems: true,
   notifyTaskMerged: false,
+  notifySound: false,
   listViews: {},
   firstLaunchDone: false,
   billing: { claude: 'subscription', codex: 'subscription' },

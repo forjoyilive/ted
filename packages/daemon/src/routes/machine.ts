@@ -227,7 +227,10 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
   restartIdleRuns: onOff('restartIdleRuns'),
+  notifyInboxItems: onOff('notifyInboxItems'),
+  notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
+  notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
