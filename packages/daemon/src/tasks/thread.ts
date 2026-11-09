@@ -1,4 +1,11 @@
-import type { ClarifyDepth, Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
+import type {
+  ClarifyDepth,
+  Comment,
+  CopySkip,
+  Judgment,
+  ThreadEvent,
+  ThreadEventTone,
+} from '@ted/protocol'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { depthNames } from './rounds.ts'
@@ -33,6 +40,31 @@ function agentLine(data: Record<string, unknown>): string {
     .join(' · ')
 }
 
+function judgmentsIn(data: Record<string, unknown>): Judgment[] {
+  return (['review', 'visual'] as const).flatMap((key) => {
+    const value = data[key] as { passed?: unknown; notes?: unknown } | null | undefined
+    if (!value || typeof value.passed !== 'boolean') return []
+    const name: Judgment['name'] = key === 'review' ? 'Review' : 'Visual'
+    return [
+      {
+        name,
+        passed: value.passed,
+        ...(typeof value.notes === 'number' && value.notes > 0 && { notes: value.notes }),
+      },
+    ]
+  })
+}
+
+function reviewedBy(data: Record<string, unknown>): string {
+  const reviewer = data.reviewer as { agent?: unknown; unavailable?: unknown } | null | undefined
+  if (!reviewer) return ''
+  const agent = agentNames[text(reviewer.agent)] ?? text(reviewer.agent)
+  const unavailable = text(reviewer.unavailable)
+  return ` · Reviewed by ${agent}${
+    unavailable === '' ? '' : ` (${agentNames[unavailable] ?? unavailable} unavailable)`
+  }`
+}
+
 function copyLine(data: Record<string, unknown>): string | undefined {
   const name = text(data.name)
   const copied = Array.isArray(data.copied) ? data.copied.map(text) : []
@@ -44,6 +76,13 @@ function copyLine(data: Record<string, unknown>): string | undefined {
   ]
   const line = parts.join(' · ')
   return line.charAt(0).toUpperCase() + line.slice(1)
+}
+
+function methodNote(data: Record<string, unknown>): string {
+  const method = text(data.method)
+  const requested = text(data.requested)
+  if (method === '' || requested === '' || method === requested) return ''
+  return ` · ${requested} isn’t allowed on GitHub, so TED used ${method}`
 }
 
 function leadFailedLine(data: Record<string, unknown>): string {
@@ -67,6 +106,7 @@ export function threadEvents(
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
+  let judged: Record<string, unknown> | undefined
   let depthSet = false
   const add = (
     entry: LoggedEvent,
@@ -74,6 +114,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -83,6 +124,9 @@ export function threadEvents(
       text: line,
       ...(findings !== undefined && findings !== '' && { findings }),
       ...(checkRunId !== undefined && { checkRunId }),
+      ...(extra?.judgments !== undefined &&
+        extra.judgments.length > 0 && { judgments: extra.judgments }),
+      ...(extra?.validate !== undefined && { validate: extra.validate }),
     })
 
   for (const entry of log) {
@@ -192,6 +236,9 @@ export function threadEvents(
         break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
+        const fromValidate = text(data.from) === 'validate'
+        const judgedNow = fromValidate ? judged : undefined
+        judged = undefined
         const round =
           typeof data.round !== 'number'
             ? ''
@@ -203,15 +250,58 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}`,
+          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
+            judgedNow ? reviewedBy(judgedNow) : ''
+          }`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
-          checkRunId,
+          checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
+          {
+            ...(judgedNow && { judgments: judgmentsIn(judgedNow) }),
+            ...(fromValidate && { validate: 'sent-back' as const }),
+          },
+        )
+        break
+      }
+      case 'v1.ValidateJudged':
+        if (data.outcome === 'sent-back') {
+          judged = data
+          break
+        }
+        judged = undefined
+        add(
+          entry,
+          'done',
+          `Validate passed${reviewedBy(data)}`,
+          undefined,
+          text(data.checkRunId) || undefined,
+          { judgments: judgmentsIn(data), validate: 'passed' },
+        )
+        break
+      case 'v1.LoopCheckStarted':
+        add(
+          entry,
+          'run',
+          typeof data.round === 'number'
+            ? `TED is checking whether Validate’s ${data.round} rounds are converging`
+            : 'TED is checking whether Validate’s rounds are converging',
+        )
+        break
+      case 'v1.LoopCheckFinished': {
+        const verdict = text(data.verdict)
+        const reason = text(data.reason)
+        add(
+          entry,
+          verdict === 'converging' ? 'done' : 'failure',
+          verdict === 'failed'
+            ? `Loop check gave no verdict · ${reason}`
+            : `Loop check: ${verdict} · ${reason}`,
         )
         break
       }
       case 'v1.TaskStageEntered':
       case 'v2.TaskStageEntered': {
         const stage = text(data.stage)
+        judged = undefined
         if (sentBackTo === stage) {
           sentBackTo = undefined
           break
@@ -308,6 +398,27 @@ export function threadEvents(
           text: 'You steered the Task Lead in its Conversation',
           runId: text(data.runId),
         })
+        break
+      case 'v1.PullRequestMerged': {
+        const name = text(data.name)
+        if (data.byTed !== true) {
+          add(entry, 'done', `The pull request for ${name} merged on GitHub`)
+          break
+        }
+        const line =
+          data.noCi === true ? `No CI on ${name} · merged without waiting` : `Merged ${name}`
+        add(entry, 'done', `${line}${methodNote(data)}`)
+        break
+      }
+      case 'v1.PullRequestAutoMergeEnabled':
+        add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
+        break
+      case 'v1.TaskBranchRebased':
+        add(
+          entry,
+          'run',
+          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+        )
         break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')

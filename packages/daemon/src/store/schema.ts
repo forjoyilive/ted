@@ -139,6 +139,7 @@ export const runs = State.SQLite.table({
     startedAt: State.SQLite.text(),
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
+    retrying: State.SQLite.boolean({ default: false }),
   },
 })
 
@@ -154,6 +155,48 @@ export const subAgentRequests = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     prompt: State.SQLite.text(),
     ownWorktree: State.SQLite.boolean({ default: false }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const reviewers = State.SQLite.table({
+  name: 'reviewers',
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    purpose: State.SQLite.text(),
+    agent: State.SQLite.text(),
+    unavailable: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const loopChecks = State.SQLite.table({
+  name: 'loopChecks',
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    toStage: State.SQLite.text(),
+    findings: State.SQLite.text(),
+    checkRunId: State.SQLite.text({ nullable: true }),
+    round: State.SQLite.integer(),
+    limit: State.SQLite.integer({ nullable: true }),
+    verdict: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const sendBackAsks = State.SQLite.table({
+  name: 'sendBackAsks',
+  columns: {
+    commentId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    fromStage: State.SQLite.text(),
+    toStage: State.SQLite.text(),
+    findings: State.SQLite.text(),
+    checkRunId: State.SQLite.text({ nullable: true }),
+    loop: State.SQLite.boolean(),
     at: State.SQLite.text(),
   },
 })
@@ -399,6 +442,12 @@ export const pullRequests = State.SQLite.table({
     ciSignals: State.SQLite.text({ nullable: true }),
     pushError: State.SQLite.text({ nullable: true }),
     pushErrorAt: State.SQLite.text({ nullable: true }),
+    mergedAt: State.SQLite.text({ nullable: true }),
+    mergeMethod: State.SQLite.text({ nullable: true }),
+    mergedWithoutCi: State.SQLite.boolean({ nullable: true }),
+    autoMerge: State.SQLite.text({ nullable: true }),
+    waitingOn: State.SQLite.text({ nullable: true }),
+    signedOffCommit: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -802,6 +851,56 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestWaitChanged: Events.synced({
+    name: 'v1.PullRequestWaitChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      on: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  pullRequestAutoMergeEnabled: Events.synced({
+    name: 'v1.PullRequestAutoMergeEnabled',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      method: Schema.String,
+      requested: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestMerged: Events.synced({
+    name: 'v1.PullRequestMerged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      method: Schema.NullOr(Schema.String),
+      requested: Schema.NullOr(Schema.String),
+      noCi: Schema.Boolean,
+      byTed: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  pullRequestSignedOff: Events.synced({
+    name: 'v1.PullRequestSignedOff',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBranchRebased: Events.synced({
+    name: 'v1.TaskBranchRebased',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      onto: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   checksStarted: Events.synced({
     name: 'v1.ChecksStarted',
     schema: Schema.Struct({
@@ -1031,6 +1130,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runRetryingChanged: Events.synced({
+    name: 'v1.RunRetryingChanged',
+    schema: Schema.Struct({ runId: Schema.String, retrying: Schema.Boolean, at: Schema.String }),
+  }),
   runProblemFound: Events.synced({
     name: 'v1.RunProblemFound',
     schema: Schema.Struct({ runId: Schema.String, problem: Schema.String, at: Schema.String }),
@@ -1227,6 +1330,73 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  reviewerChosen: Events.synced({
+    name: 'v1.ReviewerChosen',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      purpose: Schema.String,
+      agent: Schema.String,
+      unavailable: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  validateJudged: Events.synced({
+    name: 'v1.ValidateJudged',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      outcome: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      review: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      visual: Schema.NullOr(
+        Schema.Struct({ passed: Schema.Boolean, notes: Schema.NullOr(Schema.Number) }),
+      ),
+      reviewer: Schema.NullOr(
+        Schema.Struct({ agent: Schema.String, unavailable: Schema.NullOr(Schema.String) }),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  loopCheckStarted: Events.synced({
+    name: 'v1.LoopCheckStarted',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      round: Schema.Number,
+      limit: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
+  }),
+  loopCheckFinished: Events.synced({
+    name: 'v1.LoopCheckFinished',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      verdict: Schema.String,
+      reason: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  sendBackAsked: Events.synced({
+    name: 'v1.SendBackAsked',
+    schema: Schema.Struct({
+      commentId: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      loop: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
 }
 
 type Logged = { taskId: string | null; at: string; data?: Record<string, unknown> }
@@ -1306,6 +1476,17 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskWorktreeCreated': (args) =>
     task(args, { name: args.name, copied: args.copied, skipped: args.skipped }),
   'v1.TaskWorktreeSetupStarted': (args) => task(args, { name: args.name, command: args.command }),
+  'v1.PullRequestMerged': (args) =>
+    task(args, {
+      name: args.name,
+      method: args.method,
+      requested: args.requested,
+      noCi: args.noCi,
+      byTed: args.byTed,
+    }),
+  'v1.PullRequestAutoMergeEnabled': (args) =>
+    task(args, { name: args.name, method: args.method, requested: args.requested }),
+  'v1.TaskBranchRebased': (args) => task(args, { name: args.name, onto: args.onto }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
   'v1.TaskWorktreeRemoved': (args) =>
@@ -1317,6 +1498,17 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.TaskRunReleased': (args) => task(args),
   'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
+  'v1.ValidateJudged': (args) =>
+    task(args, {
+      outcome: args.outcome,
+      checkRunId: args.checkRunId,
+      review: args.review,
+      visual: args.visual,
+      reviewer: args.reviewer,
+    }),
+  'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
+  'v1.LoopCheckFinished': (args) =>
+    task(args, { runId: args.runId, verdict: args.verdict, reason: args.reason }),
   'v1.RunMessageSent': (args) => ({
     taskId: args.lead === true ? str(args.taskId) : null,
     at: String(args.at),
@@ -1565,11 +1757,22 @@ const materializers = counted(
       ],
       'v1.SubAgentRequested': (request) => subAgentRequests.insert(request),
       'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
+      'v1.ReviewerChosen': (row) => reviewers.insert(row),
+      'v1.ValidateJudged': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.LoopCheckStarted': ({ to, ...row }) =>
+        loopChecks.insert({ ...row, toStage: to, verdict: null }),
+      'v1.LoopCheckFinished': ({ runId, verdict }) =>
+        loopChecks.update({ verdict }).where({ runId }),
+      'v1.SendBackAsked': ({ from, to, ...row }) =>
+        sendBackAsks.insert({ ...row, fromStage: from, toStage: to }),
       'v1.RunFailed': ({ runId, error }) => runs.update({ failure: error }).where({ id: runId }),
       'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
         runs
           .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
           .where({ id: runId }),
+      'v1.RunRetryingChanged': ({ runId, retrying }) =>
+        runs.update({ retrying }).where({ id: runId }),
       'v1.RunProblemFound': ({ runId, problem }) =>
         runs.update({ problem, state: 'waiting' }).where({ id: runId }),
       'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
@@ -1722,19 +1925,20 @@ const materializers = counted(
             ciSignals: JSON.stringify(ciSignals),
             pushError: null,
             pushErrorAt: null,
+            signedOffCommit: null,
           })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.TaskBranchPushFailed': ({ taskId, name, message, at }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests
-          .update({ pushError: message, pushErrorAt: at })
+          .update({ pushError: message, pushErrorAt: at, signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.PullRequestOpened': ({ taskId, name, number, url, base }) => [
         pullRequests.insert({ id: `${taskId}:${name}`, taskId, name }).onConflict('id', 'ignore'),
         pullRequests
-          .update({ number, url, base, state: 'draft' })
+          .update({ number, url, base, state: 'draft', signedOffCommit: null })
           .where({ id: `${taskId}:${name}` }),
       ],
       'v1.PullRequestMarkedReady': ({ taskId, name }) =>
@@ -1743,6 +1947,26 @@ const materializers = counted(
         pullRequests.update({ state: 'closed' }).where({ id: `${taskId}:${name}` }),
       'v1.PullRequestReopened': ({ taskId, name, state }) =>
         pullRequests.update({ state }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestWaitChanged': ({ taskId, name, on }) =>
+        pullRequests.update({ waitingOn: on }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestAutoMergeEnabled': ({ taskId, name, method }) =>
+        pullRequests.update({ autoMerge: method }).where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestMerged': ({ taskId, name, method, noCi, at }) =>
+        pullRequests
+          .update({
+            state: 'merged',
+            mergedAt: at,
+            mergeMethod: method,
+            mergedWithoutCi: noCi,
+            waitingOn: null,
+          })
+          .where({ id: `${taskId}:${name}` }),
+      'v1.PullRequestSignedOff': ({ taskId, name, commit }) =>
+        pullRequests.update({ signedOffCommit: commit }).where({ id: `${taskId}:${name}` }),
+      'v1.TaskBranchRebased': ({ taskId, name, commit, at }) =>
+        pullRequests
+          .update({ pushedCommit: commit, pushedAt: at, signedOffCommit: commit })
+          .where({ id: `${taskId}:${name}` }),
       'v1.LocalFolderSet': ({ repo, path, at }) =>
         localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
@@ -1796,6 +2020,9 @@ const state = State.SQLite.makeState({
     taskSources,
     runs,
     subAgentRequests,
+    reviewers,
+    loopChecks,
+    sendBackAsks,
     conversationEntries,
     runMessages,
     runInterrupts,

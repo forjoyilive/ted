@@ -16,13 +16,18 @@ import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { StoredTask, SubAgentRequest, TedStore } from '../store/index.ts'
-import { subAgentPrompt } from '../workflow/workflow.ts'
+import type { ReviewerPurpose, StoredTask, SubAgentRequest, TedStore } from '../store/index.ts'
+import { stageTitle, subAgentPrompt, tedSubAgentPrompt } from '../workflow/workflow.ts'
 import type { QueueEntry } from './queue.ts'
 import type { Caller } from './tasks.ts'
 
 export interface SubAgents {
   request(ref: string, caller: Caller, input: StartSubAgentRequest): Promise<SubAgent>
+  requestForTed(
+    task: StoredTask,
+    input: { name: string; prompt: string; choice: ReviewerChoice; purpose: ReviewerPurpose },
+  ): string | undefined
+  result(runId: string): Promise<SubAgentWait>
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
@@ -34,12 +39,18 @@ export interface SubAgents {
   close(): void
 }
 
+export interface ReviewerChoice {
+  lead: TaskLead
+  unavailable?: AgentKind
+}
+
 export interface SubAgentDeps {
   store: TedStore
   runs: RunManager
   agents: Agents
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
+  reviewerFor(task: StoredTask): Promise<ReviewerChoice>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(task: StoredTask): string
@@ -168,7 +179,10 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return
     }
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : repo.worktree
-    const prompt = await subAgentPrompt(task.displayId, request.prompt)
+    const prompt =
+      store.reviewerOf(request.id)?.purpose === 'loop-check'
+        ? await tedSubAgentPrompt(request.prompt)
+        : await subAgentPrompt(task.displayId, request.prompt)
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {
@@ -211,6 +225,71 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         deps.pump()
       }, lingerMs),
     )
+  }
+
+  async function waitFor(
+    runId: string,
+    timeoutMs: number,
+    waiting?: { start(): void; end(): void },
+  ): Promise<SubAgentWait> {
+    const endedBefore = store.getRun(runId)?.state === 'finished'
+    const check = (): SubAgentWait | undefined => {
+      const run = store.getRun(runId)
+      if (!run) {
+        const request = store.subAgentRequests().find((r) => r.id === runId)
+        if (request) return undefined
+        return {
+          id: runId,
+          name: 'Sub-agent',
+          agent: 'claude',
+          state: 'stopped',
+          done: true,
+          error: 'The sub-agent never started: its request was dropped.',
+        }
+      }
+      if (run.state === 'working' || run.state === 'waiting') return undefined
+      if (run.state === 'finished' && !endedBefore && !ended.has(run.id)) return undefined
+      if (run.state === 'idle' && !turnEndedSinceSend(run)) return undefined
+      const message = finalMessage(run)
+      return {
+        ...describe(run),
+        done: true,
+        ...(message !== undefined && { message }),
+        ...(run.failure !== undefined && { error: run.failure }),
+      }
+    }
+    const now = check()
+    if (now) return now
+    waiting?.start()
+    try {
+      return await new Promise<SubAgentWait>((resolve) => {
+        const set = wakers.get(runId) ?? new Set()
+        wakers.set(runId, set)
+        const finish = (result: SubAgentWait) => {
+          clearTimeout(timer)
+          set.delete(waker)
+          if (set.size === 0) wakers.delete(runId)
+          resolve(result)
+        }
+        const pending = (): SubAgentWait => {
+          const run = store.getRun(runId)
+          const request = store.subAgentRequests().find((r) => r.id === runId)
+          const current = run ? describe(run) : request ? describeRequest(request) : undefined
+          return {
+            ...(current ?? { id: runId, name: 'Sub-agent', agent: 'claude', state: 'queued' }),
+            done: false,
+          }
+        }
+        const waker = () => {
+          const result = closed ? pending() : check()
+          if (result) finish(result)
+        }
+        const timer = setTimeout(() => finish(pending()), timeoutMs)
+        set.add(waker)
+      })
+    } finally {
+      waiting?.end()
+    }
   }
 
   const unsubscribe = store.subscribe((event) => {
@@ -275,6 +354,38 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       if (task.stage === 'backlog' || task.stage === 'done' || task.archived) {
         throw new RequestError(409, `${task.displayId} isn’t running`)
       }
+      if (input.reviewer === true) {
+        if (input.agent !== undefined || input.model !== undefined || input.effort !== undefined) {
+          throw new RequestError(
+            400,
+            'the reviewer’s agent, model and effort come from the `reviewer` setting; leave them out',
+          )
+        }
+        const choice = await deps.reviewerFor(task)
+        const id = crypto.randomUUID()
+        const request = store.requestSubAgent({
+          id,
+          taskId: task.id,
+          parentRunId: leadRun.id,
+          name: `Reviewer · ${stageTitle(task.stage)}`,
+          agent: choice.lead.agent,
+          ...(choice.lead.model !== undefined && { model: choice.lead.model }),
+          ...(choice.lead.effort !== undefined && { effort: choice.lead.effort }),
+          prompt: input.prompt,
+          ownWorktree: input.ownWorktree === true,
+        })
+        store.chooseReviewer({
+          runId: id,
+          taskId: task.id,
+          stage: task.stage,
+          purpose: 'review',
+          agent: choice.lead.agent,
+          ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
+        })
+        deps.pump()
+        const started = store.getRun(request.id)
+        return started ? describe(started) : describeRequest(request)
+      }
       const fallback = await deps.leadFor(task)
       const agent: AgentKind = input.agent ?? fallback.agent
       const sameAgent = agent === fallback.agent
@@ -332,65 +443,46 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     async wait(runId, caller, timeoutMs) {
       ownSubAgent(runId, caller)
       const leadRunId = caller.kind === 'run' ? caller.runId : ''
-      const endedBefore = store.getRun(runId)?.state === 'finished'
-      const check = (): SubAgentWait | undefined => {
-        const run = store.getRun(runId)
-        if (!run) {
-          const request = store.subAgentRequests().find((r) => r.id === runId)
-          if (request) return undefined
-          return {
-            id: runId,
-            name: 'Sub-agent',
-            agent: 'claude',
-            state: 'stopped',
-            done: true,
-            error: 'The sub-agent never started: its request was dropped.',
-          }
-        }
-        if (run.state === 'working' || run.state === 'waiting') return undefined
-        if (run.state === 'finished' && !endedBefore && !ended.has(run.id)) return undefined
-        if (run.state === 'idle' && !turnEndedSinceSend(run)) return undefined
-        const message = finalMessage(run)
-        return {
-          ...describe(run),
-          done: true,
-          ...(message !== undefined && { message }),
-          ...(run.failure !== undefined && { error: run.failure }),
-        }
+      return waitFor(runId, timeoutMs, {
+        start: () => {
+          setWaiting(leadRunId, 1)
+          deps.pump()
+        },
+        end: () => setWaiting(leadRunId, -1),
+      })
+    },
+    async result(runId) {
+      for (;;) {
+        const result = await waitFor(runId, 60_000)
+        if (result.done || closed) return result
       }
-      const now = check()
-      if (now) return now
-      setWaiting(leadRunId, 1)
+    },
+    requestForTed(task, { name, prompt, choice, purpose }) {
+      const leadRunId = task.leadRunId
+      const leadRun = leadRunId === undefined ? undefined : store.getRun(leadRunId)
+      if (!leadRun || leadRun.state === 'finished' || task.archived) return undefined
+      const id = crypto.randomUUID()
+      store.requestSubAgent({
+        id,
+        taskId: task.id,
+        parentRunId: leadRun.id,
+        name,
+        agent: choice.lead.agent,
+        ...(choice.lead.model !== undefined && { model: choice.lead.model }),
+        ...(choice.lead.effort !== undefined && { effort: choice.lead.effort }),
+        prompt,
+        ownWorktree: false,
+      })
+      store.chooseReviewer({
+        runId: id,
+        taskId: task.id,
+        stage: task.stage,
+        purpose,
+        agent: choice.lead.agent,
+        ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
+      })
       deps.pump()
-      try {
-        return await new Promise<SubAgentWait>((resolve) => {
-          const set = wakers.get(runId) ?? new Set()
-          wakers.set(runId, set)
-          const finish = (result: SubAgentWait) => {
-            clearTimeout(timer)
-            set.delete(waker)
-            if (set.size === 0) wakers.delete(runId)
-            resolve(result)
-          }
-          const pending = (): SubAgentWait => {
-            const run = store.getRun(runId)
-            const request = store.subAgentRequests().find((r) => r.id === runId)
-            const current = run ? describe(run) : request ? describeRequest(request) : undefined
-            return {
-              ...(current ?? { id: runId, name: 'Sub-agent', agent: 'claude', state: 'queued' }),
-              done: false,
-            }
-          }
-          const waker = () => {
-            const result = check()
-            if (result) finish(result)
-          }
-          const timer = setTimeout(() => finish(pending()), timeoutMs)
-          set.add(waker)
-        })
-      } finally {
-        setWaiting(leadRunId, -1)
-      }
+      return id
     },
     async send(runId, caller, text) {
       const { run, request } = ownSubAgent(runId, caller)

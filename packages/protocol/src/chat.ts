@@ -50,6 +50,7 @@ export interface RunSummary {
   effort?: Effort
   credential?: string
   tokens?: number
+  cost?: number
   state: RunState
   paused?: string
   onSubAgents?: boolean

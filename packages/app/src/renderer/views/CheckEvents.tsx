@@ -22,8 +22,8 @@ export function checkRunHeadline(checkRun: CheckRun): [ThreadEventTone, string] 
     ]
   }
   if (checkRun.outcome === 'interrupted') return ['quiet', 'Checks stopped before they finished']
-  if (failed) return ['failure', `${checkLabel(failed)} failed at Validate`]
-  return ['done', 'Checks passed at Validate']
+  if (failed) return ['failure', `${checkLabel(failed)} failed at ${stage}`]
+  return ['done', `Checks passed at ${stage}`]
 }
 
 export function CheckRunLine({

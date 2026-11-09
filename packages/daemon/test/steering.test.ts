@@ -25,7 +25,6 @@ import {
   rawRequest,
   stubClaudePath,
   stubCodexPath,
-  tokenFor,
   waitUntil,
 } from './helpers.ts'
 
@@ -54,7 +53,7 @@ async function startTed() {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
   })
-  const client = api(daemon.port, await tokenFor(home))
+  const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
@@ -351,6 +350,7 @@ describe('Steering a working Run', () => {
       headers: { authorization: `Bearer ${tokens.issue('run-2')}` },
     })
     expect(other.status).toBe(403)
+    expect((await client.call('POST', '/runs/run-1/boundary')).status).toBe(403)
     expect((await client.call('POST', '/runs/nope/interrupt')).status).toBe(404)
   })
 })

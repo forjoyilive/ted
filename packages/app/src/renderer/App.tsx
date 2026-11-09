@@ -1,5 +1,5 @@
 import type { AgentHealth, Banner, ListFilters, Task } from '@ted/protocol'
-import { runsPaused } from '@ted/protocol/health'
+import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
@@ -18,6 +18,7 @@ import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
+  useAnswered,
   useBanners,
   useConnection,
   useFactories,
@@ -26,6 +27,7 @@ import {
   useSlots,
   useTasks,
 } from './data.ts'
+import { waitingByFactory } from './inbox.ts'
 import { failedView, queueView } from './list-view.ts'
 import {
   backLink,
@@ -73,6 +75,11 @@ function pausedFooter(health: readonly AgentHealth[]) {
   return paused > 0 ? { paused: runsPaused(paused) } : {}
 }
 
+function planFooter(health: readonly AgentHealth[]) {
+  const chips = health.flatMap((h) => planChip(h) ?? [])
+  return chips.length > 0 ? { planChips: chips } : {}
+}
+
 const stubTitles = { search: 'Search' }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -106,12 +113,11 @@ export function App() {
   const openNewTask = () => setNewTaskOpen(true)
   const inbox = useInbox()
   const inboxCount = inbox.length
+  const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
+  const answered = useAnswered(inboxScreen?.answered === true)
   const waiting: Record<string, { waiting?: number; failed?: boolean }> = {}
-  for (const { task } of inbox) {
-    waiting[task.factoryId] = {
-      ...waiting[task.factoryId],
-      waiting: (waiting[task.factoryId]?.waiting ?? 0) + 1,
-    }
+  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox))) {
+    waiting[factoryId] = { waiting: count }
   }
   const failedTasks = tasks.filter((task) => task.status?.kind === 'failed' && !task.archived)
   for (const task of failedTasks) {
@@ -243,7 +249,10 @@ export function App() {
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'new-task') setNewTaskOpen(true)
-    if (command.kind === 'settings') dispatch({ type: 'open-settings' })
+    if (command.kind === 'settings') {
+      const section = settingsSectionIds.find((id) => id === command.section)
+      dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
+    }
     if (command.kind === 'banner') {
       const banner = banners.find((b) => b.id === command.bannerId)
       if (banner) void act(banner)
@@ -268,16 +277,32 @@ export function App() {
         factories={factories}
         backLink={backLink(navigation)}
         requestId={navigation.requestId}
+        answeredId={inboxScreen?.answered ? navigation.requestId : undefined}
         onBack={() => dispatch({ type: 'close-task' })}
         onOpenTask={openTaskByRef}
       />
     )
     const { screen } = navigation
     if (screen.kind === 'inbox') {
+      const openInbox = (change: { factoryId?: string | undefined; answered?: boolean }) => {
+        const factoryId = 'factoryId' in change ? change.factoryId : screen.factoryId
+        const showAnswered = change.answered ?? screen.answered === true
+        dispatch({
+          type: 'open',
+          screen: {
+            kind: 'inbox',
+            ...(factoryId !== undefined && { factoryId }),
+            ...(showAnswered && { answered: true }),
+          },
+        })
+      }
       return (
         <Inbox
           items={inbox}
+          answered={answered}
           factories={factories}
+          factoryId={screen.factoryId}
+          showAnswered={screen.answered === true}
           selected={navigation.requestId}
           onOpen={({ request, task: on }) =>
             dispatch({
@@ -287,6 +312,8 @@ export function App() {
               requestId: request.id,
             })
           }
+          onFilter={(factoryId) => openInbox({ factoryId })}
+          onShowAnswered={(show) => openInbox({ answered: show })}
         >
           {opened}
         </Inbox>
@@ -416,6 +443,7 @@ export function App() {
             ...(slots !== undefined && { runs: runsLine(slots) }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
+            ...planFooter(agentHealth),
           }}
           onOpenFailed={() => {
             saveListView(

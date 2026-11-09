@@ -29,6 +29,7 @@ export interface TaskFacts {
   archived?: boolean
   leadLive?: boolean
   waitingOnPermission?: 'lead' | 'sub-agent'
+  retrying?: boolean
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
@@ -110,6 +111,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`
   }
+  if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {

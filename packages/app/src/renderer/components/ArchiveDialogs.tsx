@@ -16,7 +16,9 @@ function joinAnd(items: readonly string[]): string {
 
 function openPullRequests(task: Task) {
   return task.repos.flatMap((r) =>
-    r.pullRequest && r.pullRequest.state !== 'closed' ? [{ repo: r, pr: r.pullRequest }] : [],
+    r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+      ? [{ repo: r, pr: r.pullRequest }]
+      : [],
   )
 }
 

@@ -20,7 +20,7 @@ export interface CheckResult {
   builtIn?: 'ted-settings'
 }
 
-export type CheckRunTrigger = 'validate' | 'agent'
+export type CheckRunTrigger = 'validate' | 'agent' | 'merge'
 
 export type CheckRunOutcome = 'passed' | 'failed' | 'interrupted'
 

@@ -1,7 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import type { RunState } from '@ted/protocol'
-import type { Agent, AuthCheck, PermissionPrompt } from './agent.ts'
+import { isModelName, type PlanWindow, type PlanWindowKind, type RunState } from '@ted/protocol'
+import {
+  type Agent,
+  type AuthCheck,
+  fromEpoch,
+  type PermissionPrompt,
+  type UsageSignal,
+  withoutKeys,
+} from './agent.ts'
 import { claudeChat } from './claude-chat.ts'
 
 const stateByHook: Record<string, RunState> = {
@@ -19,8 +26,72 @@ const boundaryGate =
 
 const removedEnv = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN']
 
-const withoutRemoved = (env: NodeJS.ProcessEnv) =>
-  Object.fromEntries(Object.entries(env).filter(([k]) => !removedEnv.includes(k)))
+const planWindowByType: Record<string, PlanWindowKind> = {
+  five_hour: 'five-hour',
+  seven_day: 'weekly',
+}
+
+const retriedStatuses = [429, 529]
+
+interface RateLimitInfo {
+  status?: unknown
+  resetsAt?: unknown
+  rateLimitType?: unknown
+  utilization?: unknown
+}
+
+function rateLimitInfo(message: ClaudeLine | undefined): RateLimitInfo | undefined {
+  if (message?.type !== 'rate_limit_event') return undefined
+  const info = message.rate_limit_info
+  return typeof info === 'object' && info !== null ? (info as RateLimitInfo) : undefined
+}
+
+function usageFrom(line: string): UsageSignal | undefined {
+  const message = parse(line)
+  const info = rateLimitInfo(message)
+  if (info) {
+    if (info.status !== 'rejected') return { limited: false }
+    const resetsAt = fromEpoch(info.resetsAt)
+    return { limited: true, ...(resetsAt !== undefined && { resetsAt }) }
+  }
+  if (message?.type === 'assistant') {
+    return message.error === 'rate_limit' ? { limited: true } : { limited: false }
+  }
+  return undefined
+}
+
+const keySources: Record<string, string> = {
+  ANTHROPIC_API_KEY:
+    'Claude Code found ANTHROPIC_API_KEY. TED removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
+  ANTHROPIC_AUTH_TOKEN:
+    'Claude Code found ANTHROPIC_AUTH_TOKEN. TED removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
+  apiKeyHelper:
+    'An apiKeyHelper in Claude Code’s settings (~/.claude/settings.json or the repo’s .claude/settings.json) gives it a key.',
+  '/login managed key':
+    'Claude Code is signed in with a Console account, which bills an API key. Run claude auth login and choose your Claude subscription.',
+}
+
+function keyHelp(source: string | undefined): string {
+  const where =
+    source === undefined
+      ? 'Claude Code reported an API key.'
+      : (keySources[source] ?? `Claude Code reported an API key from ${source}.`)
+  return `${where} Remove it, or choose API key billing if you meant to use one.`
+}
+
+function costOf(lines: readonly string[]): number | undefined {
+  let total = 0
+  let last = 0
+  let seen = false
+  for (const line of lines) {
+    const message = parse(line)
+    if (message?.type !== 'result' || typeof message.total_cost_usd !== 'number') continue
+    seen = true
+    if (message.total_cost_usd < last) total += last
+    last = message.total_cost_usd
+  }
+  return seen ? total + last : undefined
+}
 
 const authFailure = /\/login|not logged in|authentication|invalid api key|oauth/i
 
@@ -41,13 +112,17 @@ function claudeAuth({ stdout, code }: { code: number | null; stdout: string }): 
     typeof status.subscriptionType === 'string' && status.subscriptionType !== ''
       ? `Claude ${status.subscriptionType.charAt(0).toUpperCase()}${status.subscriptionType.slice(1)}`
       : undefined
-  const billing = status.authMethod === 'claude.ai' ? 'subscription' : 'API key'
+  const subscription = status.authMethod === 'claude.ai'
   const parts = [
     ...(typeof status.email === 'string' ? [`Signed in as ${status.email}`] : ['Signed in']),
     ...(plan ? [plan] : []),
-    billing,
+    subscription ? 'subscription' : 'API key',
   ]
-  return { signedIn: true, account: parts.join(' · ') }
+  return {
+    signedIn: true,
+    account: parts.join(' · '),
+    billing: subscription ? 'subscription' : 'api-key',
+  }
 }
 
 const modeFlag = { auto: 'auto', bypass: 'bypassPermissions' } as const
@@ -103,7 +178,10 @@ export function claudeAgent(binary: string): Agent {
   return {
     kind: 'claude',
     binary,
-    launch({ prompt, runDir, env, resume, model, effort, permissions }) {
+    launch({ prompt, runDir, env, resume, model, effort, permissions, billing }) {
+      if (model !== undefined && !isModelName(model)) {
+        throw new Error(`“${model}” isn’t a model name`)
+      }
       const sessionId = resume ?? randomUUID()
       const settingsPath = path.join(runDir, 'settings.json')
       const hooks = Object.fromEntries(
@@ -143,7 +221,7 @@ export function claudeAgent(binary: string): Agent {
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
-        env: withoutRemoved(env),
+        env: { ...withoutKeys(env, removedEnv, billing), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
         input: prompt === '' ? '' : userMessage(prompt),
         files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
         sessionId,
@@ -233,7 +311,45 @@ export function claudeAgent(binary: string): Agent {
         authFailure.test(message.result)
       )
     },
-    environment: withoutRemoved,
+    environment: (env, billing) => withoutKeys(env, removedEnv, billing),
+    usageFrom,
+    retryingFrom(line) {
+      const message = parse(line)
+      if (message?.type === 'system' && message.subtype === 'api_retry') {
+        const status = message.error_status
+        return typeof status !== 'number' || retriedStatuses.includes(status)
+      }
+      if (message?.type === 'assistant' || message?.type === 'result') return false
+      return undefined
+    },
+    credentialFrom(line) {
+      const message = parse(line)
+      if (message?.type !== 'system' || message.subtype !== 'init') return undefined
+      const source = message.apiKeySource
+      if (typeof source !== 'string') return undefined
+      return source === 'none' ? { billing: 'subscription' } : { billing: 'api-key', source }
+    },
+    planUsageFrom(line) {
+      const info = rateLimitInfo(parse(line))
+      const window = typeof info?.rateLimitType === 'string' && planWindowByType[info.rateLimitType]
+      if (!info || !window) return undefined
+      const percent =
+        typeof info.utilization === 'number'
+          ? info.utilization * 100
+          : info.status === 'rejected'
+            ? 100
+            : undefined
+      if (percent === undefined) return undefined
+      const resetsAt = fromEpoch(info.resetsAt)
+      const shown: PlanWindow = {
+        window,
+        percent: Math.min(100, Math.max(0, percent)),
+        ...(resetsAt !== undefined && { resetsAt }),
+      }
+      return [shown]
+    },
+    costOf,
+    keyHelp,
     health: {
       minimumVersion: '2.1.111',
       versionArgs: ['--version'],
@@ -287,6 +403,10 @@ interface ClaudeLine {
   }
   hook_event?: unknown
   error?: unknown
+  error_status?: unknown
+  apiKeySource?: unknown
+  rate_limit_info?: unknown
+  total_cost_usd?: unknown
   message?: { content?: unknown }
 }
 

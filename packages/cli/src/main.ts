@@ -27,6 +27,7 @@ import {
   type TaskLead,
   tedHome,
   tedPaths,
+  type ValidateJudgments,
 } from '@ted/protocol'
 
 const usage = `Usage:
@@ -49,6 +50,8 @@ const usage = `Usage:
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
                                              Send the Task back to an earlier Stage
+                At Validate, both take [--review pass|fail] [--review-notes <n>]
+                [--visual pass|fail] [--visual-notes <n>] for the confirmation row
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
   ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
@@ -61,6 +64,9 @@ const usage = `Usage:
                 [--name <name>] [--own-worktree]
                                              Start a sub-agent on this Task (Task Lead only);
                                              prints its Run ID
+  ted run start --reviewer --prompt-file <file>
+                                             Start the reviewer: TED picks its agent, model and
+                                             effort from the reviewer setting
   ted run wait <id>                          Wait for a sub-agent's final message and print it
   ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
   ted run stop <id>                          Stop a sub-agent
@@ -102,6 +108,11 @@ function parse() {
         findings: { type: 'string' },
         'own-worktree': { type: 'boolean' },
         'prompt-file': { type: 'string' },
+        review: { type: 'string' },
+        'review-notes': { type: 'string' },
+        reviewer: { type: 'boolean' },
+        visual: { type: 'string' },
+        'visual-notes': { type: 'string' },
         round: { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
@@ -204,8 +215,13 @@ try {
   } else if (group === 'outcome' && command === 'advance' && rest.length === 0) {
     const ref = taskRef()
     const skip = options.skip === true
+    const judged = judgments()
     const result = await withDaemon(home, (client) =>
-      client.reportOutcome(ref, { outcome: 'advance', ...(skip && { skip }) }),
+      client.reportOutcome(ref, {
+        outcome: 'advance',
+        ...(skip && { skip }),
+        ...(judged && { judged }),
+      }),
     )
     console.log(result.message)
   } else if (group === 'outcome' && command === 'back' && rest.length === 0) {
@@ -217,8 +233,14 @@ try {
     }
     const findings = await readFile(path.resolve(options.findings), 'utf8')
     if (findings.trim() === '') throw new UsageError('the Findings file is empty')
+    const judged = judgments()
     const result = await withDaemon(home, (client) =>
-      client.reportOutcome(ref, { outcome: 'back', to: to as AgentStageId, findings }),
+      client.reportOutcome(ref, {
+        outcome: 'back',
+        to: to as AgentStageId,
+        findings,
+        ...(judged && { judged }),
+      }),
     )
     console.log(result.message)
   } else if (group === 'outcome' && command === 'ask') {
@@ -389,6 +411,26 @@ try {
   }
 }
 
+function judgments(): ValidateJudgments | undefined {
+  const one = (name: 'review' | 'visual') => {
+    const result = options[name]
+    const notes = options[`${name}-notes`]
+    if (result === undefined && notes === undefined) return undefined
+    if (result !== undefined && result !== 'pass' && result !== 'fail') {
+      throw new UsageError(`--${name} must be pass or fail`)
+    }
+    const count = notes === undefined ? undefined : Number(notes)
+    if (count !== undefined && !(Number.isInteger(count) && count >= 0)) {
+      throw new UsageError(`--${name}-notes must be a whole number`)
+    }
+    return { passed: result !== 'fail', ...(count !== undefined && { notes: count }) }
+  }
+  const review = one('review')
+  const visual = one('visual')
+  if (!review && !visual) return undefined
+  return { ...(review && { review }), ...(visual && { visual }) }
+}
+
 async function startSubAgent(): Promise<void> {
   const ref = taskRef()
   const { agent, model, effort, name } = options
@@ -411,6 +453,7 @@ async function startSubAgent(): Promise<void> {
       ...(effort !== undefined && { effort: effort as Effort }),
       ...(name !== undefined && { name }),
       ...(options['own-worktree'] && { ownWorktree: true }),
+      ...(options.reviewer && { reviewer: true }),
     }),
   )
   const when = sub.state === 'queued' ? 'queued for a free slot' : 'started'

@@ -73,6 +73,15 @@ describe('agent kinds', () => {
     expect(ultra.args[ultra.args.indexOf('--effort') + 1]).toBe('max')
   })
 
+  test('neither agent launches with a model that isn’t a plain model name', () => {
+    for (const kind of ['claude', 'codex'] as const) {
+      expect(() => agents.get(kind).launch({ ...run, model: '--settings=/tmp/x' })).toThrow(
+        /model name/,
+      )
+      expect(() => agents.get(kind).launch({ ...run, model: 'opus[1m]' })).not.toThrow()
+    }
+  })
+
   test('Codex gets the model and effort in its plan', () => {
     const plain = JSON.parse(agents.get('codex').launch(run).input)
     const chosen = JSON.parse(
@@ -118,5 +127,99 @@ describe('agent kinds', () => {
     expect(
       createAgents({ claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' }).defaultLead(),
     ).toBe('claude')
+  })
+})
+
+describe('usage, credentials and cost', () => {
+  const claude = agents.get('claude')
+  const codex = agents.get('codex')
+  const line = (value: unknown) => JSON.stringify(value)
+
+  test('Codex reports its usage limit with or without a reset time, and retries on willRetry', () => {
+    expect(
+      codex.usageFrom(
+        line({
+          method: 'error',
+          params: { error: { message: 'x', codexErrorInfo: 'usageLimitExceeded' } },
+        }),
+      ),
+    ).toEqual({ limited: true })
+    expect(
+      codex.usageFrom(
+        line({
+          method: 'turn/completed',
+          params: {
+            turn: {
+              error: { codexErrorInfo: { usageLimitExceeded: { resetsAt: 1_800_000_000 } } },
+            },
+          },
+        }),
+      ),
+    ).toEqual({ limited: true, resetsAt: new Date(1_800_000_000_000).toISOString() })
+    expect(codex.usageFrom(line({ method: 'turn/completed', params: { turn: {} } }))).toEqual({
+      limited: false,
+    })
+    expect(codex.retryingFrom(line({ method: 'error', params: { willRetry: true } }))).toBe(true)
+    expect(codex.retryingFrom(line({ method: 'item/completed', params: {} }))).toBe(false)
+  })
+
+  test('Claude retries only count for rate limits and overload', () => {
+    const retry = (status: number) =>
+      claude.retryingFrom(line({ type: 'system', subtype: 'api_retry', error_status: status }))
+    expect(retry(429)).toBe(true)
+    expect(retry(529)).toBe(true)
+    expect(retry(500)).toBe(false)
+  })
+
+  test('each kind reports the credential a Run started with', () => {
+    expect(
+      claude.credentialFrom(line({ type: 'system', subtype: 'init', apiKeySource: 'none' })),
+    ).toEqual({ billing: 'subscription' })
+    expect(
+      claude.credentialFrom(
+        line({ type: 'system', subtype: 'init', apiKeySource: 'apiKeyHelper' }),
+      ),
+    ).toEqual({ billing: 'api-key', source: 'apiKeyHelper' })
+    expect(codex.credentialFrom(line({ id: 2, result: { account: { type: 'apiKey' } } }))).toEqual({
+      billing: 'api-key',
+      source: 'apiKey',
+    })
+    expect(
+      codex.credentialFrom(line({ id: 2, result: { account: { type: 'chatgpt', email: 'a' } } })),
+    ).toEqual({ billing: 'subscription' })
+  })
+
+  test('Claude adds up total_cost_usd across agent restarts; Codex prices its tokens', () => {
+    const result = (cost: number) => line({ type: 'result', total_cost_usd: cost })
+    expect(claude.costOf([result(0.1), result(0.3), result(0.05)], undefined)).toBeCloseTo(0.35)
+    expect(claude.costOf([], undefined)).toBeUndefined()
+    const usage = line({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        tokenUsage: {
+          total: { inputTokens: 1_000_000, cachedInputTokens: 0, outputTokens: 100_000 },
+        },
+      },
+    })
+    expect(codex.costOf([usage], 'gpt-5-mini')).toBeCloseTo(0.45)
+  })
+
+  test('under API key billing the key variables stay; under Subscription they go', () => {
+    const env = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', CODEX_API_KEY: 'c', OPENAI_API_KEY: 'o' }
+    expect(claude.environment(env, 'subscription').ANTHROPIC_API_KEY).toBeUndefined()
+    expect(claude.environment(env, 'api-key').ANTHROPIC_API_KEY).toBe('k')
+    expect(codex.environment(env, 'subscription').CODEX_API_KEY).toBeUndefined()
+    expect(codex.launch({ ...run, env, billing: 'api-key' }).env.CODEX_API_KEY).toBe('c')
+  })
+
+  test('an API key reaches the agent process but not the commands it runs', () => {
+    const env = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', CODEX_API_KEY: 'c' }
+    const codexArgs = codex.launch({ ...run, env, billing: 'api-key' }).args
+    expect(codexArgs).toContain(
+      'shell_environment_policy.exclude=["CODEX_API_KEY","OPENAI_API_KEY"]',
+    )
+    const claudeLaunch = claude.launch({ ...run, env, billing: 'api-key' })
+    expect(claudeLaunch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
   })
 })

@@ -1,4 +1,6 @@
+import type { Billing } from './health.ts'
 import type { ListView } from './list-view.ts'
+import type { AgentKind } from './run.ts'
 
 export const appearances = ['system', 'light', 'dark'] as const
 
@@ -23,6 +25,7 @@ export interface MachineSettings {
   startAtLogin: boolean
   stayAwake: boolean
   listViews: Readonly<Record<string, ListView>>
+  billing: Readonly<Record<AgentKind, Billing>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -36,6 +39,7 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   listViews: {},
+  billing: { claude: 'subscription', codex: 'subscription' },
 }
 
 export interface Profile {

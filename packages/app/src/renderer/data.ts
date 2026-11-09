@@ -205,15 +205,24 @@ const inboxEvents = new Set<TedEvent['type']>([
 ])
 
 export function useInbox(): InboxItem[] {
+  return useInboxList(ted.listInbox, true)
+}
+
+export function useAnswered(enabled: boolean): InboxItem[] {
+  return useInboxList(ted.listAnswered, enabled)
+}
+
+function useInboxList(list: () => Promise<InboxItem[]>, enabled: boolean): InboxItem[] {
   const [items, setItems] = useState<InboxItem[]>([])
   const { epoch } = useConnection()
 
   useEffect(() => {
     void epoch
+    if (!enabled) return
     let latest = 0
     const load = () => {
       const call = ++latest
-      void ted.listInbox().then(
+      void list().then(
         (loaded) => {
           if (call === latest) setItems(loaded)
         },
@@ -228,7 +237,7 @@ export function useInbox(): InboxItem[] {
       latest = -1
       unsubscribe()
     }
-  }, [epoch])
+  }, [epoch, enabled, list])
 
   return items
 }

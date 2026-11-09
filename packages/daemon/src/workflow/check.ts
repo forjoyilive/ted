@@ -1,6 +1,7 @@
 import {
   type AgentStageId,
   agentStageIds,
+  isModelName,
   type LayerKind,
   type StageId,
   type WorkflowProblem,
@@ -262,8 +263,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         if (!oneOf(entry.value, agents)) error(entry.value, agentMessage(path))
         else choice.agent = scalar(entry.value) as string
       } else if (entry.name === 'model') {
-        if (!isText(entry.value)) error(entry.value, `\`${path}\` must be text`)
-        else choice.model = scalar(entry.value) as string
+        if (!isText(entry.value) || !isModelName(scalar(entry.value))) {
+          error(entry.value, `\`${path}\` must be a model name`)
+        } else choice.model = scalar(entry.value) as string
       } else if (entry.name === 'effort') {
         if (!oneOf(entry.value, efforts)) {
           error(entry.value, `\`${path}\` must be one of ${efforts.join(', ')}`)
