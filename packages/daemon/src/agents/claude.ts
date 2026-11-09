@@ -113,7 +113,7 @@ export function claudeAgent(binary: string): Agent {
             {
               matcher: '*',
               hooks: [
-                event === 'PostToolUse'
+                event === 'PostToolUse' || event === 'PostToolUseFailure'
                   ? { type: 'command', command: boundaryGate, timeout: 60 }
                   : { type: 'command', command: 'true' },
               ],

@@ -133,6 +133,24 @@ describe('Steering a working Run', () => {
     await writeFile(file('b'), '')
   })
 
+  test('Claude Code: a failed tool call is a boundary too', async () => {
+    const client = await startTed()
+    const runId = await working(client, [
+      { waitFor: file('a') },
+      { tool: 'Bash', failed: true },
+      { say: 'after the tool' },
+      { waitFor: file('b') },
+      { endTurn: true },
+    ])
+    await send(client, runId, 'Try the other approach.')
+    await writeFile(file('a'), '')
+    const texts = await said(client, runId, 'Read: Try the other approach.')
+    expect(texts.indexOf('Read: Try the other approach.')).toBeLessThan(
+      texts.indexOf('after the tool'),
+    )
+    await writeFile(file('b'), '')
+  })
+
   test('a queued message can be deleted until the agent reads it', async () => {
     const client = await startTed()
     const runId = await working(client, [

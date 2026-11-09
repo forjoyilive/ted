@@ -171,6 +171,11 @@ export function createSteering(options: {
       }
       return serially(runId, async () => {
         const live = requireLive(runId)
+        if (live.state === 'working') {
+          const message = store.queueRunMessage({ runId, text })
+          syncFlag(runId)
+          return message
+        }
         await deliver(live, queued(runId))
         await runs.send(runId, text)
         return store.recordRunMessage({ runId, text, lead: isCurrentLead(live) })

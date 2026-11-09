@@ -22,7 +22,7 @@ type Step =
     }
   | { cancelPermission: true }
   | { emit: Record<string, unknown> }
-  | { tool: string }
+  | { tool: string; failed?: true }
 
 const argv = process.argv.slice(2)
 
@@ -128,9 +128,10 @@ async function runStep(step: Step): Promise<void> {
       type: 'user',
       message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] },
     })
-    hook('PostToolUse')
+    const after = step.failed ? 'PostToolUseFailure' : 'PostToolUse'
+    hook(after)
     gating = true
-    for (const command of hookCommands('PostToolUse')) {
+    for (const command of hookCommands(after)) {
       if (interrupted) break
       const child = spawn('sh', ['-c', command], { stdio: ['pipe', 'ignore', 'ignore'] })
       gate = child
