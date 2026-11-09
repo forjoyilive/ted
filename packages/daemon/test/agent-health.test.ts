@@ -147,6 +147,7 @@ describe('Agent health', () => {
       action: { label: 'Fix' },
     })
     expect((await healthOf(client, 'claude'))?.pausedRuns).toBe(1)
+    expect((await client.ok<{ runs: { active: number } }>('GET', '/activity')).runs.active).toBe(1)
 
     const codexTask = await startTask(client, steps({ say: 'hi' }), 'codex')
     await waitUntil(async () => (await getTask(client, codexTask.id))?.leadRunId, 'the Codex Run')

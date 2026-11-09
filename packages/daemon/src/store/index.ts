@@ -463,11 +463,12 @@ export async function openStore({
 
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    const held = store.query(queryDb(heldRuns)).length
     return {
       waitingOnYou: active.filter((run) => run.state === 'waiting').length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
-        active: active.length,
+        active: active.length + held,
         queued: 0,
       },
       automationsOn: 0,
@@ -878,11 +879,13 @@ export async function openStore({
         }),
       )
       updatedTask(taskId)
+      noteActivity()
     },
     releaseTaskRun(taskId) {
       if (!heldRow(taskId)) return
       store.commit(events.taskRunReleased({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
+      noteActivity()
     },
     heldRuns: () =>
       store.query(queryDb(heldRuns.orderBy('at', 'asc'))).map((row) => ({
