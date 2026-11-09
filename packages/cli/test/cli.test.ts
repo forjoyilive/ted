@@ -425,6 +425,79 @@ describe('ted dev factory and ted task start', () => {
   })
 })
 
+describe('ted automation', () => {
+  test('lists, shows, shows history and turns off Automations; only the app changes them', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const app = await startAsApp()
+    await app.addFactory({ repo: origin, key: 'NB' })
+    const prompt = path.join(home, 'sentry.md')
+    await writeFile(prompt, 'Look\n')
+
+    const refused = await ted([
+      'automation',
+      'create',
+      '--name',
+      'Busy',
+      '--schedule',
+      '0 9 * * 1-5',
+      '--prompt-file',
+      prompt,
+    ]).catch((error: { stderr: string; code: number }) => error)
+    expect(refused).toMatchObject({
+      code: 1,
+      stderr:
+        'ted: Create, change, run or delete Automations in the TED app. From a terminal, ted automation can list, show, history and disable.\n',
+    })
+
+    await app.createAutomation({
+      factory: 'NB',
+      name: 'Sentry crash intake',
+      schedule: { kind: 'weekdays', at: '09:00' },
+      timeZone: 'Europe/London',
+      prompt: JSON.stringify({ steps: [{ say: 'No new crashes' }, { endTurn: true }] }),
+    })
+    const listed = await ted(['automation', 'list'])
+    expect(listed.stdout).toMatch(/^[0-9a-f]{8} {2}NB {2}Sentry crash intake {2}Weekdays at 09:00/)
+
+    await app.runAutomation('Sentry crash intake')
+    let history = ''
+    for (let i = 0; i < 100 && !history.includes('No new Tasks'); i++) {
+      history = (await ted(['automation', 'history', 'Sentry crash intake'])).stdout
+      await sleep(100)
+    }
+    expect(history).toMatch(
+      / {2}Run now {2}No new Tasks {2}\(Run [0-9a-f-]{36}\)\n {4}No new crashes/,
+    )
+
+    const shown = await ted(['automation', 'show', 'Sentry crash intake', '--factory', 'NB'])
+    expect(shown.stdout).toContain('Schedule: Weekdays at 09:00 · Europe/London')
+    expect(shown.stdout).toContain('Runs: 1 · Tasks created: 0')
+
+    const off = await ted(['automation', 'disable', 'Sentry crash intake'])
+    expect(off.stdout).toBe('Sentry crash intake is off\n')
+    for (const args of [['enable'], ['run'], ['delete']]) {
+      const denied = await ted(['automation', ...args, 'Sentry crash intake']).catch(
+        (error: { code: number }) => error,
+      )
+      expect(denied).toMatchObject({ code: 1 })
+    }
+    expect((await ted(['automation', 'list'])).stdout).toContain('Off')
+  })
+
+  test('the Sentry template carries the release rules', async () => {
+    await ted(['task', 'list'])
+    const templates = await (await client()).automationTemplates()
+    expect(templates.map((t) => t.name)).toEqual([
+      'Pull new Linear issues assigned to me',
+      'Turn new Sentry issues into Tasks',
+      'Daily GitHub issue triage',
+    ])
+    const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
+    expect(sentry).toContain('events from a release that contains that commit')
+    expect(sentry).toContain('Fixes <SENTRY-SHORT-ID>')
+  })
+})
+
 describe('ted open', () => {
   test('asks the open app to show its window', async () => {
     await ted(['task', 'list'])

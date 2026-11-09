@@ -1,0 +1,126 @@
+import type { AgentKind } from './run.ts'
+import type { AutomationSchedule } from './schedule.ts'
+import type { Effort, StageId } from './task.ts'
+
+export const automationTemplateIds = ['linear', 'sentry', 'github'] as const
+
+export type AutomationTemplateId = (typeof automationTemplateIds)[number]
+
+export interface AutomationTemplate {
+  id: AutomationTemplateId
+  name: string
+  prompt: string
+  schedule: AutomationSchedule
+}
+
+export type AutomationTrigger = 'scheduled' | 'made-up' | 'run-now' | 'retry'
+
+export type AutomationNow =
+  | { kind: 'working' }
+  | { kind: 'waiting' }
+  | { kind: 'queued'; place: number }
+  | { kind: 'paused'; reason: string }
+
+export interface AutomationTaskLink {
+  id: string
+  displayId: string
+  title: string
+  stage: StageId
+  source?: string
+}
+
+export type AutomationResult =
+  | { kind: 'queued' }
+  | { kind: 'running' }
+  | { kind: 'created'; tasks: AutomationTaskLink[] }
+  | { kind: 'no-new-tasks' }
+  | { kind: 'failed'; error: string }
+  | { kind: 'skipped' }
+  | { kind: 'stopped' }
+  | { kind: 'dropped' }
+
+export interface AutomationRun {
+  id: string
+  automationId: string
+  trigger: AutomationTrigger
+  slotAt?: string
+  retryOf?: string
+  retriedAt?: string
+  at: string
+  startedAt?: string
+  finishedAt?: string
+  result: AutomationResult
+  message?: string
+  runId?: string
+}
+
+export interface AutomationRequest {
+  id: string
+  automationId: string
+  automationName: string
+  factoryId: string
+  runId: string
+  kind: 'note' | 'question'
+  body: string
+  choices?: string[]
+  answer?: { text: string; at: string }
+  createdAt: string
+}
+
+export interface Automation {
+  id: string
+  factoryId: string
+  factoryKey: string
+  name: string
+  prompt: string
+  schedule: AutomationSchedule
+  timeZone: string
+  scheduleText: string
+  agent: AgentKind
+  model?: string
+  effort?: Effort
+  on: boolean
+  template?: AutomationTemplateId
+  createdAt: string
+  nextFirings: string[]
+  now?: AutomationNow
+  last?: AutomationRun
+  failuresInARow: number
+  totals: { runs: number; tasksCreated: number }
+}
+
+export interface AutomationDetail {
+  automation: Automation
+  history: AutomationRun[]
+  requests: AutomationRequest[]
+}
+
+export interface AutomationInput {
+  name: string
+  prompt: string
+  schedule: AutomationSchedule
+  timeZone?: string
+  agent?: AgentKind
+  model?: string
+  effort?: Effort
+  on?: boolean
+  template?: AutomationTemplateId
+}
+
+export interface CreateAutomationRequest extends AutomationInput {
+  factory?: string
+  runNow?: boolean
+}
+
+export type EditAutomationRequest = Partial<Omit<AutomationInput, 'template'>>
+
+export interface SchedulePreview {
+  text: string
+  nextFirings: string[]
+  error?: string
+}
+
+export interface AnswerAutomationRequest {
+  choice?: string
+  text?: string
+}

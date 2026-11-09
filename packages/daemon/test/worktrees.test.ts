@@ -61,8 +61,8 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startWithStub() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+async function startWithStub(extra: Partial<Parameters<typeof startDaemon>[0]> = {}) {
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath, ...extra })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -157,6 +157,48 @@ describe('worktree setup', () => {
     }, 'the Task Lead’s commands')
     expect(results[0]?.stdout).toBe('SECRET=1\nkey\nhello')
     expect(results[1]?.stdout).toBe('hello\n')
+  })
+
+  test('setup and teardown get the PATH from the login shell, like the Task Lead', async () => {
+    const loginBin = path.join(scratch, 'login-bin')
+    await mkdir(loginBin)
+    await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
+    await chmod(path.join(loginBin, 'login-tool'), 0o755)
+    const shell = path.join(scratch, 'fake-login-shell')
+    await writeFile(
+      shell,
+      `#!/bin/sh\nPATH='${loginBin}':"$PATH"\nexport PATH\nexec /bin/sh -c "$4"\n`,
+    )
+    await chmod(shell, 0o755)
+    const marker = path.join(scratch, 'teardown-saw')
+    await workflow(
+      [
+        '      setup: "login-tool set-up > setup-saw.txt"',
+        `      teardown: "login-tool torn-down > '${marker}'"`,
+        '',
+      ].join('\n'),
+    )
+    const realShell = process.env.SHELL
+    process.env.SHELL = shell
+    const client = await startWithStub({ integrations: { loginShell: true } }).finally(() => {
+      process.env.SHELL = realShell
+    })
+    await addFactory(client)
+    const task = await createTask(
+      client,
+      steps({ run: ['cat', 'setup-saw.txt'] }, ...advanceEveryStage),
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+
+    const run = await leadRun(client, task)
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.repos[0]?.removed,
+      'the worktree to be removed',
+    )
+    expect(await readFile(marker, 'utf8')).toBe('torn-down')
+    const [first] = await commandResults(client, run.id)
+    expect(first?.stdout).toBe('set-up')
   })
 })
 

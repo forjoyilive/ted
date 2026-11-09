@@ -74,10 +74,14 @@ import {
   taskStatus,
   taskStatuses,
 } from '../tasks/status.ts'
+import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
   agentPauses,
+  automationComments,
+  automations,
+  automationTasks,
   banners,
   checkResults,
   checkRuns,
@@ -234,6 +238,7 @@ export interface NewTask {
   attachments?: Attachment[]
   source?: TaskSource
   followUpOf?: string
+  automation?: { automationId: string; firingId: string }
 }
 
 export interface PlannedStage {
@@ -601,6 +606,7 @@ export interface TedStore {
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
   onWriteResult(listener: (error?: unknown) => void): () => void
+  automations: AutomationStore
   close(): Promise<void>
 }
 
@@ -1178,7 +1184,12 @@ export async function openStore({
             ...(waitingOnSubAgents.has(r.id) && { onSubAgents: true }),
           }
         }),
-      createdBy: followUpOf === null ? 'human' : 'follow-up',
+      createdBy:
+        followUpOf !== null
+          ? 'follow-up'
+          : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+            ? 'automation'
+            : 'human',
       ...(followUpOf !== null && {
         followUpOf: {
           id: followUpOf,
@@ -1529,14 +1540,23 @@ export async function openStore({
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
     const held = store.query(queryDb(heldRuns)).length
+    const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
+    const liveAutomations = store
+      .query(queryDb(automations.select()))
+      .filter((a) => factoryIds.has(a.factoryId))
+    const liveIds = new Set(liveAutomations.map((a) => a.id))
     return {
-      waitingOnYou: active.filter((run) => run.state === 'waiting').length,
+      waitingOnYou:
+        active.filter((run) => run.state === 'waiting').length +
+        store
+          .query(queryDb(automationComments.where({ kind: 'question', answer: null })))
+          .filter((c) => liveIds.has(c.automationId)).length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
         queued: 0,
       },
-      automationsOn: 0,
+      automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
       checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
     }
@@ -1570,7 +1590,15 @@ export async function openStore({
     return banner
   }
 
+  const automationStore = createAutomationStore({
+    store,
+    commit,
+    emit,
+    changed: () => noteActivity(),
+  })
+
   return {
+    automations: automationStore,
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       commit(events.factoryAdded(row))
@@ -1605,6 +1633,7 @@ export async function openStore({
       attachments = [],
       source,
       followUpOf,
+      automation,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1653,11 +1682,13 @@ export async function openStore({
               events.taskFollowedUp({ taskId: followUpOf, followUpId: id, at }),
             ]
           : []),
+        ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
+      if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
     },

@@ -33,14 +33,22 @@ export interface FactoryHit {
   name: string
 }
 
+export interface AutomationHit {
+  automationId: string
+  factoryId: string
+  name: string
+  on: boolean
+}
+
 export interface SearchResults {
   query: string
   tasks: TaskHit[]
   comments: CommentHit[]
   factories: FactoryHit[]
+  automations: AutomationHit[]
 }
 
-export const searchLimits = { tasks: 20, comments: 10, factories: 10 } as const
+export const searchLimits = { tasks: 20, comments: 10, factories: 10, automations: 10 } as const
 
 export function foldText(text: string): string {
   return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()

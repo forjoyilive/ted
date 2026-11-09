@@ -56,8 +56,12 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks$/,
     fileToken: true,
-    async handle({ req }, { tasks, attachments }) {
-      return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
+    runToken: true,
+    async handle({ req, caller }, { tasks, attachments }) {
+      return [
+        201,
+        await tasks.create(await createTaskInput(await readJson(req), attachments), caller),
+      ]
     },
   },
   {
@@ -512,7 +516,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'a Task must be an object')
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
-  const text = (name: 'title' | 'description' | 'factory' | 'source') => {
+  const text = (name: 'title' | 'description' | 'factory' | 'source' | 'followUp') => {
     const value = request[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
@@ -534,6 +538,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const description = text('description')
   const factory = text('factory')
   const source = sourceUrl(text('source'))
+  const followUp = text('followUp')?.trim() || undefined
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
   const lead = taskLead(request.lead)
@@ -567,6 +572,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(blockedBy !== undefined && { blockedBy }),
     ...(attached.length > 0 && { attachments: attached }),
     ...(source !== undefined && { source }),
+    ...(followUp !== undefined && { followUp }),
     ...(request.start !== undefined && { start: request.start }),
   }
 

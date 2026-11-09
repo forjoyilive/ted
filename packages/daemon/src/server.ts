@@ -24,6 +24,7 @@ import type { Data } from './data.ts'
 import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
+import { automationRoutes } from './routes/automations.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
@@ -145,6 +146,7 @@ const routes: Route[] = [
   ...libraryRoutes,
   ...integrationRoutes,
   ...runRoutes,
+  ...automationRoutes,
   ...searchRoutes,
 ]
 
