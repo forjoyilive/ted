@@ -134,6 +134,8 @@ describe('Changes in Task details', () => {
         'SearchPanel.tsxsrc/search+1−1',
         'useSearch.tssrc/search+1Uncommitted',
       ])
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByRole('textbox').first().fill('Half-written note')
 
     await repo.getByRole('button', { name: /^SearchPanel\.tsx/ }).click()
     const diff = window.getByRole('region', { name: 'Diff' })
@@ -160,8 +162,9 @@ describe('Changes in Task details', () => {
     await diff.getByText('1 of 3').waitFor()
 
     await diff.getByRole('button', { name: '← Thread' }).click()
-    await window.getByRole('region', { name: 'Task thread' }).waitFor()
+    await thread.waitFor()
     await diff.waitFor({ state: 'detached' })
+    expect(await thread.getByRole('textbox').first().inputValue()).toBe('Half-written note')
   })
 
   test('Expand all shows every diff in one column with the file list as an index', async () => {
@@ -197,5 +200,27 @@ describe('Changes in Task details', () => {
     await window.evaluate(() => globalThis.dispatchEvent(new Event('focus')))
 
     await changes.getByRole('heading', { name: 'Changes · 4 files' }).waitFor()
+  })
+
+  test('a committed change undone in the working tree shows what the pull request gets', async () => {
+    const window = await openTaskWithChanges()
+    const changes = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Changes' })
+    await changes.getByRole('heading', { name: 'Changes · 3 files' }).waitFor()
+    const [task] = await (await client()).listTasks()
+    await write(task?.repos[0]?.worktree ?? '', {
+      'src/search/SearchPanel.tsx': ['one', 'two', 'three', 'four', 'five', ''].join('\n'),
+    })
+    await window.evaluate(() => globalThis.dispatchEvent(new Event('focus')))
+    await changes.getByText('undone').waitFor()
+
+    await changes.getByRole('button', { name: /^SearchPanel\.tsx/ }).click()
+    const diff = window.getByRole('region', { name: 'Diff' })
+    const committedOnly = diff.getByRole('button', { name: 'Committed only' })
+    await expect.poll(() => committedOnly.getAttribute('aria-pressed')).toBe('true')
+    await diff.getByRole('row', { name: /THREE/ }).waitFor()
+    await diff.getByRole('button', { name: 'With uncommitted work' }).click()
+    await diff.getByText('No line changes.').waitFor()
   })
 })

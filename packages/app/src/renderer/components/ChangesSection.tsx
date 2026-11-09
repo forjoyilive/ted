@@ -93,6 +93,13 @@ export function ChangeList({
                     {count > 0 && <span className={styles.drafts}>{count}</span>}
                     {file.binary ? (
                       <span className={styles.binary}>binary</span>
+                    ) : file.committed && file.added + file.removed === 0 ? (
+                      <span
+                        className={styles.binary}
+                        title="Committed, then undone in uncommitted work"
+                      >
+                        undone
+                      </span>
                     ) : (
                       <DiffCounts added={file.added} removed={file.removed} />
                     )}

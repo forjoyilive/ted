@@ -456,11 +456,13 @@ export interface WorkingFile {
   added: number
   removed: number
   uncommitted: boolean
+  committed?: { added: number; removed: number }
   binary?: true
 }
 
 export interface WorkingDiff extends WorkingFile {
   hunks: DiffHunk[]
+  committedHunks?: DiffHunk[]
   truncated?: true
 }
 
@@ -533,15 +535,35 @@ export async function workingChanges(
         .split('\0')
         .filter((p) => p !== ''),
     )
-    const files: WorkingFile[] = parseNumstat(
-      await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, tree, '--']),
-    ).map((file) => ({
-      path: file.path,
-      added: file.added,
-      removed: file.removed,
-      uncommitted: uncommitted.has(file.path),
-      ...(file.binary && { binary: true as const }),
-    }))
+    const numstat = async (to: string) =>
+      new Map(
+        parseNumstat(await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, to, '--'])).map(
+          (f) => [f.path, f],
+        ),
+      )
+    const working = await numstat(tree)
+    const committed = await numstat(head)
+    const files: WorkingFile[] = [...new Set([...working.keys(), ...committed.keys()])]
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+      .map((name) => {
+        const now = working.get(name)
+        const before = committed.get(name)
+        const changed = uncommitted.has(name)
+        return {
+          path: name,
+          added: now?.added ?? 0,
+          removed: now?.removed ?? 0,
+          uncommitted: changed,
+          ...(changed && before && { committed: { added: before.added, removed: before.removed } }),
+          ...((now?.binary || before?.binary) && { binary: true as const }),
+        }
+      })
+    const patch = async (to: string, file: string) => {
+      const out = await run(['diff', ...diffFlags, '-U3', mergeBase, to, '--', file]).catch(
+        () => undefined,
+      )
+      return out === undefined ? { hunks: [], truncated: true as const } : parsePatch(out)
+    }
     const diffs: WorkingDiff[] = []
     const wanted = options.diffs === 'all' ? files.map((f) => f.path) : (options.diffs ?? [])
     for (const [i, name] of wanted.entries()) {
@@ -551,20 +573,14 @@ export async function workingChanges(
         diffs.push({ ...file, hunks: [], ...(!file.binary && { truncated: true as const }) })
         continue
       }
-      const patch = await run([
-        'diff',
-        ...diffFlags,
-        '-U3',
-        mergeBase,
-        tree,
-        '--',
-        file.path,
-      ]).catch(() => undefined)
-      diffs.push(
-        patch === undefined
-          ? { ...file, hunks: [], truncated: true }
-          : { ...file, ...parsePatch(patch) },
-      )
+      const now = working.has(file.path) ? await patch(tree, file.path) : { hunks: [] }
+      const before = file.committed ? await patch(head, file.path) : undefined
+      diffs.push({
+        ...file,
+        hunks: now.hunks,
+        ...(before && { committedHunks: before.hunks }),
+        ...((now.truncated || before?.truncated) && { truncated: true as const }),
+      })
     }
     return { head, mergeBase, files, diffs }
   } finally {

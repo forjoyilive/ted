@@ -3,6 +3,7 @@ export interface ChangeFile {
   added: number
   removed: number
   uncommitted: boolean
+  committed?: { added: number; removed: number }
   binary?: true
 }
 
@@ -45,8 +46,10 @@ export interface FileDiff {
   added: number
   removed: number
   uncommitted: boolean
+  committed?: { added: number; removed: number }
   binary?: true
   hunks: DiffHunk[]
+  committedHunks?: DiffHunk[]
   truncated?: true
 }
 

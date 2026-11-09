@@ -79,3 +79,42 @@
   color: var(--text-tertiary);
   font-size: var(--text-13);
 }
+
+.versions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-12);
+}
+
+.toggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: var(--radius-control);
+  background: var(--surface-neutral);
+}
+
+.toggle button {
+  padding: 2px 8px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.toggle button[aria-pressed='true'] {
+  background: var(--control-segment-selected);
+  color: var(--text-primary);
+}
+
+.toggle button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

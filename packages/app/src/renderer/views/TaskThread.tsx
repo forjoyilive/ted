@@ -267,14 +267,13 @@ export function TaskPanes({
     void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
   }
   const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file })
-  if (view?.kind === 'all' && changes) {
-    return (
-      <AllChanges taskId={task.id} changes={changes} onCollapse={() => showChanges(undefined)} />
-    )
-  }
+  const all = view?.kind === 'all' && changes !== undefined
   return (
     <>
-      {view?.kind === 'diff' ? (
+      {all && (
+        <AllChanges taskId={task.id} changes={changes} onCollapse={() => showChanges(undefined)} />
+      )}
+      {view?.kind === 'diff' && (
         <DiffView
           taskId={task.id}
           changes={changes}
@@ -282,26 +281,27 @@ export function TaskPanes({
           onBack={() => showChanges(undefined)}
           onOpen={openFile}
         />
-      ) : (
-        <TaskThread
-          task={task}
-          backLink={backLink}
-          requestId={requestId}
-          answeredId={answeredId}
-          onBack={onBack}
-          onOpenTask={onOpenTask}
-          onFollowedUp={onFollowedUp}
-          shownRun={visibleRun}
-          onShowRun={show}
-          onOpenRun={openRun}
-          onCloseRun={closeRun}
-        />
       )}
+      <TaskThread
+        task={task}
+        backLink={backLink}
+        requestId={requestId}
+        answeredId={answeredId}
+        onBack={onBack}
+        onOpenTask={onOpenTask}
+        onFollowedUp={onFollowedUp}
+        shownRun={visibleRun}
+        onShowRun={show}
+        onOpenRun={openRun}
+        onCloseRun={closeRun}
+        hidden={all || view?.kind === 'diff'}
+      />
       <TaskDetails
         task={task}
         tasks={tasks}
         factories={factories}
         onOpenRun={openRun}
+        hidden={all}
         changes={
           <ChangesSection
             changes={changes}
@@ -329,6 +329,7 @@ export function TaskThread({
   onShowRun,
   onOpenRun,
   onCloseRun,
+  hidden = false,
 }: {
   task: Task
   backLink: string | undefined
@@ -341,6 +342,7 @@ export function TaskThread({
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
   onCloseRun: (runId: string) => void
+  hidden?: boolean
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -382,7 +384,11 @@ export function TaskThread({
   const pin = (id: string) => setChosen({ from: requestId, id })
 
   return (
-    <section className={styles.pane} aria-label="Task thread">
+    <section
+      className={styles.pane}
+      aria-label="Task thread"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       {backLink !== undefined && (
         <button type="button" className={styles.back} onClick={onBack}>
           {backLink}
@@ -606,12 +612,14 @@ export function TaskDetails({
   factories,
   onOpenRun,
   changes,
+  hidden = false,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
   changes?: ReactNode
+  hidden?: boolean
 }) {
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
@@ -623,7 +631,11 @@ export function TaskDetails({
   const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
-    <aside className={styles.detailsPane} aria-label="Task details">
+    <aside
+      className={styles.detailsPane}
+      aria-label="Task details"
+      style={hidden ? { display: 'none' } : undefined}
+    >
       <dl className={styles.details}>
         <dt>Priority</dt>
         <dd>

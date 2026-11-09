@@ -7,7 +7,7 @@ Task details lists a Task’s changes, and the middle pane shows each file’s d
 `workingChanges` in `packages/daemon/src/git.ts` reads HEAD and `origin/<base_branch>` from the worktree, then does everything else in a temporary bare git directory whose `objects/info/alternates` points at the clone’s objects:
 
 - `read-tree HEAD` into a fresh index in the scratch folder, then `git add --all` with `GIT_WORK_TREE` set to the worktree. The agent’s index is never read, so every file is hashed from disk.
-- `write-tree` gives one tree for HEAD plus uncommitted work. The file list is `diff --numstat` from the merge-base to that tree; a file is uncommitted when it differs between HEAD and that tree.
+- `write-tree` gives one tree for HEAD plus uncommitted work. The file list is every path that differs from the merge-base in that tree or in HEAD; a file is uncommitted when it differs between HEAD and that tree. Pushes take only HEAD, so an uncommitted file that HEAD also changes carries its committed counts and committed diff too, and the diff view offers **Committed only**. It opens there when uncommitted work undoes the whole committed change, so the agent can’t hide committed work by reverting it on disk.
 - Every git call passes `core.fsmonitor=false`, `core.hooksPath=/dev/null`, `diff.external=` and `--literal-pathspecs`, and diffs pass `--no-ext-diff --no-textconv --no-renames`. The scratch directory has no config of its own, so the clone’s config never applies.
 
 The daemon reads the changes on every request; it keeps no cache. The app reloads them when the Task changes, when one of its Runs writes output (after 1.5 s of quiet) and when the window gets focus.

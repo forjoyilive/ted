@@ -4,7 +4,7 @@ import { type ChangedFile, changedFiles, splitPath } from '../changes.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
-import { DiffTable, type RowExtra } from './DiffTable.tsx'
+import { FileDiffBody, type RowExtra } from './DiffTable.tsx'
 import styles from './DiffViews.module.css'
 import { ChevronIcon } from './icons.tsx'
 
@@ -134,7 +134,11 @@ export function DiffView({
         {error !== undefined ? (
           <p className={styles.error}>{error}</p>
         ) : diff ? (
-          <DiffTable diff={diff} after={seams.after?.(current)} />
+          <FileDiffBody
+            key={`${diff.repo}\0${diff.path}`}
+            diff={diff}
+            after={seams.after?.(current)}
+          />
         ) : diffs ? (
           <p className={styles.note}>This file no longer differs from its base.</p>
         ) : null}
@@ -231,7 +235,7 @@ function RepoDiffs({
           <span className={styles.spacer} />
           <OpenInEditor file={file} seams={seams} />
         </header>
-        {diff && <DiffTable diff={diff} after={seams.after?.(file)} />}
+        {diff && <FileDiffBody diff={diff} after={seams.after?.(file)} />}
       </article>
     )
   })

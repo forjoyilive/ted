@@ -74,7 +74,13 @@ test('lists committed and uncommitted work against the merge-base, not the base 
   expect(changes.head).toBe(await git('rev-parse', 'task'))
   expect(changes.mergeBase).toBe(await git('merge-base', 'main', 'task'))
   expect(changes.files).toEqual([
-    { path: 'src/search/SearchPanel.tsx', added: 2, removed: 1, uncommitted: true },
+    {
+      path: 'src/search/SearchPanel.tsx',
+      added: 2,
+      removed: 1,
+      uncommitted: true,
+      committed: { added: 1, removed: 1 },
+    },
     { path: 'src/search/useSearch.ts', added: 1, removed: 0, uncommitted: true },
   ])
 })
@@ -197,4 +203,63 @@ test('a long diff is cut short and says so', async () => {
   expect(diff?.added).toBe(5_000)
   expect(diff?.truncated).toBe(true)
   expect(diff?.hunks.flatMap((h) => h.rows).length).toBeLessThan(5_000)
+})
+
+test('committed work undone in the working tree still shows, with its committed diff', async () => {
+  await taskBranch()
+  await commit({ 'src/auth.ts': 'allow everyone\n' }, 'backdoor')
+  await write({ 'src/search/SearchPanel.tsx': 'one\ntwo\nthree\nfour\nfive\n' })
+  await rm(path.join(repo, 'src/auth.ts'))
+
+  const changes = await workingChanges(repo, 'main', {
+    diffs: ['src/auth.ts', 'src/search/SearchPanel.tsx'],
+  })
+
+  expect(changes.files).toEqual([
+    {
+      path: 'src/auth.ts',
+      added: 0,
+      removed: 0,
+      uncommitted: true,
+      committed: { added: 1, removed: 0 },
+    },
+    {
+      path: 'src/search/SearchPanel.tsx',
+      added: 0,
+      removed: 0,
+      uncommitted: true,
+      committed: { added: 1, removed: 1 },
+    },
+  ])
+  expect(changes.diffs.map((d) => [d.path, d.hunks, d.committedHunks?.[0]?.rows])).toEqual([
+    ['src/auth.ts', [], [{ kind: 'added', text: 'allow everyone', new: 1 }]],
+    [
+      'src/search/SearchPanel.tsx',
+      [],
+      [
+        { kind: 'context', text: 'one', old: 1, new: 1 },
+        { kind: 'context', text: 'two', old: 2, new: 2 },
+        { kind: 'removed', text: 'three', old: 3 },
+        { kind: 'added', text: 'THREE', new: 3 },
+        { kind: 'context', text: 'four', old: 4, new: 4 },
+        { kind: 'context', text: 'five', old: 5, new: 5 },
+      ],
+    ],
+  ])
+})
+
+test('an uncommitted edit on top of a committed change keeps both diffs', async () => {
+  await taskBranch()
+  await write({ 'src/search/SearchPanel.tsx': 'one\ntwo\nTHREE\nfour\nfive\nsix\n' })
+
+  const changes = await workingChanges(repo, 'main', { diffs: ['src/search/SearchPanel.tsx'] })
+
+  expect(changes.files[0]).toEqual({
+    path: 'src/search/SearchPanel.tsx',
+    added: 2,
+    removed: 1,
+    uncommitted: true,
+    committed: { added: 1, removed: 1 },
+  })
+  expect(changes.diffs[0]?.committedHunks?.[0]?.rows).toHaveLength(6)
 })
