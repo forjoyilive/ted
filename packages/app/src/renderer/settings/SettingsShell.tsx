@@ -79,7 +79,7 @@ export function SettingsShell({
         {settings &&
           current &&
           (current.Page ? (
-            <current.Page settings={settings} />
+            <current.Page settings={settings} dispatch={dispatch} />
           ) : (
             <NotBuiltYet title={current.label} />
           ))}

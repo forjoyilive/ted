@@ -9,6 +9,29 @@ import type { Workflows } from './workflow/workflows.ts'
 const keyPattern = /^[A-Z][A-Z0-9]{1,4}$/
 const githubRepo = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const safeSegment = /^[A-Za-z0-9_.-]+$/
+const cloning = new Map<string, number>()
+
+const removing = new Map<string, Promise<void>>()
+
+export function isCloning(clone: string): boolean {
+  return cloning.has(clone)
+}
+
+export async function cloneRemoved(clone: string): Promise<void> {
+  for (let removal = removing.get(clone); removal; removal = removing.get(clone)) await removal
+}
+
+export async function removeClone(clone: string, stillUnused: () => boolean): Promise<boolean> {
+  if (cloning.has(clone) || removing.has(clone) || !stillUnused()) return false
+  const removal = rm(clone, { recursive: true, force: true })
+  removing.set(clone, removal)
+  try {
+    await removal
+  } finally {
+    removing.delete(clone)
+  }
+  return true
+}
 
 export async function addFactory(
   { store, reposDir, workflows }: { store: TedStore; reposDir: string; workflows: Workflows },
@@ -26,20 +49,29 @@ export async function addFactory(
     input.localFolder === undefined ? undefined : await checkLocalFolder(input.localFolder)
 
   const clone = path.join(reposDir, ...repo.split('/'))
-  if (await exists(clone)) await git.fetch(clone)
-  else {
-    await mkdir(path.dirname(clone), { recursive: true })
-    await git.clone(cloneUrl, clone)
+  await cloneRemoved(clone)
+  cloning.set(clone, (cloning.get(clone) ?? 0) + 1)
+  let factory: StoredFactory
+  try {
+    if (await exists(clone)) await git.fetch(clone)
+    else {
+      await mkdir(path.dirname(clone), { recursive: true })
+      await git.clone(cloneUrl, clone)
+    }
+    const defaultBranch = await git.defaultBranch(clone)
+    checkUnused(store, input.key, repo)
+    factory = store.addFactory({
+      key: input.key,
+      name: repo.split('/')[1] ?? repo,
+      repo,
+      cloneUrl,
+      defaultBranch,
+    })
+  } finally {
+    const left = (cloning.get(clone) ?? 1) - 1
+    if (left > 0) cloning.set(clone, left)
+    else cloning.delete(clone)
   }
-  const defaultBranch = await git.defaultBranch(clone)
-  checkUnused(store, input.key, repo)
-  const factory = store.addFactory({
-    key: input.key,
-    name: repo.split('/')[1] ?? repo,
-    repo,
-    cloneUrl,
-    defaultBranch,
-  })
   await workflows.resolve(factory, { fetch: false }).catch((error: unknown) => {
     console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
   })

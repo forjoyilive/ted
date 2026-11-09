@@ -23,6 +23,7 @@ import type {
   LogText,
   MachineSettings,
   Profile,
+  RemoveClonesResult,
   RepoCheck,
   RestoreBackupResult,
   Run,
@@ -30,6 +31,7 @@ import type {
   RunFixResult,
   RunSlots,
   StageEntry,
+  StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
@@ -115,6 +117,10 @@ export const ted = {
   copyReport: () => window.ted.request('copyReport') as Promise<void>,
   tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
+  getStorage: () => window.ted.request('getStorage') as Promise<StorageSummary>,
+  removeUnusedClones: () => window.ted.request('removeUnusedClones') as Promise<RemoveClonesResult>,
+  showBackupInFolder: (name: string) =>
+    window.ted.request('showBackupInFolder', name) as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string, input?: BannerActionInput) =>

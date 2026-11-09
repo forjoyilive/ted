@@ -10,12 +10,14 @@ import type {
 import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
+import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
 import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
+import type { Storage } from './storage.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
@@ -29,6 +31,8 @@ export interface Services {
   workflows: Workflows
   health: AgentHealthMonitor
   integrations: Integrations
+  disk: DiskWatch
+  storage: Storage
   factories: Factories
 }
 
