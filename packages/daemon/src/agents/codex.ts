@@ -34,6 +34,7 @@ interface CodexLine {
   params?: {
     thread?: { id?: unknown }
     status?: { type?: unknown; activeFlags?: unknown }
+    tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
 }
 
@@ -87,6 +88,14 @@ export function codexAgent(binary: string): Agent {
       if (message?.method !== 'thread/started') return undefined
       const id = message.params?.thread?.id
       return typeof id === 'string' ? id : undefined
+    },
+    tokensFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'thread/tokenUsage/updated') return undefined
+      const total = message.params?.tokenUsage?.total
+      const { inputTokens, outputTokens } = total ?? {}
+      if (typeof inputTokens !== 'number' || typeof outputTokens !== 'number') return undefined
+      return { input: inputTokens, output: outputTokens, total: true }
     },
   }
 }

@@ -1,4 +1,13 @@
-import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type {
+  Comment,
+  DaemonEvent,
+  Diagnostics,
+  Factory,
+  LogText,
+  MachineSettings,
+  Profile,
+  Task,
+} from '@ted/protocol'
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -19,5 +28,14 @@ export const ted = {
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
+  getProfile: () => window.ted.request('getProfile') as Promise<Profile>,
+  chooseProfilePicture: () =>
+    window.ted.request('chooseProfilePicture') as Promise<MachineSettings>,
+  getDiagnostics: () => window.ted.request('getDiagnostics') as Promise<Diagnostics>,
+  readDaemonLog: () => window.ted.request('readDaemonLog') as Promise<LogText>,
+  readRunOutput: (runId: string) => window.ted.request('readRunOutput', runId) as Promise<LogText>,
+  copyReport: () => window.ted.request('copyReport') as Promise<void>,
+  tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
+  showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

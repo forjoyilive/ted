@@ -1,10 +1,11 @@
 import type { Task } from '@ted/protocol'
-import { useReducer } from 'react'
+import { useEffect, useReducer } from 'react'
 import styles from './App.module.css'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useFactories, useTasks } from './data.ts'
+import { useFactories, useSettings, useTasks } from './data.ts'
 import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
-import { AppSettings, Inbox, Stub } from './views/OtherViews.tsx'
+import { SettingsShell } from './settings/SettingsShell.tsx'
+import { Inbox, Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
 import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
 
@@ -20,6 +21,30 @@ export function App() {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
   const factories = useFactories()
+  const settings = useSettings()
+  const settingsOpen = navigation.settings !== undefined
+  const inboxCount = 0
+
+  useEffect(() => {
+    if (settings === undefined) return
+    document.documentElement.style.setProperty(
+      '--terminal-font-size',
+      `${settings.terminalFontSize}px`,
+    )
+  }, [settings])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+        event.preventDefault()
+        dispatch({ type: 'open-settings' })
+      } else if (event.key === 'Escape' && settingsOpen && !event.defaultPrevented) {
+        dispatch({ type: 'close-settings' })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [settingsOpen])
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
@@ -43,8 +68,6 @@ export function App() {
         return <Inbox />
       case 'all-tasks':
         return <TaskList title="All Tasks" tasks={tasks} factories={factories} onOpen={openTask} />
-      case 'settings':
-        return <AppSettings />
       case 'factory': {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
@@ -61,13 +84,27 @@ export function App() {
     }
   }
 
+  if (navigation.settings) {
+    return (
+      <div className={styles.app}>
+        <SettingsShell
+          section={navigation.settings.section}
+          settings={settings}
+          factories={factories}
+          inboxCount={inboxCount}
+          dispatch={dispatch}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className={styles.app}>
       <Sidebar
         navigation={navigation}
         factories={factories}
         currentFactoryId={currentFactoryId(navigation, tasks)}
-        inboxCount={0}
+        inboxCount={inboxCount}
         dispatch={dispatch}
       />
       <main className={styles.main}>{main()}</main>

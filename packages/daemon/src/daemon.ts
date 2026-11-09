@@ -65,6 +65,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     runTokens,
     tasks,
     reposDir: paths.repos,
+    home: paths.home,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

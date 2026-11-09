@@ -17,12 +17,14 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol'
 import {
   comments,
   conversationEntries,
   events,
   factories,
   machineSettings,
+  machineSettingValues,
   runs,
   schema,
   stageEntries,
@@ -94,7 +96,9 @@ export interface TedStore {
   close(): Promise<void>
 }
 
-const defaultSettings: MachineSettings = { appearance: 'system' }
+function pick(values: Record<string, unknown>, names: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => names.includes(name)))
+}
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
   const store = await createStorePromise({
@@ -185,8 +189,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   }
 
   const settings = (): MachineSettings => {
-    const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
-    return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+    const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
+    const values = Object.fromEntries(
+      store
+        .query(queryDb(machineSettingValues.select()))
+        .map(({ name, value }) => [name, JSON.parse(value) as unknown]),
+    )
+    return {
+      ...defaultMachineSettings,
+      ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...pick(values, Object.keys(defaultMachineSettings)),
+    }
   }
 
   return {
@@ -311,9 +324,21 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
-    updateSettings({ appearance }) {
-      if (appearance !== undefined && appearance !== settings().appearance) {
-        store.commit(events.appearanceChanged({ appearance, at: new Date().toISOString() }))
+    updateSettings(changes) {
+      const current = settings()
+      const changed = Object.fromEntries(
+        Object.entries(changes).filter(
+          ([name, value]) =>
+            value !== undefined && current[name as keyof MachineSettings] !== value,
+        ),
+      )
+      if (Object.keys(changed).length > 0) {
+        store.commit(
+          events.machineSettingsChanged({
+            changes: JSON.stringify(changed),
+            at: new Date().toISOString(),
+          }),
+        )
         emit({ type: 'settings-changed', settings: settings() })
       }
       return settings()

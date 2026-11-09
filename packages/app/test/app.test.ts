@@ -59,6 +59,18 @@ async function launchApp(): Promise<Page> {
 }
 
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
+const settingsNav = (window: Page) => window.getByRole('navigation', { name: 'Settings' })
+
+async function openSettings(window: Page): Promise<void> {
+  await sidebar(window)
+    .getByRole('button', { name: /^Settings/ })
+    .last()
+    .click()
+  await settingsNav(window).waitFor()
+}
+
+const onePixelPng =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
 
 async function openAllTasks(window: Page): Promise<void> {
   await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
@@ -278,15 +290,12 @@ describe('TED app frame', () => {
 
   test('the Appearance setting switches the theme at once, from the app or the daemon', async () => {
     const window = await launchApp()
-    await sidebar(window)
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
+    await openSettings(window)
     const appearance = window.getByRole('radiogroup', { name: 'Appearance' })
 
     await appearance.getByText('Dark').click()
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
-    expect(await (await daemonClient()).getSettings()).toEqual({ appearance: 'dark' })
+    expect((await (await daemonClient()).getSettings()).appearance).toBe('dark')
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
@@ -331,6 +340,163 @@ describe('TED app frame', () => {
     })
     expect(loaded).toEqual(['Geist Variable loaded', 'Geist Mono Variable loaded'])
     expect(violations).toEqual([])
+  })
+})
+
+describe('App Settings', () => {
+  test('⌘, opens Settings over the whole window; Esc and ← Back return to where the human was', async () => {
+    const window = await launchApp()
+    await openAllTasks(window)
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+
+    await window.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,')
+
+    await settingsNav(window).waitFor()
+    await window.getByRole('heading', { name: 'General', level: 1 }).waitFor()
+    expect(await sidebar(window).count()).toBe(0)
+
+    await window.keyboard.press('Escape')
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+    expect(await settingsNav(window).count()).toBe(0)
+
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: /Back/ }).click()
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+  })
+
+  test('Settings lists the eight sections, then each Factory, which leaves for its settings page', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    await openSettings(window)
+    const nav = settingsNav(window)
+
+    const sections = [
+      'General',
+      'Notifications',
+      'Agents',
+      'Limits',
+      'Integrations',
+      'Library',
+      'Storage',
+      'Developer',
+    ]
+    for (const section of sections) {
+      await nav.getByRole('button', { name: section, exact: true }).click()
+      await window.getByRole('heading', { name: section, level: 1 }).waitFor()
+      expect(
+        await nav.getByRole('button', { name: section, exact: true }).getAttribute('aria-current'),
+      ).toBe('page')
+    }
+
+    await nav.getByRole('button', { name: /widgets/ }).click()
+
+    await window.getByRole('heading', { name: 'widgets · Factory settings' }).waitFor()
+    expect(await settingsNav(window).count()).toBe(0)
+  })
+
+  test('the terminal font size saves on this machine and applies at once', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+
+    await window.getByRole('combobox', { name: 'Terminal font size' }).selectOption('16')
+
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue('--terminal-font-size'),
+        ),
+      )
+      .toBe('16px')
+    expect((await (await daemonClient()).getSettings()).terminalFontSize).toBe(16)
+  })
+
+  test('the profile picture can be changed and removed; initials show without one', async () => {
+    const picture = path.join(home, 'me.png')
+    await writeFile(picture, Buffer.from(onePixelPng, 'base64'))
+    const window = await launchApp()
+    await app?.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+    }, picture)
+    await openSettings(window)
+    const profile = window.getByRole('group', { name: 'Profile' })
+    await profile.getByRole('img').and(profile.locator('span')).waitFor()
+
+    await profile.getByRole('button', { name: 'Change…' }).click()
+
+    await profile.locator('img').waitFor()
+    await expect
+      .poll(async () => (await (await daemonClient()).getSettings()).profilePicture)
+      .toMatch(/^data:image\/png;base64,/)
+
+    await profile.getByRole('button', { name: 'Remove' }).click()
+
+    await profile.locator('img').waitFor({ state: 'detached' })
+    expect((await (await daemonClient()).getSettings()).profilePicture).toBeNull()
+  })
+
+  test('Developer mode shows Diagnostics and the log viewer; off, they’re hidden', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+    const diagnostics = window.getByRole('region', { name: 'Diagnostics' })
+    const logs = window.getByRole('region', { name: 'Logs' })
+    expect(await diagnostics.count()).toBe(0)
+    expect(await logs.count()).toBe(0)
+
+    await window.getByRole('switch', { name: 'Developer mode' }).click()
+
+    await diagnostics.waitFor()
+    await logs.waitFor()
+    expect((await (await daemonClient()).getSettings()).developerMode).toBe(true)
+    await logs.getByText(/TED daemon .* listening/).waitFor()
+
+    await window.getByRole('switch', { name: 'Developer mode' }).click()
+    await diagnostics.waitFor({ state: 'detached' })
+    expect(await logs.count()).toBe(0)
+  })
+
+  test('the log viewer shows a Run’s raw output, and Diagnostics lists the Run', async () => {
+    const window = await launchApp()
+    const client = await daemonClient()
+    await client.updateSettings({ developerMode: true })
+    const run = await client.startDevRun({
+      prompt: JSON.stringify({ steps: [{ say: 'from the stub' }, { endTurn: true }] }),
+      cwd: home,
+    })
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+
+    await window
+      .getByRole('region', { name: 'Diagnostics' })
+      .getByRole('cell', { name: run.id.slice(0, 8), exact: true })
+      .waitFor()
+    const logs = window.getByRole('region', { name: 'Logs' })
+    await logs.getByRole('combobox', { name: 'Log' }).selectOption(run.id)
+    await logs.getByText(/from the stub/).waitFor()
+  })
+
+  test('Copy report puts the report on the clipboard, and Show in Finder opens TED’s folder', async () => {
+    const window = await launchApp()
+    await app?.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { opened })
+      shell.openPath = async (folder: string) => {
+        opened.push(folder)
+        return ''
+      }
+    })
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+
+    await window.getByRole('button', { name: 'Copy report' }).click()
+    await window.getByText('Report copied.').waitFor()
+    expect(await app?.evaluate(({ clipboard }) => clipboard.readText())).toMatch(/^TED \S+\n/)
+
+    await window.getByRole('button', { name: /^Show in / }).click()
+    await expect
+      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .toEqual([home])
   })
 })
 

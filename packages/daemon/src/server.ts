@@ -12,11 +12,15 @@ import {
   type PostCommentRequest,
   type ReportOutcomeRequest,
   type StartDevRunRequest,
+  terminalFontSizes,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
+import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
+import { readProfile } from './profile.ts'
+import { redactSecrets } from './redact.ts'
 import type { RunTokens } from './run-token.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
@@ -33,6 +37,7 @@ export interface ServerOptions {
   runTokens: RunTokens
   tasks: Tasks
   reposDir: string
+  home: string
 }
 
 interface RequestContext {
@@ -142,6 +147,34 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/diagnostics$/,
+    handle: async (_, options) => [200, await collectDiagnostics(options)],
+  },
+  {
+    method: 'GET',
+    path: /^\/diagnostics\/report$/,
+    handle: async (_, options) => [200, { text: await report(options) }],
+  },
+  {
+    method: 'GET',
+    path: /^\/logs\/daemon$/,
+    handle: async (_, { home }) => [200, await readDaemonLog(home)],
+  },
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/raw$/,
+    async handle({ params: [id = ''] }, { store, home }) {
+      if (!store.getRun(id)) throw new HttpError(404, 'no such Run')
+      return [200, await readRunOutput(home, id)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/profile$/,
+    handle: async () => [200, await readProfile()],
+  },
+  {
     method: 'POST',
     path: /^\/dev\/factories$/,
     async handle({ req }, { store, reposDir }) {
@@ -186,7 +219,9 @@ export async function listen(
     options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
-      console.error(error)
+      console.error(
+        redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+      )
       sendJson(res, 500, { error: 'internal error' })
     })
   })
@@ -280,12 +315,42 @@ function settingsChanges(body: unknown): Partial<MachineSettings> {
   if (entries.length === 0) throw new HttpError(400, 'no settings to change')
   const changes: Partial<MachineSettings> = {}
   for (const [name, value] of entries) {
-    if (name !== 'appearance') throw new HttpError(400, `unknown setting ${name}`)
-    const appearance = appearances.find((a) => a === value)
-    if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
-    changes.appearance = appearance
+    if (!Object.hasOwn(settingParsers, name)) throw new HttpError(400, `unknown setting ${name}`)
+    Object.assign(changes, { [name]: settingParsers[name as keyof MachineSettings](value) })
   }
   return changes
+}
+
+const maxPictureBytes = 512 * 1024
+const pictureUrl = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/
+
+const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  appearance(value) {
+    const appearance = appearances.find((a) => a === value)
+    if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
+    return appearance
+  },
+  terminalFontSize(value) {
+    const { min, max } = terminalFontSizes
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `terminalFontSize must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  profilePicture(value) {
+    if (value === null) return null
+    if (typeof value !== 'string' || value.length > maxPictureBytes || !pictureUrl.test(value)) {
+      throw new HttpError(
+        400,
+        'profilePicture must be a PNG or JPEG data URL under 512 KB, or null',
+      )
+    }
+    return value
+  },
+  developerMode(value) {
+    if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
+    return value
+  },
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

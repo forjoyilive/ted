@@ -182,7 +182,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 }
 
-async function startRecord(
+export async function startRecord(
   runDir: string,
 ): Promise<Extract<HostRecord, { t: 'start' }> | undefined> {
   const log = await readFile(runFiles(runDir).log, 'utf8').catch(() => '')

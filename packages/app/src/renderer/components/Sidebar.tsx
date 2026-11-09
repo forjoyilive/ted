@@ -142,8 +142,7 @@ export function Sidebar({
       <button
         type="button"
         className={`${styles.row} ${styles.appSettings}`}
-        onClick={() => open({ kind: 'settings' })}
-        {...current({ kind: 'settings' })}
+        onClick={() => dispatch({ type: 'open-settings' })}
       >
         <span className={styles.label}>Settings</span>
         <span className={styles.shortcut}>⌘,</span>
