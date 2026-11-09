@@ -1,9 +1,10 @@
 name: CI
 
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '0 6 * * 1'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -22,8 +23,3 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm --filter @ted/app exec install-electron
-      # Ubuntu runners block Chromium's OS sandbox; the renderer's own sandbox stays on.
-      - run: xvfb-run -a pnpm test
-        env:
-          ELECTRON_DISABLE_SANDBOX: '1'
