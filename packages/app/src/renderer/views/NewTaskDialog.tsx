@@ -1,17 +1,15 @@
-import {
-  type AgentKind,
-  type Attachment,
-  agentKinds,
-  type ClarifyDepth,
-  clarifyDepths,
-  type Effort,
-  efforts,
-  type Factory,
-  type Priority,
-  priorities,
-  type Task,
-  type TaskLead,
+import type {
+  AgentKind,
+  Attachment,
+  ClarifyDepth,
+  Effort,
+  Factory,
+  Priority,
+  Task,
+  TaskLead,
 } from '@ted/protocol'
+import { agentKinds } from '@ted/protocol/run'
+import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 import { type DragEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
