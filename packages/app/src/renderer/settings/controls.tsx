@@ -108,17 +108,19 @@ export function Button({
   children,
   onClick,
   primary,
+  danger,
   disabled,
 }: {
   children: ReactNode
   onClick: () => void
   primary?: boolean
+  danger?: boolean
   disabled?: boolean
 }) {
   return (
     <button
       type="button"
-      className={`${styles.button} ${primary ? styles.primary : ''}`}
+      className={`${styles.button} ${primary ? styles.primary : ''} ${danger ? styles.danger : ''}`}
       onClick={onClick}
       disabled={disabled}
     >

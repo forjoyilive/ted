@@ -22,6 +22,7 @@ export interface Storage {
 const largestShown = 10
 const safeSegment = /^[A-Za-z0-9_.-]+$/
 const walkers = 32
+const partialClone = /\.partial-[0-9a-f]+$/
 
 export function createStorage(options: {
   home: string
@@ -56,16 +57,23 @@ export function createStorage(options: {
   }
 
   function usedRepos(): Set<string> {
-    const used = new Set(store.listFactories().map((f) => f.repo))
+    const used = new Set<string>()
+    for (const factory of store.listFactories()) {
+      used.add(factory.repo.toLowerCase())
+      for (const repo of factory.repos) used.add(repo.repo.toLowerCase())
+    }
     for (const task of store.listTasks()) {
-      for (const repo of task.repos) if (!repo.removed) used.add(repo.repo)
+      for (const repo of task.repos) if (!repo.removed) used.add(repo.repo.toLowerCase())
     }
     return used
   }
 
   async function unusedClones(): Promise<{ repo: string; dir: string }[]> {
     const used = usedRepos()
-    return (await clones()).filter(({ repo, dir }) => !used.has(repo) && !isCloning(dir))
+    return (await clones()).filter(
+      ({ repo, dir }) =>
+        !used.has(repo.toLowerCase()) && !partialClone.test(dir) && !isCloning(dir),
+    )
   }
 
   return {
@@ -138,7 +146,7 @@ export function createStorage(options: {
         const real = await realpath(dir).catch(() => undefined)
         if (real !== path.join(root, owner, name)) continue
         const size = await diskUsage(dir)
-        if (!(await removeClone(dir, () => !usedRepos().has(repo)))) continue
+        if (!(await removeClone(dir, () => !usedRepos().has(repo.toLowerCase())))) continue
         await rmdir(path.dirname(dir)).catch(() => undefined)
         removed.push(repo)
         bytes += size

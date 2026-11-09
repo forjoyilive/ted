@@ -7,12 +7,16 @@ import { closeInheritedFds } from './inherited-fds.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 
 closeInheritedFds()
+delete process.env.ELECTRON_RUN_AS_NODE
 
 const paths = tedPaths(tedHome())
 mkdirSync(paths.logs, { recursive: true, mode: 0o700 })
 logConsoleTo(openRollingLog(paths.daemonLog, tedLogLimits))
 
-const { values } = parseArgs({ options: { 'exit-when-idle': { type: 'boolean' } } })
+const { values } = parseArgs({
+  args: process.argv.slice(2),
+  options: { 'exit-when-idle': { type: 'boolean' } },
+})
 
 let daemon: RunningDaemon | undefined
 let stopping = false
@@ -41,6 +45,7 @@ try {
           appendFile(process.env.TED_FIX_LOG as string, `${command}\n`),
       }),
     },
+    ...(process.env.TED_LINEAR_API && { linear: { apiUrl: process.env.TED_LINEAR_API } }),
     ...(values['exit-when-idle'] && {
       idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
     }),

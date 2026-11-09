@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import {
@@ -15,11 +15,15 @@ import {
   type AnswerRequest,
   agentKinds,
   type Banner,
+  type BannerActionInput,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  linearKeyPage,
   type MachineSettings,
   noActivity,
   type RestoreBackupRequest,
@@ -59,6 +63,7 @@ import {
   windowTitle,
 } from './background.ts'
 import { nextReturn } from './renderer/banners.ts'
+import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
@@ -79,6 +84,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
+  unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),
   uploadAttachment: (client, name, mediaType, bytes) => {
     if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
@@ -88,18 +95,21 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  locateLocalFolder: async (client, key) => {
+  chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
-      title: 'Locate the local folder',
+      title: String(title),
       properties: ['openDirectory'],
     }
     const chosen = window
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     const [folder] = chosen.filePaths
-    if (chosen.canceled || folder === undefined) return undefined
-    return client.setLocalFolder(String(key), folder)
+    return chosen.canceled ? undefined : folder
   },
+  homeFolder: async () => homedir(),
+  checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
+  createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
+  retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
@@ -108,6 +118,14 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.restoreBackup({ name: String(name) } satisfies RestoreBackupRequest),
   copyText: async (_, text) => clipboard.writeText(String(text)),
   downloadTed: () => shell.openExternal(downloadUrl),
+  getCommandLine: (client) => client.getCommandLine(),
+  installCommandLine: (client) => client.installCommandLine(),
+  thirdPartyLicenses: async () => {
+    const root = path.resolve(import.meta.dirname, '../../..')
+    return readFile(path.join(root, 'THIRD_PARTY_LICENSES.txt'), 'utf8').catch(() =>
+      thirdPartyLicenses(root),
+    )
+  },
   quit: async () => app.quit(),
   getProfile: (client) => client.getProfile(),
   getDiagnostics: (client) => client.getDiagnostics(),
@@ -141,7 +159,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
-  actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  actOnBanner: (client, id, input) =>
+    client.actOnBanner(String(id), input as BannerActionInput | undefined),
   agentHealth: (client) => client.agentHealth(),
   checkAgentHealth: (client) => client.checkAgentHealth(),
   fixAgent: (client, agent) => {
@@ -152,6 +171,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
   runFix: (client, request) => client.runFix(request as RunFixRequest),
+  getLinear: (client) => client.getLinear(),
+  saveLinearKey: (client, key, inFile) =>
+    client.saveLinearKey({ key: String(key), inFile: inFile === true }),
+  testLinear: (client) => client.testLinear(),
+  removeLinearKey: (client) => client.removeLinearKey(),
+  lookupLinear: (client, url) => client.lookupLinear(String(url)),
+  openLinearKeyPage: () => shell.openExternal(linearKeyPage),
 }
 
 const pictureSize = 256
@@ -452,6 +478,7 @@ async function start(): Promise<void> {
 }
 
 app.setName('TED')
+if (app.isPackaged) process.env.TED_APP_EXECUTABLE = process.env.APPIMAGE || process.execPath
 if (process.env.TED_HOME) app.setPath('userData', path.join(tedHome(), 'electron'))
 
 if (!app.requestSingleInstanceLock()) {

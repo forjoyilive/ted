@@ -113,6 +113,8 @@ describe('Settings → Storage', () => {
     const stray = path.join(paths.repos, 'kriya', 'gone')
     await mkdir(stray, { recursive: true })
     await writeFile(path.join(stray, 'README.md'), 'old clone')
+    const partial = path.join(paths.repos, 'kriya', 'new.partial-0a1b2c3d')
+    await mkdir(partial, { recursive: true })
     const outside = path.join(scratch, 'outside')
     await mkdir(path.join(outside, 'repo'), { recursive: true })
     await writeFile(path.join(outside, 'repo', 'keep.txt'), 'not TED’s')
@@ -129,7 +131,7 @@ describe('Settings → Storage', () => {
     const left = await readdir(paths.repos)
     expect(left).toContain('linked')
     expect(left).toContain('owner')
-    expect(left).not.toContain('kriya')
+    expect(await readdir(path.join(paths.repos, 'kriya'))).toEqual(['new.partial-0a1b2c3d'])
     expect(await readdir(path.join(paths.repos, 'owner'))).toEqual(['repo'])
     expect(await readdir(path.join(outside, 'repo'))).toEqual(['keep.txt'])
     const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]

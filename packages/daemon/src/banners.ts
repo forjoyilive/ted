@@ -1,5 +1,6 @@
 import {
   type Banner,
+  type BannerActionInput,
   type BannerRef,
   bannerDismissMs,
   bannerId,
@@ -10,7 +11,7 @@ import {
 import { RequestError } from './errors.ts'
 import type { TedStore } from './store/index.ts'
 
-export type BannerHandler = (banner: Banner) => Promise<void>
+export type BannerHandler = (banner: Banner, input: BannerActionInput) => Promise<void>
 
 export interface Banners {
   raise(problem: RaiseBanner): Banner
@@ -18,7 +19,7 @@ export interface Banners {
   clear(ref: BannerRef): void
   list(): Banner[]
   dismiss(id: string): Banner
-  act(id: string): Promise<void>
+  act(id: string, input?: BannerActionInput): Promise<void>
   onAction(problem: string, handler: BannerHandler): void
 }
 
@@ -71,12 +72,12 @@ export function createBanners({
       const until = new Date(Date.now() + bannerDismissMs).toISOString()
       return store.dismissBanner(id, until) ?? find(id)
     },
-    async act(id) {
+    async act(id, input = {}) {
       const banner = find(id)
       const handler = banner.action?.opens ? undefined : handlers.get(banner.problem)
       if (!banner.action || !handler)
         throw new RequestError(409, 'this banner has no action to run')
-      await handler(banner)
+      await handler(banner, input)
     },
     onAction(problem, handler) {
       handlers.set(problem, handler)

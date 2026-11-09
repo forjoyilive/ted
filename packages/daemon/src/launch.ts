@@ -12,6 +12,7 @@ import {
 } from '@ted/protocol'
 import { inheritedFdsEnv } from './inherited-fds.ts'
 import { rollLog, tedLogLimits } from './logs.ts'
+import { nodeEntry } from './node-entry.ts'
 
 export { crashReport } from './logs.ts'
 
@@ -73,8 +74,9 @@ async function startDaemon(home: string): Promise<ChildProcess> {
   })
   const output = await open(paths.daemonOutput, 'a')
   const daemonMain = fileURLToPath(new URL('./main.ts', import.meta.url))
+  const daemon = nodeEntry(daemonMain, ['--exit-when-idle'])
   // Under Electron, process.execPath is the Electron binary; plain Node ignores the variable.
-  const child = spawn(process.execPath, [daemonMain, '--exit-when-idle'], {
+  const child = spawn(daemon.command, daemon.args, {
     detached: true,
     stdio: ['ignore', output.fd, output.fd],
     env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },

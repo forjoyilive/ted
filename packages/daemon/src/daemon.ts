@@ -4,20 +4,24 @@ import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
+import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { ensureClone } from './factories.ts'
+import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
+import { type Keyring, loadKeyring } from './linear/keyring.ts'
+import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { createStorage } from './storage.ts'
-import { createTasks } from './tasks/tasks.ts'
+import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
@@ -33,7 +37,9 @@ export interface DaemonOptions {
   healthIntervalMs?: number
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
+  linear?: { apiUrl?: string; keyring?: Keyring }
   onShutdown?: () => void
+  commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
 }
 
@@ -68,6 +74,11 @@ async function readFakeFree(file: string): Promise<number> {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
+  const linear = createLinear({
+    keyring: options.linear?.keyring ?? (await loadKeyring()),
+    keyFile: paths.linearKeyFile,
+    ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
+  })
   const lock = acquireLock(paths.daemonLock)
   const idle = options.idleExit && startIdleTimer(options.idleExit)
   const runTokens = await loadRunTokens(paths.runTokenKey).catch((error: unknown) => {
@@ -148,11 +159,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         reposDir: paths.repos,
       })
-      banners.onAction('clone-failed', async ({ factoryId }) => {
+      let started: Tasks | undefined
+      const factories = createFactories({
+        store,
+        banners,
+        gh: integrations.gh,
+        workflows,
+        reposDir: paths.repos,
+        emit,
+        login: () =>
+          integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
+        onCloned: (factory) => started?.wake(factory.id),
+        ...(idle && { idle }),
+      })
+      banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
-        if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+        if (!factory) return
+        if (factory.clonedAt === undefined) await factories.retry(factory.id)
+        else await ensureClone({ banners, reposDir: paths.repos }, factory)
       })
       for (const factory of store.listFactories()) {
+        if (factory.clonedAt === undefined) continue
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       const tasks = createTasks({
@@ -165,7 +192,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         agents,
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
+        linear,
         logsDir: paths.logs,
+        isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })
       wake = () => tasks.wake()
@@ -194,6 +223,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         data,
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
+      started = tasks
+      factories.start()
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
@@ -206,18 +237,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         integrations,
         disk,
         storage,
+        factories,
         async close() {
           disk.close()
           clearInterval(pruneTimer)
           stopWatchingWrites()
           health.close()
           integrations.close()
+          await factories.close()
           await tasks.close()
           await runs.close()
         },
       }
     },
   })
+  const commandLine = createCommandLine(options.commandLine)
+  commandLine
+    .refresh()
+    .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
@@ -227,10 +264,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     agents,
     runTokens,
     attachments,
+    linear,
     reposDir: paths.repos,
     appStreams: new Set(),
     onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
+    commandLine,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

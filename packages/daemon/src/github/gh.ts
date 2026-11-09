@@ -5,9 +5,11 @@ export type GhErrorKind = 'missing' | 'auth' | 'rate-limit' | 'failed'
 
 export class GhError extends Error {
   readonly kind: GhErrorKind
-  constructor(kind: GhErrorKind, message: string) {
+  readonly status: number | undefined
+  constructor(kind: GhErrorKind, message: string, status?: number) {
     super(message)
     this.kind = kind
+    this.status = status
   }
 }
 
@@ -157,5 +159,6 @@ function classify(error: unknown, args: readonly string[]): GhError {
   if (/HTTP 401|Bad credentials|gh auth login|not logged in|authentication/i.test(stderr)) {
     return new GhError('auth', message)
   }
-  return new GhError('failed', message)
+  const status = /\(HTTP (\d{3})\)/.exec(stderr)?.[1]
+  return new GhError('failed', message, status === undefined ? undefined : Number(status))
 }

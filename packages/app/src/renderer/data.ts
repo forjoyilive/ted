@@ -103,7 +103,7 @@ const taskFrom = (event: TedEvent) =>
   event.type === 'task-created' || event.type === 'task-updated' ? event.task : undefined
 
 const factoryFrom = (event: TedEvent) =>
-  event.type === 'factory-added' ? event.factory : undefined
+  event.type === 'factory-added' || event.type === 'factory-updated' ? event.factory : undefined
 
 export function useTasks(): Task[] {
   return useLive(ted.listTasks, taskFrom, byCreatedAt)

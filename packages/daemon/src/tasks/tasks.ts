@@ -8,6 +8,7 @@ import type {
   CommentAnswer,
   DaemonEvent,
   InboxItem,
+  LinearIssue,
   OutcomeResult,
   ReportOutcomeRequest,
   Run,
@@ -18,9 +19,10 @@ import type {
   TaskDefaults,
   TaskLead,
   TaskRepo,
+  TaskSource,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, priorities } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -28,6 +30,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
+import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type {
@@ -60,8 +63,9 @@ import {
 export type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
 
 export interface CreateTaskInput
-  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy'> {
+  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source'> {
   title?: string
+  source?: string
   factory?: string
   blockedBy?: string[]
   attachments?: Attachment[]
@@ -73,8 +77,9 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  block(ref: string, caller: Caller, by: string): Promise<Task>
+  unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
-  wake(): void
   subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(ref: string, caller: Caller, input: { body: string; choices?: string[] }): Comment
   setActivity(ref: string, caller: Caller, text: string): Task
@@ -86,6 +91,7 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  wake(factoryId?: string): void
   close(): Promise<void>
 }
 
@@ -102,6 +108,8 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
+  linear?: Pick<Linear, 'issueFor'>
+  isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
 }): Tasks {
   const {
@@ -118,10 +126,12 @@ export function createTasks(options: {
   } = options
   const starting = new Set<string>()
   const relaunching = new Set<string>()
+  const heldPickUps = new Map<string, string>()
   const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Map<string, string>()
+  const stoppingForBlockers = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -191,12 +201,17 @@ export function createTasks(options: {
     return { use, holders, all }
   }
 
+  const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
+  const ready = () =>
+    runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId))
+
   function heldReady(): QueueEntry[] {
     const paused = store.agentPauses()
     return store.heldRuns().flatMap((held) => {
       const task = store.getTask(held.taskId)
       const agent = task?.lead?.agent ?? held.agent
       if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      if (task.waitsForBlockers) return []
       return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
     })
   }
@@ -204,11 +219,11 @@ export function createTasks(options: {
   async function fill(): Promise<void> {
     if (store.newWorkHold() !== undefined) return
     const held = heldReady()
-    const queued = runnable(store.queue())
+    const queued = ready()
     if (queued.length === 0 && held.length === 0) return
     const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...runnable(store.queue())], use)) {
+    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
       if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
@@ -297,7 +312,8 @@ export function createTasks(options: {
     const work = launchQueued(taskId)
       .catch((error: unknown) => {
         if (store.queue().some((q) => q.id === taskId)) {
-          store.moveToBacklog(taskId)
+          if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.waitForBlockers(taskId)
+          else store.moveToBacklog(taskId)
           const message = error instanceof Error ? error.message : String(error)
           store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
         }
@@ -439,8 +455,7 @@ export function createTasks(options: {
     } finally {
       applying.delete(task.id)
     }
-    const { worktree: _, ...current } = find(task.id)
-    return current
+    return publicTask(task.id)
   }
 
   let closed = false
@@ -483,8 +498,24 @@ export function createTasks(options: {
     return factory
   }
 
+  async function linearIssue(url: string): Promise<LinearIssue | undefined> {
+    const link = parseLinearUrl(url)
+    if (!link || !options.linear) return undefined
+    const lookup = await options.linear.issueFor(link).catch((error: unknown) => {
+      console.error(
+        redactSecrets(`fetching ${link.identifier} from Linear failed: ${String(error)}`),
+      )
+      return undefined
+    })
+    return lookup?.state === 'found' ? lookup.issue : undefined
+  }
+
   async function branchFor(clone: string, task: Task): Promise<string> {
-    const base = ['ted/', task.displayId.toLowerCase(), slug(task.title)].join('')
+    const suggested = task.source?.linear?.branchName
+    const base =
+      suggested !== undefined && (await git.isValidBranchName(clone, suggested))
+        ? suggested
+        : ['ted/', task.displayId.toLowerCase(), slug(task.title)].join('')
     for (let n = 1; ; n++) {
       const branch = n === 1 ? base : `${base}-${n}`
       if (!(await git.branchExists(clone, branch))) return branch
@@ -541,27 +572,33 @@ export function createTasks(options: {
     repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
-    resumeSession?: string,
+    { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
   ): Promise<void> {
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
     const agent = lead.agent
+    const note = pickUp ?? (resumeSession === undefined ? heldPickUps.get(task.id) : undefined)
     if (!(await health.ready(agent))) {
       store.holdTaskRun({
         taskId: task.id,
         agent,
         ...(resumeSession !== undefined && { sessionId: resumeSession }),
       })
+      if (note !== undefined) heldPickUps.set(task.id, note)
       return
     }
+    heldPickUps.delete(task.id)
     const prompt =
       resumeSession === undefined
-        ? await taskLeadPrompt(
-            task,
-            resolution.workflow,
-            task.stage as AgentStageId,
-            attachmentFile,
-            setupReport,
-          )
+        ? [
+            await taskLeadPrompt(
+              task,
+              resolution.workflow,
+              task.stage as AgentStageId,
+              attachmentFile,
+              setupReport,
+            ),
+            ...(note !== undefined ? [note] : []),
+          ].join('\n\n')
         : continueMessage
     await runs.start({
       agent,
@@ -639,7 +676,7 @@ export function createTasks(options: {
     if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
       const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
       const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
-      return launch(task, resolution, repo, env, undefined, held.sessionId)
+      return launch(task, resolution, repo, env, undefined, { resumeSession: held.sessionId })
     }
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, { fetch: false })
@@ -790,9 +827,10 @@ export function createTasks(options: {
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
+    if (unmergedBlockers(task.id).length > 0) return store.setStartRequested(task.id, true)
     starting.add(task.id)
     try {
-      await ensureClone({ banners, reposDir }, factory)
+      if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       store.queueTask(task.id, resolution.workflow.next('backlog'))
@@ -801,13 +839,22 @@ export function createTasks(options: {
     }
     await pump()
     await beginning.get(task.id)
-    const { worktree: _, startRequested: __, ...current } = find(task.id)
-    return current
+    return publicTask(task.id)
   }
 
   async function launchQueued(taskId: string): Promise<void> {
     const task = find(taskId)
     const factory = factoryOf(task)
+    const repo = task.repos.find((r) => !r.removed)
+    if (repo) {
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      const env =
+        store.recordedSetup(task.id, repo.name)?.env ??
+        primaryRepoWorktree(resolution.workflow, factory).env
+      await launch(find(task.id), resolution, repo, env, undefined, { pickUp: pickUpNote(task) })
+      store.dequeue(task.id)
+      return
+    }
     {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
@@ -862,6 +909,97 @@ export function createTasks(options: {
     }
   }
 
+  function pickUpNote(task: StoredTask): string {
+    const merged = store
+      .blockers(task.id)
+      .filter((b) => b.merged)
+      .map((b) => b.displayId)
+    const brief = store.latestBrief(task.id)
+    const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
+    const notes = store
+      .listComments(task.id)
+      .filter((c) => !brief || c.createdAt > brief.createdAt)
+      .map(
+        (c) => `- ${authors[c.author.kind]}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`,
+      )
+    return [
+      '# Picking up after a blocker',
+      `This Task waited for ${joinIds(merged)}, which ${merged.length === 1 ? 'has' : 'have'} merged. An earlier Run worked on it in this worktree and stopped to wait. Read the Task brief, the Comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
+      ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
+      ...(notes.length > 0
+        ? [`## ${brief ? 'Comments since the brief' : 'Comments'}\n\n${notes.join('\n')}`]
+        : []),
+    ].join('\n\n')
+  }
+
+  function cycleFrom(blockerId: string, taskId: string): string[] | undefined {
+    const seen = new Set<string>()
+    const walk = (id: string): string[] | undefined => {
+      if (id === taskId) return [id]
+      if (seen.has(id)) return undefined
+      seen.add(id)
+      for (const link of store.blockers(id)) {
+        const rest = walk(link.blockerId)
+        if (rest) return [id, ...rest]
+      }
+      return undefined
+    }
+    return walk(blockerId)
+  }
+
+  function unmergedBlockers(taskId: string) {
+    return store.blockers(taskId).filter((b) => !b.merged)
+  }
+
+  function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
+    return (
+      run.state === 'idle' &&
+      task.stage !== 'backlog' &&
+      task.stage !== 'done' &&
+      unmergedBlockers(task.id).some((b) => b.setByRunId === run.id)
+    )
+  }
+
+  async function stopForBlockers(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!task || !run || stoppingForBlockers.has(taskId) || !shouldStopForBlockers(task, run)) {
+      return
+    }
+    stoppingForBlockers.add(taskId)
+    try {
+      await runs.stop(run.id)
+      store.waitForBlockers(taskId)
+    } finally {
+      stoppingForBlockers.delete(taskId)
+    }
+    wake()
+  }
+
+  function wake(): void {
+    const queued = new Set(store.queue().map((q) => q.id))
+    for (const { id } of store.listTasks()) {
+      const task = store.getTask(id)
+      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
+      if (unmergedBlockers(id).length > 0) continue
+      if (task.stage === 'backlog' && task.startRequested) {
+        inBackground(`start ${task.displayId}`, async () => {
+          await start(id)
+        })
+      } else if (task.waitsForBlockers && !liveLead(task)) {
+        store.requeueAfterBlockers(id)
+      }
+    }
+  }
+
+  function tellLead(blocker: StoredTask, run: Run): Promise<void> {
+    const id = blocker.displayId
+    return runs.send(
+      run.id,
+      `The human made this Task wait for ${id} (“${blocker.title}”). If this Task can’t go on until ${id} merges, run \`ted task block --by ${id}\`, write the Task brief with \`ted brief write\`, and end your turn: TED stops this Run and starts a fresh one when ${id} merges. If you can carry on, say why with \`ted comment\` and keep working.`,
+    )
+  }
+
   function relaunch(taskId: string): void {
     if (relaunching.has(taskId)) return
     relaunching.add(taskId)
@@ -883,7 +1021,7 @@ export function createTasks(options: {
     const [checked] = await health.check([run.agent])
     if (checked?.state === 'ready') return
     const now = store.getTask(task.id)
-    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
+    if (!now || now.leadRunId !== run.id || now.stage === 'done' || now.waitsForBlockers) return
     store.holdTaskRun({
       taskId: task.id,
       agent: run.agent,
@@ -937,6 +1075,17 @@ export function createTasks(options: {
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
+      const taskId = event.run.taskId
+      setImmediate(() => {
+        if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
+      })
+    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') {
+      setImmediate(() => {
+        if (!closed) wake()
+      })
+    }
     if (
       event.type === 'run-updated' ||
       event.type === 'task-created' ||
@@ -947,10 +1096,24 @@ export function createTasks(options: {
     }
   })
   void pump()
+  wake()
+  for (const task of store.listTasks()) {
+    inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
+  }
 
   return {
-    async create({ title, factory: key, blockedBy = [], start: startNow, lead, ...fields }) {
-      const name = title?.trim() || firstLine(fields.description ?? '')
+    async create({
+      title,
+      factory: key,
+      blockedBy = [],
+      start: startNow,
+      lead,
+      source: sourceUrl,
+      ...fields
+    }) {
+      const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
+      const name =
+        title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
       const factory =
@@ -958,7 +1121,7 @@ export function createTasks(options: {
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
-        ? await resolveWorkflow(factory).catch((error: unknown) => {
+        ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
             failure = error
             return undefined
           })
@@ -967,6 +1130,8 @@ export function createTasks(options: {
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
         title: name,
+        ...(fields.priority === undefined && issue && { priority: issue.priority }),
+        ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
         startRequested: startNow === true,
@@ -979,7 +1144,7 @@ export function createTasks(options: {
           failure,
         )
       }
-      if (!resolution || blockers.length > 0) return task
+      if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
     },
@@ -1011,18 +1176,67 @@ export function createTasks(options: {
       return store.moveToBacklog(task.id)
     },
 
-    slots,
-    wake() {
-      void pump()
-      for (const task of store.listTasks()) {
-        if (task.runs.length > 0) {
-          applyLead(task.id).catch((error: unknown) =>
-            console.error(`couldn’t apply ${task.displayId}’s Task Lead:`, error),
-          )
-        }
+    async block(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      await beginning.get(task.id)?.catch(() => undefined)
+      const blocker = find(by)
+      if (blocker.id === task.id) {
+        throw new RequestError(409, `${task.displayId} can’t block itself`)
       }
+      if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+      const cycle = cycleFrom(blocker.id, task.id)
+      if (cycle) {
+        const ids = [task.id, ...cycle].map((id) => store.getTask(id)?.displayId ?? id)
+        throw new RequestError(
+          409,
+          `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
+        )
+      }
+      const current = find(task.id)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
+      if (existing && (runId === undefined || existing.setByRunId === runId)) {
+        return publicTask(task.id)
+      }
+      const unmerged = blocker.stage !== 'done'
+      const queued = store.queue().some((q) => q.id === task.id)
+      const midFlow = current.repos.some((r) => !r.removed)
+      const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
+      const updated = store.addBlocker(task.id, blocker.id, {
+        ...(runId !== undefined && { runId }),
+        ...(then !== undefined && { then }),
+      })
+      const run = liveLead(current)
+      if (unmerged && run && caller.kind === 'daemon' && !existing) await tellLead(blocker, run)
+      return updated
     },
 
+    unblock(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const links = store.blockers(task.id)
+      const blocker = by === undefined ? undefined : find(by)
+      if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
+        throw new RequestError(404, `${task.displayId} isn’t blocked by ${blocker.displayId}`)
+      }
+      const wasBlocked = links.some((l) => !l.merged)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      for (const link of links) {
+        if (!blocker || link.blockerId === blocker.id) {
+          store.removeBlocker(task.id, link.blockerId, runId)
+        }
+      }
+      const current = find(task.id)
+      if (caller.kind === 'daemon' && wasBlocked && unmergedBlockers(task.id).length === 0) {
+        if (current.stage === 'backlog' && current.startRequested) {
+          store.setStartRequested(task.id, false)
+        } else if (current.waitsForBlockers && !liveLead(current)) {
+          store.requeueAfterBlockers(task.id)
+        }
+      }
+      return publicTask(task.id)
+    },
+
+    slots,
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -1271,6 +1485,18 @@ export function createTasks(options: {
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
     },
 
+    wake(factoryId) {
+      if (factoryId !== undefined) caps.delete(factoryId)
+      void pump()
+      for (const task of store.listTasks()) {
+        if (task.runs.length > 0) {
+          applyLead(task.id).catch((error: unknown) =>
+            console.error(`couldn’t apply ${task.displayId}’s Task Lead:`, error),
+          )
+        }
+      }
+    },
+
     async close() {
       closed = true
       unsubscribe()
@@ -1343,6 +1569,11 @@ function firstLine(text: string): string {
   )
 }
 
+function joinIds(ids: readonly string[]): string {
+  if (ids.length <= 1) return ids[0] ?? ''
+  return `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
+}
+
 function oneLine(text: string): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > 200 ? `${line.slice(0, 199)}…` : line
@@ -1357,6 +1588,20 @@ function setupFailure(command: string, result: CommandResult, output: string): s
     `# Setup failed\n\nTED ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`,
     `\`\`\`\n${output.trimEnd()}\n\`\`\``,
   ].join('\n\n')
+}
+
+function taskSource(url: string, issue: LinearIssue | undefined): TaskSource {
+  if (!issue) return { url }
+  const { identifier, title, branchName, description } = issue
+  return {
+    url,
+    linear: {
+      identifier,
+      title,
+      ...(branchName !== undefined && { branchName }),
+      ...(description !== undefined && { description }),
+    },
+  }
 }
 
 function slug(title: string): string {

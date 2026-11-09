@@ -12,6 +12,7 @@ import { type Backups, compareVersions, createBackups, displayPath } from './bac
 import type { Banners } from './banners.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
+import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
 import type { Integrations } from './integrations.ts'
 import { redactSecrets } from './redact.ts'
@@ -32,6 +33,7 @@ export interface Services {
   integrations: Integrations
   disk: DiskWatch
   storage: Storage
+  factories: Factories
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {
