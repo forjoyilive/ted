@@ -92,6 +92,16 @@ describe('quitting', () => {
     await expect.poll(() => shutdowns).toBe(1)
   })
 
+  test('once shutdown starts, no new Run can start', async () => {
+    const { ted, raw } = await start()
+
+    await ted.shutdown()
+
+    const res = await raw.call('POST', '/dev/runs', { prompt: 'hello', cwd })
+    expect(res).toEqual({ status: 503, body: { error: 'TED is shutting down' } })
+    expect(await ted.getActivity()).toEqual(idle)
+  })
+
   test('the quit setting and the tray setting have defaults and keep their values', async () => {
     const { ted } = await start()
     expect(await ted.getSettings()).toEqual({

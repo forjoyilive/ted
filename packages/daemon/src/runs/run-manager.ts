@@ -6,6 +6,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { AgentKind, ConversationEntry, Run, RunState } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
+import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -38,6 +39,7 @@ export interface RunManager {
   start(input: StartRunInput): Promise<Run>
   send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
+  stopAll(): Promise<void>
   close(): Promise<void>
 }
 
@@ -52,6 +54,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const following = new Map<string, Promise<void>>()
   let closed = false
+  let shuttingDown = false
+  const refuseWhileShuttingDown = () => {
+    if (shuttingDown) throw new RequestError(503, 'TED is shutting down')
+  }
 
   function follow(runId: string): void {
     const release = options.idle?.hold()
@@ -103,8 +109,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
-  return {
+  const manager: RunManager = {
     async start({ agent: kind, prompt, cwd, taskId, env = {} }) {
+      refuseWhileShuttingDown()
       const agent = agents.get(kind)
       const id = randomUUID()
       const runDir = path.join(runsDir, id)
@@ -133,6 +140,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       await writeFile(runFiles(runDir).launch, JSON.stringify(launchFile), { mode: 0o600 })
 
+      refuseWhileShuttingDown()
       const run = store.startRun({
         id,
         agent: agent.kind,
@@ -175,11 +183,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await done
       }
     },
+    async stopAll() {
+      shuttingDown = true
+      await Promise.all([...following.keys()].map((runId) => manager.stop(runId)))
+    },
     async close() {
       closed = true
       await Promise.all(following.values())
     },
   }
+  return manager
 }
 
 async function startRecord(

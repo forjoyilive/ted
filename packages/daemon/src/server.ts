@@ -157,9 +157,8 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/shutdown$/,
-    async handle({ res }, { store, runs, onShutdown }) {
-      const active = store.listRuns().filter((run) => run.state !== 'finished')
-      await Promise.all(active.map((run) => runs.stop(run.id)))
+    async handle({ res }, { runs, onShutdown }) {
+      await runs.stopAll()
       res.once('finish', () => setImmediate(onShutdown))
       return [200, {}]
     },
