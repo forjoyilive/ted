@@ -35,6 +35,7 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
+import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
@@ -52,6 +53,7 @@ import {
   stageEntries,
   taskAttachments,
   taskBlockers,
+  taskQueue,
   taskRepos,
   tasks,
   workflowLayers,
@@ -103,6 +105,12 @@ export interface NewWorktree {
   skipped: CopySkip[]
 }
 
+export interface QueuedTask extends QueueEntry {
+  kind: 'task'
+  priority: Priority
+  factoryId: string
+}
+
 export interface RecordedSetup {
   command: string
   timeoutMs: number
@@ -144,6 +152,9 @@ export interface TedStore {
   ): void
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
+  queueTask(taskId: string, stage: StageId): Task
+  moveToBacklog(taskId: string): Task
+  queue(): QueuedTask[]
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
@@ -251,6 +262,26 @@ export async function openStore({
     }),
   })
 
+  const queue = (): QueuedTask[] => {
+    const rows = store.query(queryDb(taskQueue.select()))
+    return queueOrder(
+      rows.flatMap(({ taskId, rank }) => {
+        const task = taskRow(taskId)
+        return task
+          ? [
+              {
+                id: taskId,
+                kind: 'task' as const,
+                rank,
+                priority: task.priority as Priority,
+                factoryId: task.factoryId,
+              },
+            ]
+          : []
+      }),
+    )
+  }
+
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
@@ -290,8 +321,10 @@ export async function openStore({
         ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
         : []
     })
+    const place = queue().findIndex((q) => q.id === row.id) + 1
     const facts: TaskFacts = {
       stage,
+      ...(place > 0 && { queue: { place } }),
       runs: live.map((r) => r.state as RunState),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -383,6 +416,10 @@ export async function openStore({
     const task = toPublicTask(toTask(row))
     emit({ type: 'task-updated', task })
     return task
+  }
+
+  const updatedQueue = (except?: string) => {
+    for (const { id } of queue()) if (id !== except) updatedTask(id)
   }
 
   const settings = (): MachineSettings => {
@@ -478,13 +515,31 @@ export async function openStore({
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
+      const queued = queue().some((q) => q.id === taskId)
       store.commit(
+        ...(queued ? [events.taskDequeued({ taskId, at })] : []),
         events.taskStarted({ taskId, stage, branch, worktree, at }),
         events.taskWorktreeCreated({ taskId, ...repo, branch, worktree, at }),
         stageEntered(taskId, stage, entry, at),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (queued) updatedQueue(taskId)
+      return task
     },
+    queueTask(taskId, stage) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      store.commit(events.taskQueued({ taskId, stage, rank, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    moveToBacklog(taskId) {
+      store.commit(events.taskMovedToBacklog({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    queue,
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       store.commit(
         events.taskWorktreeSetupStarted({

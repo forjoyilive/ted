@@ -11,6 +11,7 @@ import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
+import type { RunSlots } from './slots.ts'
 import type { Attachment, Comment, CreateTaskRequest, Outcome, Task, TaskDefaults } from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
@@ -47,6 +48,14 @@ export class DaemonClient {
 
   startTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  }
+
+  moveToBacklog(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  getSlots(): Promise<RunSlots> {
+    return this.#request('GET', '/slots')
   }
 
   listComments(ref: string): Promise<Comment[]> {

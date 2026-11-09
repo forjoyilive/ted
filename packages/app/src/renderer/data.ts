@@ -5,6 +5,7 @@ import type {
   DataStatus,
   Factory,
   MachineSettings,
+  RunSlots,
   StageEntry,
   StageId,
   Task,
@@ -81,6 +82,26 @@ export function useSettings(): MachineSettings | undefined {
   }, [])
 
   return settings
+}
+
+export function useSlots(): RunSlots | undefined {
+  const [slots, setSlots] = useState<RunSlots>()
+
+  useEffect(() => {
+    let live = false
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'slots-changed') {
+        live = true
+        setSlots(event.slots)
+      }
+    })
+    void ted.getSlots().then((loaded) => {
+      if (!live) setSlots(loaded)
+    })
+    return unsubscribe
+  }, [])
+
+  return slots
 }
 
 export function useDataStatus(): DataStatus | undefined {

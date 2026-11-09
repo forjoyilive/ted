@@ -306,6 +306,22 @@ describe('ted dev factory and ted task start', () => {
     expect(listed).toMatch(/^NB-1 {2}Done {2}/)
   })
 
+  test('with the limit full, ted task start says the Task is queued and its place', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const forever = JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    await ted(['task', 'create', '--factory', 'NB', forever])
+    await ted(['task', 'create', '--factory', 'NB', 'Second'])
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    await new DaemonClient(info).updateSettings({ maxWorkingRuns: 1 })
+
+    await ted(['task', 'start', 'NB-1'])
+    const queued = await ted(['task', 'start', 'NB-2'])
+
+    expect(queued.stdout.trim()).toBe('Queued NB-2 · 1st in line for a slot')
+  })
+
   test('a Factory remembers its local folder, given when added or set later', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const first = path.join(home, 'first')

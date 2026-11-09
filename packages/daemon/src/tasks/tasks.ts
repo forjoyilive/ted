@@ -5,7 +5,9 @@ import type {
   AgentStageId,
   Attachment,
   Comment,
+  DaemonEvent,
   Outcome,
+  RunSlots,
   Task,
   TaskDefaults,
   TaskRepo,
@@ -22,6 +24,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { NewTask, RecordedSetup, StoredTask, TedStore } from '../store/index.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { type SlotUse, startsNow } from './queue.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -45,6 +48,9 @@ export interface Tasks {
   create(input: CreateTaskInput): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
+  moveToBacklog(ref: string): Task
+  slots(): Promise<RunSlots>
+  subscribe(listener: (event: DaemonEvent) => void): () => void
   comment(ref: string, caller: Caller, body: string): Comment
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
@@ -81,6 +87,165 @@ export function createTasks(options: {
   const advancing = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
+  const holds = new Map<string, number>()
+  const beginning = new Map<string, Promise<void>>()
+  const caps = new Map<string, number | undefined>()
+  const listeners = new Set<(event: DaemonEvent) => void>()
+  let pumping: Promise<void> | undefined
+  let again = false
+  let closed = false
+  let shownSlots = ''
+
+  function hold(taskId: string): () => void {
+    holds.set(taskId, (holds.get(taskId) ?? 0) + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const left = (holds.get(taskId) ?? 1) - 1
+      if (left > 0) holds.set(taskId, left)
+      else holds.delete(taskId)
+      void pump()
+    }
+  }
+
+  function remember(factoryId: string, resolution: WorkflowResolution): WorkflowResolution {
+    caps.set(factoryId, resolution.workflow.settings.max_working_runs)
+    return resolution
+  }
+
+  async function capOf(factoryId: string): Promise<number | undefined> {
+    if (caps.has(factoryId)) return caps.get(factoryId)
+    const factory = store.getFactory(factoryId)
+    if (!factory) return undefined
+    const resolution = await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
+    if (!resolution) return undefined
+    return remember(factoryId, resolution).workflow.settings.max_working_runs
+  }
+
+  async function slotUse(factoryIds: readonly string[]) {
+    const all = store.listTasks()
+    const holders = all.flatMap((task) => {
+      const runs = task.runs.filter((r) => r.state === 'working').length
+      const settingUp = task.repos.some((r) => !r.removed && r.setup?.state === 'running')
+      const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
+      return slots > 0 ? [{ task, runs, settingUp, slots }] : []
+    })
+    const byFactory: Record<string, number> = {}
+    for (const { task, slots } of holders) {
+      byFactory[task.factoryId] = (byFactory[task.factoryId] ?? 0) + slots
+    }
+    const capsNow: Record<string, number | undefined> = {}
+    for (const id of new Set([...factoryIds, ...holders.map((h) => h.task.factoryId)])) {
+      capsNow[id] = await capOf(id)
+    }
+    const use: SlotUse = {
+      limit: store.settings().maxWorkingRuns,
+      working: holders.reduce((sum, h) => sum + h.slots, 0),
+      byFactory,
+      caps: capsNow,
+    }
+    return { use, holders, all }
+  }
+
+  async function fill(): Promise<void> {
+    const queued = store.queue()
+    if (queued.length === 0) return
+    const { use } = await slotUse(queued.map((q) => q.factoryId))
+    for (const entry of startsNow(store.queue(), use)) {
+      if (!holds.has(entry.id)) begin(entry.id)
+    }
+  }
+
+  function pump(): Promise<void> {
+    again = true
+    if (closed) return Promise.resolve()
+    pumping ??= (async () => {
+      while (again) {
+        again = false
+        await fill()
+      }
+    })()
+      .catch((error: unknown) => console.error('couldn’t start queued Tasks:', error))
+      .finally(() => {
+        pumping = undefined
+        if (again) void pump()
+        else void publishSlots()
+      })
+    return pumping
+  }
+
+  async function slots(): Promise<RunSlots> {
+    const factoryIds = store.listFactories().map((f) => f.id)
+    const { use, holders, all } = await slotUse(factoryIds)
+    const byId = new Map(all.map((t) => [t.id, t]))
+    const queue = store.queue().flatMap((entry, i) => {
+      const task = byId.get(entry.id)
+      return task
+        ? [
+            {
+              kind: 'task' as const,
+              place: i + 1,
+              taskId: task.id,
+              displayId: task.displayId,
+              title: task.title,
+              factoryId: task.factoryId,
+              priority: task.priority,
+            },
+          ]
+        : []
+    })
+    return {
+      limit: use.limit,
+      working: use.working,
+      queued: queue.length,
+      holders: holders.map(({ task, runs, settingUp }) => ({
+        kind: 'task' as const,
+        taskId: task.id,
+        displayId: task.displayId,
+        title: task.title,
+        factoryId: task.factoryId,
+        runs,
+        settingUp,
+      })),
+      queue,
+      factories: factoryIds.flatMap((factoryId) => {
+        const cap = use.caps[factoryId]
+        return cap === undefined ? [] : [{ factoryId, cap, working: use.byFactory[factoryId] ?? 0 }]
+      }),
+    }
+  }
+
+  async function publishSlots(): Promise<void> {
+    if (closed || listeners.size === 0) return
+    const current = await slots().catch(() => undefined)
+    const shown = JSON.stringify(current)
+    if (!current || closed || shown === shownSlots) return
+    const first = shownSlots === ''
+    shownSlots = shown
+    if (first) return
+    for (const listener of listeners) listener({ type: 'slots-changed', slots: current })
+  }
+
+  function begin(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    const work = launchQueued(taskId)
+      .catch((error: unknown) => {
+        if (store.queue().some((q) => q.id === taskId)) {
+          store.moveToBacklog(taskId)
+          const message = error instanceof Error ? error.message : String(error)
+          store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
+        }
+        throw error
+      })
+      .finally(() => {
+        beginning.delete(taskId)
+        release()
+      })
+    beginning.set(taskId, work)
+    inBackground(`start ${store.getTask(taskId)?.displayId ?? taskId}`, () => work)
+    return work
+  }
 
   function inBackground(what: string, work: () => Promise<void>): void {
     const release = options.idle?.hold()
@@ -206,6 +371,20 @@ export function createTasks(options: {
     repo: TaskRepo,
     setup: RecordedSetup,
   ): Promise<void> {
+    const release = hold(task.id)
+    try {
+      await setUpThenLaunch(task, resolution, repo, setup)
+    } finally {
+      release()
+    }
+  }
+
+  async function setUpThenLaunch(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    repo: TaskRepo,
+    setup: RecordedSetup,
+  ): Promise<void> {
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
     const result = await runWorktreeCommand({
@@ -228,6 +407,15 @@ export function createTasks(options: {
   }
 
   async function resume(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    try {
+      await resumeTask(taskId)
+    } finally {
+      release()
+    }
+  }
+
+  async function resumeTask(taskId: string): Promise<void> {
     const task = find(taskId)
     const repo = task.repos.find((r) => !r.removed)
     if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
@@ -281,9 +469,25 @@ export function createTasks(options: {
     }
     starting.add(task.id)
     try {
+      await ensureClone({ banners, reposDir }, factory)
+      const resolution = remember(factory.id, await workflows.resolve(factory, { fetch: false }))
+      store.queueTask(task.id, resolution.workflow.next('backlog'))
+    } finally {
+      starting.delete(task.id)
+    }
+    await pump()
+    await beginning.get(task.id)
+    const { worktree: _, startRequested: __, ...current } = find(task.id)
+    return current
+  }
+
+  async function launchQueued(taskId: string): Promise<void> {
+    const task = find(taskId)
+    const factory = factoryOf(task)
+    {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
-      const resolution = await workflows.resolve(factory, { fetch: false })
+      const resolution = remember(factory.id, await workflows.resolve(factory, { fetch: false }))
       const stage = resolution.workflow.next('backlog') as AgentStageId
       const settings = primaryRepoWorktree(resolution.workflow, factory)
       const branch = await branchFor(clone, task)
@@ -330,10 +534,6 @@ export function createTasks(options: {
       } else {
         await launch(started, resolution, repo, settings.env)
       }
-      const { worktree: _, ...current } = find(task.id)
-      return current
-    } finally {
-      starting.delete(task.id)
     }
   }
 
@@ -342,6 +542,17 @@ export function createTasks(options: {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
+
+  const unsubscribe = store.subscribe((event) => {
+    if (
+      event.type === 'task-created' ||
+      event.type === 'task-updated' ||
+      event.type === 'settings-changed'
+    ) {
+      void pump()
+    }
+  })
+  void pump()
 
   return {
     async create({ title, factory: key, blockedBy = [], start: startNow, ...fields }) {
@@ -384,6 +595,27 @@ export function createTasks(options: {
     },
 
     start,
+
+    moveToBacklog(ref) {
+      const task = find(ref)
+      if (task.leadRunId !== undefined || task.repos.length > 0 || holds.has(task.id)) {
+        throw new RequestError(
+          409,
+          `${task.displayId} has had a Run, so it can’t go back to Backlog`,
+        )
+      }
+      if (!store.queue().some((q) => q.id === task.id)) {
+        throw new RequestError(409, `${task.displayId} isn’t queued`)
+      }
+      return store.moveToBacklog(task.id)
+    },
+
+    slots,
+
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
 
     comment(ref, caller, body) {
       const { task, runId } = ownTask(ref, caller)
@@ -428,6 +660,9 @@ export function createTasks(options: {
     },
 
     async close() {
+      closed = true
+      unsubscribe()
+      await pumping
       stopping.abort()
       await Promise.all(background)
     },
@@ -441,6 +676,11 @@ function firstLine(text: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function oneLine(text: string): string {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line
 }
 
 function setupFailure(command: string, result: CommandResult, output: string): string {

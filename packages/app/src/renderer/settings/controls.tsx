@@ -2,10 +2,21 @@ import { type ReactNode, useId } from 'react'
 import { Help } from '../components/Help.tsx'
 import styles from './settings.module.css'
 
-export function SettingsPage({ title, children }: { title: string; children: ReactNode }) {
+export function SettingsPage({
+  title,
+  help,
+  children,
+}: {
+  title: string
+  help?: ReactNode
+  children: ReactNode
+}) {
   return (
     <div className={styles.page}>
-      <h1 className={styles.pageTitle}>{title}</h1>
+      <div className={styles.pageTitleRow}>
+        <h1 className={styles.pageTitle}>{title}</h1>
+        {help !== undefined && <Help>{help}</Help>}
+      </div>
       {children}
     </div>
   )
@@ -96,6 +107,48 @@ export function Button({
     >
       {children}
     </button>
+  )
+}
+
+export function Stepper({
+  value,
+  min,
+  max,
+  lessLabel,
+  moreLabel,
+  onChange,
+}: {
+  value: number
+  min: number
+  max: number
+  lessLabel: string
+  moreLabel: string
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className={styles.stepper}>
+      <button
+        type="button"
+        className={styles.step}
+        aria-label={lessLabel}
+        disabled={value <= min}
+        onClick={() => onChange(value - 1)}
+      >
+        −
+      </button>
+      <output className={styles.stepValue} aria-live="polite">
+        {value}
+      </output>
+      <button
+        type="button"
+        className={styles.step}
+        aria-label={moreLabel}
+        disabled={value >= max}
+        onClick={() => onChange(value + 1)}
+      >
+        +
+      </button>
+    </div>
   )
 }
 

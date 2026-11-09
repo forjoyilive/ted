@@ -54,7 +54,9 @@ export {
   type MachineSettings,
   type Profile,
   terminalFontSizes,
+  workingRunLimits,
 } from './settings.ts'
+export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
   type AgentStageId,
   type Attachment,

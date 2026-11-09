@@ -24,6 +24,8 @@ interface SidebarProps {
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
   footer?: SidebarFooter
+  runsOpen?: boolean
+  onOpenRuns?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: () => void
 }
@@ -51,6 +53,8 @@ export function Sidebar({
   badges = {},
   settingsProblem = false,
   footer = {},
+  runsOpen = false,
+  onOpenRuns,
   dispatch,
   onNewTask,
 }: SidebarProps) {
@@ -158,7 +162,20 @@ export function Sidebar({
 
       {footerLines.length > 0 && (
         <footer className={styles.footer}>
-          {footer.runs !== undefined && <p className={styles.runs}>{footer.runs}</p>}
+          {footer.runs !== undefined &&
+            (onOpenRuns ? (
+              <button
+                type="button"
+                className={styles.runsButton}
+                aria-haspopup="dialog"
+                aria-expanded={runsOpen}
+                onClick={onOpenRuns}
+              >
+                {footer.runs}
+              </button>
+            ) : (
+              <p className={styles.runs}>{footer.runs}</p>
+            ))}
           {footer.failed !== undefined && <p className={styles.failed}>{footer.failed}</p>}
           {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
           {footer.simulators !== undefined && (
