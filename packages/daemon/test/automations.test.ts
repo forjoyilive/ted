@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -594,6 +594,173 @@ test('an Automation that is on keeps a daemon started by ted from exiting when i
   expect(idled).toBe(0)
   await client.call('POST', `/automations/${created.body.id}/disable`, {})
   await waitUntil(() => idled > 0, 'the idle exit once the Automation is off')
+})
+
+describe('Tasks an Automation Run starts', () => {
+  const advance = ['ted', 'outcome', 'advance']
+  const getTask = async (client: Client, id: string) => {
+    const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
+    if (!task) throw new Error(`no Task ${id}`)
+    return task
+  }
+  const waitForTask = (client: Client, id: string, check: (t: Task) => boolean, what: string) =>
+    waitUntil(
+      async () => {
+        const task = await getTask(client, id)
+        return check(task) ? task : undefined
+      },
+      what,
+      20_000,
+    )
+
+  async function doneTask(client: Client) {
+    const gate = path.join(scratch, 'gate')
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: steps(
+        { run: ['sh', '-c', 'printf "Goal: export notes\\n" | ted brief write'] },
+        { waitFor: gate },
+        { everyMessage: [{ run: advance }] },
+        { run: advance },
+      ),
+    })
+    await waitForTask(client, task.id, (t) => t.leadRunId !== undefined, 'the Task to start')
+    await writeFile(gate, '')
+    return waitForTask(
+      client,
+      task.id,
+      (t) => t.stage === 'done' && t.repos.every((r) => r.removed),
+      'the Task to reach Done',
+    )
+  }
+
+  async function fire(client: Client, done: Task) {
+    const automation = await create(client, {
+      prompt: steps(
+        { run: ['ted', 'task', 'create', '--start', 'Fix the crash'] },
+        { run: ['ted', 'task', 'create', '--follow-up', done.displayId, 'Fix it again'] },
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'created' && rows[0].result.tasks.length === 2,
+      'the Run to create two Tasks',
+    )
+    const results = await commandResults(client, row?.runId ?? '')
+    expect(results.map((r) => r.code)).toEqual([0, 0])
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    const created = tasks.find((t) => t.title === 'Fix the crash')
+    const followUp = tasks.find((t) => t.title === 'Fix it again')
+    if (!created || !followUp) throw new Error('the Tasks weren’t created')
+    return { automation, created, followUp }
+  }
+
+  test('in a Bypass Factory they stay in Backlog for the human to start', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
+    })
+    const client = await startTed()
+    const done = await doneTask(client)
+    const { automation, created, followUp } = await fire(client, done)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    for (const task of [created, followUp]) {
+      const now = await getTask(client, task.id)
+      expect(now.stage).toBe('backlog')
+      expect(now.leadRunId).toBeUndefined()
+      expect(now.runs).toEqual([])
+      const comments = await client.ok<{ body: string; author: { kind: string } }[]>(
+        'GET',
+        `/tasks/${task.id}/comments`,
+      )
+      expect(comments).toContainEqual(
+        expect.objectContaining({
+          author: { kind: 'ted' },
+          body: `Created by ${automation.name} · left in Backlog because this Factory runs in Bypass`,
+        }),
+      )
+    }
+    expect(followUp.followUpOf).toEqual({ id: done.id, displayId: done.displayId })
+  })
+
+  test('in an Auto Factory --start and a Follow-up start at once', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    const client = await startTed()
+    const done = await doneTask(client)
+    const { created, followUp } = await fire(client, done)
+    for (const task of [created, followUp]) {
+      await waitForTask(client, task.id, (t) => t.stage !== 'backlog', `${task.displayId} to start`)
+      const comments = await client.ok<{ body: string }[]>('GET', `/tasks/${task.id}/comments`)
+      expect(comments.some((c) => c.body.includes('left in Backlog'))).toBe(false)
+    }
+  })
+})
+
+test('a Run reads only its own Factory’s Automations', async () => {
+  const client = await startTed()
+  const gadgets = path.join(scratch, 'acme', 'gadgets.git')
+  await cp(path.join(scratch, 'acme', 'widgets.git'), gadgets, { recursive: true })
+  await client.ok<Factory>('POST', '/dev/factories', { repo: gadgets, key: 'OT' })
+  {
+    const secret = await create(client, { name: 'Other intake', factory: 'OT' })
+    const reads = (...extra: string[]) => [
+      { run: ['ted', 'automation', 'list'] },
+      { run: ['ted', 'automation', 'list', '--factory', 'OT'] },
+      { run: ['ted', 'automation', 'show', secret.id] },
+      { run: ['ted', 'automation', 'show', secret.id, '--factory', 'OT'] },
+      ...extra.map((name) => ({ run: ['ted', 'automation', 'show', name] })),
+    ]
+    const checkReads = (results: CommandResult[]) => {
+      expect(results[0]?.code).toBe(0)
+      expect(results[0]?.stdout).not.toContain('Other intake')
+      expect(results[1]).toMatchObject({ code: 1 })
+      expect(results[1]?.stderr).toMatch(/only its own Factory/)
+      expect(results[2]).toMatchObject({ code: 1 })
+      expect(results[2]?.stdout).toBe('')
+      expect(results[3]).toMatchObject({ code: 1 })
+      expect(results[3]?.stderr).toMatch(/only its own Factory/)
+    }
+
+    const own = await create(client, {
+      name: 'Own intake',
+      prompt: steps(...reads('Own intake'), { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${own.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      own.id,
+      (rows) => rows[0]?.runId !== undefined,
+      'the Automation Run to start',
+    )
+    const automationResults = await waitUntil(async () => {
+      const found = await commandResults(client, row?.runId ?? '')
+      return found.length === 5 ? found : undefined
+    }, 'the Automation Run’s commands')
+    checkReads(automationResults)
+    expect(automationResults[0]?.stdout).toContain('Own intake')
+    expect(automationResults[4]?.code).toBe(0)
+
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      start: true,
+      title: steps(...reads(), { waitFor: path.join(scratch, 'never') }),
+    })
+    const lead = await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return found?.leadRunId
+    }, 'the Task Lead to start')
+    const taskResults = await waitUntil(async () => {
+      const found = await commandResults(client, lead)
+      return found.length === 4 ? found : undefined
+    }, 'the Task Lead’s commands')
+    checkReads(taskResults)
+    expect(taskResults[0]?.stdout).toContain('Own intake')
+  }
 })
 
 interface CommandResult {

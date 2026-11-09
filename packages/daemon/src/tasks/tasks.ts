@@ -3843,9 +3843,23 @@ export function createTasks(options: {
     }
     if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
     return {
+      name: automation.name,
       factoryKey: factory.key,
       link: { automationId: automation.id, firingId: firing.id },
     }
+  }
+
+  const runsInBypass = (resolution: WorkflowResolution | undefined) =>
+    resolution?.workflow.settings.permissions === 'bypass'
+
+  function holdInBacklog(taskId: string, automationName: string): Task {
+    store.postComment({
+      taskId,
+      kind: 'note',
+      author: { kind: 'ted' },
+      body: `Created by ${automationName} · left in Backlog because this Factory runs in Bypass`,
+    })
+    return publicTask(taskId)
   }
 
   async function createFollowUp(
@@ -3855,7 +3869,7 @@ export function createTasks(options: {
       description?: string
       sourceUrl?: string
       factoryId?: string
-      automation?: { automationId: string; firingId: string }
+      automation?: { name: string; link: { automationId: string; firingId: string } }
     },
   ): Promise<Task> {
     const original = find(ref)
@@ -3888,9 +3902,13 @@ export function createTasks(options: {
       if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
     }
     refuseOpen()
-    const lead =
-      original.lead ??
-      leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+    const resolution =
+      original.lead && !input.automation
+        ? undefined
+        : await resolveWorkflow(factoryOf(original), {
+            fetch: input.automation !== undefined && cloned(original.factoryId),
+          })
+    const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
     const text = input.description?.trim() ?? ''
     refuseOpen()
     const task = await store.createTask({
@@ -3903,8 +3921,11 @@ export function createTasks(options: {
         ? { source: original.source }
         : url !== undefined && { source: taskSource(url, undefined) }),
       followUpOf: original.id,
-      ...(input.automation && { automation: input.automation }),
+      ...(input.automation && { automation: input.automation.link }),
     })
+    if (input.automation && runsInBypass(resolution)) {
+      return holdInBacklog(task.id, input.automation.name)
+    }
     return start(task.id)
   }
 
@@ -4516,7 +4537,7 @@ export function createTasks(options: {
           ...(fields.description !== undefined && { description: fields.description }),
           ...(sourceUrl !== undefined && { sourceUrl }),
           ...(factory && { factoryId: factory.id }),
-          ...(automation && { automation: automation.link }),
+          ...(automation && { automation: { name: automation.name, link: automation.link } }),
         })
       }
       const refuseTracked = () => {
@@ -4541,6 +4562,7 @@ export function createTasks(options: {
       if (factory && removingFactories.has(factory.id)) {
         throw new RequestError(409, `${factory.name} is being removed`)
       }
+      const held = automation !== undefined && (!resolution || runsInBypass(resolution))
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -4549,11 +4571,12 @@ export function createTasks(options: {
         ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
-        startRequested: startNow === true,
+        startRequested: startNow === true && !held,
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: automation.link }),
       })
       if (!factory) return task
+      if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
       if (!resolution) {
         console.error(
           `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
