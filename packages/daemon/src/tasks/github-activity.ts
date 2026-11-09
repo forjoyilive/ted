@@ -1,7 +1,7 @@
 // Ported from agent-orchestrator (Apache-2.0): backend/internal/lifecycle/reactions.go and
 // backend/internal/domain/pr.go. TED changed: all of a Task's notices go in one message, GitHub text
 // is redacted and fenced with a per-message nonce, and what was sent is kept in TED's store.
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import type { PullRequestPreview, StageId } from '@ted/protocol'
 import { redactSecrets } from '../redact.ts'
 import type { RemoteCheck, RemotePullRequest } from './merge.ts'
@@ -60,7 +60,7 @@ export function trustedCheck(pr: Pick<RemotePullRequest, 'url'>, check: RemoteCh
   )
 }
 
-export function failedCheckList(
+export function checkList(
   pr: Pick<RemotePullRequest, 'url'>,
   checks: readonly RemoteCheck[],
 ): string {
@@ -128,14 +128,10 @@ function outsideCiNotices(
 ): GitHubNotice[] {
   if (others.length === 0) return []
   const link = safeUrl(pr.url)
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify(others.map((c) => [c.kind, c.app, c.name]).sort()))
-    .digest('hex')
-    .slice(0, 16)
   return [
     {
       key: `ci-outside:${where}`,
-      sig: `${pr.headRefOid}:${fingerprint}`,
+      sig: `${pr.headRefOid}:${others.length}`,
       kind: 'outside-ci',
       where,
       detail: [

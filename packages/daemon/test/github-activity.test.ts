@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   activityMessage,
-  failedCheckList,
+  checkList,
   jobLogPath,
   logTail,
   noticesFor,
@@ -184,9 +184,9 @@ describe('notices from a pull request', () => {
         { ...failed, name: 'and this', kind: 'check', app: 'evil' },
       ],
     })
-    expect(failedCheckList(pull, pull.checks)).toBe('test and 2 checks from outside apps')
-    expect(failedCheckList(pull, pull.checks.slice(1, 2))).toBe('1 check from outside apps')
-    expect(failedCheckList(pull, pull.checks.slice(0, 1))).toBe('test')
+    expect(checkList(pull, pull.checks)).toBe('test and 2 checks from outside apps')
+    expect(checkList(pull, pull.checks.slice(1, 2))).toBe('1 check from outside apps')
+    expect(checkList(pull, pull.checks.slice(0, 1))).toBe('test')
   })
 
   test('review comments and reviews are notices; resolved threads and bot chatter are not', () => {
