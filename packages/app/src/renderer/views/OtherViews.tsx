@@ -1,8 +1,5 @@
-import type { Appearance } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { Help } from '../components/Help.tsx'
-import { useSettings } from '../data.ts'
-import { ted } from '../ted.ts'
 import styles from './views.module.css'
 
 export function Inbox() {
@@ -30,45 +27,6 @@ export function Stub({ title, banners }: { title: string; banners?: ReactNode })
       </header>
       {banners}
       <p className={styles.empty}>Not built yet.</p>
-    </section>
-  )
-}
-
-const appearanceLabels: Record<Appearance, string> = {
-  system: 'System',
-  light: 'Light',
-  dark: 'Dark',
-}
-
-const appearances = Object.keys(appearanceLabels) as Appearance[]
-
-export function AppSettings() {
-  const settings = useSettings()
-
-  return (
-    <section className={styles.pane} aria-label="Settings">
-      <header className={styles.header}>
-        <h1 className={styles.title}>Settings</h1>
-      </header>
-      <div className={styles.settings}>
-        <div className={styles.settingRow}>
-          <span id="appearance-label">Appearance</span>
-          <div className={styles.segmented} role="radiogroup" aria-labelledby="appearance-label">
-            {appearances.map((appearance) => (
-              <label key={appearance} className={styles.segment}>
-                <input
-                  type="radio"
-                  name="appearance"
-                  className={styles.radio}
-                  checked={settings?.appearance === appearance}
-                  onChange={() => void ted.updateSettings({ appearance })}
-                />
-                {appearanceLabels[appearance]}
-              </label>
-            ))}
-          </div>
-        </div>
-      </div>
     </section>
   )
 }

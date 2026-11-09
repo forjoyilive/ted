@@ -508,6 +508,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             const v = scalar(variable.value)
             if (typeof v === 'object' || v === undefined) {
               error(variable.value, '`worktree.env` values must be text')
+            } else if (isReservedEnvName(variable.name)) {
+              warn(
+                variable.key,
+                `TED sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
+              )
             } else env[variable.name] = String(v)
           }
           worktree.env = env
@@ -559,6 +564,14 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       error(repoNode, `the Check’s \`repo: ${check.repo}\` names no entry in \`repos\``)
     }
   }
+}
+
+const reservedEnvNames = ['PATH', 'NODE_OPTIONS', 'BASH_ENV', 'ENV']
+const reservedEnvPrefixes = ['TED_', 'LD_', 'DYLD_', 'ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'CODEX_']
+
+export function isReservedEnvName(name: string): boolean {
+  const upper = name.toUpperCase()
+  return reservedEnvNames.includes(upper) || reservedEnvPrefixes.some((p) => upper.startsWith(p))
 }
 
 const durationMessage = '`timeout` must be a duration such as 30s, 15m or 1h'

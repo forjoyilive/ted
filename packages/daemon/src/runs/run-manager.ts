@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
@@ -42,6 +42,7 @@ export interface RunManager {
 }
 
 const stopGraceMs = 10_000
+const startRecordBytes = 4096
 
 export async function startRunManager(options: RunManagerOptions): Promise<RunManager> {
   const { home, store, agents, tokens } = options
@@ -182,13 +183,22 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 }
 
-async function startRecord(
+export async function startRecord(
   runDir: string,
 ): Promise<Extract<HostRecord, { t: 'start' }> | undefined> {
-  const log = await readFile(runFiles(runDir).log, 'utf8').catch(() => '')
-  const first = log.slice(0, log.indexOf('\n'))
-  if (first === '') return undefined
-  const record = JSON.parse(first) as HostRecord
+  const handle = await open(runFiles(runDir).log, 'r').catch(() => undefined)
+  if (!handle) return undefined
+  let head: string
+  try {
+    const buffer = Buffer.alloc(startRecordBytes)
+    const { bytesRead } = await handle.read(buffer, 0, startRecordBytes, 0)
+    head = buffer.toString('utf8', 0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+  const end = head.indexOf('\n')
+  if (end <= 0) return undefined
+  const record = JSON.parse(head.slice(0, end)) as HostRecord
   return record.t === 'start' ? record : undefined
 }
 

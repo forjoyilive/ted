@@ -1,3 +1,4 @@
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
 import {
@@ -9,7 +10,17 @@ import {
   type RestoreBackupRequest,
   tedHome,
 } from '@ted/protocol'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  nativeTheme,
+  type OpenDialogOptions,
+  shell,
+} from 'electron'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
@@ -25,6 +36,19 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       new Uint8Array(bytes),
     )
   },
+  setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  locateLocalFolder: async (client, key) => {
+    const options: OpenDialogOptions = {
+      title: 'Locate the local folder',
+      properties: ['openDirectory'],
+    }
+    const chosen = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    const [folder] = chosen.filePaths
+    if (chosen.canceled || folder === undefined) return undefined
+    return client.setLocalFolder(String(key), folder)
+  },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
@@ -34,15 +58,65 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   copyText: async (_, text) => clipboard.writeText(String(text)),
   downloadTed: () => shell.openExternal(downloadUrl),
   quit: async () => app.quit(),
+  getProfile: (client) => client.getProfile(),
+  getDiagnostics: (client) => client.getDiagnostics(),
+  readDaemonLog: (client) => client.readDaemonLog(),
+  readRunOutput: (client, runId) => client.readRunOutput(String(runId)),
+  copyReport: async (client) => {
+    clipboard.writeText((await client.getReport()).text)
+  },
+  tedFolder: async () => {
+    const folder = tedHome()
+    const home = homedir()
+    const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
+    return { path: `${shown}${path.sep}`, platform: process.platform }
+  },
+  showTedFolder: async () => {
+    const error = await shell.openPath(tedHome())
+    if (error !== '') throw new Error(error)
+  },
+  chooseProfilePicture: async (client) => {
+    const picture = await choosePicture()
+    return picture === undefined
+      ? client.getSettings()
+      : client.updateSettings({ profilePicture: picture })
+  },
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
   actOnBanner: (client, id) => client.actOnBanner(String(id)),
 }
 
+const pictureSize = 256
+
+async function choosePicture(): Promise<string | undefined> {
+  const options = {
+    title: 'Choose a profile picture',
+    properties: ['openFile' as const],
+    filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'heic', 'gif', 'webp'] }],
+  }
+  const { canceled, filePaths } = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options)
+  const file = filePaths[0]
+  if (canceled || file === undefined) return undefined
+  const image = nativeImage.createFromPath(file)
+  if (image.isEmpty()) throw new Error('TED couldn’t read that picture.')
+  const { width, height } = image.getSize()
+  const side = Math.min(width, height)
+  const square = image.crop({
+    x: Math.floor((width - side) / 2),
+    y: Math.floor((height - side) / 2),
+    width: side,
+    height: side,
+  })
+  const size = Math.min(side, pictureSize)
+  return square.resize({ width: size, height: size, quality: 'best' }).toDataURL()
+}
+
 let window: BrowserWindow | undefined
 let client: DaemonClient | undefined
 const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
-const applySettings = ({ appearance }: MachineSettings) => {
+const applySettings = ({ appearance }: Pick<MachineSettings, 'appearance'>) => {
   nativeTheme.themeSource = appearance
 }
 const loadSettings = async () => {

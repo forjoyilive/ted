@@ -28,8 +28,15 @@ export {
   type RestoreBackupRequest,
   type RestoreBackupResult,
 } from './data.ts'
+export type {
+  Diagnostics,
+  LogText,
+  ProcessInfo,
+  RunDiagnostics,
+  TokenUse,
+} from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
-export type { AddFactoryRequest, Factory } from './factory.ts'
+export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export {
   type AgentKind,
@@ -40,13 +47,21 @@ export {
   type RunWithConversation,
   type StartDevRunRequest,
 } from './run.ts'
-export { type Appearance, appearances, type MachineSettings } from './settings.ts'
+export {
+  type Appearance,
+  appearances,
+  defaultMachineSettings,
+  type MachineSettings,
+  type Profile,
+  terminalFontSizes,
+} from './settings.ts'
 export {
   type AgentStageId,
   type Attachment,
   agentStageIds,
   type ClarifyDepth,
   type Comment,
+  type CopySkip,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
@@ -63,10 +78,12 @@ export {
   type TaskDefaults,
   type TaskLead,
   type TaskMarker,
+  type TaskRepo,
   type TaskRun,
   type TaskStatus,
   type TrackStage,
   type TrackState,
+  type WorktreeCommandOutcome,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

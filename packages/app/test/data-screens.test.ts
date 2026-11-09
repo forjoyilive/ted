@@ -84,7 +84,7 @@ describe('data screens', () => {
     await withDaemon('9.0.0', (ted) => ted.call('PATCH', '/settings', { appearance: 'dark' }))
     await editEventlog(
       home,
-      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name = 'v1.AppearanceChanged'`,
+      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name IN ('v1.AppearanceChanged', 'v1.MachineSettingsChanged')`,
     )
 
     const window = await launchApp()

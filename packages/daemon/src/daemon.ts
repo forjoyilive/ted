@@ -78,6 +78,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         worktreesDir: paths.worktrees,
         defaultLead: () => agents.defaultLead(),
         attachmentFile: (attachment) => attachments.file(attachment),
+        logsDir: paths.logs,
+        ...(idle && { idle }),
       })
       return {
         runs,
@@ -101,6 +103,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     runTokens,
     attachments,
     reposDir: paths.repos,
+    home: paths.home,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }

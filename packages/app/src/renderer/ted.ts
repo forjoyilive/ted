@@ -6,8 +6,11 @@ import type {
   CreateTaskRequest,
   DaemonEvent,
   DataStatus,
+  Diagnostics,
   Factory,
+  LogText,
   MachineSettings,
+  Profile,
   RestoreBackupResult,
   StageEntry,
   Task,
@@ -38,6 +41,10 @@ export const ted = {
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
+  setupLog: (taskId: string, repo: string) =>
+    window.ted.request('setupLog', taskId, repo) as Promise<string>,
+  locateLocalFolder: (key: string) =>
+    window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
@@ -48,6 +55,15 @@ export const ted = {
   copyText: (text: string) => window.ted.request('copyText', text) as Promise<void>,
   downloadTed: () => window.ted.request('downloadTed') as Promise<void>,
   quit: () => window.ted.request('quit') as Promise<void>,
+  getProfile: () => window.ted.request('getProfile') as Promise<Profile>,
+  chooseProfilePicture: () =>
+    window.ted.request('chooseProfilePicture') as Promise<MachineSettings>,
+  getDiagnostics: () => window.ted.request('getDiagnostics') as Promise<Diagnostics>,
+  readDaemonLog: () => window.ted.request('readDaemonLog') as Promise<LogText>,
+  readRunOutput: (runId: string) => window.ted.request('readRunOutput', runId) as Promise<LogText>,
+  copyReport: () => window.ted.request('copyReport') as Promise<void>,
+  tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
+  showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,

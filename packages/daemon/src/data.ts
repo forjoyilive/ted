@@ -11,6 +11,7 @@ import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
+import { redactSecrets } from './redact.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
@@ -107,7 +108,7 @@ export function createData(options: DataOptions): Data {
     return {
       state: 'failed',
       version,
-      error,
+      error: redactSecrets(error),
       ...progress,
       ...(restore && { restore }),
     }

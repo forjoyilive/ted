@@ -151,7 +151,7 @@ describe('store migrations', () => {
     await ted.call('PATCH', '/settings', { appearance: 'dark' })
     await stop()
     await editEventlog(
-      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name = 'v1.AppearanceChanged'`,
+      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name IN ('v1.AppearanceChanged', 'v1.MachineSettingsChanged')`,
     )
 
     const statuses: DataStatus[] = []
@@ -175,7 +175,7 @@ describe('store migrations', () => {
     expect(((await ted.call('GET', '/tasks')).body as Task[]).map((t) => t.title)).toEqual([
       'Fix login',
     ])
-    expect((await ted.call('GET', '/settings')).body).toEqual({ appearance: 'system' })
+    expect((await ted.call('GET', '/settings')).body).toMatchObject({ appearance: 'system' })
     const { backups } = (await ted.call('GET', '/backups')).body as BackupsSummary
     expect(backups.find((b) => b.name === restored.body.saved)).toMatchObject({
       kind: 'before-restore',
@@ -249,7 +249,7 @@ describe('restore', () => {
     if (!newer) throw new Error('no pre-update backup')
     await editEventlogOf(
       path.join(home, 'backups', newer.name),
-      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name = 'v1.AppearanceChanged'`,
+      `UPDATE eventlog SET name = 'v9.FromTheFuture' WHERE name IN ('v1.AppearanceChanged', 'v1.MachineSettingsChanged')`,
     )
 
     const res = await ted.call('POST', '/backups/restore', { name: newer?.name })
