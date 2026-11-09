@@ -1,0 +1,99 @@
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.image {
+  display: flex;
+  max-width: 100%;
+  margin: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.image img {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 240px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  object-fit: contain;
+  background: var(--surface-inset);
+}
+
+.caption,
+.meta {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.placeholder {
+  display: flex;
+  min-width: 160px;
+  min-height: 80px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-inset);
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.frame {
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+}
+
+.frameHead {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--surface-raised);
+}
+
+.frameName {
+  color: var(--text-primary);
+  font-size: var(--text-12-5);
+  font-weight: var(--weight-medium);
+}
+
+.html {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 320px;
+  border: none;
+  background: var(--surface-card);
+}
+
+.others {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  font-size: var(--text-12-5);
+}

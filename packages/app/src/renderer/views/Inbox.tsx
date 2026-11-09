@@ -1,7 +1,10 @@
 import type { Factory, InboxItem } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef } from 'react'
+import { Button } from '../components/Button.tsx'
+import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
 import { inboxChips, inFactory, nextSelection } from '../inbox.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
 import styles from './Inbox.module.css'
@@ -14,10 +17,12 @@ export function Inbox({
   factories,
   factoryId,
   showAnswered,
+  anyTasks,
   selected,
   onOpen,
   onFilter,
   onShowAnswered,
+  onNewTask,
   children,
 }: {
   items: readonly InboxItem[]
@@ -25,10 +30,12 @@ export function Inbox({
   factories: readonly Factory[]
   factoryId: string | undefined
   showAnswered: boolean
+  anyTasks: boolean
   selected: string | undefined
   onOpen: (item: InboxItem) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
+  onNewTask: () => void
   children?: ReactNode
 }) {
   const now = useNow()
@@ -84,13 +91,16 @@ export function Inbox({
           )}
         </header>
         {shown.length === 0 ? (
-          <p className={views.empty}>
-            {showAnswered
-              ? 'Nothing answered in the last 30 days.'
-              : factoryId === undefined
-                ? 'Nothing is waiting on you.'
-                : `Nothing from ${factoryName(factories, factoryId)} is waiting on you.`}
-          </p>
+          <InboxEmptyState
+            empty={inboxEmpty({
+              showAnswered,
+              anyTasks,
+              factoryName: factoryId === undefined ? undefined : factoryName(factories, factoryId),
+            })}
+            onNewTask={onNewTask}
+            onShowAnswered={() => onShowAnswered(true)}
+            onShowAllFactories={() => onFilter(undefined)}
+          />
         ) : (
           <ul className={styles.rows}>
             {shown.map((item) => {
@@ -139,5 +149,40 @@ export function Inbox({
       </section>
       {children ?? <section className={views.pane} aria-label="Nothing open" />}
     </>
+  )
+}
+
+function InboxEmptyState({
+  empty,
+  onNewTask,
+  onShowAnswered,
+  onShowAllFactories,
+}: {
+  empty: InboxEmpty
+  onNewTask: () => void
+  onShowAnswered: () => void
+  onShowAllFactories: () => void
+}) {
+  const button = {
+    'new-task': (
+      <Button variant="primary" size="small" onClick={onNewTask}>
+        New Task
+      </Button>
+    ),
+    'show-answered': (
+      <Button size="small" onClick={onShowAnswered}>
+        Show answered
+      </Button>
+    ),
+    'show-all-factories': (
+      <Button size="small" onClick={onShowAllFactories}>
+        Show all Factories
+      </Button>
+    ),
+  }
+  return empty.action === undefined ? (
+    <EmptyState title={empty.title} />
+  ) : (
+    <EmptyState title={empty.title}>{button[empty.action]}</EmptyState>
   )
 }

@@ -24,6 +24,7 @@ import { ChangesSection } from '../components/ChangesSection.tsx'
 import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
+import { CommentFiles } from '../components/CommentFiles.tsx'
 import { AllChanges, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
@@ -91,7 +92,8 @@ function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
           <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        <p className={styles.commentBody}>{comment.body}</p>
+        {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
+        {comment.attachments && <CommentFiles files={comment.attachments} />}
       </div>
     </li>
   )

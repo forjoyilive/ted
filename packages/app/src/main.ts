@@ -14,6 +14,7 @@ import {
   type Activity,
   type AgentKind,
   type AnswerRequest,
+  type AttachmentRef,
   agentKinds,
   type Banner,
   type BannerActionInput,
@@ -92,11 +93,24 @@ const githubLink =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+|\/blob\/[A-Za-z0-9_.%-]+\/\.ted\/[A-Za-z0-9_./-]+(?:#L\d+)?)?$/
 const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
 
+function attachmentRefs(value: unknown): AttachmentRef[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item: unknown) => {
+    const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
+    return { hash: String(hash), name: String(name), mediaType: String(mediaType) }
+  })
+}
+
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
-  postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
-  cancelMerge: (client, taskId, comment) => client.cancelMerge(String(taskId), String(comment)),
+  postComment: (client, taskId, body, attachments) =>
+    client.postComment(String(taskId), {
+      body: String(body),
+      attachments: attachmentRefs(attachments),
+    }),
+  cancelMerge: (client, taskId, comment, attachments) =>
+    client.cancelMerge(String(taskId), String(comment), attachmentRefs(attachments)),
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
@@ -137,8 +151,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
   stopTask: (client, taskId) => client.stopTask(String(taskId)),
-  resumeTask: (client, taskId, comment) =>
-    client.resumeTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  resumeTask: (client, taskId, comment, attachments) =>
+    client.resumeTask(
+      String(taskId),
+      typeof comment === 'string' ? comment : undefined,
+      attachmentRefs(attachments),
+    ),
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const link = task?.source && parseLinearUrl(task.source.url)
@@ -158,8 +176,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     })
   },
   unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
-  followUpTask: (client, taskId, comment) =>
-    client.followUpTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  followUpTask: (client, taskId, comment, attachments) =>
+    client.followUpTask(
+      String(taskId),
+      typeof comment === 'string' ? comment : undefined,
+      attachmentRefs(attachments),
+    ),
   archiveDone: (client, factoryId) => client.archiveDone(String(factoryId)),
   deleteTask: (client, taskId, options) => {
     const blocked = blockedChoices.find(
@@ -185,6 +207,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       new Uint8Array(bytes),
     )
   },
+  readAttachment: (client, hash, name) =>
+    client.readAttachment({ hash: String(hash), name: String(name) }),
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>

@@ -39,6 +39,7 @@ const usage = `Usage:
   ted doctor                                 Run health checks and show every active problem
   ted open                                   Open TED, or bring its window to the front
   ted comment "<text>"                       Post a note on the Run’s Task (reads stdin if no text)
+  ted comment --attach <path> … ["<text>"]   Post a note with files; images show in the thread
   ted comment --choice "<answer>" … "<question>"
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
@@ -110,6 +111,7 @@ function parse() {
       strict: true,
       options: {
         choice: { type: 'string', multiple: true },
+        attach: { type: 'string', multiple: true },
         agent: { type: 'string' },
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
@@ -166,6 +168,26 @@ async function readStdin(): Promise<string> {
   return text
 }
 
+const mediaTypes: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.html': 'text/html',
+  '.htm': 'text/html',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+  '.log': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+}
+
+function mediaTypeOf(file: string): string {
+  return mediaTypes[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
+}
+
 const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
 
 try {
@@ -200,12 +222,34 @@ try {
     )
   } else if (group === 'comment') {
     const ref = taskRef()
-    const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
-    if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
+    const files = options.attach ?? []
+    const text = [command, ...rest].filter((s) => s !== undefined).join(' ')
+    const body = text || (await readStdin())
+    if (body.trim() === '' && files.length === 0) {
+      throw new UsageError('give the Comment as text or on stdin')
+    }
     const choices = options.choice ?? []
-    const comment = await withDaemon(home, (client) =>
-      client.postComment(ref, { body, ...(choices.length > 0 && { choices }) }),
+    if (files.length > 0 && choices.length > 0) {
+      throw new UsageError('a question can’t carry files; post them in a note first')
+    }
+    const contents = await Promise.all(
+      files.map(async (file) => ({
+        name: path.basename(file),
+        mediaType: mediaTypeOf(file),
+        bytes: new Uint8Array(await readFile(file)),
+      })),
     )
+    const comment = await withDaemon(home, async (client) => {
+      const attachments = []
+      for (const { bytes, ...file } of contents) {
+        attachments.push(await client.uploadTaskAttachment(ref, file, bytes))
+      }
+      return client.postComment(ref, {
+        body,
+        ...(choices.length > 0 && { choices }),
+        ...(attachments.length > 0 && { attachments }),
+      })
+    })
     console.log(
       comment.kind === 'question'
         ? `Asked the human (request ${comment.id}). TED sends you their answer.`
