@@ -43,6 +43,8 @@ export interface Factories {
   approveRepos(factoryId: string, repos: string[]): void
   checkLocalFolders(): Promise<void>
   isCloned(factoryId: string): boolean
+  reorder(factoryIds: readonly string[]): Promise<Factory[]>
+  forget(factoryId: string): Promise<void>
   start(): void
   close(): Promise<void>
 }
@@ -56,6 +58,7 @@ export interface FactoriesOptions {
   emit: (event: DaemonEvent) => void
   login?: () => string | undefined
   onCloned?: (factory: StoredFactory) => void
+  onReposRemoved?: (repos: string[]) => void
   retryEveryMs?: number
   idle?: IdleTimer
 }
@@ -524,7 +527,9 @@ export function createFactories(options: FactoriesOptions): Factories {
       )
     if (same) return
     const added = wanted.filter((r) => !known(r))
+    const dropped = factory.repos.filter((r) => !wanted.some((w) => sameRepo(w.repo, r.repo)))
     const changed = store.changeFactoryRepos(factoryId, wanted)
+    if (dropped.length > 0) options.onReposRemoved?.(dropped.map((r) => r.repo))
     for (const repo of added) approved.delete(approval(factoryId, repo.repo))
     await publish(changed)
     for (const repo of added) {
@@ -603,6 +608,23 @@ export function createFactories(options: FactoriesOptions): Factories {
     approveRepos,
     checkLocalFolders,
     isCloned: (id) => store.getFactory(id)?.clonedAt !== undefined,
+    async reorder(factoryIds) {
+      const current = store.listFactories()
+      const ids = new Set(factoryIds)
+      if (
+        ids.size !== factoryIds.length ||
+        ids.size !== current.length ||
+        current.some((f) => !ids.has(f.id))
+      ) {
+        throw new RequestError(400, 'list every Factory once')
+      }
+      return Promise.all(store.reorderFactories(factoryIds).map(publish))
+    },
+    async forget(factoryId) {
+      await running.get(factoryId)
+      progress.delete(factoryId)
+      for (const key of [...approved]) if (key.startsWith(`${factoryId}:`)) approved.delete(key)
+    },
     start() {
       for (const factory of store.listFactories()) {
         if (factory.clonedAt === undefined) void cloneAll(factory)

@@ -28,6 +28,14 @@ export const factoryRepos = State.SQLite.table({
   },
 })
 
+export const factoryOrder = State.SQLite.table({
+  name: 'factoryOrder',
+  columns: {
+    factoryId: State.SQLite.text({ primaryKey: true }),
+    position: State.SQLite.integer(),
+  },
+})
+
 export const tasks = State.SQLite.table({
   name: 'tasks',
   columns: {
@@ -1180,6 +1188,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  factoriesReordered: Events.synced({
+    name: 'v1.FactoriesReordered',
+    schema: Schema.Struct({ factoryIds: Schema.Array(Schema.String), at: Schema.String }),
+  }),
+  factoryRemoved: Events.synced({
+    name: 'v1.FactoryRemoved',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -2178,6 +2194,18 @@ const materializers = counted(
           factoryRepos.insert({ ...repo, id: `${factoryId}:${position}`, factoryId, position }),
         ),
       ],
+      'v1.FactoriesReordered': ({ factoryIds }) => [
+        factoryOrder.delete(),
+        ...factoryIds.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
+      ],
+      'v1.FactoryRemoved': ({ factoryId }) => [
+        factories.delete().where({ id: factoryId }),
+        factoryRepos.delete().where({ factoryId }),
+        factoryOrder.delete().where({ factoryId }),
+        deletedTasks.delete().where({ factoryId }),
+        banners.delete().where({ factoryId }),
+        workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
+      ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
           .insert({ layer, files, version, acceptedAt: at })
@@ -2221,6 +2249,7 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     factoryRepos,
+    factoryOrder,
     tasks,
     taskQueue,
     taskBlockers,

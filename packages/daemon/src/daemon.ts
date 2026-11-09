@@ -9,6 +9,7 @@ import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { ensureClone } from './factories.ts'
+import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
@@ -25,7 +26,7 @@ import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
-import { createStorage } from './storage.ts'
+import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
@@ -207,6 +208,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
+      let storage: Storage | undefined
       const factories = createFactories({
         store,
         banners,
@@ -217,6 +219,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         login: () =>
           integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
         onCloned: (factory) => started?.wake(factory.id),
+        onReposRemoved: (repos) =>
+          void storage?.removeUnusedClones(repos).catch((error: unknown) => {
+            console.error('couldn’t remove the clones of removed repos:', error)
+          }),
         ...(idle && { idle }),
       })
       syncRepos = async (factory, settings) => {
@@ -304,7 +310,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       void prune()
       const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
       pruneTimer.unref()
-      const storage = createStorage({
+      storage = createStorage({
         home: paths.home,
         store,
         disk,
@@ -312,6 +318,14 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
       started = tasks
+      const factoryRemovals = createFactoryRemovals({
+        store,
+        banners,
+        tasks,
+        factories,
+        checkTries,
+        storage: () => storage,
+      })
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       if (options.checkAgentsOnStart) {
@@ -337,6 +351,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         storage,
         factories,
         factorySettings,
+        factoryRemovals,
         checkTries,
         async close() {
           await checkTries.close()

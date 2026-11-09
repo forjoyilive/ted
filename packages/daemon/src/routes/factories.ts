@@ -55,6 +55,43 @@ export const factoryRoutes: Route[] = [
     },
   },
   {
+    method: 'PUT',
+    path: /^\/factories\/order$/,
+    async handle({ req }, { factories }) {
+      const body = record(await readJson(req))
+      const ids = list(body.factoryIds, 'factoryIds').map((id) => text(id, 'a Factory id'))
+      return [200, await factories.reorder(ids)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/removal$/,
+    handle: async ({ params: [id = ''] }, { factoryRemovals }) => [
+      200,
+      factoryRemovals.summary(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/remove$/,
+    async handle({ req, params: [id = ''] }, { factoryRemovals }) {
+      const body = record(await readJson(req))
+      await factoryRemovals.remove(id, {
+        key: text(body.key, 'key'),
+        closePullRequests: body.closePullRequests !== false,
+      })
+      return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/repos\/([^/]+)\/removal$/,
+    handle: async ({ params: [id = '', name = ''] }, { factoryRemovals }) => [
+      200,
+      factoryRemovals.repo(id, decodeURIComponent(name)),
+    ],
+  },
+  {
     method: 'POST',
     path: /^\/factories\/check-repo$/,
     async handle({ req }, { factories }) {

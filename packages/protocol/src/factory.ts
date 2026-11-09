@@ -32,7 +32,41 @@ export interface Factory {
   showTutorial: boolean
   cloned: boolean
   setup?: RepoSetup[]
+  position: number
   createdAt: string
+}
+
+export interface ReorderFactoriesRequest {
+  factoryIds: string[]
+}
+
+export interface TaskRef {
+  id: string
+  displayId: string
+  title: string
+}
+
+export interface FactoryRemoval {
+  factoryId: string
+  key: string
+  name: string
+  tasks: number
+  runs: number
+  worktrees: number
+  openPullRequests: number
+  clones: string[]
+  sharedClones: string[]
+}
+
+export interface RemoveFactoryRequest {
+  key: string
+  closePullRequests: boolean
+}
+
+export interface RepoRemoval {
+  repo: string
+  name: string
+  openTasks: TaskRef[]
 }
 
 export interface AddFactoryRequest {

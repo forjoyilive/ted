@@ -20,6 +20,7 @@ export interface CheckTries {
   list(factoryId: string): Promise<CheckTry[]>
   output(factoryId: string, name: string): Promise<CheckTryOutput>
   sweep(): Promise<void>
+  forget(factoryId: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -346,6 +347,13 @@ export function createCheckTries(options: {
       return { text: await readOutput(log), log }
     },
     sweep,
+    async forget(factoryId) {
+      const current = running.get(factoryId)
+      current?.abort.abort()
+      await current?.done.catch(() => undefined)
+      states.delete(factoryId)
+      await sweep()
+    },
     async close() {
       clearInterval(sweepTimer)
       for (const current of running.values()) current.abort.abort()
