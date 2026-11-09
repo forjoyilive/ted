@@ -17,6 +17,8 @@ describe('taskStatus', () => {
   test('a working Run or TED work under way makes the Task Working', () => {
     expect(taskStatus(at({ runs: ['idle', 'working'] }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
+    expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
+    expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
   })
 
   test('an open request or a Run waiting on the human makes it Waiting on you', () => {

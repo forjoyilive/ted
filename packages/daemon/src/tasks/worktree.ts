@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { CopySkip, WorktreeCommandOutcome } from '@ted/protocol'
+import { redactSecrets } from '../redact.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export interface WorktreeCommand {
@@ -183,5 +184,5 @@ function killGroup(pid: number | undefined, signal: NodeJS.Signals): void {
 export async function outputTail(log: string): Promise<string> {
   const text = await readFile(log).catch(() => Buffer.alloc(0))
   const tail = text.subarray(Math.max(0, text.length - outputTailBytes)).toString('utf8')
-  return text.length > outputTailBytes ? `…${tail}` : tail
+  return redactSecrets(text.length > outputTailBytes ? `…${tail}` : tail)
 }

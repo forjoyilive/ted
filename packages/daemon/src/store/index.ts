@@ -283,6 +283,7 @@ export async function openStore({
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
+    const repos = reposOf(row.id)
     const waitingOn = blockedBy.flatMap((id) => {
       const blocker = taskRow(id)
       return blocker && blocker.stage !== 'done'
@@ -293,6 +294,7 @@ export async function openStore({
       stage,
       runs: live.map((r) => r.state as RunState),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
@@ -309,7 +311,7 @@ export async function openStore({
         },
       }),
       blockedBy,
-      repos: reposOf(row.id),
+      repos,
       attachments: attachmentsOf(row.id),
       stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
