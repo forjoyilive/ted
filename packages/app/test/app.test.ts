@@ -874,6 +874,37 @@ describe('banners', () => {
   })
 })
 
+describe('agent health', () => {
+  test('a signed-out agent pauses its Task, shows a Fix banner and a red Agents card', async () => {
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    await ted('task', 'start', 'NB-1')
+    const window = await launchApp()
+
+    const problems = window.getByRole('region', { name: 'Problems' })
+    const banner = problems.getByRole('alert').filter({ hasText: 'Claude Code is signed out' })
+    await banner.getByRole('button', { name: 'Fix' }).waitFor()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await window.getByText('Paused · Claude Code is signed out').waitFor()
+
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Agents', exact: true }).click()
+    const card = window.getByRole('region', { name: 'Claude Code' })
+    await card.getByText(/^Signed out/).waitFor()
+    await card.getByText('Not signed in.').waitFor()
+    await card.getByRole('button', { name: 'Sign in' }).waitFor()
+    await card.getByRole('button', { name: 'Copy command' }).waitFor()
+    expect(await card.getAttribute('data-state')).toBe('signed-out')
+
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+    await card.getByRole('button', { name: 'Check again' }).click()
+    await card.getByText('Ready').waitFor()
+    await banner.waitFor({ state: 'detached' })
+  })
+})
+
 describe('Working Runs', () => {
   const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
 

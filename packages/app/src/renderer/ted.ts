@@ -1,5 +1,7 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AgentHealth,
+  AgentKind,
   AnswerRequest,
   Attachment,
   BackupsSummary,
@@ -93,6 +95,9 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
+  checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
+  fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,

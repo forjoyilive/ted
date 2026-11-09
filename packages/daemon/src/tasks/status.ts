@@ -50,8 +50,26 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.agentActivity !== undefined) return facts.agentActivity
   if (facts.settingUp) return 'Setting up the worktree'
+  if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {
+    return `Queued · ${ordinal(facts.queue.place)}`
+  }
   const blocker = facts.blockedBy?.[0]
   if (blocker !== undefined) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100
+  const suffix =
+    tens >= 11 && tens <= 13
+      ? 'th'
+      : n % 10 === 1
+        ? 'st'
+        : n % 10 === 2
+          ? 'nd'
+          : n % 10 === 3
+            ? 'rd'
+            : 'th'
+  return `${n}${suffix}`
 }

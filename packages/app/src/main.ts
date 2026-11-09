@@ -11,7 +11,9 @@ import {
 } from '@ted/daemon/launch'
 import {
   type Activity,
+  type AgentKind,
   type AnswerRequest,
+  agentKinds,
   type Banner,
   type CreateTaskRequest,
   type DaemonClient,
@@ -130,6 +132,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
   actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  agentHealth: (client) => client.agentHealth(),
+  checkAgentHealth: (client) => client.checkAgentHealth(),
+  fixAgent: (client, agent) => {
+    const kind = agentKinds.find((k) => k === agent)
+    if (!kind) throw new Error('unknown agent')
+    return client.fixAgent(kind satisfies AgentKind)
+  },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
   runFix: (client, request) => client.runFix(request as RunFixRequest),

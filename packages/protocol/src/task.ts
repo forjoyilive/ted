@@ -71,6 +71,7 @@ export interface TaskRun {
   id: string
   agent: AgentKind
   state: RunState
+  paused?: string
 }
 
 export interface Task {

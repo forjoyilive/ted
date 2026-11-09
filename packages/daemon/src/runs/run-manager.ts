@@ -25,6 +25,12 @@ export interface RunManagerOptions {
   tokens: RunTokens
   idle?: IdleTimer
   cliPath?: string
+  env?: () => NodeJS.ProcessEnv
+}
+
+export interface RunObserver {
+  finished?(run: Run): void
+  authFailed?(run: Run): void
 }
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
@@ -33,6 +39,7 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   cwd: string
   taskId?: string
   env?: Record<string, string>
+  resume?: string
 }
 
 export interface RunManager {
@@ -40,6 +47,8 @@ export interface RunManager {
   restart(runId: string, flags: RunFlags): Promise<Run>
   send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
+  observe(observer: RunObserver): void
+  environment(): NodeJS.ProcessEnv
   stopAll(): Promise<void>
   close(): Promise<void>
 }
@@ -55,10 +64,32 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   await writeTedShim(binDir, options.cliPath ?? defaultCli)
 
   const following = new Map<string, Promise<void>>()
+  const observers = new Set<RunObserver>()
   let closed = false
   let shuttingDown = false
   const refuseWhileShuttingDown = () => {
     if (shuttingDown) throw new RequestError(503, 'TED is shutting down')
+  }
+
+  const environment = (): NodeJS.ProcessEnv => {
+    const base = options.env?.() ?? process.env
+    return {
+      ...base,
+      TED_HOME: home,
+      PATH: [binDir, base.PATH].filter(Boolean).join(path.delimiter),
+    }
+  }
+
+  function tell(what: keyof RunObserver, runId: string): void {
+    const run = store.getRun(runId)
+    if (!run) return
+    for (const observer of observers) {
+      try {
+        observer[what]?.(run)
+      } catch (error) {
+        console.error(`a Run observer failed:`, error)
+      }
+    }
   }
 
   function follow(runId: string): void {
@@ -92,6 +123,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const entries: ConversationEntry[] = []
     let state: RunState | undefined
     let sessionId: string | undefined
+    let authFailed = false
     let problem: RunProblem | undefined
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
@@ -99,6 +131,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         state = agent.stateFrom(record.line) ?? state
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
         problem = agent.problemFrom(record.line) ?? problem
+        authFailed ||= agent.authErrorFrom(record.line)
       } else if (record.t === 'exit') state = 'finished'
     }
     if (hostGone) state = 'finished'
@@ -109,6 +142,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
     })
+    if (authFailed) tell('authFailed', runId)
+    if (state === 'finished') tell('finished', runId)
     return state === 'finished'
   }
 
@@ -132,7 +167,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const manager: RunManager = {
-    async start({ agent: kind, prompt, cwd, taskId, env = {}, model, effort }) {
+    async start({ agent: kind, prompt, cwd, taskId, env = {}, model, effort, resume }) {
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
       const id = randomUUID()
@@ -142,13 +177,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         prompt,
         runDir,
         env: {
-          ...process.env,
+          ...environment(),
           ...env,
           TED_HOME: home,
           TED_RUN: id,
           TED_RUN_TOKEN: tokens.issue(id),
-          PATH: [binDir, process.env.PATH].filter(Boolean).join(path.delimiter),
+          PATH: environment().PATH,
         },
+        ...(resume !== undefined && { resume }),
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
       })
@@ -227,6 +263,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await done
       }
     },
+    observe(observer) {
+      observers.add(observer)
+    },
+    environment,
     async stopAll() {
       shuttingDown = true
       await Promise.all([...following.keys()].map((runId) => manager.stop(runId)))

@@ -30,7 +30,11 @@ export function factoriesStoppingWork(banners: readonly Banner[]): Set<string> {
 }
 
 export function settingsStopsWork(banners: readonly Banner[]): boolean {
-  return banners.some((b) => b.severity === 'stops-work' && b.action?.opens?.kind === 'settings')
+  return banners.some(
+    (b) =>
+      b.severity === 'stops-work' &&
+      (b.action?.opens?.kind === 'settings' || b.action?.section !== undefined),
+  )
 }
 
 export function nextReturn(banners: readonly Banner[], now = new Date()): number | undefined {

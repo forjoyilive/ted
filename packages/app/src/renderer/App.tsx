@@ -1,4 +1,5 @@
-import type { Banner, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, Task } from '@ted/protocol'
+import { runsPaused } from '@ted/protocol/health'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
@@ -14,6 +15,7 @@ import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
+  useAgentHealth,
   useBanners,
   useConnection,
   useFactories,
@@ -56,6 +58,13 @@ function sectionsStoppingWork(banners: readonly Banner[]) {
     if (section !== undefined) stopping[section] = true
   }
   return stopping
+}
+
+function pausedFooter(health: readonly AgentHealth[]) {
+  const paused = health
+    .filter((h) => h.state !== 'ready')
+    .reduce((total, h) => total + h.pausedRuns, 0)
+  return paused > 0 ? { paused: runsPaused(paused) } : {}
 }
 
 const stubTitles = { search: 'Search', 'add-factory': 'Add Factory' }
@@ -115,6 +124,7 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [settingsOpen, newTaskOpen])
   const banners = useBanners()
+  const agentHealth = useAgentHealth()
   const { connection } = useConnection()
   const offline = connection.state !== 'connected'
 
@@ -333,7 +343,10 @@ export function App() {
             ),
           }}
           settingsProblem={settingsStopsWork(banners)}
-          footer={slots === undefined ? {} : { runs: runsLine(slots) }}
+          footer={{
+            ...(slots !== undefined && { runs: runsLine(slots) }),
+            ...pausedFooter(agentHealth),
+          }}
           runsOpen={runsOpen}
           onOpenRuns={() => setRunsOpen((open) => !open)}
           dispatch={dispatch}

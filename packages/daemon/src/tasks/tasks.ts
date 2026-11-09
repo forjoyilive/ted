@@ -26,6 +26,7 @@ import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -47,7 +48,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
-import { type SlotUse, startsNow } from './queue.ts'
+import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -98,6 +99,7 @@ export function createTasks(options: {
   worktreesDir: string
   logsDir: string
   agents: Agents
+  health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
   idle?: IdleTimer
 }): Tasks {
@@ -110,9 +112,12 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     agents,
+    health,
     attachmentFile,
   } = options
   const starting = new Set<string>()
+  const relaunching = new Set<string>()
+  const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Map<string, string>()
@@ -163,7 +168,7 @@ export function createTasks(options: {
   async function slotUse(factoryIds: readonly string[]) {
     const all = store.listTasks()
     const holders = all.flatMap((task) => {
-      const runs = task.runs.filter((r) => r.state === 'working').length
+      const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
       const settingUp = task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
       return slots > 0 ? [{ task, runs, settingUp, slots }] : []
@@ -185,13 +190,34 @@ export function createTasks(options: {
     return { use, holders, all }
   }
 
+  function heldReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return store.heldRuns().flatMap((held) => {
+      const task = store.getTask(held.taskId)
+      const agent = task?.lead?.agent ?? held.agent
+      if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
-    const queued = store.queue()
-    if (queued.length === 0) return
-    const { use } = await slotUse(queued.map((q) => q.factoryId))
-    for (const entry of startsNow(store.queue(), use)) {
-      if (!holds.has(entry.id)) begin(entry.id)
+    const held = heldReady()
+    const queued = runnable(store.queue())
+    if (queued.length === 0 && held.length === 0) return
+    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    const heldIds = new Set(held.map((h) => h.id))
+    for (const entry of startsNow<QueueEntry>([...held, ...runnable(store.queue())], use)) {
+      if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (!holds.has(entry.id)) begin(entry.id)
     }
+  }
+
+  function runnable<T extends { id: string }>(entries: readonly T[]): T[] {
+    const paused = store.agentPauses()
+    return entries.filter((entry) => {
+      const agent = store.getTask(entry.id)?.lead?.agent
+      return agent === undefined || paused[agent] === undefined
+    })
   }
 
   function pump(): Promise<void> {
@@ -511,24 +537,39 @@ export function createTasks(options: {
     repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
+    resumeSession?: string,
   ): Promise<void> {
-    const prompt = await taskLeadPrompt(
-      task,
-      resolution.workflow,
-      task.stage as AgentStageId,
-      attachmentFile,
-      setupReport,
-    )
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
+    const agent = lead.agent
+    if (!(await health.ready(agent))) {
+      store.holdTaskRun({
+        taskId: task.id,
+        agent,
+        ...(resumeSession !== undefined && { sessionId: resumeSession }),
+      })
+      return
+    }
+    const prompt =
+      resumeSession === undefined
+        ? await taskLeadPrompt(
+            task,
+            resolution.workflow,
+            task.stage as AgentStageId,
+            attachmentFile,
+            setupReport,
+          )
+        : continueMessage
     await runs.start({
-      agent: lead.agent,
+      agent,
       prompt,
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
     })
+    store.releaseTaskRun(task.id)
   }
 
   async function setUpAndLaunch(
@@ -584,7 +625,18 @@ export function createTasks(options: {
   async function resumeTask(taskId: string): Promise<void> {
     const task = find(taskId)
     const repo = task.repos.find((r) => !r.removed)
-    if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
+    const held = store.heldRuns().find((h) => h.taskId === taskId)
+    const leadLive = task.runs.some((r) => r.id === task.leadRunId)
+    if (!repo || task.stage === 'backlog' || task.stage === 'done') {
+      if (held) store.releaseTaskRun(taskId)
+      return
+    }
+    if (held ? leadLive : task.leadRunId) return
+    if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
+      const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
+      const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
+      return launch(task, resolution, repo, env, undefined, held.sessionId)
+    }
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, { fetch: false })
     const recorded = store.recordedSetup(task.id, repo.name)
@@ -738,6 +790,7 @@ export function createTasks(options: {
     try {
       await ensureClone({ banners, reposDir }, factory)
       const resolution = await resolveWorkflow(factory, { fetch: false })
+      if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       store.queueTask(task.id, resolution.workflow.next('backlog'))
     } finally {
       starting.delete(task.id)
@@ -805,7 +858,75 @@ export function createTasks(options: {
     }
   }
 
+  function relaunch(taskId: string): void {
+    if (relaunching.has(taskId)) return
+    relaunching.add(taskId)
+    const release = hold(taskId)
+    inBackground(`continue ${taskId}`, () =>
+      resume(taskId).finally(() => {
+        relaunching.delete(taskId)
+        release()
+      }),
+    )
+  }
+
+  async function leadStopped(run: Run): Promise<void> {
+    if (run.taskId === undefined) return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
+      return
+    }
+    const [checked] = await health.check([run.agent])
+    if (checked?.state === 'ready') return
+    const now = store.getTask(task.id)
+    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
+    store.holdTaskRun({
+      taskId: task.id,
+      agent: run.agent,
+      ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
+    })
+  }
+
+  runs.observe({
+    authFailed(run) {
+      if (run.state !== 'finished') interrupted.add(run.id)
+      health.authFailed(run.agent)
+    },
+    finished(run) {
+      interrupted.delete(run.id)
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    },
+  })
+
+  health.onReady((agent) => {
+    void pump()
+    for (const runId of [...interrupted]) {
+      const run = store.getRun(runId)
+      if (run && run.state !== 'finished' && run.agent !== agent) continue
+      interrupted.delete(runId)
+      if (run && run.state !== 'finished') {
+        runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
+      }
+    }
+  })
+
+  const paused = store.agentPauses()
+  for (const run of store.listRuns()) {
+    if (run.state === 'finished' || paused[run.agent] === undefined) continue
+    const agent = agents.get(run.agent)
+    if (
+      store
+        .conversation(run.id)
+        .slice(-5)
+        .some(({ line }) => agent.authErrorFrom(line))
+    ) {
+      interrupted.add(run.id)
+    }
+  }
+
+  const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
+    if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
@@ -1121,6 +1242,8 @@ export function createTasks(options: {
     setLead(ref, lead) {
       const task = store.setTaskLead(find(ref).id, lead)
       inBackground('apply the Task Lead setting', () => applyLead(task.id))
+      const held = store.heldRuns().find((h) => h.taskId === task.id)
+      if (held && held.agent !== lead.agent) void pump()
       return task
     },
 
@@ -1193,6 +1316,9 @@ function briefGoal(text: string): string | undefined {
   const end = found.find((h) => h.line > goal.line)?.line ?? lines.length
   return firstLine(lines.slice(goal.line + 1, end).join('\n')) || undefined
 }
+
+const continueMessage =
+  'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
 
 function firstLine(text: string): string {
   return (

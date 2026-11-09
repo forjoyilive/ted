@@ -10,8 +10,9 @@ import type {
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
+import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
-import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
+import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type {
@@ -188,6 +189,18 @@ export class DaemonClient {
 
   actOnBanner(id: string): Promise<void> {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
+  }
+
+  agentHealth(): Promise<AgentHealth[]> {
+    return this.#request('GET', '/agents/health')
+  }
+
+  checkAgentHealth(): Promise<AgentHealth[]> {
+    return this.#request('POST', '/agents/health/check')
+  }
+
+  fixAgent(agent: AgentKind): Promise<AgentHealth> {
+    return this.#request('POST', `/agents/${encodeURIComponent(agent)}/fix`)
   }
 
   getIntegrations(): Promise<IntegrationsHealth> {

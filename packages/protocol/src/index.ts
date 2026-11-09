@@ -45,6 +45,15 @@ export type {
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
 export {
+  type AgentHealth,
+  type AgentHealthState,
+  agentDisplayNames,
+  agentHealthStates,
+  agentProblem,
+  pausedReason,
+  runsPaused,
+} from './health.ts'
+export {
   type FixCommand,
   type GitHealth,
   type GitHubCli,

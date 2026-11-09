@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AgentHealth,
   Banner,
   Comment,
   DataStatus,
@@ -297,4 +298,29 @@ export function useBanners(): Banner[] {
   }, [banners, now])
 
   return banners
+}
+
+export function useAgentHealth(): AgentHealth[] {
+  const [health, setHealth] = useState<AgentHealth[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    const merge = (incoming: AgentHealth[]) =>
+      setHealth((current) => {
+        const byAgent = new Map(current.map((h) => [h.agent, h]))
+        for (const h of incoming) {
+          const known = byAgent.get(h.agent)
+          if (!known || known.checkedAt <= h.checkedAt) byAgent.set(h.agent, h)
+        }
+        return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+      })
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'agent-health-changed') merge([event.health])
+    })
+    void ted.agentHealth().then(merge, () => undefined)
+    return unsubscribe
+  }, [epoch])
+
+  return health
 }
