@@ -36,6 +36,7 @@ function stubHealth(): {
   signedIn?: boolean
   account?: 'chatgpt' | 'apiKey'
   rateLimits?: Record<string, unknown>
+  turnStartDelayMs?: number
 } {
   try {
     return JSON.parse(
@@ -282,6 +283,7 @@ for await (const line of createInterface({ input: process.stdin })) {
       status({ type: 'idle' })
     }
   } else if (message.method === 'turn/start') {
+    await sleep(stubHealth().turnStartDelayMs ?? 0)
     turnActive = true
     interrupted = false
     const turn = ++turnNumber

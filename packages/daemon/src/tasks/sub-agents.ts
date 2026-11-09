@@ -129,12 +129,17 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   }
 
   function turnEndedSinceSend(run: Run): boolean {
-    const since = awaitingTurn.get(run.id)
-    if (since === undefined) return true
+    const since = awaitingTurn.get(run.id) ?? 0
     const agent = agents.get(run.agent)
-    const ended = store
-      .conversation(run.id)
-      .some((e) => e.offset >= since && agent.stateFrom(e.line) === 'idle')
+    let started = false
+    const ended = store.conversation(run.id).some((e) => {
+      if (e.offset < since) return false
+      const state = agent.stateFrom(e.line)
+      if (state === 'working' || state === 'waiting' || agent.acceptedTextFrom(e.line)) {
+        started = true
+      }
+      return started && state === 'idle'
+    })
     if (ended) awaitingTurn.delete(run.id)
     return ended
   }
