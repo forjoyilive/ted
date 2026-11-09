@@ -128,6 +128,7 @@ async function start(): Promise<void> {
     },
   })
   applySettings(await supervisor.client.getSettings())
+  app.on('before-quit', () => supervisor.close())
 
   const appRequests: Record<string, () => Promise<unknown>> = {
     connection: async () => supervisor.connection,
