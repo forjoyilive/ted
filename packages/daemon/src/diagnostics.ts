@@ -92,7 +92,9 @@ function tokenUse(sources: DiagnosticsSources, run: Run): TokenUse {
 }
 
 export async function collectDiagnostics(sources: DiagnosticsSources): Promise<Diagnostics> {
-  const runs = sources.store.listRuns().slice(-runsShown).reverse()
+  const all = sources.store.listRuns()
+  const recent = new Set(all.slice(-runsShown))
+  const runs = all.filter((run) => run.state !== 'finished' || recent.has(run)).reverse()
   const hosts = new Map<number, string>()
   for (const run of runs) {
     if (run.state === 'finished') continue
