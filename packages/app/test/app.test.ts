@@ -96,7 +96,10 @@ describe('TED app', () => {
 
     await box.fill('Also handle the empty query.')
     await box.press('ControlOrMeta+Enter')
-    await thread.getByText('Also handle the empty query.').waitFor()
+    await thread
+      .getByRole('paragraph')
+      .filter({ hasText: 'Also handle the empty query.' })
+      .waitFor()
     await expect.poll(() => box.inputValue()).toBe('')
     const client = await daemonClient()
     await expect

@@ -224,7 +224,7 @@ describe('Planning chats', () => {
     await chat.getByRole('heading', { name: 'Plan the next part' }).waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByRole('button', { name: 'Quick plan' }).waitFor()
-    await chat.getByRole('button', { name: 'Stop' }).click()
+    await chat.getByRole('button', { name: 'Stop', exact: true }).click()
     await chat.getByRole('button', { name: 'Plan more from here' }).waitFor()
 
     await chat.getByRole('button', { name: '← Plans' }).click()
