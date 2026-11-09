@@ -1,8 +1,9 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { AgentKind, AgentStageId, Comment, Outcome, Task } from '@ted/protocol'
+import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
-import { clonePath } from '../factories.ts'
+import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
@@ -26,11 +27,12 @@ export function createTasks(options: {
   store: TedStore
   runs: RunManager
   workflows: Workflows
+  banners: Banners
   reposDir: string
   worktreesDir: string
   leadAgent: (task: Task) => AgentKind
 }): Tasks {
-  const { store, runs, workflows, reposDir, worktreesDir, leadAgent } = options
+  const { store, runs, workflows, banners, reposDir, worktreesDir, leadAgent } = options
   const starting = new Set<string>()
   const advancing = new Set<string>()
   const finishing = new Set<Promise<void>>()
@@ -91,7 +93,7 @@ export function createTasks(options: {
     }
     starting.add(task.id)
     try {
-      const clone = clonePath(reposDir, factory)
+      const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
       const resolution = await workflows.resolve(factory, { fetch: false })
       const stage = resolution.workflow.next('backlog') as AgentStageId

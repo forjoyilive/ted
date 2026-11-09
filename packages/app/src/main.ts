@@ -10,6 +10,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listFactories: (client) => client.listFactories(),
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
+  listBanners: (client) => client.listBanners(),
+  dismissBanner: (client, id) => client.dismissBanner(String(id)),
+  actOnBanner: (client, id) => client.actOnBanner(String(id)),
 }
 
 let window: BrowserWindow | undefined

@@ -1,4 +1,5 @@
 import type { Factory, StageId, Task } from '@ted/protocol'
+import type { ReactNode } from 'react'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import styles from './views.module.css'
@@ -30,14 +31,16 @@ interface TaskViewProps {
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpen: (task: Task) => void
+  banners?: ReactNode
 }
 
-export function TaskList({ title, tasks, factories, onOpen }: TaskViewProps) {
+export function TaskList({ title, tasks, factories, onOpen, banners }: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
       <header className={styles.header}>
         <h1 className={styles.title}>{title}</h1>
       </header>
+      {banners}
       <div className={styles.body}>
         {tasks.length === 0 ? (
           <p className={styles.empty}>No Tasks yet.</p>
@@ -77,6 +80,7 @@ export function Board({
   tasks,
   onOpen,
   onOpenTask,
+  banners,
 }: TaskViewProps & { onOpenTask: (ref: string) => void }) {
   const stages: string[] = [
     ...stageOrder,
@@ -88,6 +92,7 @@ export function Board({
       <header className={styles.header}>
         <h1 className={styles.title}>{title}</h1>
       </header>
+      {banners}
       <div className={styles.board}>
         {stages.map((stage) => {
           const inStage = tasks.filter((t) => t.stage === stage)

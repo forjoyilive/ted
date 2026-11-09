@@ -1,4 +1,5 @@
 import type { LayerKind, LayerUse } from '@ted/protocol'
+import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
@@ -17,10 +18,29 @@ export interface Workflows {
 
 export function createWorkflows(options: {
   store: TedStore
+  banners: Banners
   libraryDir: string
   reposDir: string
 }): Workflows {
-  const { store, libraryDir, reposDir } = options
+  const { store, banners, libraryDir, reposDir } = options
+
+  function reportChecks(factory: StoredFactory, workflow: ResolvedWorkflow): void {
+    const ref = { problem: 'no-checks', factoryId: factory.id }
+    const checks = workflow.settings.stages.validate?.checks ?? []
+    if (!workflow.stages.includes('validate') || checks.length > 0) {
+      banners.clear(ref)
+      return
+    }
+    banners.raise({
+      ...ref,
+      severity: 'warning',
+      text: 'No Checks set up · Validate relies on the agent alone',
+      action: {
+        label: 'Open Factory settings',
+        opens: { kind: 'factory-settings', factoryId: factory.id },
+      },
+    })
+  }
 
   function choose(
     kind: LayerKind,
@@ -71,11 +91,13 @@ export function createWorkflows(options: {
         factory.repo,
       )
       const chosen = [library, factoryLayer]
+      const workflow = resolveWorkflow([
+        defaults,
+        ...chosen.flatMap(({ layer }) => (layer ? [layer] : [])),
+      ])
+      reportChecks(factory, workflow)
       return {
-        workflow: resolveWorkflow([
-          defaults,
-          ...chosen.flatMap(({ layer }) => (layer ? [layer] : [])),
-        ]),
+        workflow,
         layers: [{ layer: 'ted', status: 'valid', problems: [] }, ...chosen.map(({ use }) => use)],
       }
     },

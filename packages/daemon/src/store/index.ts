@@ -6,6 +6,10 @@ import {
   type AgentStageId,
   type Appearance,
   agentStageIds,
+  type Banner,
+  type BannerAction,
+  type BannerSeverity,
+  bannerOrder,
   type Comment,
   type ConversationEntry,
   type DaemonEvent,
@@ -22,6 +26,7 @@ import {
 } from '@ted/protocol'
 import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import {
+  banners,
   comments,
   conversationEntries,
   events,
@@ -103,8 +108,15 @@ export interface TedStore {
   conversation(runId: string): ConversationEntry[]
   settings(): MachineSettings
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
+  raiseBanner(input: NewBanner): Banner
+  dismissBanner(id: string, until: string): Banner | undefined
+  clearBanner(id: string): void
+  getBanner(id: string): Banner | undefined
+  listBanners(): Banner[]
   close(): Promise<void>
 }
+
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 const defaultSettings: MachineSettings = { appearance: 'system' }
 
@@ -228,6 +240,27 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const settings = (): MachineSettings => {
     const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
     return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+  }
+
+  const toBanner = (row: typeof banners.Type): Banner => ({
+    id: row.id,
+    problem: row.problem,
+    severity: row.severity as BannerSeverity,
+    ...(row.factoryId !== null && { factoryId: row.factoryId }),
+    text: row.text,
+    ...(row.action !== null && { action: JSON.parse(row.action) as BannerAction }),
+    raisedAt: row.raisedAt,
+    ...(row.dismissedUntil !== null && { dismissedUntil: row.dismissedUntil }),
+  })
+  const bannerRow = (id: string) => store.query(queryDb(banners.where({ id }))).at(0)
+  const getBanner = (id: string) => {
+    const row = bannerRow(id)
+    return row && toBanner(row)
+  }
+  const requireBanner = (id: string) => {
+    const banner = getBanner(id)
+    if (!banner) throw new Error(`no banner ${id}`)
+    return banner
   }
 
   return {
@@ -383,6 +416,46 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       }
       return settings()
     },
+    raiseBanner({ id, problem, severity, factoryId, text, action }) {
+      const current = bannerRow(id)
+      const actionJson = action === undefined ? null : JSON.stringify(action)
+      if (
+        current &&
+        current.severity === severity &&
+        current.text === text &&
+        current.action === actionJson
+      ) {
+        return toBanner(current)
+      }
+      store.commit(
+        events.bannerRaised({
+          id,
+          problem,
+          severity,
+          factoryId: factoryId ?? null,
+          text,
+          action: actionJson,
+          at: new Date().toISOString(),
+        }),
+      )
+      const banner = requireBanner(id)
+      emit({ type: current ? 'banner-updated' : 'banner-raised', banner })
+      return banner
+    },
+    dismissBanner(id, until) {
+      if (!bannerRow(id)) return undefined
+      store.commit(events.bannerDismissed({ id, until, at: new Date().toISOString() }))
+      const banner = requireBanner(id)
+      emit({ type: 'banner-updated', banner })
+      return banner
+    },
+    clearBanner(id) {
+      if (!bannerRow(id)) return
+      store.commit(events.bannerCleared({ id, at: new Date().toISOString() }))
+      emit({ type: 'banner-cleared', id })
+    },
+    getBanner,
+    listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
     close: () => store.shutdownPromise(),
   }
 }
