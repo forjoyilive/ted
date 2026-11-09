@@ -20,6 +20,7 @@ import { RunIcon } from '../components/RunIcon.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
+import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, useRunChat } from '../data.ts'
 import {
   planEnded,
@@ -256,11 +257,7 @@ function NewPlanChat({
             value={text}
             disabled={sending || cloning}
             onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
-              event.preventDefault()
-              void send()
-            }}
+            onKeyDown={sendOnEnter(() => void send())}
           />
           {error !== undefined && (
             <p className={styles.error} role="alert">

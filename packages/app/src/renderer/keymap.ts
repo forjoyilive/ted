@@ -51,8 +51,13 @@ const sections: readonly SheetSection[] = [
       },
       { id: 'request-changes', label: 'Request changes', keys: ['⇧R'] },
       {
+        id: 'send-message',
+        label: 'Send from a comment box or chat; ⇧↵ adds a new line',
+        keys: ['↵'],
+      },
+      {
         id: 'send',
-        label: 'Send from the comment box, or press a dialog’s main button',
+        label: 'Press a dialog’s main button; in a working Run’s chat, interrupt and send',
         keys: ['⌘↵'],
       },
     ],
@@ -80,6 +85,8 @@ export function shortcutSheet(): readonly SheetSection[] {
   return sections
 }
 
+const displayOnly = new Set(['open-factory', 'send-message'])
+
 const byId = new Map(sections.flatMap((s) => s.rows.map((r) => [r.id, r.keys] as const)))
 
 export function keysFor(id: string): readonly string[] {
@@ -88,7 +95,7 @@ export function keysFor(id: string): readonly string[] {
 
 export const keyBindings: readonly { id: string; shortcuts: readonly string[] }[] = [
   ...sections.flatMap((s) =>
-    s.rows.filter((r) => r.id !== 'open-factory').map((r) => ({ id: r.id, shortcuts: r.keys })),
+    s.rows.filter((r) => !displayOnly.has(r.id)).map((r) => ({ id: r.id, shortcuts: r.keys })),
   ),
   ...Array.from({ length: 9 }, (_, i) => ({ id: `factory:${i + 1}`, shortcuts: [`⌘${i + 1}`] })),
 ]

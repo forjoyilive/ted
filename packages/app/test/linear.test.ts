@@ -140,6 +140,21 @@ describe('Settings → Integrations → Linear', () => {
     expect((await readStubKeyring(stubKeyringFile(home))).secret).toBeUndefined()
   })
 
+  test('with a key, Sync status with Linear is on and turns off', async () => {
+    await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+    const window = await launchApp()
+    await openIntegrations(window)
+    const group = linearGroup(window)
+    const sync = group.getByRole('switch', { name: 'Sync status with Linear' })
+    await sync.waitFor()
+    expect(await sync.getAttribute('aria-checked')).toBe('true')
+
+    await sync.click()
+
+    await expect.poll(async () => (await (await client()).getSettings()).linearSync).toBe(false)
+    await expect.poll(() => sync.getAttribute('aria-checked')).toBe('false')
+  })
+
   test('with no keyring, the key is saved to a file only after the human chooses it', async () => {
     await writeFile(stubKeyringFile(home), JSON.stringify({ state: 'no-keyring' }))
     const window = await launchApp()

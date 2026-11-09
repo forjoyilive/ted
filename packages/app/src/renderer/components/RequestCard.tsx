@@ -7,6 +7,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
+import { sendOnEnter } from '../composer-keys.ts'
 import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
 import {
   age,
@@ -501,14 +502,18 @@ export function RequestCard({
             }
             value={text}
             onChange={(event) => setText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !typed) return
-              if (request.permission || request.simulator) return
-              event.preventDefault()
-              void send(
-                request.gate ? { action: 'request-changes', text } : { action: 'answer', text },
-              )
-            }}
+            onKeyDown={
+              request.permission || request.simulator
+                ? undefined
+                : sendOnEnter(
+                    () =>
+                      void send(
+                        request.gate
+                          ? { action: 'request-changes', text }
+                          : { action: 'answer', text },
+                      ),
+                  )
+            }
           />
           {error !== undefined && (
             <p className={styles.error} role="alert">
@@ -698,6 +703,16 @@ function answerLine(
           mark: '–',
           tone: 'neutral',
           text: 'Withdrawn · the App stopped before you answered',
+        }
+      }
+      if ('linear' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text:
+            answer.linear === 'reopened'
+              ? 'Withdrawn · the Linear issue was reopened before you answered'
+              : 'Withdrawn · the Task merged before you answered',
         }
       }
       if ('ciReported' in answer) {

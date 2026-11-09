@@ -4,6 +4,7 @@ export interface AppLaunchFile {
   run: string
   cwd: string
   logBytes: number
+  shell?: string[]
 }
 
 export type AppHostRecord =
@@ -20,6 +21,7 @@ export function appFiles(dir: string) {
     lock: path.join(dir, 'host.lock'),
     pid: path.join(dir, 'host.pid'),
     log: path.join(dir, 'app.log'),
+    tmp: path.join(dir, 'tmp'),
     previousLog: path.join(dir, 'app.log.1'),
   }
 }

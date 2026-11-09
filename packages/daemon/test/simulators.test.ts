@@ -117,11 +117,7 @@ async function start(simulators: { supported?: boolean; idleMs?: number } = {}) 
 
 type Client = Awaited<ReturnType<typeof start>>
 
-const udids = () => path.join(scratch, 'udids.txt')
-
-const workflow = (
-  run = `echo \\"$TED_TASK $TED_SIMULATOR_UDID\\" >> '${udids()}'; exec sleep 600`,
-) =>
+const workflow = (run = 'echo udid $TED_TASK $TED_SIMULATOR_UDID; exec sleep 600') =>
   [
     'version: 1',
     'order: [intake, work, merge]',
@@ -226,12 +222,15 @@ describe('iOS simulator Apps', () => {
         (c) => c.includes('-g') && c.includes('Simulator') && c.includes(clone?.udid ?? ''),
       ),
     ).toBe(true)
-    await waitUntil(
-      async () => (await readFile(udids(), 'utf8').catch(() => '')).trim() || undefined,
+    const line = await waitUntil(
+      async () =>
+        (await client.ok<{ text: string }>('GET', `/tasks/${task.id}/apps/widgets/iPhone/log`)).text
+          .split('\n')
+          .find((l) => l.startsWith('udid ')),
       'the App to start',
       20_000,
     )
-    expect((await readFile(udids(), 'utf8')).trim()).toBe(`NB-1 ${clone?.udid}`)
+    expect(line).toBe(`udid NB-1 ${clone?.udid}`)
 
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots).toMatchObject({ supported: true, limit: 3 })

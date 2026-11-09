@@ -171,6 +171,7 @@ export interface Task {
   blockedBy: string[]
   attachments: Attachment[]
   source?: TaskSource
+  linearSync?: 'on' | 'ask'
   stage: StageId
   branch?: string
   leadRunId?: string
@@ -492,6 +493,7 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; ciReported: true }
   | { kind: 'withdrawn'; at: string; slotFreed: true }
   | { kind: 'withdrawn'; at: string; appGone: true }
+  | { kind: 'withdrawn'; at: string; linear: 'reopened' | 'done' }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 

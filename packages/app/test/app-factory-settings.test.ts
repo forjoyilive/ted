@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type { Page } from 'playwright'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo } from '../../daemon/test/helpers.ts'
@@ -24,6 +25,27 @@ import {
 setUpAppTests()
 
 describe('Factory settings sections', () => {
+  test('jumping to a section scrolls only the settings, never the app frame', async () => {
+    await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+    const window = await launchApp()
+    await window.setViewportSize({ width: 1280, height: 800 })
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await window.getByText('Always last').waitFor()
+    const jump = window.getByRole('navigation', { name: 'Jump to a section' })
+
+    for (const section of ['Workflow', 'Factory notes']) {
+      await jump.getByRole('button', { name: section }).click()
+      await sleep(300)
+      const main = await window.getByRole('main').boundingBox()
+      const inbox = await nav.getByRole('button', { name: 'Inbox' }).boundingBox()
+      expect(main && Math.round(main.y + main.height)).toBe(800)
+      expect(main?.y).toBe(0)
+      expect(inbox?.y).toBeGreaterThan(0)
+    }
+  })
+
   test('Workflow, Permissions and notes edits collect into one Save, and Bypass needs confirming', async () => {
     const parent = path.join(ctx.home, 'origin')
     const origin = await makeOriginRepo(parent)
@@ -257,10 +279,10 @@ describe('Factory row menu', () => {
     await waitFor(async () => (await rowNames(window)).join() === 'site,notebook')
 
     await window.keyboard.press('ControlOrMeta+1')
-    const site = row(window, 'site').getByRole('button', { name: 'site', exact: true })
+    const site = row(window, 'site').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await site.getAttribute('aria-expanded')) === 'true')
     await window.keyboard.press('ControlOrMeta+2')
-    const notebook = row(window, 'notebook').getByRole('button', { name: 'notebook', exact: true })
+    const notebook = row(window, 'notebook').getByRole('button', { name: 'Views' })
     await waitFor(async () => (await notebook.getAttribute('aria-expanded')) === 'true')
   })
 

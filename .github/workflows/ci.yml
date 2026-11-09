@@ -26,6 +26,12 @@ jobs:
       - run: pnpm lint
       - run: pnpm --filter @ted/app exec install-electron
         if: startsWith(github.ref, 'refs/tags/v')
+      # TED runs Checks and Apps in bwrap, which needs unprivileged user namespaces.
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+        if: startsWith(github.ref, 'refs/tags/v')
       # Ubuntu runners block Chromium's OS sandbox; the renderer's own sandbox stays on.
       - run: xvfb-run -a pnpm test
         if: startsWith(github.ref, 'refs/tags/v')

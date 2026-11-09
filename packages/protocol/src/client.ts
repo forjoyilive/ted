@@ -397,6 +397,10 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factory)}/archive-done`, {})
   }
 
+  allowLinearSync(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/linear-sync`)
+  }
+
   unarchiveTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/unarchive`, {})
   }

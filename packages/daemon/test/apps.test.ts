@@ -432,3 +432,80 @@ describe('Apps', () => {
     expect((await stat(path.join(home, 'apps', task.id, 'ports.json'))).isFile()).toBe(true)
   })
 })
+
+describe('the Apps’ sandbox', () => {
+  const toucher = (files: string) =>
+    [
+      '      - name: Toucher',
+      '        kind: command',
+      `        run: ${runStub}`,
+      '        env:',
+      `          STUB_APP_TOUCH: "${files}"`,
+    ].join('\n')
+
+  const logOf = (client: Client, task: Task, line: string) =>
+    waitUntil(async () => {
+      const found = await client.ok<AppLog>('GET', `/tasks/${task.id}/apps/widgets/Toucher/log`)
+      return found.text.includes(line) ? found.text : undefined
+    }, `“${line}” in the App log`)
+
+  test.runIf(process.platform === 'darwin')(
+    'an App ted run-app starts writes its worktree but not TED_HOME',
+    async () => {
+      const planted = path.join(home, 'planted')
+      await commitToOrigin(scratch, {
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': appsYaml(toucher(`${planted}:stub-inside`)),
+      })
+      const client = await start()
+      const task = await taskWithWorktree(
+        client,
+        JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Toucher'] }, { endTurn: true }] }),
+      )
+      const text = await logOf(client, task, 'stub-inside')
+      expect(text).toContain(`refused ${planted}`)
+      expect(text).toContain('wrote stub-inside')
+      await expect(stat(planted)).rejects.toThrow()
+    },
+  )
+
+  test.runIf(process.platform === 'darwin')(
+    'an App the human starts runs sandboxed too, since it runs the code the agent wrote',
+    async () => {
+      const planted = path.join(home, 'planted')
+      await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(planted)) })
+      const client = await start()
+      const task = await taskWithWorktree(client)
+      await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })
+      expect(await logOf(client, task, planted)).toContain(`refused ${planted}`)
+    },
+  )
+
+  test('in a Bypass Factory an App runs as before', async () => {
+    const outside = path.join(scratch, 'outside')
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,
+    })
+    const client = await start()
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })
+    expect(await logOf(client, task, outside)).toContain(`wrote ${outside}`)
+  })
+
+  test('without a working sandbox an App doesn’t start, and says why', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const before = process.env.TED_SANDBOX_BIN
+    process.env.TED_SANDBOX_BIN = path.join(scratch, 'no-such-sandbox')
+    try {
+      const client = await start()
+      const task = await taskWithWorktree(client)
+      const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'API' })
+      expect(res.status).toBe(409)
+      expect(JSON.stringify(res.body)).toContain('can’t sandbox Checks and Apps')
+      expect((await appNamed(client, task, 'API'))?.state).toBe('failed')
+    } finally {
+      if (before === undefined) delete process.env.TED_SANDBOX_BIN
+      else process.env.TED_SANDBOX_BIN = before
+    }
+  })
+})
