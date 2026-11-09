@@ -11,6 +11,7 @@ import {
   type AgentStageId,
   agentKinds,
   type Banner,
+  type ClarifyDepth,
   DaemonClient,
   DaemonUnreachableError,
   type Effort,
@@ -20,6 +21,7 @@ import {
   isShowing,
   minGhVersion,
   parseLinearUrl,
+  type RoundInput,
   type RunWithConversation,
   readDaemonInfo,
   type TaskLead,
@@ -37,6 +39,12 @@ const usage = `Usage:
                                              Ask the human a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
                                              Replace your own unanswered request with a new one
+  ted ask --round <file> [--supersedes <request-id>]
+                                             Post a Clarify round: a JSON file with a title, an
+                                             optional summary and questions, each with its
+                                             recommended answer and optional choices
+  ted clarify depth none|few|grilling "<why>"
+                                             Pick the Clarify depth and say why
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
   ted outcome back --to <Stage> --findings <file>
@@ -93,6 +101,7 @@ function parse() {
         findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        round: { type: 'string' },
         source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
@@ -152,6 +161,28 @@ try {
         ? `Asked the human (request ${comment.id}). TED sends you their answer.`
         : 'Posted',
     )
+  } else if (group === 'ask' && options.round !== undefined && command === undefined) {
+    const ref = taskRef()
+    const round = await readRound(options.round)
+    const supersedes = options.supersedes
+    const request = await withDaemon(home, (client) =>
+      client.postComment(ref, { round, ...(supersedes !== undefined && { supersedes }) }),
+    )
+    console.log(
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.`,
+    )
+  } else if (group === 'clarify' && command === 'depth' && rest.length >= 1) {
+    const ref = taskRef()
+    const [depth = '', ...why] = rest
+    if (!['none', 'few', 'grilling'].includes(depth)) {
+      throw new UsageError('the depth is none, few or grilling')
+    }
+    const reason = why.join(' ')
+    if (reason.trim() === '') throw new UsageError('say why you picked this depth')
+    const task = await withDaemon(home, (client) =>
+      client.setClarifyDepth(ref, { depth: depth as ClarifyDepth, why: reason }),
+    )
+    console.log(`${task.displayId}’s Clarify depth is ${depth}`)
   } else if (group === 'ask' && options.supersedes !== undefined) {
     const ref = taskRef()
     const supersedes = options.supersedes
@@ -592,6 +623,17 @@ function summarize(line: string): string {
   )
   const kind = [message.type, message.subtype, message.hook_name].filter(Boolean).join(' ')
   return printable(parts.length > 0 ? `${kind}: ${parts.join(' | ')}` : kind)
+}
+
+async function readRound(file: string): Promise<RoundInput> {
+  const text = await readFile(path.resolve(file), 'utf8')
+  try {
+    return JSON.parse(text) as RoundInput
+  } catch (error) {
+    throw new UsageError(
+      `the round file isn’t valid JSON (${error instanceof Error ? error.message : String(error)})`,
+    )
+  }
 }
 
 function printable(text: string): string {

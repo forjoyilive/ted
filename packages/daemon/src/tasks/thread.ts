@@ -1,6 +1,7 @@
-import type { Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
+import type { ClarifyDepth, Comment, CopySkip, ThreadEvent, ThreadEventTone } from '@ted/protocol'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
+import { depthNames } from './rounds.ts'
 
 export interface ThreadContext {
   comments: readonly Comment[]
@@ -57,6 +58,7 @@ export function threadEvents(
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
+  let depthSet = false
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
@@ -194,6 +196,15 @@ export function threadEvents(
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break
+      case 'v1.ClarifyDepthSet': {
+        const name = depthNames[text(data.depth) as ClarifyDepth] ?? text(data.depth)
+        const why = text(data.why) === '' ? '' : ` · ${text(data.why)}`
+        if (data.by === 'human') add(entry, 'edit', `You set Clarify depth to ${name}`)
+        else if (depthSet) add(entry, 'run', `Task Lead switched Clarify depth to ${name}${why}`)
+        else add(entry, 'run', `Task Lead picked Clarify depth: ${name}${why}`)
+        depthSet = true
+        break
+      }
       case 'v1.TaskWorktreeCreated': {
         const line = copyLine(data)
         if (line) add(entry, 'quiet', line)

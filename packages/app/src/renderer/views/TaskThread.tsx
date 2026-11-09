@@ -36,7 +36,7 @@ import {
 } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
-import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
+import { clarifyDepthText, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
@@ -459,7 +459,7 @@ export function TaskDetails({
           <TaskLeadField key={task.id} task={task} />
         </dd>
         <dt>Clarify depth</dt>
-        <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
+        <dd>{clarifyDepthText(task)}</dd>
         {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>

@@ -14,8 +14,11 @@ import {
   priorities,
   type ReportOutcomeRequest,
   type ResumeTaskRequest,
+  type RoundInput,
+  type RoundQuestion,
   type RunChecksRequest,
   type SetActivityRequest,
+  type SetClarifyDepthRequest,
   type TaskLead,
   type WriteBriefRequest,
 } from '@ted/protocol'
@@ -141,6 +144,27 @@ export const taskRoutes: Route[] = [
     },
   },
   {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/clarify-depth$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<SetClarifyDepthRequest> | null
+      const depth = clarifyDepths.find((d) => d === body?.depth)
+      if (!depth) throw new HttpError(400, `depth must be ${clarifyDepths.join(', ')}`)
+      if (body?.why !== undefined && typeof body.why !== 'string') {
+        throw new HttpError(400, 'why must be text')
+      }
+      const why = typeof body?.why === 'string' ? oneLine(body.why) : ''
+      if (caller.kind === 'run' && why === '') {
+        throw new HttpError(400, 'say why you picked this depth')
+      }
+      if ([...why].length > maxActivityLength) {
+        throw new HttpError(400, `the reason is limited to ${maxActivityLength} characters`)
+      }
+      return [200, await tasks.setClarifyDepth(ref, caller, { depth, ...(why !== '' && { why }) })]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/lead\/use-default-model$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.useDefaultModel(ref)],
@@ -177,7 +201,11 @@ export const taskRoutes: Route[] = [
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
-      if (text === '') throw new HttpError(400, 'body is required')
+      const round = body?.round === undefined ? undefined : roundInput(body.round)
+      if (text === '' && !round) throw new HttpError(400, 'body is required')
+      if (round && body?.choices !== undefined) {
+        throw new HttpError(400, 'a round has its choices on each question')
+      }
       const choices = choiceList(body?.choices)
       const supersedes = body?.supersedes
       if (supersedes !== undefined && (typeof supersedes !== 'string' || supersedes === '')) {
@@ -188,6 +216,7 @@ export const taskRoutes: Route[] = [
         await tasks.comment(ref, caller, {
           body: text,
           ...(choices && { choices }),
+          ...(round && { round }),
           ...(supersedes !== undefined && { supersedes }),
         }),
       ]
@@ -445,6 +474,60 @@ function choiceList(value: unknown): string[] | undefined {
   return choices.length > 0 ? choices : undefined
 }
 
+const maxQuestions = 12
+
+const maxQuestionLength = 1000
+
+const maxRecommendedLength = 2000
+
+function roundInput(value: unknown): RoundInput {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'a round must be an object')
+  }
+  const { title, summary, questions } = value as Record<string, unknown>
+  const heading = typeof title === 'string' ? oneLine(title) : ''
+  if (heading === '') throw new HttpError(400, 'a round needs a title')
+  if ([...heading].length > maxChoiceLength) {
+    throw new HttpError(400, `a round’s title is limited to ${maxChoiceLength} characters`)
+  }
+  if (summary !== undefined && typeof summary !== 'string') {
+    throw new HttpError(400, 'a round’s summary must be text')
+  }
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new HttpError(400, 'a round needs at least one question')
+  }
+  if (questions.length > maxQuestions) {
+    throw new HttpError(400, `a round has at most ${maxQuestions} questions`)
+  }
+  return {
+    title: heading,
+    ...(typeof summary === 'string' && summary.trim() !== '' && { summary: summary.trim() }),
+    questions: questions.map((item: unknown, i) => roundQuestion(item, i + 1)),
+  }
+}
+
+function roundQuestion(item: unknown, number: number): RoundQuestion {
+  const { question, choices, recommended } = (item ?? {}) as Record<string, unknown>
+  const text = typeof question === 'string' ? question.trim() : ''
+  if (text === '') throw new HttpError(400, `question ${number} needs its question`)
+  if ([...text].length > maxQuestionLength) {
+    throw new HttpError(400, `question ${number} is limited to ${maxQuestionLength} characters`)
+  }
+  const options = choiceList(choices)
+  const pick = typeof recommended === 'string' ? recommended.trim() : ''
+  if (pick === '') throw new HttpError(400, `question ${number} needs a recommended answer`)
+  if ([...pick].length > maxRecommendedLength) {
+    throw new HttpError(
+      400,
+      `question ${number}’s recommended answer is limited to ${maxRecommendedLength} characters`,
+    )
+  }
+  if (options && !options.includes(pick)) {
+    throw new HttpError(400, `question ${number}’s recommended answer must be one of its choices`)
+  }
+  return { question: text, ...(options && { choices: options }), recommended: pick }
+}
+
 function outcomeRequest(body: unknown): ReportOutcomeRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   if (request.outcome === 'advance') {
@@ -490,7 +573,25 @@ function answerRequest(body: unknown): AnswerRequest {
       ...(text !== undefined && { text }),
     }
   }
-  throw new HttpError(400, 'action must be approve, request-changes or answer')
+  if (request.action === 'accept-recommended') return { action: 'accept-recommended' }
+  if (request.action === 'answer-round') {
+    if (!Array.isArray(request.answers)) throw new HttpError(400, 'answers must be a list')
+    return {
+      action: 'answer-round',
+      answers: request.answers.map((item: unknown) => {
+        const { answer, note } = (item ?? {}) as Record<string, unknown>
+        if (typeof answer !== 'string') throw new HttpError(400, 'each answer must be text')
+        if (note !== undefined && typeof note !== 'string') {
+          throw new HttpError(400, 'a note must be text')
+        }
+        return { answer, ...(typeof note === 'string' && { note }) }
+      }),
+    }
+  }
+  throw new HttpError(
+    400,
+    'action must be approve, request-changes, answer, answer-round or accept-recommended',
+  )
 }
 
 function oneLine(text: string): string {

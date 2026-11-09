@@ -38,6 +38,7 @@ export const tasks = State.SQLite.table({
     description: State.SQLite.text({ default: '' }),
     priority: State.SQLite.text({ default: 'none' }),
     clarifyDepth: State.SQLite.text({ default: 'auto' }),
+    clarifyDepthBy: State.SQLite.text({ nullable: true }),
     leadAgent: State.SQLite.text({ nullable: true }),
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
@@ -166,6 +167,7 @@ export const comments = State.SQLite.table({
     stage: State.SQLite.text({ nullable: true }),
     title: State.SQLite.text({ nullable: true }),
     choices: State.SQLite.text({ nullable: true }),
+    round: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     deliveredRunId: State.SQLite.text({ nullable: true }),
@@ -586,6 +588,34 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  commentPostedV3: Events.synced({
+    name: 'v3.CommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      authorKind: Schema.String,
+      authorRunId: Schema.NullOr(Schema.String),
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      round: Schema.NullOr(Schema.String),
+      gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  clarifyDepthSet: Events.synced({
+    name: 'v1.ClarifyDepthSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      depth: Schema.String,
+      by: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      why: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   commentAnswered: Events.synced({
     name: 'v1.CommentAnswered',
     schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
@@ -978,6 +1008,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
+  'v1.ClarifyDepthSet': (args) =>
+    task(args, { depth: args.depth, by: args.by, runId: args.runId, why: args.why }),
   'v1.TaskLeadSet': (args) =>
     task(args, { agent: args.agent, model: args.model, effort: args.effort }),
   'v1.TaskWorktreeCreated': (args) =>
@@ -1139,6 +1171,12 @@ const materializers = counted(
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v3.CommentPosted': ({ choices, ...comment }) =>
+        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v1.ClarifyDepthSet': ({ taskId, depth, by, at }) =>
+        tasks
+          .update({ clarifyDepth: depth, clarifyDepthBy: by, changedAt: at })
+          .where({ id: taskId }),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>

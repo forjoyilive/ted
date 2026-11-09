@@ -20,6 +20,7 @@ import {
   type CheckRunTrigger,
   type CheckState,
   type ClarifyDepth,
+  type ClarifyDepthChooser,
   type Comment,
   type CommentAnswer,
   type CommentAuthor,
@@ -35,6 +36,7 @@ import {
   type LayerUse,
   type MachineSettings,
   type Priority,
+  type Round,
   type Run,
   type RunMessage,
   type RunProblem,
@@ -213,6 +215,7 @@ export interface NewComment {
   kind?: CommentKind
   title?: string
   choices?: string[]
+  round?: Round
   gate?: NonNullable<Comment['gate']>
 }
 
@@ -289,6 +292,10 @@ export interface TedStore {
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
+  setClarifyDepth(
+    taskId: string,
+    input: { depth: ClarifyDepth; by: ClarifyDepthChooser; runId?: string; why?: string },
+  ): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
@@ -559,6 +566,7 @@ export async function openStore({
   const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
 
   const toTask = ({
+    clarifyDepthBy,
     branch,
     worktree,
     activity,
@@ -664,6 +672,9 @@ export async function openStore({
       ...row,
       priority: row.priority as Priority,
       clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(clarifyDepthBy !== null
+        ? { clarifyDepthBy: clarifyDepthBy as ClarifyDepthChooser }
+        : row.clarifyDepth !== 'auto' && { clarifyDepthBy: 'human' as const }),
       ...(leadAgent !== null && {
         lead: {
           agent: leadAgent as AgentKind,
@@ -742,6 +753,7 @@ export async function openStore({
     stage,
     title,
     choices,
+    round,
     gate,
     answer,
     deliveredRunId,
@@ -759,6 +771,7 @@ export async function openStore({
     ...(stage !== null && { stage: stage as StageId }),
     ...(title !== null && { title }),
     ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+    ...(round !== null && { round: JSON.parse(round) as Round }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
     ...(deliveredRunId !== null &&
@@ -905,11 +918,11 @@ export async function openStore({
     return comment
   }
   const commentPosted = (
-    { taskId, body, author, kind = 'note', title, choices, gate }: NewComment,
+    { taskId, body, author, kind = 'note', title, choices, round, gate }: NewComment,
     createdAt: string,
   ) => {
     const id = randomUUID()
-    const event = events.commentPostedV2({
+    const fields = {
       id,
       taskId,
       kind,
@@ -921,7 +934,11 @@ export async function openStore({
       choices: choices ?? null,
       gate: gate === undefined ? null : JSON.stringify(gate),
       createdAt,
-    })
+    }
+    const event =
+      round === undefined
+        ? events.commentPostedV2(fields)
+        : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
     return { id, event }
   }
   const emitComment = (id: string) => {
@@ -1277,7 +1294,7 @@ export async function openStore({
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId).filter(
-        (row) => row.gate !== null && row.stage !== stage,
+        (row) => (row.gate !== null || row.kind === 'round') && row.stage !== stage,
       )
       const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       commit(
@@ -1327,6 +1344,19 @@ export async function openStore({
           agent,
           model: model ?? null,
           effort: effort ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    setClarifyDepth(taskId, { depth, by, runId, why }) {
+      commit(
+        events.clarifyDepthSet({
+          taskId,
+          depth,
+          by,
+          runId: runId ?? null,
+          why: why ?? null,
           at: new Date().toISOString(),
         }),
       )

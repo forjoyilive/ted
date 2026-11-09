@@ -10,6 +10,7 @@ import type {
   CheckOutput,
   CheckRepoRequest,
   CheckRun,
+  ClarifyDepth,
   CommandLineStatus,
   Comment,
   CreateFactoryRequest,
@@ -92,6 +93,8 @@ export const ted = {
     window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
+    window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
