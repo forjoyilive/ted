@@ -190,6 +190,47 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
+  test('the thread shows event lines, and ⌘↵ sends a Comment into the Task Lead’s Run', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('You created this Task').waitFor()
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    expect(await box.getAttribute('placeholder')).toBe('Comment…')
+    await box.fill('Keep the old export format.')
+    await box.press('ControlOrMeta+Enter')
+    await thread.getByText('Goes to the next Task Lead Run').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await thread.getByText('Task moved to Intake').waitFor()
+    await thread.getByText('Task Lead started · Claude').waitFor()
+    await thread.getByText('Goes to the next Task Lead Run').waitFor({ state: 'detached' })
+    await expect.poll(() => box.getAttribute('placeholder')).toBe('Comment to the Task Lead…')
+    await thread.getByText('Not read yet').waitFor({ state: 'detached' })
+    const dot = thread.locator('[data-tone="run"]').first()
+    expect(await dot.textContent()).toContain('Task Lead started')
+
+    await box.fill('Also handle the empty query.')
+    await box.press('ControlOrMeta+Enter')
+    await thread.getByText('Also handle the empty query.').waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => {
+        const comments = await client.listComments('NB-1')
+        return comments.find((c) => c.body === 'Also handle the empty query.')?.readAt !== undefined
+      })
+      .toBe(true)
+  })
+
   test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
     await ted('task', 'create', 'Fix login')
     const window = await launchApp()

@@ -41,6 +41,7 @@ import type {
   Task,
   TaskBrief,
   TaskDefaults,
+  ThreadEvent,
 } from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
@@ -125,6 +126,14 @@ export class DaemonClient {
 
   listStageEntries(ref: string): Promise<StageEntry[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
+  }
+
+  listThreadEvents(ref: string): Promise<ThreadEvent[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/events`)
+  }
+
+  markCommentsRead(ref: string): Promise<{ read: number }> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/read`)
   }
 
   postComment(ref: string, comment: string | PostCommentRequest): Promise<Comment> {

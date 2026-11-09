@@ -1,0 +1,92 @@
+.line {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  margin-left: -14px;
+}
+
+.dot {
+  box-sizing: border-box;
+  justify-self: center;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+}
+
+.edit {
+  border: 1.5px solid var(--event-hollow);
+}
+
+.done {
+  background: var(--event-created);
+}
+
+.run {
+  background: var(--event-run);
+}
+
+.failure {
+  background: var(--event-failed);
+}
+
+.quiet {
+  background: var(--event-neutral);
+}
+
+.request {
+  background: var(--event-waiting);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.time {
+  flex-shrink: 0;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.findings {
+  max-width: 520px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--status-failed-bg);
+}
+
+.findingsHeading {
+  margin: 0 0 4px;
+  color: var(--status-failed-fg);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.findingsText {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--text-12-5);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

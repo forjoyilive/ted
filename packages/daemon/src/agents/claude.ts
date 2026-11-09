@@ -95,6 +95,17 @@ export function claudeAgent(binary: string): Agent {
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
+    acceptedTextFrom(line) {
+      const message = parse(line)
+      if (message?.type !== 'user') return undefined
+      const content = message.message?.content
+      if (typeof content === 'string') return content
+      if (!Array.isArray(content)) return undefined
+      const texts = (content as { type?: unknown; text?: unknown }[]).flatMap((part) =>
+        part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
+      )
+      return texts.length > 0 ? texts.join('\n') : undefined
+    },
     sessionIdFrom: () => undefined,
     authErrorFrom(line) {
       let message: { type?: unknown; error?: unknown; is_error?: unknown; result?: unknown }
@@ -156,6 +167,7 @@ interface ClaudeLine {
   subtype?: unknown
   hook_event?: unknown
   error?: unknown
+  message?: { content?: unknown }
 }
 
 function parse(line: string): ClaudeLine | undefined {

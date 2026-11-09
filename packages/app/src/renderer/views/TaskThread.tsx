@@ -1,13 +1,15 @@
-import type { AgentStageId, Comment, Factory, Task } from '@ted/protocol'
-import { useState } from 'react'
+import type { AgentStageId, Comment, Factory, Task, ThreadEvent } from '@ted/protocol'
+import { useEffect, useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { CommentBox } from '../components/CommentBox.tsx'
+import { EventLine, Findings } from '../components/EventLine.tsx'
 import { AnsweredCard, OpenRequestLine, RequestCard } from '../components/RequestCard.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
-import { useComments, useStageEntries } from '../data.ts'
+import { useComments, useStageEntries, useThreadEvents } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -23,10 +25,17 @@ function leadAgent(task: Task, comment: Comment) {
   return task.runs.find((r) => r.id === author.runId)?.agent ?? task.lead?.agent ?? 'claude'
 }
 
+function delivery(task: Task, comment: Comment): string | undefined {
+  if (comment.author.kind !== 'human' || task.commentBox === 'done') return undefined
+  if (comment.delivered === undefined) return 'Goes to the next Task Lead Run'
+  return comment.readAt === undefined ? 'Not read yet' : undefined
+}
+
 function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
   const agent = leadAgent(task, comment)
   const author =
     comment.author.kind === 'human' ? 'You' : comment.author.kind === 'ted' ? 'TED' : 'Task Lead'
+  const state = delivery(task, comment)
   return (
     <li className={styles.comment}>
       {agent !== undefined ? <AgentAvatar agent={agent} /> : <PersonAvatar name={author} />}
@@ -34,10 +43,23 @@ function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
           <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
+          {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
         <p className={styles.commentBody}>{comment.body}</p>
       </div>
     </li>
+  )
+}
+
+type ThreadItem =
+  | { kind: 'comment'; comment: Comment; createdAt: string }
+  | { kind: 'event'; event: ThreadEvent; createdAt: string }
+
+function EventRow({ event }: { event: ThreadEvent }) {
+  return (
+    <EventLine tone={event.tone} text={event.text} at={event.at}>
+      {event.findings !== undefined && <Findings text={event.findings} />}
+    </EventLine>
   )
 }
 
@@ -55,11 +77,24 @@ export function TaskThread({
   onOpenTask: (ref: string) => void
 }) {
   const comments = useComments(task.id)
+  const events = useThreadEvents(task.id)
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
   const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
   const stage = filter?.taskId === task.id ? filter.stage : undefined
-  const shown = inStage(comments, entries, stage)
+  const items: ThreadItem[] = [
+    ...comments.map((comment) => ({
+      kind: 'comment' as const,
+      comment,
+      createdAt: comment.createdAt,
+    })),
+    ...events.map((event) => ({ kind: 'event' as const, event, createdAt: event.at })),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const shown = inStage(items, entries, stage)
+  const unread = comments.some((c) => c.author.kind !== 'human' && c.readAt === undefined)
+  useEffect(() => {
+    if (unread) void ted.markCommentsRead(task.id).catch(() => undefined)
+  }, [unread, task.id])
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
@@ -113,7 +148,19 @@ export function TaskThread({
         </p>
       )}
       <ol className={styles.thread}>
-        {shown.map((comment) => {
+        {shown.map((item) => {
+          if (item.kind === 'event') return <EventRow key={item.event.id} event={item.event} />
+          const { comment } = item
+          if (comment.kind === 'note' && comment.author.kind === 'ted') {
+            return (
+              <EventLine
+                key={comment.id}
+                tone="quiet"
+                text={comment.body.replace(/\s+/g, ' ')}
+                at={comment.createdAt}
+              />
+            )
+          }
           if (comment.kind === 'note') {
             return <NoteRow key={comment.id} task={task} comment={comment} />
           }
@@ -135,9 +182,13 @@ export function TaskThread({
           )
         })}
       </ol>
-      {pinned && (
+      {pinned ? (
         <div className={styles.pinned}>
           <RequestCard key={pinned.id} request={pinned} task={task} />
+        </div>
+      ) : (
+        <div className={styles.pinned}>
+          <CommentBox key={task.id} task={task} />
         </div>
       )}
     </section>
