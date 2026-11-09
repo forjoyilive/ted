@@ -1275,31 +1275,25 @@ export function createTasks(options: {
       ...extra,
     })
     if (toConfirm.length > 0) return unchanged({ confirm: toConfirm })
-    if (adding.length === 0 && removing.length === 0) return unchanged({})
-    store.setTaskRepos(task.id, {
-      repos: next.map((e) => e.repo),
-      names: next.map((e) => e.name),
-      by: caller.kind === 'run' ? 'task-lead' : 'human',
-      ...(caller.kind === 'run' && { runId: caller.runId }),
-    })
+    const changed = adding.length > 0 || removing.length > 0
+    if (changed) {
+      store.setTaskRepos(task.id, {
+        repos: next.map((e) => e.repo),
+        names: next.map((e) => e.name),
+        by: caller.kind === 'run' ? 'task-lead' : 'human',
+        ...(caller.kind === 'run' && { runId: caller.runId }),
+      })
+    }
     await beginning.get(task.id)?.catch(() => undefined)
     const now = find(task.id)
     const liveNow = (entry: FactoryRepoEntry) =>
       now.repos.find((r) => !r.removed && sameRepo(r.repo, entry.repo))
+    const created: string[] = []
     if (now.repos.some((r) => !r.removed) && now.branch !== undefined) {
-      for (const entry of removing) {
-        const repo = liveNow(entry)
-        if (!repo) continue
-        repoSetups.get(`${task.id}:${repo.name}`)?.abort()
-        const teardown = await tearDown(task, repo, entry)
-        await git.removeWorktree(clonePath(reposDir, repo), repo.worktree).catch((error) => {
-          console.error(`couldn’t remove ${task.displayId}’s ${repo.name} worktree:`, error)
-        })
-        store.worktreeRemoved(task.id, repo.name, teardown)
-      }
       for (const entry of next.filter((e) => !liveNow(e))) {
         const made = await openWorktree(now, factory, entry, now.branch, false)
         store.worktreeCreated(task.id, made)
+        created.push(made.name)
         const repo = find(task.id).repos.find((r) => r.name === made.name && !r.removed)
         const setup = entry.setup
         if (repo && setup) {
@@ -1312,7 +1306,19 @@ export function createTasks(options: {
           )
         }
       }
+      for (const entry of removing) {
+        const repo = liveNow(entry)
+        if (!repo) continue
+        repoSetups.get(`${task.id}:${repo.name}`)?.abort()
+        const teardown = await tearDown(task, repo, entry)
+        await git.removeWorktree(clonePath(reposDir, repo), repo.worktree).catch((error) => {
+          console.error(`couldn’t remove ${task.displayId}’s ${repo.name} worktree:`, error)
+        })
+        store.worktreeRemoved(task.id, repo.name, teardown)
+      }
     }
+    if (!changed && created.length === 0) return unchanged({})
+    const added = [...new Set([...adding.map((e) => e.name), ...created])]
     if (caller.kind !== 'run') {
       const run = liveLead(find(task.id))
       if (run) await runs.send(run.id, reposChangedMessage(find(task.id), adding, removing))
@@ -1320,7 +1326,7 @@ export function createTasks(options: {
     return {
       task: publicTask(task.id),
       repos: next.map((e) => e.name),
-      added: adding.map((e) => e.name),
+      added,
       removed: removing.map((e) => e.name),
     }
   }
@@ -2002,6 +2008,7 @@ export function createTasks(options: {
     const cancel = new AbortController()
     settingUp.set(task.id, cancel)
     const reports: string[] = []
+    for (const { repo, setup } of steps) store.worktreeSetupStarted(task.id, repo.name, setup)
     try {
       for (const { repo, setup } of steps) {
         const signal = AbortSignal.any([stopping.signal, cancel.signal])
