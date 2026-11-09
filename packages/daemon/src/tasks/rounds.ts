@@ -77,6 +77,23 @@ export function roundAnswerMessage(
   ].join('\n\n')
 }
 
+export function roundAnswerSummary(request: Comment, answers: readonly RoundAnswer[]): string {
+  const questions = request.round?.questions ?? []
+  return answers
+    .map((answer, i) => {
+      const question = questions[i]
+      const tag =
+        answer.changed && question
+          ? `changed from your recommendation “${question.recommended}”`
+          : answer.changed
+            ? 'changed'
+            : 'recommended'
+      const note = answer.note === undefined ? '' : `; note: ${answer.note}`
+      return `${i + 1}. ${question?.question ?? ''} → ${answer.answer} (${tag}${note})`
+    })
+    .join(' ')
+}
+
 function nextAfterRound(depth: ClarifyDepth): string {
   if (depth === 'grilling') {
     return 'If anything is still open, ask another round with `ted ask --round <file>`. When nothing is, write the Task brief with every decision under Decisions so far, then run `ted outcome advance`; TED posts the brief to the human as the grilling sign-off.'

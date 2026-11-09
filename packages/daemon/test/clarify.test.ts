@@ -397,6 +397,36 @@ describe('Clarify rounds', () => {
     expect(round.answer).toMatchObject({ kind: 'withdrawn', movedTo: 'intake' })
   })
 
+  test('round answers given while no Run works reach the next Task Lead Run', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      advance,
+      depth('few', 'two questions'),
+      ask(client.storageFile),
+      { endTurn: true },
+    )
+    const item = await openRequest(client, 'round')
+    const first = (await getTask(client, task.id)).leadRunId
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    await client.ok('POST', `/comments/${item.request.id}/answer`, {
+      action: 'answer-round',
+      answers: [{ answer: 'Keep the latest edit', note: 'Rare.' }, { answer: 'The edit wins.' }],
+    })
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    await waitUntil(async () => {
+      const t = await getTask(client, task.id)
+      return t.leadRunId !== undefined && t.leadRunId !== first
+    }, 'a fresh Run')
+    const prompt = await waitUntil(
+      async () => (await userMessages(client, task))[0],
+      'the fresh Run’s prompt',
+    )
+    expect(prompt).toContain(
+      '1. When the same note is edited on two devices, what happens on reconnect? → Keep the latest edit (changed from your recommendation “Keep both and let me merge”; note: Rare.) 2. If a note is deleted on one device and edited on the other, which wins? → The edit wins. (recommended)',
+    )
+  })
+
   test('rounds and round answers are checked', async () => {
     const client = await start()
     const bad = path.join(scratch, 'bad.json')

@@ -78,6 +78,7 @@ import {
   depthNames,
   pickDepth,
   roundAnswerMessage,
+  roundAnswerSummary,
   roundAnswers,
 } from './rounds.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
@@ -2456,6 +2457,9 @@ function answerText(comment: Comment): string | undefined {
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`
+  if (answer.kind === 'answered' && answer.answers) {
+    return roundAnswerSummary(comment, answer.answers)
+  }
   if (answer.kind === 'answered') {
     return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
   }
