@@ -1,6 +1,6 @@
+import type { SimulatorAsk } from './app.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
-import type { SimulatorAsk } from './app.ts'
 
 export const agentStageIds = [
   'intake',

@@ -1,6 +1,8 @@
-import type { Task, TaskApp } from '@ted/protocol'
+import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
+import { simulatorsLine } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { appStatusLine, previewChoice } from '../src/renderer/apps.ts'
+import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
+import { nowLine } from '../src/renderer/slots.ts'
 
 const task = (preview?: { url: string; label: string }) =>
   ({
@@ -73,5 +75,75 @@ describe('App status lines', () => {
     expect(
       appStatusLine(app({ state: 'running', url: 'http://localhost:5174', removed: true }), now),
     ).toBe('Removed from settings · localhost:5174')
+  })
+})
+
+describe('iOS simulator Apps', () => {
+  const now = Date.parse('2026-11-09T10:31:00Z')
+  const iPhone = (fields: Partial<TaskApp>) =>
+    app({ name: 'iPhone', kind: 'ios-simulator', ...fields })
+  const booted = (count: number): SimulatorSlots => ({
+    supported: true,
+    limit: 3,
+    booted: Array.from({ length: count }, (_, n) => ({
+      udid: `U${n}`,
+      taskId: `t${n}`,
+      displayId: `NB-${40 + n}`,
+      title: 'A Task',
+      repo: 'app',
+      app: 'iPhone',
+      device: 'iPhone 17',
+      lastUsedAt: '2026-11-09T10:00:00Z',
+      recording: false,
+    })),
+  })
+
+  test('the row says whether its simulator is booted or why it was shut down', () => {
+    expect(
+      appStatusLine(
+        iPhone({ state: 'running', simulator: { device: 'iPhone 17', booted: true } }),
+        now,
+      ),
+    ).toBe('iPhone 17 · booted')
+    expect(
+      appStatusLine(
+        iPhone({
+          simulator: {
+            device: 'iPhone 17',
+            booted: false,
+            shutDown: { at: '2026-11-09T10:11:00Z', for: 'NB-44' },
+          },
+        }),
+        now,
+      ),
+    ).toBe('Shut down 20m ago to free a slot for NB-44')
+    expect(
+      appStatusLine(
+        iPhone({ state: 'waiting', simulator: { device: 'iPhone 17', booted: false } }),
+        now,
+      ),
+    ).toBe('Waiting for a simulator · iPhone 17')
+  })
+
+  test('▶ asks which simulator to shut down only when every slot is booted', () => {
+    expect(needsSlot(iPhone({}), booted(2))).toBe(false)
+    expect(needsSlot(iPhone({}), booted(3))).toBe(true)
+    expect(needsSlot(iPhone({ simulator: { device: 'iPhone 17', booted: true } }), booted(3))).toBe(
+      false,
+    )
+    expect(needsSlot(app({}), booted(3))).toBe(false)
+  })
+
+  test('the footer and Limits lines count booted simulators, and say nothing when unsupported', () => {
+    expect(simulatorsLine(booted(3))).toBe('Simulators 3 of 3 booted')
+    expect(simulatorsLine(booted(0))).toBeUndefined()
+    expect(simulatorsLine({ ...booted(1), supported: false })).toBeUndefined()
+    const slots = { working: 4, limit: 6, queued: 2, factories: [] } as unknown as RunSlots
+    expect(nowLine(slots, booted(1))).toBe(
+      'Now: 4 of 6 Runs working · 2 queued · 1 of 3 simulators booted',
+    )
+    expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
+      'Now: 4 of 6 Runs working · 2 queued',
+    )
   })
 })

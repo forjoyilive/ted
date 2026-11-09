@@ -12,10 +12,10 @@ import type {
   RunChat,
   RunSlots,
   RunSummary,
+  SimulatorSlots,
   StageEntry,
   StageId,
   Task,
-  SimulatorSlots,
   TaskApp,
   ThreadEvent,
 } from '@ted/protocol'

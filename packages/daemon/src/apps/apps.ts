@@ -938,12 +938,7 @@ export function createApps(options: AppsOptions): Apps {
           store.appStopped({ taskId, repo: repo.name, name: app.name })
         }
         if (app.kind === 'ios-simulator') await sims.shutDown(taskId, repo.name, app.name)
-        return toApp(
-          taskId,
-          repo.name,
-          app,
-          await readInstance(dirOf(taskId, repo.name, app.name)),
-        )
+        return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))
       })
     },
     async restart(taskId, ref, by, runId) {

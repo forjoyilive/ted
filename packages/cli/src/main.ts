@@ -901,9 +901,7 @@ async function readRound(file: string): Promise<RoundInput> {
 async function runApp(given: string | undefined): Promise<void> {
   const ref = taskRef()
   const { app, log } = await withDaemon(home, async (client) => {
-    let wanted:
-      | { name: string; repo?: string }
-      | undefined =
+    let wanted: { name: string; repo?: string } | undefined =
       given === undefined ? undefined : { name: given, ...(options.repo && { repo: options.repo }) }
     if (wanted === undefined) {
       const apps = (await client.listApps(ref)).filter(

@@ -15,10 +15,10 @@ import {
   priorities,
   quitChoices,
   type StatusFilter,
+  simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
   workingRunLimits,
-  simulatorSlotLimits,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'

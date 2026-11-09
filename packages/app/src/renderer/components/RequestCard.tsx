@@ -7,7 +7,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
-import { useCheckRuns, useComments, useThreadEvents } from '../data.ts'
+import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
 import {
   age,
   ago,
@@ -29,6 +29,7 @@ import { Help } from './Help.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import styles from './RequestCard.module.css'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
+import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
 function CardHead({ request, task, now }: { request: Comment; task: Task; now: number }) {
   const again = request.gate?.changes !== undefined && request.stage !== 'merge'
@@ -236,6 +237,35 @@ function PermissionCommand({ request }: { request: Comment }) {
   )
 }
 
+function SimulatorRequest({
+  request,
+  readOnly,
+  chosen,
+  onChoose,
+}: {
+  request: Comment
+  readOnly: boolean
+  chosen: string | undefined
+  onChoose: (udid: string) => void
+}) {
+  const now = useNow()
+  const live = useSimulators()
+  const ask = request.simulator
+  if (!ask) return null
+  const booted = !readOnly && live?.supported === true ? live.booted : ask.booted
+  return (
+    <SimulatorChoices
+      booted={booted}
+      chosen={chosen}
+      onChoose={onChoose}
+      now={now}
+      label="Simulator to shut down"
+      showApp
+      disabled={readOnly}
+    />
+  )
+}
+
 function Summary({ text }: { text: string }) {
   let at = 0
   const paragraphs = text.split(/\n\s*\n/).map((paragraph) => {
@@ -283,6 +313,14 @@ export function RequestCard({
   const shown = summary(request)
   const typed = text.trim() !== ''
   const [showingFirst, setShowingFirst] = useState(false)
+  const simulators = useSimulators()
+  const [picked, setPicked] = useState<string>()
+  const offered = simulators?.booted ?? request.simulator?.booted ?? []
+  const chosen =
+    picked !== undefined && offered.some((b) => b.udid === picked && !b.recording)
+      ? picked
+      : firstChoice(offered)
+  const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
   const changes = request.gate?.changes
   const rows = request.gate?.pullRequests
   const short =
@@ -362,6 +400,14 @@ export function RequestCard({
         </p>
       )}
       <PermissionCommand request={request} />
+      {request.simulator && (
+        <SimulatorRequest
+          request={request}
+          readOnly={readOnly}
+          chosen={chosen}
+          onChoose={setPicked}
+        />
+      )}
       {actionChoice === undefined && request.choices && request.choices.length > 0 && (
         <div className={styles.choices}>
           {request.choices.map((choice) => (
@@ -383,21 +429,23 @@ export function RequestCard({
             className={styles.box}
             aria-label="Your answer"
             placeholder={
-              request.permission
-                ? 'Comment, or say why you’re denying…'
-                : request.failed
-                  ? 'Or tell the Task Lead what to change, then Retry…'
-                  : actionChoice !== undefined
-                    ? 'Comment, or tell the Task Lead what to do next…'
-                    : request.kind === 'question' && request.choices
-                      ? 'Or write your own answer…'
-                      : 'Comment to the Task Lead…'
+              request.simulator
+                ? 'Comment…'
+                : request.permission
+                  ? 'Comment, or say why you’re denying…'
+                  : request.failed
+                    ? 'Or tell the Task Lead what to change, then Retry…'
+                    : actionChoice !== undefined
+                      ? 'Comment, or tell the Task Lead what to do next…'
+                      : request.kind === 'question' && request.choices
+                        ? 'Or write your own answer…'
+                        : 'Comment to the Task Lead…'
             }
             value={text}
             onChange={(event) => setText(event.target.value)}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey) || !typed) return
-              if (request.permission) return
+              if (request.permission || request.simulator) return
               event.preventDefault()
               void send(
                 request.gate ? { action: 'request-changes', text } : { action: 'answer', text },
@@ -425,7 +473,29 @@ export function RequestCard({
               ) : (
                 <Help>{request.gate.caption}</Help>
               ))}
-            {request.permission ? (
+            {request.simulator ? (
+              <>
+                <Button
+                  disabled={sending}
+                  onClick={() => void send({ action: 'deny', ...withText })}
+                >
+                  Deny
+                </Button>
+                <Button
+                  variant="primary"
+                  disabled={sending || chosen === undefined}
+                  onClick={() =>
+                    void send({
+                      action: 'approve',
+                      ...(chosen !== undefined && { simulator: chosen }),
+                      ...withText,
+                    })
+                  }
+                >
+                  {chosenOwner !== undefined ? `Shut down ${chosenOwner}’s and run` : 'Run'}
+                </Button>
+              </>
+            ) : request.permission ? (
               <>
                 <Help>Applies to this request only.</Help>
                 <Button
@@ -514,7 +584,12 @@ function answerLine(
       return {
         mark: '✓',
         tone: 'good',
-        text: request.permission ? 'You approved · this request only' : 'You approved',
+        text:
+          answer.shutDown !== undefined
+            ? `You shut down ${answer.shutDown}’s simulator`
+            : request.permission
+              ? 'You approved · this request only'
+              : 'You approved',
       }
     case 'denied':
       return { mark: '✕', tone: 'bad', text: 'You denied' }
@@ -537,6 +612,16 @@ function answerLine(
       }
       if ('cancelled' in answer) {
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · the agent no longer needs it' }
+      }
+      if ('slotFreed' in answer) {
+        return { mark: '–', tone: 'neutral', text: 'A simulator freed up; nothing was shut down' }
+      }
+      if ('appGone' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · the App stopped before you answered',
+        }
       }
       if ('ciReported' in answer) {
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · CI reported before you answered' }

@@ -127,7 +127,11 @@ interface Recording {
 
 export const simulatorToolsProblem = 'simulator-tools'
 
-const slug = (name: string) => name.toUpperCase().replace(/[^A-Z0-9]/g, '_').toLowerCase()
+const slug = (name: string) =>
+  name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '_')
+    .toLowerCase()
 
 export function createSimulators(options: {
   dir: string
@@ -282,7 +286,7 @@ export function createSimulators(options: {
       .filter((d) => d.name === app.device && d.isAvailable && d.state !== 'Booted')
       .sort((a, b) => b.runtime.localeCompare(a.runtime, undefined, { numeric: true }))[0]
     let created = source ? await tools.simctl(['clone', source.udid, name]) : undefined
-    if (!created || created.code !== 0) {
+    if (created?.code !== 0) {
       created = await tools.simctl(['create', name, app.device])
     }
     const udid = created.stdout.trim().split('\n').at(-1)?.trim() ?? ''
@@ -564,7 +568,10 @@ export function createSimulators(options: {
           })
         }
         if (request.action !== 'approve') {
-          throw new RequestError(400, 'answer a simulator request with a simulator to shut down, or Deny')
+          throw new RequestError(
+            400,
+            'answer a simulator request with a simulator to shut down, or Deny',
+          )
         }
         const ask = comment.simulator as SimulatorAsk
         const record = recordOf(comment.taskId, ask.repo, ask.app)
@@ -594,7 +601,8 @@ export function createSimulators(options: {
       return serial(async () => {
         const record = recordOf(taskId, repo, name)
         if (!record || !booted.has(record.udid)) return
-        if (recordings.has(record.udid)) await stopRecordingOf(record).then((f) => rm(f, { force: true }))
+        if (recordings.has(record.udid))
+          await stopRecordingOf(record).then((f) => rm(f, { force: true }))
         await shutDownRecord(record, { human: true })
       })
     },

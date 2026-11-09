@@ -9,7 +9,7 @@ An App (spec §9.6) is a long-running command from `repos[].apps` in `workflow.y
 - **Ready.** A `web` App is running once its `url` answers with a status below 500 (probed on loopback only; certificate errors are ignored because nothing is sent). After 5 minutes without an answer TED stops it and records the failure. `ready: start` and `command` Apps count as running once started. The `url` must be an `http(s)` address on `localhost`, `127.x.x.x` or `[::1]`; `workflow.yaml` validation refuses anything else, and the app opens only such a URL (or the pull request’s hosted preview) in the default browser.
 - **Logs.** The host keeps the last 10 MB as two halves, `app.log` and `app.log.1`. The App log view reads the last 512 KB.
 - **Lifecycle.** Apps don’t take working-Run slots. Starting one checks `store.newWorkHold()`. `finish` (Done, archive, delete, Factory removal) stops the Task’s Apps and deletes its App folder before teardown; removing a repo from the Task stops that repo’s Apps. The thread gets `v1.AppStarted` (also for restarts), `v1.AppStopped` (only the human’s), `v1.AppExited` (a crash) and `v1.AppStartFailed`.
-- **Kinds.** `web` and `command` share one runner. `ios-simulator` has no runner yet and is refused with a clear message; KRI-139 adds its runner to `runners` in `apps.ts`.
+- **Kinds.** `web`, `command` and `ios-simulator` share one runner. An `ios-simulator` App first gets a booted simulator from `apps/simulators.ts` (ADR NNNN-ios-simulator-apps) and runs with `TED_SIMULATOR_UDID` instead of a port.
 
 ## Considered Options
 

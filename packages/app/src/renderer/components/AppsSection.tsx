@@ -1,11 +1,20 @@
-import type { Task, TaskApp } from '@ted/protocol'
-import { useState } from 'react'
-import { appStatusLine, appsSummary, type HostedPreview, hostedPreviews, isLive } from '../apps.ts'
-import { useTaskApps } from '../data.ts'
+import type { SimulatorSlots, Task, TaskApp } from '@ted/protocol'
+import { useEffect, useRef, useState } from 'react'
+import {
+  appStatusLine,
+  appsSummary,
+  type HostedPreview,
+  hostedPreviews,
+  isLive,
+  needsSlot,
+} from '../apps.ts'
+import { useSimulators, useTaskApps } from '../data.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Apps.module.css'
+import { Button } from './Button.tsx'
 import { OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
 export interface ShownApp {
   repo: string
@@ -22,6 +31,7 @@ export function AppsSection({
   onOpenApp: (app: ShownApp) => void
 }) {
   const apps = useTaskApps(task.id)
+  const simulators = useSimulators()
   const hosted = hostedPreviews(task)
   if (apps.length === 0 && hosted.length === 0) return null
   const repos = [...new Set([...apps.map((a) => a.repo), ...hosted.map((h) => h.repo)])]
@@ -43,6 +53,7 @@ export function AppsSection({
                   key={`${app.repo}/${app.name}`}
                   task={task}
                   app={app}
+                  simulators={simulators}
                   selected={shown?.repo === app.repo && shown.name === app.name}
                   onOpen={() => onOpenApp({ repo: app.repo, name: app.name })}
                 />
@@ -74,15 +85,15 @@ export function useAppActions(task: Task, app: TaskApp) {
       .finally(() => setBusy(false))
   }
   const live = isLive(app)
-  const runnable =
-    !task.archived && task.stage !== 'done' && app.kind !== 'ios-simulator' && !app.removed
+  const runnable = !task.archived && task.stage !== 'done' && !app.removed
   return {
     busy,
     error,
     live,
     runnable,
     preview: () => act(() => ted.openAppPreview(task.id, app.repo, app.name)),
-    start: () => act(() => ted.startApp(task.id, app.repo, app.name)),
+    start: (shutDown?: string) => act(() => ted.startApp(task.id, app.repo, app.name, shutDown)),
+    show: () => act(() => ted.showApp(task.id, app.repo, app.name)),
     stop: () => act(() => ted.stopApp(task.id, app.repo, app.name)),
     restart: () => act(() => ted.restartApp(task.id, app.repo, app.name)),
   }
@@ -91,19 +102,28 @@ export function useAppActions(task: Task, app: TaskApp) {
 function AppRow({
   task,
   app,
+  simulators,
   selected,
   onOpen,
 }: {
   task: Task
   app: TaskApp
+  simulators: SimulatorSlots | undefined
   selected: boolean
   onOpen: () => void
 }) {
   const now = useNow()
   const actions = useAppActions(task, app)
   const { busy, live, runnable } = actions
+  const [choosing, setChoosing] = useState<DOMRect>()
+  const row = useRef<HTMLLIElement>(null)
+  const run = () => {
+    const rect = row.current?.getBoundingClientRect()
+    if (needsSlot(app, simulators) && rect) setChoosing(rect)
+    else actions.start()
+  }
   return (
-    <li className={styles.row} data-selected={selected || undefined}>
+    <li ref={row} className={styles.row} data-selected={selected || undefined}>
       <button
         type="button"
         className={styles.open}
@@ -136,6 +156,18 @@ function AppRow({
             <OpenIcon />
           </button>
         )}
+        {app.kind === 'ios-simulator' && (
+          <button
+            type="button"
+            className={styles.action}
+            aria-label={`Show ${app.name}`}
+            title="Show the simulator"
+            disabled={busy || app.simulator?.booted !== true}
+            onClick={actions.show}
+          >
+            <OpenIcon />
+          </button>
+        )}
         {live ? (
           <button
             type="button"
@@ -153,8 +185,9 @@ function AppRow({
             className={styles.action}
             aria-label={`Run ${app.name}`}
             title="Run"
+            aria-expanded={app.kind === 'ios-simulator' ? choosing !== undefined : undefined}
             disabled={busy || !runnable}
-            onClick={actions.start}
+            onClick={run}
           >
             <PlayIcon />
           </button>
@@ -170,7 +203,87 @@ function AppRow({
           <RestartIcon />
         </button>
       </span>
+      {choosing && simulators && (
+        <SlotPopover
+          task={task}
+          app={app}
+          simulators={simulators}
+          anchor={choosing}
+          onCancel={() => setChoosing(undefined)}
+          onRun={(udid) => {
+            setChoosing(undefined)
+            actions.start(udid)
+          }}
+        />
+      )}
     </li>
+  )
+}
+
+function SlotPopover({
+  task,
+  app,
+  simulators,
+  anchor,
+  onCancel,
+  onRun,
+}: {
+  task: Task
+  app: TaskApp
+  simulators: SimulatorSlots
+  anchor: DOMRect
+  onCancel: () => void
+  onRun: (udid: string) => void
+}) {
+  const now = useNow()
+  const [chosen, setChosen] = useState(() => firstChoice(simulators.booted))
+  const owner = simulators.booted.find((b) => b.udid === chosen)?.displayId
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [onCancel])
+  const count = simulators.booted.length
+  const below = window.innerHeight - anchor.bottom > 240
+  const place = {
+    right: Math.max(8, window.innerWidth - anchor.right),
+    ...(below
+      ? { top: anchor.bottom + 4 }
+      : { bottom: Math.max(8, window.innerHeight - anchor.top + 4) }),
+  }
+  return (
+    <div
+      className={styles.popover}
+      style={place}
+      role="dialog"
+      aria-label="Choose a simulator to shut down"
+    >
+      <h3 className={styles.popoverTitle}>
+        {count === 1 ? 'The only simulator slot is taken' : `All ${count} simulators are booted`}
+      </h3>
+      <p className={styles.popoverText}>
+        {`Running ${app.name} for ${task.displayId} needs one of them shut down. Its app and state stay; it boots again when needed.`}
+      </p>
+      <SimulatorChoices
+        booted={simulators.booted}
+        chosen={chosen}
+        onChoose={setChosen}
+        now={now}
+        label="Simulator to shut down"
+      />
+      <div className={styles.popoverButtons}>
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={chosen === undefined}
+          onClick={() => chosen !== undefined && onRun(chosen)}
+        >
+          {owner !== undefined ? `Shut down ${owner}’s and run` : 'Shut down and run'}
+        </Button>
+      </div>
+    </div>
   )
 }
 

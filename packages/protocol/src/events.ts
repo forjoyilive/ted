@@ -1,5 +1,5 @@
-import type { SimulatorSlots } from './app.ts'
 import type { Activity } from './activity.ts'
+import type { SimulatorSlots } from './app.ts'
 import type { Banner } from './banner.ts'
 import type { CheckRun, SendBack } from './checks.ts'
 import type { DataStatus } from './data.ts'

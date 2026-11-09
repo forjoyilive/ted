@@ -33,6 +33,7 @@ import type {
   MoveTaskRequest,
   OutcomeResult,
   Priority,
+  RecordAppRequest,
   ReportOutcomeRequest,
   RepoSetupReport,
   RoundInput,
@@ -41,16 +42,15 @@ import type {
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
+  SimulatorSlots,
   SlotHolder,
   StageId,
+  StartAppRequest,
   StartSubAgentRequest,
   SubAgent,
   SubAgentWait,
   Task,
   TaskApp,
-  RecordAppRequest,
-  SimulatorSlots,
-  StartAppRequest,
   TaskBrief,
   TaskDefaults,
   TaskLead,
@@ -64,12 +64,7 @@ import type {
 import { briefHeadings, clarifyDepths, clarifyIsOver, parseLinearUrl } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
-import {
-  type AppsOptions,
-  type AppTask,
-  createApps,
-  type SimulatorOptions,
-} from '../apps/apps.ts'
+import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -428,11 +423,17 @@ export function createTasks(options: {
       await rm(file, { force: true })
       throw new RequestError(503, 'TED can’t save files here')
     }
-    const attachment = await options.saveAttachment(file, name, mediaType).finally(() =>
-      rm(file, { force: true }),
-    )
+    const attachment = await options
+      .saveAttachment(file, name, mediaType)
+      .finally(() => rm(file, { force: true }))
     if (runId === undefined) await humanComment(task, body, [attachment])
-    else store.postComment({ taskId: task.id, body, author: { kind: 'run', runId }, attachments: [attachment] })
+    else
+      store.postComment({
+        taskId: task.id,
+        body,
+        author: { kind: 'run', runId },
+        attachments: [attachment],
+      })
     return attachment
   }
 
@@ -5496,14 +5497,28 @@ export function createTasks(options: {
     async screenshotApp(ref, caller, app) {
       const { task, runId } = runnableApps(ref, caller)
       const { file, app: shown } = await apps.screenshot(task.id, app)
-      const attachment = await saveCapture(task, runId, file, `${shown.name} screenshot.png`, 'image/png', `Screenshot of ${shown.name}`)
+      const attachment = await saveCapture(
+        task,
+        runId,
+        file,
+        `${shown.name} screenshot.png`,
+        'image/png',
+        `Screenshot of ${shown.name}`,
+      )
       return { attachment, recording: shown.simulator?.recording === true }
     },
     async recordApp(ref, caller, { action, ...app }) {
       const { task, runId } = runnableApps(ref, caller)
       const { file, app: shown } = await apps.record(task.id, app, action)
       if (file === undefined) return { recording: shown.simulator?.recording === true }
-      const attachment = await saveCapture(task, runId, file, `${shown.name} recording.mov`, 'video/quicktime', `Recording of ${shown.name}`)
+      const attachment = await saveCapture(
+        task,
+        runId,
+        file,
+        `${shown.name} recording.mov`,
+        'video/quicktime',
+        `Recording of ${shown.name}`,
+      )
       return { attachment, recording: false }
     },
     simulators: () => apps.simulators(),

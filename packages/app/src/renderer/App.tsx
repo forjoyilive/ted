@@ -1,4 +1,5 @@
 import type { AgentHealth, Banner, Factory, ListFilters, Task } from '@ted/protocol'
+import { simulatorsLine } from '@ted/protocol/app'
 import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -27,6 +28,7 @@ import {
   useFactoryList,
   useInbox,
   useSettings,
+  useSimulators,
   useSlots,
   useTasks,
 } from './data.ts'
@@ -108,6 +110,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const settings = useSettings()
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
+  const simulators = useSimulators()
+  const simulatorsFooter = simulators && simulatorsLine(simulators)
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
@@ -619,6 +623,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           settingsProblem={settingsStopsWork(banners)}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
+            ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...planFooter(agentHealth),

@@ -119,7 +119,9 @@ type Client = Awaited<ReturnType<typeof start>>
 
 const udids = () => path.join(scratch, 'udids.txt')
 
-const workflow = (run = `echo \\"$TED_TASK $TED_SIMULATOR_UDID\\" >> '${udids()}'; exec sleep 600`) =>
+const workflow = (
+  run = `echo \\"$TED_TASK $TED_SIMULATOR_UDID\\" >> '${udids()}'; exec sleep 600`,
+) =>
   [
     'version: 1',
     'order: [intake, work, merge]',
@@ -448,7 +450,9 @@ describe('iOS simulator Apps', () => {
     await client.ok('POST', `/banners/${banner?.id}/action`, {})
     await waitUntil(
       async () =>
-        !(await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'simulator-tools'),
+        !(await client.ok<Banner[]>('GET', '/banners')).some(
+          (b) => b.problem === 'simulator-tools',
+        ),
       'the banner to clear',
     )
   })
