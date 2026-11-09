@@ -42,13 +42,15 @@ export function checkAndRecord(): boolean {
   const clean = git('status', '--porcelain') === ''
   const commit = git('rev-parse', 'HEAD')
   if (!runChecks()) return false
-  if (clean && git('status', '--porcelain') === '') {
+  if (clean && git('status', '--porcelain') === '' && git('rev-parse', 'HEAD') === commit) {
     appendFileSync(checkedFile(), `${commit}\n`)
     console.log(
       `\nAll checks passed on ${commit.slice(0, 7)}. A release of this commit can skip them.`,
     )
   } else {
-    console.log('\nAll checks passed, but the working tree has changes, so nothing was recorded.')
+    console.log(
+      '\nAll checks passed, but the working tree had changes or HEAD moved, so nothing was recorded.',
+    )
   }
   return true
 }
