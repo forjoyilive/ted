@@ -138,7 +138,7 @@ const originBranches = async () =>
   (await run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads'], { cwd: origin })).stdout
 
 describe('Pushing and pull requests', () => {
-  test('TED pushes at Validate, opens one draft pull request, pushes again on the pass and marks it ready at sign-off', async () => {
+  test('TED pushes at Validate, opens one draft pull request, pushes on the pass and at sign-off and marks it ready', async () => {
     const client = await start()
     const task = await walkToSignoff(client, true)
 
@@ -177,7 +177,7 @@ describe('Pushing and pull requests', () => {
     const ahead = (
       await run('git', ['rev-list', '--count', `main..refs/heads/${repo.branch}`], { cwd: origin })
     ).stdout.trim()
-    expect(ahead).toBe('2')
+    expect(ahead).toBe('3')
   })
 
   test('a Task with no commits gets no push and no pull request', async () => {

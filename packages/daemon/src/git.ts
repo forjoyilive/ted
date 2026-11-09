@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
 const execFileAsync = promisify(execFile)
@@ -201,11 +202,36 @@ export async function commitsAhead(worktree: string, base: string): Promise<numb
   return Number.parseInt(out, 10) || 0
 }
 
+const commandKeys = [
+  /^core\.(sshcommand|askpass|gitproxy|alternaterefscommand)$/,
+  /^credential\./,
+  /^url\./,
+  /^protocol\./,
+  /^gpg\./,
+  /^push\.gpgsign$/,
+  /^include\./,
+  /^includeif\./,
+]
+
+export async function unsafePushConfig(worktree: string): Promise<string[]> {
+  const out = await git(worktree, 'config', '--list', '--show-scope')
+  return out.split('\n').flatMap((line) => {
+    const key = /^(local|worktree)\t([^=]+)=/.exec(line)?.[2]?.toLowerCase()
+    return key !== undefined && commandKeys.some((k) => k.test(key)) ? [key] : []
+  })
+}
+
 export async function pushBranch(
   worktree: string,
   branch: string,
-  options: { expected?: string; timeoutMs?: number } = {},
+  options: { url: string; expected?: string; timeoutMs?: number },
 ): Promise<string> {
+  const unsafe = await unsafePushConfig(worktree)
+  if (unsafe.length > 0) {
+    throw new GitError(
+      `TED didn’t push: the Task’s repo sets ${[...new Set(unsafe)].join(', ')} in its own git config`,
+    )
+  }
   const commit = await revParse(worktree, 'HEAD')
   const ref = `refs/heads/${branch}`
   const lease =
@@ -214,17 +240,20 @@ export async function pushBranch(
     ...noHooks,
     '-c',
     'core.hooksPath=/dev/null',
+    '-c',
+    'protocol.ext.allow=never',
     'push',
     '--no-verify',
     '--porcelain',
     ...lease,
-    'origin',
+    '--',
+    options.url,
     `${commit}:${ref}`,
   ]
   try {
     await execFileAsync('git', args, {
       cwd: worktree,
-      env: env(),
+      env: worktreeCommandEnv({}, { GIT_TERMINAL_PROMPT: '0' }),
       timeout: options.timeoutMs ?? 5 * 60_000,
       maxBuffer: 16 * 1024 * 1024,
     })

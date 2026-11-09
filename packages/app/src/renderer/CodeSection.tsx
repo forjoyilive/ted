@@ -27,29 +27,32 @@ const pullRequestState = { draft: 'Draft', ready: 'Open', closed: 'Closed' } as 
 
 function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
   const pr = repo.pullRequest
+  const failed = repo.pushFailed && (
+    <p className={styles.setup} title={repo.pushFailed.message}>
+      {pr
+        ? 'Couldn’t push the latest commits. TED tries again when Validate passes.'
+        : 'Couldn’t push this branch. TED tries again when Validate passes.'}
+    </p>
+  )
   if (pr) {
     return (
-      <p className={styles.pullRequest}>
-        <button
-          type="button"
-          className={styles.link}
-          title={pr.url}
-          onClick={() => void ted.openPullRequest(task.id, repo.name)}
-        >
-          {`Pull request #${pr.number}`}
-        </button>{' '}
-        <span className={styles.prState}>{pullRequestState[pr.state]}</span>
-      </p>
+      <>
+        <p className={styles.pullRequest}>
+          <button
+            type="button"
+            className={styles.link}
+            title={pr.url}
+            onClick={() => void ted.openPullRequest(task.id, repo.name)}
+          >
+            {`Pull request #${pr.number}`}
+          </button>{' '}
+          <span className={styles.prState}>{pullRequestState[pr.state]}</span>
+        </p>
+        {failed}
+      </>
     )
   }
-  if (repo.pushFailed) {
-    return (
-      <p className={styles.setup} title={repo.pushFailed.message}>
-        Couldn’t push this branch. TED tries again when Validate passes.
-      </p>
-    )
-  }
-  return null
+  return failed || null
 }
 
 const setupLabel = {

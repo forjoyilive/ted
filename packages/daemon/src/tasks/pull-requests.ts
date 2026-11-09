@@ -10,6 +10,7 @@ export interface PullRequestTarget {
   branch: string
   worktree: string
   base: string
+  url: string
 }
 
 export interface PullRequestTask {
@@ -28,18 +29,6 @@ export interface PullRequests {
 
 export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRequests {
   const { store, gh } = options
-  const chains = new Map<string, Promise<void>>()
-
-  function serial(taskId: string, work: () => Promise<void>): Promise<void> {
-    const next = (chains.get(taskId) ?? Promise.resolve()).then(work, work)
-    const settled = next.catch(() => undefined)
-    chains.set(taskId, settled)
-    void settled.then(() => {
-      if (chains.get(taskId) === settled) chains.delete(taskId)
-    })
-    return next
-  }
-
   const repoOf = (taskId: string, name: string): TaskRepo | undefined =>
     store.getTask(taskId)?.repos.find((r) => r.name === name)
 
@@ -52,6 +41,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
       if (ahead === 0) return false
       const before = repoOf(task.id, target.name)
       const commit = await git.pushBranch(target.worktree, target.branch, {
+        url: target.url,
         ...(before?.pushed && { expected: before.pushed.commit }),
       })
       const ci = await detectCi({ gh, commit, ...target })
@@ -90,7 +80,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
           '--body-file',
           '-',
         ],
-        { cwd: target.worktree, input: body },
+        { input: body },
       )
       const found = parsePullRequestUrl(out)
       if (found) return found
@@ -135,7 +125,6 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
         .map((o) => `${o.target.repo}#${o.number}`)
       await gh
         .run(['pr', 'edit', String(number), '--repo', target.repo, '--body-file', '-'], {
-          cwd: target.worktree,
           input: pullRequestBody(task, others),
         })
         .catch((error: unknown) =>
@@ -148,54 +137,56 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
   }
 
   return {
-    push(task, targets, mode) {
-      return serial(task.id, async () => {
-        const chosen =
-          mode === 'first' ? targets.filter((t) => !isOpen(repoOf(task.id, t.name))) : targets
-        let opened = false
-        for (const target of chosen) {
-          if (await pushOne(task, target)) opened = true
-        }
-        if (opened) await linkAll(task, targets)
-      })
+    async push(task, targets, mode) {
+      const chosen =
+        mode === 'first' ? targets.filter((t) => !isOpen(repoOf(task.id, t.name))) : targets
+      let opened = false
+      for (const target of chosen) {
+        if (await pushOne(task, target)) opened = true
+      }
+      if (opened) await linkAll(task, targets)
     },
 
-    ready(task, targets) {
-      return serial(task.id, async () => {
-        for (const target of targets) {
-          const pr = repoOf(task.id, target.name)?.pullRequest
-          if (pr?.state !== 'draft') continue
-          try {
-            await gh.run(['pr', 'ready', String(pr.number), '--repo', target.repo], {
-              cwd: target.worktree,
-            })
-            store.pullRequestMarkedReady(task.id, target.name)
-          } catch (error) {
-            console.error(
-              `couldn’t mark ${task.displayId}’s pull request ready:`,
-              redactSecrets(error instanceof Error ? error.message : String(error)),
-            )
-          }
+    async ready(task, targets) {
+      for (const target of targets) {
+        const before = repoOf(task.id, target.name)
+        if (before?.pullRequest?.state !== 'draft') continue
+        await pushOne(task, target)
+        const repo = repoOf(task.id, target.name)
+        const pr = repo?.pullRequest
+        if (pr?.state !== 'draft') continue
+        if (repo?.pushFailed) {
+          console.error(
+            `left ${task.displayId}’s pull request ${target.repo}#${pr.number} as a draft: its branch couldn’t be pushed`,
+          )
+          continue
         }
-      })
+        try {
+          await gh.run(['pr', 'ready', String(pr.number), '--repo', target.repo])
+          store.pullRequestMarkedReady(task.id, target.name)
+        } catch (error) {
+          console.error(
+            `couldn’t mark ${task.displayId}’s pull request ready:`,
+            redactSecrets(error instanceof Error ? error.message : String(error)),
+          )
+        }
+      }
     },
 
-    close(taskId) {
-      return serial(taskId, async () => {
-        for (const repo of store.getTask(taskId)?.repos ?? []) {
-          const pr = repo.pullRequest
-          if (!pr || pr.state === 'closed') continue
-          try {
-            await gh.run(['pr', 'close', String(pr.number), '--repo', repo.repo])
-            store.pullRequestClosed(taskId, repo.name)
-          } catch (error) {
-            console.error(
-              `couldn’t close pull request ${repo.repo}#${pr.number}:`,
-              redactSecrets(error instanceof Error ? error.message : String(error)),
-            )
-          }
+    async close(taskId) {
+      for (const repo of store.getTask(taskId)?.repos ?? []) {
+        const pr = repo.pullRequest
+        if (!pr || pr.state === 'closed') continue
+        try {
+          await gh.run(['pr', 'close', String(pr.number), '--repo', repo.repo])
+          store.pullRequestClosed(taskId, repo.name)
+        } catch (error) {
+          console.error(
+            `couldn’t close pull request ${repo.repo}#${pr.number}:`,
+            redactSecrets(error instanceof Error ? error.message : String(error)),
+          )
         }
-      })
+      }
     },
   }
 }

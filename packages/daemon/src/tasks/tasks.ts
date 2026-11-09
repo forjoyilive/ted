@@ -181,6 +181,7 @@ export function createTasks(options: {
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
+  const pullRequestQueue = new Map<string, Promise<void>>()
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -544,6 +545,7 @@ export function createTasks(options: {
         repo: r.repo,
         branch: r.branch,
         worktree: r.worktree,
+        url: factory.repos.find((f) => f.repo === r.repo)?.cloneUrl ?? factory.cloneUrl,
         base:
           workflow.settings.repos?.find((s) => s.name === r.name)?.base_branch ??
           (r.name === primary.name ? primary.baseBranch : await git.defaultBranch(r.worktree)),
@@ -567,13 +569,20 @@ export function createTasks(options: {
     const prs = pullRequests
     if (!prs) return
     const task = find(taskId)
-    inBackground(`update ${task.displayId}’s pull requests`, async () => {
+    const work = async () => {
       if (what === 'close') return prs.close(taskId)
       const current = find(taskId)
       const targets = await pullRequestTargets(current)
       if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
       else await prs.push(pullRequestTask(current), targets, what)
+    }
+    const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
+    const settled = next.catch(() => undefined)
+    pullRequestQueue.set(taskId, settled)
+    void settled.then(() => {
+      if (pullRequestQueue.get(taskId) === settled) pullRequestQueue.delete(taskId)
     })
+    inBackground(`update ${task.displayId}’s pull requests`, () => next)
   }
 
   const leadFrom = (settings?: WorkflowSettings) =>
@@ -751,6 +760,7 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
+    await pullRequestQueue.get(task.id)
     if (task.leadRunId) await runs.stop(task.leadRunId)
     const factory = factoryOf(task)
     const clone = clonePath(reposDir, factory)
