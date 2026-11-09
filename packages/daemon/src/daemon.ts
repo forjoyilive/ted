@@ -11,6 +11,7 @@ import { ensureClone } from './factories.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
+import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
@@ -48,6 +49,14 @@ export interface DaemonOptions {
   appToken?: string
   mergePollMs?: number
   stallAfterMs?: number
+  online?: DaemonOnlineOptions
+  limitProbeMs?: number
+}
+
+export interface DaemonOnlineOptions {
+  isOnline?: () => Promise<boolean>
+  onlineEveryMs?: number
+  offlineEveryMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -148,7 +157,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         emit,
         ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
         ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
+        ...(options.limitProbeMs !== undefined && { probeAfterMs: options.limitProbeMs }),
       })
+      const onlineOptions = options.online ?? {}
+      const fakeOnline = process.env.TED_ONLINE_FILE
+      const online = watchOnline({
+        isOnline:
+          onlineOptions.isOnline ??
+          (fakeOnline ? () => onlineFromFile(fakeOnline) : agentHostsReachable),
+        onChange: (now) => health.setOnline(now),
+        ...(fakeOnline && { onlineEveryMs: 1000, offlineEveryMs: 1000 }),
+        ...(onlineOptions.onlineEveryMs !== undefined && {
+          onlineEveryMs: onlineOptions.onlineEveryMs,
+        }),
+        ...(onlineOptions.offlineEveryMs !== undefined && {
+          offlineEveryMs: onlineOptions.offlineEveryMs,
+        }),
+      })
+      void online.check()
+      runs.observe({ retrying: () => void online.check() })
       const ghBin = given.ghBin ?? process.env.TED_GH_BIN
       const integrations = createIntegrations({
         store,
@@ -203,6 +230,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
         logsDir: paths.logs,
+        runsDir: paths.runs,
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
@@ -214,8 +242,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       wake = () => tasks.wake()
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
+      const excludeFromBackups =
+        diskOptions.excludeFromBackups ??
+        (process.env.TED_TIME_MACHINE === 'off' ? async () => undefined : excludeFromTimeMachine)
       Promise.all(backupless.map((dir) => mkdir(dir, { recursive: true, mode: 0o700 })))
-        .then(() => (diskOptions.excludeFromBackups ?? excludeFromTimeMachine)(backupless))
+        .then(() => excludeFromBackups(backupless))
         .catch((error: unknown) =>
           console.error('couldn’t exclude folders from Time Machine:', error),
         )
@@ -267,6 +298,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           disk.close()
           clearInterval(pruneTimer)
           stopWatchingWrites()
+          online.close()
           health.close()
           integrations.close()
           await factories.close()

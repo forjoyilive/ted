@@ -13,7 +13,7 @@ export type MenuCommand =
   | { kind: 'open-inbox' }
   | { kind: 'open-ted' }
   | { kind: 'new-task' }
-  | { kind: 'settings' }
+  | { kind: 'settings'; section?: string }
   | { kind: 'banner'; bannerId: string }
   | { kind: 'restart-to-update' }
   | { kind: 'quit' }
@@ -226,5 +226,22 @@ export function closeNotice(
   return {
     title: 'TED',
     body: 'TED is still running in the background. Open it again from your app launcher.',
+  }
+}
+
+export interface ProblemNotice {
+  title: string
+  body: string
+  opens: MenuCommand
+}
+
+export function problemNotice(banner: Banner): ProblemNotice | undefined {
+  if (banner.severity !== 'stops-work') return undefined
+  const place = banner.action?.opens
+  const section = place?.kind === 'settings' ? place.section : banner.action?.section
+  return {
+    title: 'TED',
+    body: banner.text,
+    opens: section !== undefined ? { kind: 'settings', section } : { kind: 'open-ted' },
   }
 }

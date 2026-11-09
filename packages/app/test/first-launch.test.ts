@@ -207,7 +207,7 @@ describe('first launch', () => {
     await claude.getByText('Signed in with an API key', { exact: true }).waitFor()
     await claude
       .getByText(
-        'Claude Code is signed in with an API key. Choose how Claude Code Runs are billed before the first Run.',
+        'Claude Code reported an API key. Remove it, or choose API key billing if you meant to use one.',
       )
       .waitFor()
     await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
@@ -222,7 +222,8 @@ describe('first launch', () => {
     await expect
       .poll(fixesRun)
       .toEqual(['gh auth login --web --hostname github.com -s workflow', 'claude auth login'])
-    await expect.poll(settings).toMatchObject({ billing: { claude: 'subscription' } })
+    await claude.getByText(/^Opened claude auth login in (Terminal|your terminal)\./).waitFor()
+    expect(await settings()).toMatchObject({ billing: { claude: 'subscription' } })
 
     await claude.getByRole('button', { name: 'Use API-key billing' }).click()
     await expect.poll(settings).toMatchObject({ billing: { claude: 'api-key' } })
@@ -245,18 +246,11 @@ describe('first launch', () => {
     )
   })
 
-  test('a shell API key variable asks for billing too', async () => {
+  test('a key variable in the shell alone asks nothing, since Subscription removes it', async () => {
     const window = await launchApp({ env: { ANTHROPIC_API_KEY: 'sk-first-launch' } })
 
     const claude = row(window, 'Claude Code')
-    await claude
-      .getByText(
-        'ANTHROPIC_API_KEY is set in your shell. Choose how Claude Code Runs are billed before the first Run.',
-      )
-      .waitFor()
-    await claude.getByRole('button', { name: 'Sign in with a subscription instead' }).click()
-    await expect.poll(settings).toMatchObject({ billing: { claude: 'subscription' } })
     await claude.getByText('Ready').waitFor()
-    expect(await fixesRun()).toEqual([])
+    expect(await claude.getByRole('button', { name: 'Use API-key billing' }).count()).toBe(0)
   })
 })

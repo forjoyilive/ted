@@ -150,6 +150,8 @@ describe('Codex Runs', () => {
         'shell_environment_policy.inherit="all"',
         '-c',
         'shell_environment_policy.ignore_default_excludes=true',
+        '-c',
+        'shell_environment_policy.exclude=["CODEX_API_KEY","OPENAI_API_KEY"]',
       ])
       expect(env.CODEX_API_KEY).toBeUndefined()
       expect(env.OPENAI_API_KEY).toBeUndefined()

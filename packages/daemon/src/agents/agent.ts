@@ -1,10 +1,12 @@
 import type {
   AgentKind,
+  Billing,
   ChatDiff,
   ChatToolStatus,
   ConversationEntry,
   Effort,
   PermissionMode,
+  PlanWindow,
   RunProblem,
   RunState,
 } from '@ted/protocol'
@@ -69,7 +71,14 @@ export interface TokenCount {
 export interface AuthCheck {
   signedIn: boolean
   account?: string
-  credential?: 'subscription' | 'api-key'
+  billing?: Billing
+}
+
+export type UsageSignal = { limited: true; resetsAt?: string } | { limited: false }
+
+export interface CredentialReport {
+  billing: Billing
+  source?: string
 }
 
 export interface AgentHealthSpec {
@@ -80,7 +89,6 @@ export interface AgentHealthSpec {
   signIn: string
   update: string
   install: string
-  keyVariables: string[]
 }
 
 export type AgentChatEntry =
@@ -110,6 +118,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
+    billing?: Billing
   }): AgentLaunch
   message(text: string): string
   steer(text: string): string
@@ -128,6 +137,32 @@ export interface Agent {
   problemFrom(line: string): RunProblem | undefined
   tokensFrom(line: string): TokenCount | undefined
   authErrorFrom(line: string): boolean
-  environment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv
+  usageFrom(line: string): UsageSignal | undefined
+  retryingFrom(line: string): boolean | undefined
+  credentialFrom(line: string): CredentialReport | undefined
+  planUsageFrom(line: string): PlanWindow[] | undefined
+  costOf(lines: readonly string[], model: string | undefined): number | undefined
+  keyHelp(source: string | undefined): string
+  environment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv
   health: AgentHealthSpec
+}
+
+export function fromEpoch(value: unknown): string | undefined {
+  if (typeof value === 'string' && value !== '') {
+    const parsed = Date.parse(value)
+    if (!Number.isNaN(parsed)) return new Date(parsed).toISOString()
+    const number = Number(value)
+    return Number.isFinite(number) ? fromEpoch(number) : undefined
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined
+  return new Date(value > 1e12 ? value : value * 1000).toISOString()
+}
+
+export function withoutKeys(
+  env: NodeJS.ProcessEnv,
+  names: readonly string[],
+  billing: Billing = 'subscription',
+): NodeJS.ProcessEnv {
+  if (billing === 'api-key') return { ...env }
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !names.includes(k)))
 }

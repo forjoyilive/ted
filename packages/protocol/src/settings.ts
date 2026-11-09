@@ -1,3 +1,4 @@
+import type { Billing } from './health.ts'
 import type { ListView } from './list-view.ts'
 import type { AgentKind } from './run.ts'
 
@@ -13,10 +14,6 @@ export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
 export type QuitChoice = (typeof quitChoices)[number]
 
-export const billingKinds = ['subscription', 'api-key'] as const
-
-export type Billing = (typeof billingKinds)[number]
-
 export interface MachineSettings {
   appearance: Appearance
   terminalFontSize: number
@@ -29,7 +26,7 @@ export interface MachineSettings {
   stayAwake: boolean
   listViews: Readonly<Record<string, ListView>>
   firstLaunchDone: boolean
-  billing: Readonly<Partial<Record<AgentKind, Billing>>>
+  billing: Readonly<Record<AgentKind, Billing>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -44,7 +41,7 @@ export const defaultMachineSettings: MachineSettings = {
   stayAwake: true,
   listViews: {},
   firstLaunchDone: false,
-  billing: {},
+  billing: { claude: 'subscription', codex: 'subscription' },
 }
 
 export interface Profile {

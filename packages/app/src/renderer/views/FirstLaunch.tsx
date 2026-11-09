@@ -45,14 +45,15 @@ function message(error: unknown): string {
   return text.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
-export function needsBilling(health: AgentHealth, settings: MachineSettings): boolean {
-  if (health.state !== 'ready' || health.apiKey === undefined) return false
-  const chosen = settings.billing[health.agent]
-  return chosen === undefined || (chosen === 'subscription' && health.credential === 'api-key')
-}
+const usable: readonly AgentHealth['state'][] = [
+  'ready',
+  'wrong-credential',
+  'usage-limit',
+  'offline',
+]
 
 export function canContinue(agents: readonly AgentHealth[], git: GitHealth | undefined): boolean {
-  return git?.state === 'ready' && agents.some((h) => h.state === 'ready')
+  return git?.state === 'ready' && agents.some((h) => usable.includes(h.state))
 }
 
 function StatusIcon({ tone }: { tone: Tone }) {
@@ -152,7 +153,6 @@ interface RowActions {
 function AgentRow({
   agent,
   health,
-  settings,
   note,
   error,
   onFix,
@@ -161,7 +161,6 @@ function AgentRow({
 }: {
   agent: AgentKind
   health: AgentHealth | undefined
-  settings: MachineSettings
   note: string | undefined
   error: string | undefined
   onFix: () => void
@@ -182,13 +181,16 @@ function AgentRow({
       </Button>
     </>
   )
-  if (needsBilling(health, settings)) {
+  if (health.state === 'wrong-credential') {
     return (
       <Row
         name={name}
         tone="warn"
         chip="Signed in with an API key"
-        detail={`${health.apiKey}. Choose how ${name} Runs are billed before the first Run.`}
+        detail={
+          health.keySource ??
+          `${name} is signed in with an API key. Choose how ${name} Runs are billed before the first Run.`
+        }
         meta={join(health.version, health.path)}
         below={
           <div className={styles.buttons}>
@@ -497,10 +499,8 @@ export function FirstLaunch({
   async function chooseBilling(health: AgentHealth, billing: 'subscription' | 'api-key') {
     setFor(health.agent)
     try {
-      await ted.updateSettings({ billing: { ...settings.billing, [health.agent]: billing } })
-      if (billing === 'subscription' && health.credential === 'api-key' && health.fix) {
-        await fixAgent(health.agent)
-      }
+      if (billing === 'subscription') await fixAgent(health.agent)
+      else await ted.updateSettings({ billing: { ...settings.billing, [health.agent]: billing } })
     } catch (error) {
       setFor(health.agent, undefined, message(error))
     }
@@ -548,13 +548,12 @@ export function FirstLaunch({
         <div className={styles.rows}>
           {(['claude', 'codex'] as const).map((agent) => {
             const health = agentFor(agent)
-            const good = health?.state === 'ready' && !needsBilling(health, settings)
+            const good = health?.state === 'ready'
             return (
               <AgentRow
                 key={agent}
                 agent={agent}
                 health={health}
-                settings={settings}
                 note={good ? undefined : notes[agent]}
                 error={errors[agent]}
                 onFix={() => void fixAgent(agent)}

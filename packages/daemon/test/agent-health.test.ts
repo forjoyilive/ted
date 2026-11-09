@@ -114,37 +114,18 @@ describe('Agent health', () => {
     expect(await agentBanner(client, 'codex')).toBeUndefined()
   })
 
-  test('an agent signed in with an API key is Ready, says so, and offers a subscription sign-in', async () => {
+  test('a CLI signed in with an API key under Subscription offers a subscription sign-in', async () => {
     await setStub('claude', { authMethod: 'console' })
     const client = await start()
 
-    const claude = await waitUntil(() => healthOf(client, 'claude'), 'Claude Code’s health')
-    expect(claude).toMatchObject({
-      state: 'ready',
-      credential: 'api-key',
-      apiKey: 'Claude Code is signed in with an API key',
-      fix: { label: 'Sign in', command: 'claude auth login' },
-    })
-    expect(await agentBanner(client, 'claude')).toBeUndefined()
+    const claude = await waitUntil(async () => {
+      const h = await healthOf(client, 'claude')
+      return h?.state === 'wrong-credential' ? h : undefined
+    }, 'Claude Code to report an API key')
+    expect(claude.fix).toEqual({ label: 'Sign in', command: 'claude auth login' })
 
     await client.ok('POST', '/agents/claude/fix')
     expect(opened).toEqual(['claude auth login'])
-  })
-
-  test('a key variable in the shell counts as an API key even when the CLI uses a subscription', async () => {
-    process.env.ANTHROPIC_API_KEY = 'sk-test'
-    try {
-      const client = await start()
-      const claude = await waitUntil(() => healthOf(client, 'claude'), 'Claude Code’s health')
-      expect(claude).toMatchObject({
-        state: 'ready',
-        credential: 'subscription',
-        apiKey: 'ANTHROPIC_API_KEY is set in your shell',
-      })
-      expect(claude.fix).toBeUndefined()
-    } finally {
-      delete process.env.ANTHROPIC_API_KEY
-    }
   })
 
   test('an agent below the minimum version is too old and offers its update command', async () => {

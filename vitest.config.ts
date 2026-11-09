@@ -1,27 +1,29 @@
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 
-export default defineConfig({
-  test: {
-    include: ['packages/*/test/**/*.test.ts'],
-    testTimeout: 30_000,
-    globalSetup: ['packages/daemon/test/support/global-setup.ts'],
-    setupFiles: ['packages/daemon/test/support/setup.ts'],
-    env: {
-      TED_GH_BIN: fileURLToPath(
-        new URL('./packages/daemon/test/fixtures/stub-gh.ts', import.meta.url),
-      ),
-      TED_LOGIN_SHELL: 'off',
-      TED_FREE_BYTES_FILE: fileURLToPath(
-        new URL('./packages/daemon/test/fixtures/free-bytes.txt', import.meta.url),
-      ),
-      TED_KEYRING_MODULE: fileURLToPath(
-        new URL('./packages/daemon/test/fixtures/stub-keyring.ts', import.meta.url),
-      ),
-      TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
-      TED_STAY_AWAKE: 'off',
-      TED_SKIP_FIRST_LAUNCH: '1',
-      TED_APP_TOKEN: 'test-app-token',
+const here = (file: string) => fileURLToPath(new URL(file, import.meta.url))
+
+export function tedTestConfig(include: string[]) {
+  return defineConfig({
+    test: {
+      include,
+      testTimeout: 30_000,
+      globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
+      setupFiles: [here('./packages/daemon/test/support/setup.ts')],
+      env: {
+        TED_GH_BIN: here('./packages/daemon/test/fixtures/stub-gh.ts'),
+        TED_LOGIN_SHELL: 'off',
+        TED_FREE_BYTES_FILE: here('./packages/daemon/test/fixtures/free-bytes.txt'),
+        TED_ONLINE_FILE: here('./packages/daemon/test/fixtures/online.txt'),
+        TED_KEYRING_MODULE: here('./packages/daemon/test/fixtures/stub-keyring.ts'),
+        TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
+        TED_STAY_AWAKE: 'off',
+        TED_SKIP_FIRST_LAUNCH: '1',
+        TED_TIME_MACHINE: 'off',
+        TED_APP_TOKEN: 'test-app-token',
+      },
     },
-  },
-})
+  })
+}
+
+export default tedTestConfig(['packages/*/test/**/*.test.ts'])

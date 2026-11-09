@@ -208,6 +208,36 @@ describe('Pushing and pull requests', () => {
     expect(await originBranches()).toContain('ted/')
   })
 
+  test('Archive names the pull requests it closed, and Unarchive reopens them', async () => {
+    const client = await start()
+    const task = await walkToSignoff(client, true)
+    await waitUntil(
+      async () => (await repoOf(client, task))?.pullRequest?.state === 'ready',
+      'the pull request to be ready',
+    )
+    await client.ok('POST', `/tasks/${task.id}/archive`, { closePullRequests: true })
+    await waitUntil(
+      async () =>
+        (await repoOf(client, task))?.pullRequest?.state === 'closed' &&
+        (await repoOf(client, task))?.removed !== undefined,
+      'the pull request to close and the worktree to go',
+    )
+    const events = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.map((e) => e.text)).toContain(
+      'You archived this Task · closed widgets #7 on GitHub · kept the branch',
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/unarchive`)
+
+    await waitUntil(
+      async () => (await repoOf(client, task))?.pullRequest?.state === 'ready',
+      'the pull request to reopen',
+    )
+    expect((await prCalls('reopen')).map((c) => c.args.slice(2))).toEqual([
+      ['7', '--repo', 'acme/widgets'],
+    ])
+  })
+
   test('a failed push is recorded on the repo without its credentials', async () => {
     const client = await start()
     await writeFile(

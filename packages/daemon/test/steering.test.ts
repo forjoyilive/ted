@@ -350,6 +350,7 @@ describe('Steering a working Run', () => {
       headers: { authorization: `Bearer ${tokens.issue('run-2')}` },
     })
     expect(other.status).toBe(403)
+    expect((await client.call('POST', '/runs/run-1/boundary')).status).toBe(403)
     expect((await client.call('POST', '/runs/nope/interrupt')).status).toBe(404)
   })
 })

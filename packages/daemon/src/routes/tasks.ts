@@ -5,11 +5,14 @@ import {
   type AnswerRequest,
   agentKinds,
   agentStageIds,
+  type BlockedChoice,
   type BlockTaskRequest,
+  blockedChoices,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
   efforts,
+  isModelName,
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
@@ -29,6 +32,14 @@ import type { CreateTaskInput } from '../tasks/tasks.ts'
 import { type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
+
+function blockedChoice(body: Record<string, unknown> | null): BlockedChoice {
+  const value = body?.blocked
+  if (value === undefined) return 'unblock'
+  const choice = blockedChoices.find((c) => c === value)
+  if (!choice) throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
+  return choice
+}
 
 export const taskRoutes: Route[] = [
   {
@@ -119,7 +130,24 @@ export const taskRoutes: Route[] = [
       if (close !== undefined && typeof close !== 'boolean') {
         throw new HttpError(400, 'closePullRequests must be true or false')
       }
-      return [200, tasks.archive(ref, { closePullRequests: close === true })]
+      return [
+        200,
+        tasks.archive(ref, { closePullRequests: close === true, blocked: blockedChoice(body) }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/unarchive$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.unarchive(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/delete$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readOptionalJson(req)) as Record<string, unknown> | null
+      await tasks.delete(ref, { blocked: blockedChoice(body) })
+      return [200, {}]
     },
   },
   {
@@ -363,15 +391,15 @@ function agentChoice(body: unknown): TaskLead {
   if (!agentKinds.includes(agent as AgentKind)) {
     throw new HttpError(400, 'agent must be claude or codex')
   }
-  if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
-    throw new HttpError(400, 'model must be a name')
+  if (model !== undefined && !isModelName(model)) {
+    throw new HttpError(400, 'model must be a model name, such as opus or gpt-5.5')
   }
   if (effort !== undefined && !efforts.includes(effort as Effort)) {
     throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
   }
   return {
     agent: agent as AgentKind,
-    ...(typeof model === 'string' && { model: model.trim() }),
+    ...(model !== undefined && { model }),
     ...(effort !== undefined && { effort: effort as Effort }),
   }
 }
@@ -447,13 +475,13 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     const { agent, model, effort } = value as Record<string, unknown>
     const kind = oneOf('lead.agent', agent, agentKinds)
     if (kind === undefined) throw new HttpError(400, 'lead.agent is required')
-    if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
-      throw new HttpError(400, 'lead.model must be text')
+    if (model !== undefined && !isModelName(model)) {
+      throw new HttpError(400, 'lead.model must be a model name, such as opus or gpt-5.5')
     }
     const level = oneOf('lead.effort', effort, efforts)
     return {
       agent: kind,
-      ...(typeof model === 'string' && { model: model.trim() }),
+      ...(model !== undefined && { model }),
       ...(level !== undefined && { effort: level }),
     }
   }

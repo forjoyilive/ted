@@ -17,6 +17,7 @@ import {
   agentKinds,
   type Banner,
   type BannerActionInput,
+  blockedChoices,
   type CheckRepoRequest,
   type ClarifyDepth,
   type CreateFactoryRequest,
@@ -59,6 +60,7 @@ import {
   type MenuEntry,
   type MenuState,
   type Platform,
+  problemNotice,
   quitAnswer,
   quitDialog,
   quitPlan,
@@ -132,11 +134,21 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
     client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId, options) =>
-    client.archiveTask(String(taskId), {
-      closePullRequests:
-        (options as { closePullRequests?: unknown } | undefined)?.closePullRequests === true,
-    }),
+  archiveTask: (client, taskId, options) => {
+    const given = options as { closePullRequests?: unknown; blocked?: unknown } | undefined
+    const blocked = blockedChoices.find((c) => c === given?.blocked)
+    return client.archiveTask(String(taskId), {
+      closePullRequests: given?.closePullRequests === true,
+      ...(blocked !== undefined && { blocked }),
+    })
+  },
+  unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  deleteTask: (client, taskId, options) => {
+    const blocked = blockedChoices.find(
+      (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
+    )
+    return client.deleteTask(String(taskId), { ...(blocked !== undefined && { blocked }) })
+  },
   openPullRequest: async (client, taskId, repoName) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.url
@@ -366,9 +378,18 @@ function forward(event: DaemonEvent): void {
   if (event.type === 'banner-cleared') {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
+  if (event.type === 'banner-raised') notifyProblem(event.banner)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
+}
+
+function notifyProblem(banner: Banner): void {
+  const notice = problemNotice(banner)
+  if (!notice || hiddenWindow || !Notification.isSupported()) return
+  const shown = new Notification({ title: notice.title, body: notice.body })
+  shown.on('click', () => run(notice.opens))
+  shown.show()
 }
 
 function run(command: MenuCommand): void {

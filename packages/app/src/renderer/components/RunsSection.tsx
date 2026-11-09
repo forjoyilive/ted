@@ -33,17 +33,28 @@ function agentLine(run: RunSummary): string {
   ].join(' · ')
 }
 
-function usageLine(run: RunSummary): string | undefined {
-  const parts = [run.credential, run.tokens !== undefined ? tokenCount(run.tokens) : undefined]
+export function dollars(amount: number): string {
+  return `$${amount > 0 && amount < 0.01 ? amount.toFixed(3) : amount.toFixed(2)}`
+}
+
+export function usageLine(run: RunSummary): string | undefined {
+  const parts = [
+    run.credential,
+    run.tokens !== undefined ? tokenCount(run.tokens) : undefined,
+    run.cost !== undefined ? dollars(run.cost) : undefined,
+  ]
   const shown = parts.filter((p) => p !== undefined)
   return shown.length > 0 ? shown.join(' · ') : undefined
 }
 
 export function runsSummary(runs: readonly RunSummary[]): string {
   const tokens = runs.reduce((sum, r) => sum + (r.tokens ?? 0), 0)
+  const keyed = runs.filter((r) => r.cost !== undefined)
+  const cost = keyed.reduce((sum, r) => sum + (r.cost ?? 0), 0)
   return [
     runs.length === 1 ? '1 Run' : `${runs.length} Runs`,
     ...(tokens > 0 ? [tokenCount(tokens)] : []),
+    ...(keyed.length > 0 ? [`${dollars(cost)} on API key`] : []),
   ].join(' · ')
 }
 

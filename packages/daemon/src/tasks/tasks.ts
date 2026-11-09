@@ -5,7 +5,9 @@ import type {
   AgentKind,
   AgentStageId,
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
+  BlockedChoice,
   CheckRun,
   CheckRunReport,
   CheckRunTrigger,
@@ -13,6 +15,7 @@ import type {
   Comment,
   CommentAnswer,
   DaemonEvent,
+  DeleteTaskRequest,
   Effort,
   FactoryBoard,
   GitHubWait,
@@ -114,6 +117,7 @@ import {
   type PullRequestTask,
 } from './pull-requests.ts'
 import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import { removeInside } from './remove-files.ts'
 import {
   clarifySignoffCaption,
   depthNames,
@@ -155,7 +159,9 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
-  archive(ref: string, options?: { closePullRequests?: boolean }): Task
+  archive(ref: string, options?: ArchiveTaskRequest): Task
+  unarchive(ref: string): Promise<Task>
+  delete(ref: string, options: DeleteTaskRequest): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -200,6 +206,7 @@ export function createTasks(options: {
   worktreesDir: string
   logsDir: string
   libraryDir?: string
+  runsDir?: string
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
@@ -226,6 +233,8 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
+  const turnEnding = new Set<string>()
+  const readyMidTurn = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
   const asked = new Map<string, string>()
@@ -249,6 +258,8 @@ export function createTasks(options: {
   const checking = new Set<string>()
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const pullRequestQueue = new Map<string, Promise<void>>()
+  const clearingAway = new Map<string, Promise<void>>()
+  const deleting = new Set<string>()
   const merging = new Set<string>()
   const rebaseAsked = new Map<string, { from: string; to: string }>()
   const autoMergeTried = new Set<string>()
@@ -692,13 +703,14 @@ export function createTasks(options: {
 
   function pullRequestWork(
     taskId: string,
-    what: 'first' | 'again' | 'ready' | 'close' | 'signoff',
+    what: 'first' | 'again' | 'ready' | 'close' | 'reopen' | 'signoff',
   ): void {
     const prs = pullRequests
     if (!prs) return
     const task = find(taskId)
     const work = async () => {
       if (what === 'close') return prs.close(taskId)
+      if (what === 'reopen') return prs.reopen(taskId)
       if (what === 'signoff') return recordSignOff(taskId)
       const current = find(taskId)
       const targets = await pullRequestTargets(current)
@@ -1282,6 +1294,18 @@ export function createTasks(options: {
       throw new RequestError(403, `this Run doesn’t belong to ${task.displayId}`)
     }
     return { task, runId: caller.runId }
+  }
+
+  function taskLead(
+    ref: string,
+    caller: Caller,
+    does: string,
+  ): { task: StoredTask; runId: string } {
+    const owned = ownTask(ref, caller)
+    if (owned.task.leadRunId !== owned.runId) {
+      throw new RequestError(403, `only the Task Lead ${does}`)
+    }
+    return owned
   }
 
   function factoryOf(task: Task) {
@@ -2256,6 +2280,126 @@ export function createTasks(options: {
     return task
   }
 
+  function removeBlockers(taskId: string, caller: Caller, blockerId?: string): void {
+    const links = store.blockers(taskId)
+    const wasBlocked = links.some((l) => !l.merged)
+    const runId = caller.kind === 'run' ? caller.runId : undefined
+    for (const link of links) {
+      if (blockerId === undefined || link.blockerId === blockerId) {
+        store.removeBlocker(taskId, link.blockerId, runId)
+      }
+    }
+    const current = find(taskId)
+    if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(taskId).length === 0) {
+      if (current.stage === 'backlog' && current.startRequested) {
+        store.setStartRequested(taskId, false)
+      } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
+        store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
+      }
+    }
+  }
+
+  function settleDependents(taskId: string, blocked: BlockedChoice): void {
+    if (blocked !== 'unblock') return
+    for (const dependent of store.blockedBy(taskId)) {
+      removeBlockers(dependent, { kind: 'app' }, taskId)
+    }
+  }
+
+  function clearing(taskId: string): Promise<void> {
+    const running = clearingAway.get(taskId)
+    if (running) return running
+    const work = clearAway(taskId).finally(() => clearingAway.delete(taskId))
+    clearingAway.set(taskId, work)
+    return work
+  }
+
+  function archiveNow(task: StoredTask, closePullRequests: boolean): Task {
+    const closing = closePullRequests
+      ? task.repos.flatMap((r) =>
+          r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+            ? [`${r.name} #${r.pullRequest.number}`]
+            : [],
+        )
+      : []
+    const archived = store.archiveTask(task.id, { closing, branches: task.repos.length })
+    if (closing.length > 0) pullRequestWork(task.id, 'close')
+    inBackground(`archive ${task.displayId}`, () => clearing(task.id))
+    return archived
+  }
+
+  async function unarchive(ref: string): Promise<Task> {
+    const task = find(ref)
+    if (!task.archived || deleting.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} isn’t archived`)
+    }
+    await clearingAway.get(task.id)?.catch(() => undefined)
+    await pullRequestQueue.get(task.id)
+    const current = find(task.id)
+    if (!current.archived || deleting.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} isn’t archived`)
+    }
+    const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
+    store.unarchiveTask(task.id, {
+      queue: midFlow,
+      waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
+    })
+    if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
+      pullRequestWork(task.id, 'reopen')
+    }
+    await pump()
+    wake()
+    return publicTask(task.id)
+  }
+
+  async function remove(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+    const task = find(ref)
+    if (deleting.has(task.id))
+      throw new RequestError(409, `${task.displayId} is already being deleted`)
+    deleting.add(task.id)
+    try {
+      settleDependents(task.id, blocked)
+      if (!find(task.id).archived) archiveNow(find(task.id), false)
+      await clearing(task.id)
+      await pullRequestQueue.get(task.id)
+      const last = find(task.id)
+      const runIds = store.taskRunList(task.id).map((r) => r.id)
+      store.deleteTask(task.id)
+      await store.persisted()
+      await removeFiles(last, runIds)
+    } finally {
+      deleting.delete(task.id)
+    }
+    wake()
+  }
+
+  async function removeFiles(task: StoredTask, runIds: readonly string[]): Promise<void> {
+    const gone = (root: string, name: string) =>
+      removeInside(root, name).catch((error: unknown) =>
+        console.error(`couldn’t remove ${name} for deleted ${task.displayId}:`, error),
+      )
+    const runsDir = options.runsDir
+    if (runsDir) await Promise.all(runIds.map((id) => gone(runsDir, id)))
+    await gone(path.join(logsDir, 'checks'), task.displayId)
+    await Promise.all(
+      task.repos.flatMap((r) =>
+        (['setup', 'teardown'] as const).map((kind) =>
+          gone(path.join(logsDir, 'worktrees'), path.basename(commandLog(task, kind, r.name))),
+        ),
+      ),
+    )
+    await gone(worktreesDir, task.displayId)
+    const stillUsed = new Set(store.listTasks().flatMap((t) => t.attachments.map((a) => a.hash)))
+    await Promise.all(
+      task.attachments
+        .filter((a) => !stillUsed.has(a.hash))
+        .map((a) => {
+          const file = attachmentFile(a)
+          return gone(path.dirname(file), path.basename(file))
+        }),
+    )
+  }
+
   async function clearAway(taskId: string): Promise<void> {
     if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
     settingUp.get(taskId)?.abort()
@@ -2307,6 +2451,7 @@ export function createTasks(options: {
       store.dequeue(task.id)
       return
     }
+    if (task.repos.length > 0) return reopenWorktree(task)
     {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
@@ -2361,6 +2506,64 @@ export function createTasks(options: {
     }
   }
 
+  async function reopenWorktree(task: StoredTask): Promise<void> {
+    const factory = factoryOf(task)
+    const clone = await ensureClone({ banners, reposDir }, factory)
+    await git.fetch(clone)
+    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const settings = primaryRepoWorktree(resolution.workflow, factory)
+    const old = task.repos.find((r) => r.name === settings.name) ?? task.repos[0]
+    if (!old) return
+    await mkdir(path.dirname(old.worktree), { recursive: true })
+    await git
+      .restoreWorktree(clone, {
+        path: old.worktree,
+        branch: old.branch,
+        from: `origin/${settings.baseBranch}`,
+      })
+      .catch((error: unknown) => {
+        throw new RequestError(
+          409,
+          `couldn’t make ${task.displayId}’s worktree again from ${old.branch}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+    const copy =
+      old.name === settings.name
+        ? await copyFiles(store.localFolder(factory.repo), old.worktree, settings.copy).catch(
+            (error: unknown) => {
+              console.error(`couldn’t copy files into ${task.displayId}’s worktree:`, error)
+              return { copied: [], skipped: [] }
+            },
+          )
+        : { copied: [], skipped: [] }
+    store.worktreeCreated(task.id, {
+      name: old.name,
+      repo: old.repo,
+      branch: old.branch,
+      worktree: old.worktree,
+      ...copy,
+    })
+    store.dequeue(task.id)
+    const started = find(task.id)
+    const repo = started.repos.find((r) => r.name === old.name)
+    if (!repo) throw new Error(`${task.displayId} has no worktree record`)
+    const pickUp = freshRunNote(started)
+    const setup = old.name === settings.name ? settings.setup : undefined
+    if (setup) {
+      inBackground(`set up ${task.displayId}’s worktree`, () =>
+        setUpAndLaunch(
+          started,
+          resolution,
+          repo,
+          { command: setup.run, timeoutMs: setup.timeoutMs, env: settings.env },
+          pickUp,
+        ),
+      )
+    } else {
+      await launch(started, resolution, repo, settings.env, undefined, { pickUp })
+    }
+  }
+
   function pendingPickUp(task: StoredTask): string | undefined {
     const log = store.taskLog(task.id)
     const asked = log.findLastIndex(asksForFreshRun)
@@ -2379,6 +2582,12 @@ export function createTasks(options: {
     const last = store.taskLog(task.id).findLast(asksForFreshRun)
     if (last?.name === 'v1.TaskRetried' || last?.name === 'v1.TaskLeadFailed') {
       return fromTheBrief(task, freshAfterFailure(last))
+    }
+    if (last?.name === 'v1.TaskUnarchived') {
+      return fromTheBrief(task, {
+        heading: 'Picking up after unarchiving',
+        why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
+      })
     }
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
@@ -2778,10 +2987,37 @@ export function createTasks(options: {
     }
   }
 
+  const stoppedMidTurn = (runId: string) => {
+    interrupted.add(runId)
+    turnEnding.add(runId)
+  }
+
   runs.observe({
     authFailed(run) {
-      if (run.state !== 'finished') interrupted.add(run.id)
+      if (run.state !== 'finished') stoppedMidTurn(run.id)
       health.authFailed(run.agent)
+    },
+    usage(run, signal) {
+      if (!signal.limited) {
+        if (store.agentPauses()[run.agent] !== undefined) health.usable(run.agent)
+        return
+      }
+      if (run.state !== 'finished') stoppedMidTurn(run.id)
+      health.limited(run.agent, signal.resetsAt)
+    },
+    credential(run, report) {
+      if (!health.credentialReported(run.agent, report) || run.state === 'finished') return
+      stoppedMidTurn(run.id)
+      runs.interrupt(run.id).catch((error: unknown) => console.error(error))
+    },
+    planUsage(run, windows) {
+      health.planUsage(run.agent, windows)
+    },
+    settled(run) {
+      turnEnding.delete(run.id)
+      if (!readyMidTurn.delete(run.id) || store.agentPauses()[run.agent] !== undefined) return
+      if (!interrupted.delete(run.id)) return
+      runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
     },
     accepted(run, texts) {
       markAccepted(run, texts)
@@ -2796,6 +3032,8 @@ export function createTasks(options: {
     },
     finished(run) {
       interrupted.delete(run.id)
+      turnEnding.delete(run.id)
+      readyMidTurn.delete(run.id)
       inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
     },
   })
@@ -2805,6 +3043,10 @@ export function createTasks(options: {
     for (const runId of [...interrupted]) {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished' && run.agent !== agent) continue
+      if (run?.state === 'working' && turnEnding.has(runId)) {
+        readyMidTurn.add(runId)
+        continue
+      }
       interrupted.delete(runId)
       if (run && run.state !== 'finished') {
         runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
@@ -2812,18 +3054,36 @@ export function createTasks(options: {
     }
   })
 
+  health.onPaused((agent, state) => {
+    if (state !== 'offline') return
+    for (const run of store.listRuns()) {
+      if (run.agent === agent && run.state === 'working') interrupted.add(run.id)
+    }
+  })
+
+  health.onProbe((agent) => {
+    const run = [...interrupted]
+      .map((id) => store.getRun(id))
+      .find((r) => r !== undefined && r.agent === agent && r.state !== 'finished')
+    if (!run) return false
+    interrupted.delete(run.id)
+    runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
+    return true
+  })
+
   const paused = store.agentPauses()
   for (const run of store.listRuns()) {
-    if (run.state === 'finished' || paused[run.agent] === undefined) continue
+    if (run.state === 'finished') continue
     const agent = agents.get(run.agent)
-    if (
-      store
-        .conversation(run.id)
-        .slice(-5)
-        .some(({ line }) => agent.authErrorFrom(line))
-    ) {
+    const recent = store.conversation(run.id).slice(-5)
+    const limit = recent.map(({ line }) => agent.usageFrom(line)).findLast((u) => u !== undefined)
+    if (limit?.limited) {
       interrupted.add(run.id)
+      health.limited(run.agent, limit.resetsAt)
+      continue
     }
+    if (paused[run.agent] === undefined) continue
+    if (recent.some(({ line }) => agent.authErrorFrom(line))) interrupted.add(run.id)
   }
 
   for (const task of store.listTasks()) {
@@ -2837,7 +3097,7 @@ export function createTasks(options: {
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
     if (task.archived && task.repos.some((r) => !r.removed)) {
-      inBackground(`finish archiving ${task.displayId}`, () => clearAway(task.id))
+      inBackground(`finish archiving ${task.displayId}`, () => clearing(task.id))
       continue
     }
     if (heldAtStart.has(task.id)) continue
@@ -3012,16 +3272,21 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
-    archive(ref, { closePullRequests = false } = {}) {
+    archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
       const task = live(ref)
-      const archived = store.archiveTask(task.id)
-      if (closePullRequests) pullRequestWork(task.id, 'close')
-      inBackground(`archive ${task.displayId}`, () => clearAway(task.id))
+      if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
+      settleDependents(task.id, blocked)
+      const archived = archiveNow(find(task.id), closePullRequests)
+      wake()
       return archived
     },
 
+    unarchive,
+    delete: remove,
+
     async block(ref, caller, by) {
-      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const task =
+        caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
       await beginning.get(task.id)?.catch(() => undefined)
       const blocker = find(by)
       if (blocker.id === task.id) {
@@ -3056,27 +3321,17 @@ export function createTasks(options: {
     },
 
     unblock(ref, caller, by) {
-      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const task =
+        caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
       const links = store.blockers(task.id)
-      const blocker = by === undefined ? undefined : find(by)
+      const deleted = links.find(
+        (l) => l.ended === 'deleted' && (l.blockerId === by || l.displayId === by),
+      )
+      const blocker = by === undefined || deleted ? undefined : find(by)
       if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
         throw new RequestError(404, `${task.displayId} isn’t blocked by ${blocker.displayId}`)
       }
-      const wasBlocked = links.some((l) => !l.merged)
-      const runId = caller.kind === 'run' ? caller.runId : undefined
-      for (const link of links) {
-        if (!blocker || link.blockerId === blocker.id) {
-          store.removeBlocker(task.id, link.blockerId, runId)
-        }
-      }
-      const current = find(task.id)
-      if (caller.kind !== 'run' && wasBlocked && unmergedBlockers(task.id).length === 0) {
-        if (current.stage === 'backlog' && current.startRequested) {
-          store.setStartRequested(task.id, false)
-        } else if (current.waitsForBlockers && !liveLead(current) && !current.archived) {
-          store.stopTask(task.id, { runs: 0, why: 'blockers-removed' })
-        }
-      }
+      removeBlockers(task.id, caller, deleted?.blockerId ?? blocker?.id)
       return publicTask(task.id)
     },
 
@@ -3093,10 +3348,14 @@ export function createTasks(options: {
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
-        return humanComment(find(ref), body)
+        const task = find(ref)
+        if (task.archived) {
+          throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
+        }
+        return humanComment(task, body)
       }
       const { task, runId } = ownTask(ref, caller)
-      if (store.getRun(runId)?.parentRunId !== undefined) {
+      if (task.leadRunId !== runId) {
         if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
             403,
@@ -3154,10 +3413,7 @@ export function createTasks(options: {
         }
         return set
       }
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead picks the Clarify depth')
-      }
+      const { task, runId } = taskLead(ref, caller, 'picks the Clarify depth')
       if (task.stage !== 'clarify') {
         throw new RequestError(
           409,
@@ -3199,10 +3455,7 @@ export function createTasks(options: {
     },
 
     writeBrief(ref, caller, text) {
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead writes the Task brief')
-      }
+      const { task, runId } = taskLead(ref, caller, 'writes the Task brief')
       if (!hasBriefHeadings(text)) {
         throw new RequestError(
           400,
@@ -3363,10 +3616,7 @@ export function createTasks(options: {
     },
 
     async reportOutcome(ref, caller, outcome) {
-      const { task, runId } = ownTask(ref, caller)
-      if (task.leadRunId !== runId) {
-        throw new RequestError(403, 'only the Task Lead reports outcomes')
-      }
+      const { task, runId } = taskLead(ref, caller, 'reports outcomes')
       if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }
@@ -3539,7 +3789,7 @@ export function createTasks(options: {
     },
 
     async runChecks(ref, caller, only) {
-      const { task } = ownTask(ref, caller)
+      const { task } = taskLead(ref, caller, 'runs Checks')
       if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
         throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
       }
@@ -3746,7 +3996,7 @@ function briefGoal(text: string): string | undefined {
 }
 
 const continueMessage =
-  'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+  'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
 
 function permissionMessage(approved: boolean, command: string, text: string): string | undefined {
   if (approved) {

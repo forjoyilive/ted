@@ -4,7 +4,7 @@ import {
   appearances,
   archivedFilters,
   type BannerActionInput,
-  billingKinds,
+  billings,
   createdByKinds,
   type ListFilters,
   type ListView,
@@ -189,25 +189,6 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
-  firstLaunchDone(value) {
-    if (typeof value !== 'boolean')
-      throw new HttpError(400, 'firstLaunchDone must be true or false')
-    return value
-  },
-  billing(value) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new HttpError(400, 'billing must be an object of billing by agent kind')
-    }
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([agent, billing]) => {
-        const kind = agentKinds.find((k) => k === agent)
-        if (!kind) throw new HttpError(400, `billing names an unknown agent kind ${agent}`)
-        const chosen = billingKinds.find((b) => b === billing)
-        if (!chosen) throw new HttpError(400, `billing must be ${billingKinds.join(' or ')}`)
-        return [kind, chosen]
-      }),
-    )
-  },
   developerMode(value) {
     if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
     return value
@@ -227,6 +208,22 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
+  firstLaunchDone: onOff('firstLaunchDone'),
+  billing(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, 'billing must be an object of billing by agent')
+    }
+    const given = value as Record<string, unknown>
+    for (const name of Object.keys(given)) {
+      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown agent ${name}`)
+    }
+    const choose = (agent: (typeof agentKinds)[number]) => {
+      const billing = billings.find((b) => b === given[agent])
+      if (!billing) throw new HttpError(400, `billing.${agent} must be ${billings.join(', ')}`)
+      return billing
+    }
+    return { claude: choose('claude'), codex: choose('codex') }
+  },
 }
 
 function onOff(name: keyof MachineSettings): (value: unknown) => boolean {

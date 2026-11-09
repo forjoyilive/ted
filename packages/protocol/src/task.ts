@@ -34,6 +34,10 @@ export const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'] as con
 
 export type Effort = (typeof efforts)[number]
 
+export function isModelName(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,127}$/.test(value)
+}
+
 export interface TaskLead {
   agent: AgentKind
   model?: string
@@ -89,12 +93,16 @@ export type TaskStatus =
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string }
-  | { kind: 'blocked'; by: string }
+  | { kind: 'blocked'; by: string; ended?: BlockerEnded }
   | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string }
   | { kind: 'waiting-for-github'; on: GitHubWait }
 
-export type TaskMarker = { kind: 'blocked-by'; by: string } | { kind: 'needs-planning' }
+export type BlockerEnded = 'archived' | 'deleted'
+
+export type TaskMarker =
+  | { kind: 'blocked-by'; by: string; ended?: BlockerEnded }
+  | { kind: 'needs-planning' }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 
@@ -103,7 +111,7 @@ export interface TrackStage {
   state: TrackState
 }
 
-export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done'
+export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done' | 'archived'
 
 export interface TaskRun {
   id: string
@@ -221,8 +229,17 @@ export interface TaskPullRequest {
   signedOff?: string
 }
 
+export const blockedChoices = ['unblock', 'keep'] as const
+
+export type BlockedChoice = (typeof blockedChoices)[number]
+
 export interface ArchiveTaskRequest {
   closePullRequests?: boolean
+  blocked?: BlockedChoice
+}
+
+export interface DeleteTaskRequest {
+  blocked?: BlockedChoice
 }
 
 export interface CreateTaskRequest {
