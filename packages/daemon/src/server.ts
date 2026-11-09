@@ -4,6 +4,8 @@ import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import {
   type AddFactoryRequest,
+  type AgentKind,
+  agentKinds,
   appearances,
   type CreateTaskRequest,
   type MachineSettings,
@@ -11,6 +13,7 @@ import {
   type ReportOutcomeRequest,
   type StartDevRunRequest,
 } from '@ted/protocol'
+import type { Agents } from './agents/index.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
@@ -26,6 +29,7 @@ export interface ServerOptions {
   idle?: IdleTimer
   keepaliveMs: number
   runs: RunManager
+  agents: Agents
   runTokens: RunTokens
   tasks: Tasks
   reposDir: string
@@ -88,6 +92,15 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/stage-entries$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.listStageEntries(task.id)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,
@@ -105,7 +118,7 @@ const routes: Route[] = [
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
       const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
       if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
-      return [200, tasks.reportOutcome(ref, caller, body.outcome)]
+      return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
     },
   },
   {
@@ -142,13 +155,17 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ req }, { runs }) {
+    async handle({ req }, { runs, agents }) {
       const body = (await readJson(req)) as Partial<StartDevRunRequest> | null
       const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
       const cwd = typeof body?.cwd === 'string' ? body.cwd : ''
+      const agent = body?.agent ?? agents.defaultLead()
       if (prompt === '') throw new HttpError(400, 'prompt is required')
       if (!path.isAbsolute(cwd)) throw new HttpError(400, 'cwd must be an absolute path')
-      return [201, await runs.start({ prompt, cwd })]
+      if (!agentKinds.includes(agent as AgentKind)) {
+        throw new HttpError(400, 'agent must be claude or codex')
+      }
+      return [201, await runs.start({ agent, prompt, cwd })]
     },
   },
   {

@@ -8,22 +8,26 @@ export { type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type { DaemonEvent } from './events.ts'
 export type { AddFactoryRequest, Factory } from './factory.ts'
 export { tedHome, tedPaths } from './paths.ts'
-export type {
-  AgentKind,
-  ConversationEntry,
-  Run,
-  RunState,
-  RunWithConversation,
-  StartDevRunRequest,
+export {
+  type AgentKind,
+  agentKinds,
+  type ConversationEntry,
+  type Run,
+  type RunState,
+  type RunWithConversation,
+  type StartDevRunRequest,
 } from './run.ts'
 export { type Appearance, appearances, type MachineSettings } from './settings.ts'
-export type {
-  Comment,
-  CreateTaskRequest,
-  Outcome,
-  PostCommentRequest,
-  ReportOutcomeRequest,
-  StageId,
-  Task,
+export {
+  type AgentStageId,
+  agentStageIds,
+  type Comment,
+  type CreateTaskRequest,
+  type Outcome,
+  type PostCommentRequest,
+  type ReportOutcomeRequest,
+  type StageId,
+  type Task,
 } from './task.ts'
 export { tedVersion } from './version.ts'
+export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

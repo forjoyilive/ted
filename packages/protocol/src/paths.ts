@@ -16,5 +16,6 @@ export function tedPaths(home: string) {
     runTokenKey: path.join(home, 'run-token.key'),
     repos: path.join(home, 'repos'),
     worktrees: path.join(home, 'worktrees'),
+    library: path.join(home, 'library'),
   }
 }

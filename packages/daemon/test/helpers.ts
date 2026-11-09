@@ -59,6 +59,7 @@ export async function tokenFor(home: string): Promise<string> {
 }
 
 export const stubClaudePath = fileURLToPath(new URL('./fixtures/stub-claude.ts', import.meta.url))
+export const stubCodexPath = fileURLToPath(new URL('./fixtures/stub-codex.ts', import.meta.url))
 
 export async function waitUntil<T>(
   check: () => Promise<T | undefined> | T | undefined,
@@ -106,8 +107,12 @@ export function api(port: number, token: string) {
   }
   return {
     call,
-    async startRun(steps: unknown[], cwd: string): Promise<Run> {
-      const res = await call('POST', '/dev/runs', { prompt: JSON.stringify({ steps }), cwd })
+    async startRun(steps: unknown[], cwd: string, agent?: string): Promise<Run> {
+      const res = await call('POST', '/dev/runs', {
+        prompt: JSON.stringify({ steps }),
+        cwd,
+        ...(agent !== undefined && { agent }),
+      })
       if (res.status !== 201) throw new Error(`start failed: ${JSON.stringify(res.body)}`)
       return res.body as Run
     },
@@ -122,8 +127,14 @@ export function api(port: number, token: string) {
 export function assistantTexts(conversation: ConversationEntry[]): string[] {
   return conversation.flatMap((e) => {
     const message = JSON.parse(e.line) as {
-      type: string
+      type?: string
       message?: { content?: { type: string; text?: string }[] }
+      method?: string
+      params?: { item?: { type: string; text?: string } }
+    }
+    const item = message.params?.item
+    if (message.method === 'item/completed' && item?.type === 'agentMessage') {
+      return item.text === undefined ? [] : [item.text]
     }
     if (message.type !== 'assistant') return []
     return (message.message?.content ?? []).flatMap((c) => (c.text === undefined ? [] : [c.text]))
@@ -153,6 +164,25 @@ export async function makeOriginRepo(parent: string): Promise<string> {
   await git(work, 'commit', '-m', 'first')
   await git(work, 'push', origin, 'main')
   return origin
+}
+
+export async function commitToOrigin(parent: string, files: Record<string, string>): Promise<void> {
+  const work = path.join(parent, 'seed')
+  const origin = path.join(parent, 'acme', 'widgets.git')
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: 'Test',
+    GIT_AUTHOR_EMAIL: 'test@example.com',
+    GIT_COMMITTER_NAME: 'Test',
+    GIT_COMMITTER_EMAIL: 'test@example.com',
+  }
+  for (const [file, content] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(work, file)), { recursive: true })
+    await writeFile(path.join(work, file), content)
+  }
+  await execFileAsync('git', ['add', '-A'], { cwd: work, env })
+  await execFileAsync('git', ['commit', '-m', 'change'], { cwd: work, env })
+  await execFileAsync('git', ['push', origin, 'main'], { cwd: work, env })
 }
 
 export async function refsOf(repo: string): Promise<string> {

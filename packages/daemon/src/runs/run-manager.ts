@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { ConversationEntry, Run, RunState } from '@ted/protocol'
-import type { Agent } from '../agents/agent.ts'
+import type { AgentKind, ConversationEntry, Run, RunState } from '@ted/protocol'
+import type { Agents } from '../agents/index.ts'
 import type { IdleTimer } from '../idle.ts'
 import { isLockHeld } from '../lock.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -20,13 +20,14 @@ const batchBytes = 1024 * 1024
 export interface RunManagerOptions {
   home: string
   store: TedStore
-  agent: Agent
+  agents: Agents
   tokens: RunTokens
   idle?: IdleTimer
   cliPath?: string
 }
 
 export interface StartRunInput {
+  agent: AgentKind
   prompt: string
   cwd: string
   taskId?: string
@@ -35,6 +36,7 @@ export interface StartRunInput {
 
 export interface RunManager {
   start(input: StartRunInput): Promise<Run>
+  send(runId: string, text: string): Promise<void>
   stop(runId: string): Promise<void>
   close(): Promise<void>
 }
@@ -42,7 +44,7 @@ export interface RunManager {
 const stopGraceMs = 10_000
 
 export async function startRunManager(options: RunManagerOptions): Promise<RunManager> {
-  const { home, store, agent, tokens } = options
+  const { home, store, agents, tokens } = options
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
@@ -78,29 +80,36 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   function commitBatch(runId: string, batch: RecordBatch, hostGone: boolean): boolean {
+    const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
     const entries: ConversationEntry[] = []
     let state: RunState | undefined
+    let sessionId: string | undefined
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({ offset, line: record.line })
         state = agent.stateFrom(record.line) ?? state
+        sessionId = agent.sessionIdFrom(record.line) ?? sessionId
       } else if (record.t === 'exit') state = 'finished'
     }
     if (hostGone) state = 'finished'
-    store.recordRunOutput(runId, { toOffset: batch.toOffset, entries, ...(state && { state }) })
+    store.recordRunOutput(runId, {
+      toOffset: batch.toOffset,
+      entries,
+      ...(state && { state }),
+      ...(sessionId !== undefined && { sessionId }),
+    })
     return state === 'finished'
   }
 
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
   return {
-    async start({ prompt, cwd, taskId, env = {} }) {
+    async start({ agent: kind, prompt, cwd, taskId, env = {} }) {
+      const agent = agents.get(kind)
       const id = randomUUID()
       const runDir = path.join(runsDir, id)
       await mkdir(runDir, { mode: 0o700 })
-      const sessionId = randomUUID()
       const launch = agent.launch({
-        sessionId,
         prompt,
         runDir,
         env: {
@@ -120,13 +129,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         args: launch.args,
         cwd,
         input: launch.input,
+        ...(launch.driver !== undefined && { driver: launch.driver }),
       }
       await writeFile(runFiles(runDir).launch, JSON.stringify(launchFile), { mode: 0o600 })
 
       const run = store.startRun({
         id,
         agent: agent.kind,
-        sessionId,
+        ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
         prompt,
         cwd,
         ...(taskId !== undefined && { taskId }),
@@ -139,6 +149,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }).unref()
       follow(id)
       return run
+    },
+    async send(runId, text) {
+      const input = runFiles(path.join(runsDir, runId)).input
+      const run = store.getRun(runId)
+      if (!run) throw new Error(`no Run ${runId}`)
+      await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
     },
     async stop(runId) {
       const done = following.get(runId)

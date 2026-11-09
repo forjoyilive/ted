@@ -1,4 +1,16 @@
-export type StageId = 'backlog' | 'work' | 'done'
+export const agentStageIds = [
+  'intake',
+  'clarify',
+  'design',
+  'work',
+  'validate',
+  'review',
+  'merge',
+] as const
+
+export type AgentStageId = (typeof agentStageIds)[number]
+
+export type StageId = 'backlog' | AgentStageId | 'done'
 
 export interface Task {
   id: string

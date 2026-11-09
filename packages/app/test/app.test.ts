@@ -133,8 +133,8 @@ describe('TED app', () => {
       steps: [
         { run: ['ted', 'comment', 'Halfway there'] },
         { waitFor: path.join(home, 'go') },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
         { run: ['ted', 'outcome', 'advance'] },
-        { waitFor: 'never-appears' },
       ],
     })
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')
@@ -147,7 +147,7 @@ describe('TED app', () => {
 
     await ted('task', 'start', 'NB-1')
 
-    await details.getByText('Work', { exact: true }).waitFor()
+    await details.getByText('Intake', { exact: true }).waitFor()
     await window.getByRole('region', { name: 'Task thread' }).getByText('Halfway there').waitFor()
     await writeFile(path.join(home, 'go'), '')
     await details.getByText('Done', { exact: true }).waitFor()

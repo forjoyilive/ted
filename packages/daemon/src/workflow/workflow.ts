@@ -1,30 +1,36 @@
 import { readFile } from 'node:fs/promises'
-import type { StageId, Task } from '@ted/protocol'
-
-export type AgentStageId = Exclude<StageId, 'backlog' | 'done'>
-
-const order: AgentStageId[] = ['work']
+import type { AgentStageId, Task } from '@ted/protocol'
+import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
 
-export function firstStage(): AgentStageId {
-  return order[0] ?? 'work'
+export function stageTitle(id: string): string {
+  return id.charAt(0).toUpperCase() + id.slice(1)
 }
 
-export function nextStage(current: StageId): StageId {
-  if (current === 'backlog') return firstStage()
-  if (current === 'done') return 'done'
-  return order[order.indexOf(current) + 1] ?? 'done'
+function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string {
+  const file = workflow.stageFile(stage)
+  if (!file) throw new Error(`no Stage file for ${stage}`)
+  return file.text.trim()
 }
 
-export async function taskLeadPrompt(task: Task, stage: AgentStageId): Promise<string> {
-  const [preamble, stageFile] = await Promise.all([
-    readFile(new URL('preamble.md', defaults), 'utf8'),
-    readFile(new URL(`stages/${stage}.md`, defaults), 'utf8'),
-  ])
+export async function taskLeadPrompt(
+  task: Task,
+  workflow: ResolvedWorkflow,
+  stage: AgentStageId,
+): Promise<string> {
+  const preamble = await readFile(new URL('preamble.md', defaults), 'utf8')
   return [
     preamble.trim(),
-    stageFile.trim(),
+    stageFileText(workflow, stage),
+    ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
+  ].join('\n\n')
+}
+
+export function nextStageMessage(workflow: ResolvedWorkflow, stage: AgentStageId): string {
+  return [
+    `TED moved this Task to ${stageTitle(stage)}. These are your instructions for this Stage.`,
+    stageFileText(workflow, stage),
   ].join('\n\n')
 }

@@ -2,7 +2,14 @@
 import path from 'node:path'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
-import { type RunWithConversation, tedHome } from '@ted/protocol'
+import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
+import {
+  type AgentKind,
+  agentKinds,
+  type RunWithConversation,
+  tedHome,
+  tedPaths,
+} from '@ted/protocol'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -11,9 +18,11 @@ const usage = `Usage:
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key>
                                              Add a one-repo Factory (development only)
-  ted dev run start [--cwd <dir>] "<prompt>"  Start a Claude Code Run (development only)
+  ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
+                                             Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
 
 Inside a Run, commands act on the Run's own Task (TED_TASK).`
@@ -26,6 +35,7 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
+        agent: { type: 'string' },
         cwd: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
@@ -90,6 +100,8 @@ try {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
     console.log(`Started ${task.displayId} on branch ${task.branch}`)
+  } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
+    await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
     const repo = rest[1] ?? ''
     const key = options.key
@@ -99,7 +111,17 @@ try {
   } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
     const cwd = path.resolve(options.cwd ?? process.cwd())
     const prompt = rest.slice(1).join(' ')
-    const run = await withDaemon(home, (client) => client.startDevRun({ prompt, cwd }))
+    const agent = options.agent
+    if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
+      throw new UsageError('--agent must be claude or codex')
+    }
+    const run = await withDaemon(home, (client) =>
+      client.startDevRun({
+        prompt,
+        cwd,
+        ...(agent !== undefined && { agent: agent as AgentKind }),
+      }),
+    )
     console.log(`Started Run ${run.id}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'show' && rest.length === 2) {
     const id = rest[1] ?? ''
@@ -108,7 +130,10 @@ try {
     throw new UsageError('')
   }
 } catch (error) {
-  if (error instanceof UsageError) {
+  if (error instanceof NothingToCheckError) {
+    console.error(`ted: ${error.message}`)
+    process.exitCode = 1
+  } else if (error instanceof UsageError) {
     console.error(error.message === '' ? usage : `ted: ${error.message}`)
     process.exitCode = 2
   } else {
@@ -117,10 +142,34 @@ try {
   }
 }
 
+async function workflowCheck(target: string): Promise<void> {
+  const problems = await checkWorkflowPath(path.resolve(target), {
+    libraryDir: tedPaths(home).library,
+  })
+  for (const p of problems) {
+    const file = path.relative(process.cwd(), p.path)
+    console.log(`${file}:${p.line}:${p.column}: ${p.severity}: ${printable(p.message)}`)
+  }
+  const count = (severity: string) => problems.filter((p) => p.severity === severity).length
+  const errors = count('error')
+  const warnings = count('warning')
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  if (problems.length === 0)
+    console.log(`No problems in ${path.relative(process.cwd(), path.resolve(target)) || '.'}`)
+  else {
+    console.log(
+      [errors > 0 && plural(errors, 'error'), warnings > 0 && plural(warnings, 'warning')]
+        .filter(Boolean)
+        .join(', '),
+    )
+  }
+  if (errors > 0) process.exitCode = 1
+}
+
 function formatRun({ run, conversation }: RunWithConversation): string {
   return [
-    `Run ${run.id}  ${run.state}`,
-    `Session ${run.sessionId}`,
+    `Run ${run.id}  ${run.agent}  ${run.state}`,
+    `Session ${run.sessionId ?? 'not known yet'}`,
     ...conversation.map((entry) => summarize(entry.line)),
   ].join('\n')
 }
@@ -133,10 +182,21 @@ interface ContentBlock {
 
 function summarize(line: string): string {
   const message = JSON.parse(line) as {
-    type: string
+    type?: string
     subtype?: string
     hook_name?: string
     message?: { content?: string | ContentBlock[] }
+    id?: unknown
+    method?: string
+    params?: { item?: { type?: string; text?: string } }
+  }
+  if (message.method === undefined && message.id !== undefined) {
+    return printable(`response ${String(message.id)}`)
+  }
+  if (message.method !== undefined) {
+    const item = message.params?.item
+    const detail = item?.text !== undefined ? `: ${item.text}` : item?.type ? ` ${item.type}` : ''
+    return printable(`${message.method}${detail}`)
   }
   const content = message.message?.content
   const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : (content ?? [])

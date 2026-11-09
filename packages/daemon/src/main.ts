@@ -22,6 +22,7 @@ try {
     home: tedHome(),
     version: tedVersion,
     ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
+    ...(process.env.TED_CODEX_BIN && { codexBin: process.env.TED_CODEX_BIN }),
     ...(values['exit-when-idle'] && {
       idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
     }),

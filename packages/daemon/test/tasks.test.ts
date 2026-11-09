@@ -1,14 +1,15 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Comment, Factory, Run, Task } from '@ted/protocol'
+import type { Comment, Factory, Run, StageEntry, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   assistantTexts,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -74,6 +75,28 @@ const commandResults = async (client: Client, runId: string) =>
   assistantTexts((await client.getRun(runId)).conversation).map(
     (text) => JSON.parse(text) as { code: number; stderr: string },
   )
+
+const userMessages = async (client: Client, runId: string) =>
+  (await client.getRun(runId)).conversation.flatMap((e) => {
+    const line = JSON.parse(e.line) as { type: string; message?: { content?: unknown } }
+    return line.type === 'user' && typeof line.message?.content === 'string'
+      ? [line.message.content]
+      : []
+  })
+
+const stageEntries = (client: Client, task: Task) =>
+  client.ok<StageEntry[]>('GET', `/tasks/${task.id}/stage-entries`)
+
+const waitForStage = (client: Client, task: Task, stage: string) =>
+  waitUntil(async () => {
+    const t = await getTask(client, task.id)
+    return t?.stage === stage ? t : undefined
+  }, `${task.displayId} to reach ${stage}`)
+
+const advanceEveryStage = [
+  { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+  { run: ['ted', 'outcome', 'advance'] },
+]
 
 const leadRun = async (client: Client, task: Task): Promise<Run> => {
   const current = await getTask(client, task.id)
@@ -141,7 +164,7 @@ describe('Tasks', () => {
 
     const started = await client.ok<Task>('POST', `/tasks/${task.displayId}/start`)
 
-    expect(started.stage).toBe('work')
+    expect(started.stage).toBe('intake')
     expect(started.branch).toMatch(/^ted\/nb-1-fix-login/)
     const worktree = path.join(home, 'worktrees', 'NB-1', 'widgets')
     expect(await readFile(path.join(worktree, 'README.md'), 'utf8')).toBe('# widgets\n')
@@ -162,7 +185,7 @@ describe('Tasks', () => {
     expect(record.env.TED_RUN).toBe(run.id)
   })
 
-  test('the Task Lead’s first message holds the preamble and the Work Stage file', async () => {
+  test('the Task Lead’s first message holds the preamble and the Intake Stage file', async () => {
     const client = await startWithStub()
     await addFactory(client)
     const task = await createTask(client, `Fix login ${steps({ endTurn: true })}`)
@@ -178,7 +201,7 @@ describe('Tasks', () => {
     expect(content).toContain('ted help')
     expect(content).toContain('ted comment')
     expect(content).toContain('ted outcome advance')
-    expect(content).toContain('# Work')
+    expect(content).toContain('# Intake')
     expect(content).toContain('Fix login')
   })
 
@@ -198,8 +221,8 @@ describe('Tasks', () => {
       client,
       steps(
         { run: ['ted', 'comment', 'Halfway there'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
         { run: ['ted', 'outcome', 'advance'] },
-        { waitFor: 'never-appears' },
       ),
     )
 
@@ -250,7 +273,7 @@ describe('Tasks', () => {
     ])
     expect(await client.ok<Comment[]>('GET', `/tasks/${other.id}/comments`)).toEqual([])
     expect((await getTask(client, other.id))?.stage).toBe('backlog')
-    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect((await getTask(client, task.id))?.stage).toBe('intake')
   })
 
   test('a Run that isn’t on the Task can’t report its outcome', async () => {
@@ -269,6 +292,152 @@ describe('Tasks', () => {
     expect(await commandResults(client, devRun.id)).toEqual([
       { code: 1, stdout: '', stderr: 'ted: this Run doesn’t belong to NB-1\n' },
     ])
-    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect((await getTask(client, task.id))?.stage).toBe('intake')
+  })
+})
+
+describe('the Workflow', () => {
+  test('a Task with no .ted/ runs every default Stage in order to Done', async () => {
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps(...advanceEveryStage))
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitForStage(client, task, 'done')
+
+    const entries = await stageEntries(client, task)
+    const agentStages = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge']
+    expect(entries.map((e) => e.stage)).toEqual([...agentStages, 'done'])
+    for (const [i, id] of agentStages.entries()) {
+      expect(entries[i]?.stageFile).toEqual({ layer: 'ted', path: `stages/${id}.md` })
+    }
+    expect(entries.at(-1)?.stageFile).toBeUndefined()
+    const messages = await userMessages(client, (await leadRun(client, task)).id)
+    expect(messages).toHaveLength(7)
+    expect(messages[1]).toMatch(/^TED moved this Task to Clarify\./)
+    expect(messages[1]).toContain('# Clarify')
+    expect(messages[6]).toContain('# Merge')
+  })
+
+  test('a Library edit changes a running Task from its next Stage and the entry records it', async () => {
+    const client = await startWithStub()
+    await addFactory(client)
+    const go = path.join(scratch, 'go')
+    const task = await createTask(
+      client,
+      steps({ waitFor: go }, { run: ['ted', 'outcome', 'advance'] }, { endTurn: true }),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+
+    await mkdir(path.join(home, 'library', 'stages'), { recursive: true })
+    await writeFile(
+      path.join(home, 'library', 'stages', 'clarify.md'),
+      '# Clarify\n\nLibrary clarify.\n',
+    )
+    await writeFile(go, '')
+    await waitForStage(client, task, 'clarify')
+
+    const entries = await stageEntries(client, task)
+    expect(entries.map((e) => [e.stage, e.stageFile])).toEqual([
+      ['intake', { layer: 'ted', path: 'stages/intake.md' }],
+      ['clarify', { layer: 'library', path: 'stages/clarify.md' }],
+    ])
+    expect(entries[1]?.layers.find((l) => l.layer === 'library')).toMatchObject({
+      status: 'valid',
+    })
+    const run = await leadRun(client, task)
+    await waitUntil(
+      async () => (await userMessages(client, run.id))[1]?.includes('Library clarify.'),
+      'the Library Stage file to reach the Task Lead',
+    )
+  })
+
+  test('the Factory’s .ted/ sets the order, and its notes go to the Task Lead', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+      '.ted/notes.md': '# Product\n\nWidgets for everyone.\n',
+    })
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(
+      client,
+      steps({ run: ['ted', 'outcome', 'advance'] }, { endTurn: true }),
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitForStage(client, task, 'work')
+
+    const run = await leadRun(client, task)
+    const [first] = await userMessages(client, run.id)
+    expect(first).toContain('# Factory notes')
+    expect(first).toContain('Widgets for everyone.')
+    const entries = await stageEntries(client, task)
+    expect(entries[0]?.layers.find((l) => l.layer === 'factory')).toMatchObject({
+      status: 'valid',
+      version: expect.stringMatching(/^[0-9a-f]{7}$/),
+    })
+  })
+
+  test('a broken Factory workflow.yaml falls back to its last valid version', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    const client = await startWithStub()
+    await addFactory(client)
+    const go = path.join(scratch, 'go')
+    const task = await createTask(
+      client,
+      steps({ waitFor: go }, { run: ['ted', 'outcome', 'advance'] }, { endTurn: true }),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const [started] = await stageEntries(client, task)
+    const validVersion = started?.layers.find((l) => l.layer === 'factory')?.version
+
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\norder: [intake, work\n' })
+    await writeFile(go, '')
+    await waitForStage(client, task, 'work')
+
+    const factoryUse = (await stageEntries(client, task))[1]?.layers.find(
+      (l) => l.layer === 'factory',
+    )
+    expect(factoryUse).toMatchObject({ status: 'last-valid', version: validVersion })
+    expect(factoryUse?.problems[0]).toMatchObject({
+      severity: 'error',
+      file: '.ted/workflow.yaml',
+      line: 3,
+    })
+  })
+
+  test('a broken Factory workflow.yaml with no last valid version is skipped', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'order: [work]\n' })
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(
+      client,
+      steps({ run: ['ted', 'outcome', 'advance'] }, { endTurn: true }),
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitForStage(client, task, 'clarify')
+
+    const [entry] = await stageEntries(client, task)
+    expect(entry?.stage).toBe('intake')
+    expect(entry?.layers.find((l) => l.layer === 'factory')).toMatchObject({
+      status: 'skipped',
+      problems: [{ severity: 'error', message: '`order` must start with `intake`' }],
+    })
+  })
+
+  test('with Backlog turned off, a new Task starts at Intake', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\nstages:\n  backlog: { enabled: false }\n',
+    })
+    const client = await startWithStub()
+    await addFactory(client)
+
+    const task = await createTask(client, steps({ endTurn: true }))
+
+    expect(task.stage).toBe('intake')
+    expect((await getTask(client, task.id))?.leadRunId).toBeDefined()
   })
 })

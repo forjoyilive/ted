@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
-import { killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
@@ -40,6 +40,7 @@ function ted(args: string[], idleExitMs = 30_000) {
       TED_HOME: home,
       TED_IDLE_EXIT_MS: String(idleExitMs),
       TED_CLAUDE_BIN: stubClaudePath,
+      TED_CODEX_BIN: stubCodexPath,
     },
     cwd: home,
   })
@@ -142,10 +143,37 @@ describe('ted dev run', () => {
       await sleep(100)
     }
     const lines = shown.trim().split('\n')
-    expect(lines[0]).toBe(`Run ${id}  finished`)
+    expect(lines[0]).toBe(`Run ${id}  claude  finished`)
     expect(lines[1]).toMatch(/^Session [0-9a-f-]{36}$/)
     expect(lines).toContain('assistant: hi from the stub')
     expect(lines).toContain('system hook_started Stop')
+  })
+
+  test('start --agent codex runs Codex, and show prints its thread and messages', async () => {
+    const prompt = JSON.stringify({
+      steps: [{ say: 'hi from Codex' }, { endTurn: true }, { exit: 0 }],
+    })
+
+    const started = await ted(['dev', 'run', 'start', '--agent', 'codex', prompt])
+    const id = started.stdout.trim().replace(/^Started Run /, '')
+
+    let shown = ''
+    for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
+      shown = (await ted(['dev', 'run', 'show', id])).stdout
+      await sleep(100)
+    }
+    const lines = shown.trim().split('\n')
+    expect(lines[0]).toBe(`Run ${id}  codex  finished`)
+    expect(lines[1]).toMatch(/^Session 0199a000-/)
+    expect(lines).toContain('item/completed: hi from Codex')
+    expect(lines).toContain('turn/completed')
+  })
+
+  test('start refuses an unknown agent kind', async () => {
+    await expect(ted(['dev', 'run', 'start', '--agent', 'gemini', 'x'])).rejects.toMatchObject({
+      code: 2,
+      stderr: 'ted: --agent must be claude or codex\n',
+    })
   })
 
   test('show strips terminal control characters from agent output', async () => {
@@ -191,8 +219,8 @@ describe('ted dev factory and ted task start', () => {
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'On it'] },
+        { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
         { run: ['ted', 'outcome', 'advance'] },
-        { waitFor: 'never-appears' },
       ],
     })
 
@@ -213,5 +241,84 @@ describe('ted dev factory and ted task start', () => {
 
   test('comment and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
+  })
+})
+
+describe('ted workflow check', () => {
+  async function writeLayer(files: Record<string, string>) {
+    for (const [file, content] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(home, '.ted', file)), { recursive: true })
+      await writeFile(path.join(home, '.ted', file), content)
+    }
+  }
+
+  test('says so when .ted/ has no problems', async () => {
+    await writeLayer({
+      'workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+      'stages/work.md': '# Work\n\nBuild it.\n',
+    })
+
+    const { stdout } = await ted(['workflow', 'check'])
+
+    expect(stdout.trim()).toBe('No problems in .ted')
+  })
+
+  test('reports file, line, column and message for each kind of error', async () => {
+    await writeLayer({
+      'workflow.yaml': [
+        'version: 1',
+        'order: [clarify, intake, work]',
+        'stages:',
+        '  deploy: {}',
+        '  work: { gate: maybe }',
+        'repos:',
+        '  - name: app',
+        '  - name: app',
+        '    remote: https://gitlab.com/kriya/lab.git',
+        '',
+      ].join('\n'),
+      'stages/review.md': '\n',
+    })
+
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/workflow.yaml:2:8: error: `order` must start with `intake`',
+      '.ted/workflow.yaml:4:3: error: unknown Stage `deploy`',
+      '.ted/workflow.yaml:5:17: error: `stages.work.gate` must be true or false',
+      '.ted/workflow.yaml:8:11: error: two repos are named `app`',
+      '.ted/workflow.yaml:9:13: error: `remote` must be a GitHub repo',
+      '.ted/stages/review.md:1:1: error: the Stage file is empty',
+      '6 errors',
+      '',
+    ])
+  })
+
+  test('reports YAML that doesn’t parse, for a file named on the command line', async () => {
+    await writeLayer({ 'workflow.yaml': 'order: [intake, work\n' })
+
+    const failure = await ted(['workflow', 'check', '.ted/workflow.yaml']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout).toMatch(/^\.ted\/workflow\.yaml:2:1: error: /)
+  })
+
+  test('warns about unknown keys without failing', async () => {
+    await writeLayer({ 'workflow.yaml': 'version: 1\nshiny: true\n' })
+
+    const { stdout } = await ted(['workflow', 'check', '.ted'])
+
+    expect(stdout.split('\n')).toEqual([
+      '.ted/workflow.yaml:2:1: warning: unknown key `shiny`',
+      '1 warning',
+      '',
+    ])
   })
 })

@@ -1,8 +1,22 @@
-import type { Factory, Task } from '@ted/protocol'
+import type { Factory, StageId, Task } from '@ted/protocol'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import styles from './views.module.css'
 
-export const stageOrder = ['backlog', 'work', 'done']
+const stageRank: Record<StageId, number> = {
+  backlog: 0,
+  intake: 1,
+  clarify: 2,
+  design: 3,
+  work: 4,
+  validate: 5,
+  review: 6,
+  merge: 7,
+  done: 8,
+}
+
+export const stageOrder = (Object.keys(stageRank) as StageId[]).sort(
+  (a, b) => stageRank[a] - stageRank[b],
+)
 
 export const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
 
@@ -58,7 +72,7 @@ export function TaskList({ title, tasks, factories, onOpen }: TaskViewProps) {
 }
 
 export function Board({ title, tasks, onOpen }: TaskViewProps) {
-  const stages = [
+  const stages: string[] = [
     ...stageOrder,
     ...new Set(tasks.map((t) => t.stage).filter((s) => !stageOrder.includes(s))),
   ]
