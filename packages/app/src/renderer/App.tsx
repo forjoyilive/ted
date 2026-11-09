@@ -43,6 +43,7 @@ import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { Board } from './views/Board.tsx'
+import { editTaskEvent } from './views/EditTaskDialog.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
@@ -195,6 +196,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       if (!task || !action) return
       event.preventDefault()
       runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, runsOpen, task])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || runsOpen || !task || task.archived) return
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      if (event.key !== 'e' || isTyping(event.target) || event.defaultPrevented) return
+      if (document.querySelector('dialog[open]')) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent(editTaskEvent, { detail: task.id }))
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

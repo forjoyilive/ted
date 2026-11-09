@@ -5,6 +5,7 @@ import type {
   CheckRun,
   Comment,
   DataStatus,
+  DescriptionVersion,
   Factory,
   InboxItem,
   MachineSettings,
@@ -498,5 +499,13 @@ export function useTaskRuns(taskId: string): RunSummary[] {
         (event.type === 'task-updated' && event.task.id === taskId),
       taskId,
     ) ?? []
+  )
+}
+
+export function useDescriptions(taskId: string): DescriptionVersion[] | undefined {
+  return useReloading(
+    () => ted.taskDescriptions(taskId),
+    (event) => event.type === 'task-updated' && event.task.id === taskId,
+    taskId,
   )
 }

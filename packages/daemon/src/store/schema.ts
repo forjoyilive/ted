@@ -293,6 +293,17 @@ export const taskBriefs = State.SQLite.table({
   },
 })
 
+export const taskDescriptions = State.SQLite.table({
+  name: 'taskDescriptions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    version: State.SQLite.integer(),
+    text: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const sendBacks = State.SQLite.table({
   name: 'sendBacks',
   columns: {
@@ -698,6 +709,18 @@ export const events = {
       number: Schema.Number,
       runIds: Schema.Array(Schema.String),
       checkRunIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskEdited: Events.synced({
+    name: 'v1.TaskEdited',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      title: Schema.NullOr(Schema.String),
+      description: Schema.NullOr(Schema.String),
+      version: Schema.NullOr(Schema.Number),
+      previous: Schema.NullOr(Schema.String),
+      previousAt: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -1428,6 +1451,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -1651,6 +1675,35 @@ const materializers = counted(
         tasks.update({ rank }).where({ id: taskId }),
         taskQueue.update({ rank }).where({ taskId }),
       ],
+      'v1.TaskEdited': ({ taskId, title, description, version, previous, previousAt, at }) => [
+        tasks
+          .update({
+            ...(title !== null && { title }),
+            ...(description !== null && { description }),
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        ...(description === null || version === null
+          ? []
+          : [
+              ...(previous === null || previousAt === null
+                ? []
+                : [
+                    taskDescriptions
+                      .insert({
+                        id: `${taskId}:${version - 1}`,
+                        taskId,
+                        version: version - 1,
+                        text: previous,
+                        at: previousAt,
+                      })
+                      .onConflict('id', 'ignore'),
+                  ]),
+              taskDescriptions
+                .insert({ id: `${taskId}:${version}`, taskId, version, text: description, at })
+                .onConflict('id', 'replace'),
+            ]),
+      ],
       'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
         tasks.update({ priority, changedAt: at }).where({ id: taskId }),
       'v1.TaskArchived': ({ taskId, at }) => [
@@ -1690,6 +1743,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
+        taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
@@ -2030,6 +2084,7 @@ const state = State.SQLite.makeState({
     comments,
     taskLog,
     taskBriefs,
+    taskDescriptions,
     sendBacks,
     sendBackResets,
     checkRuns,

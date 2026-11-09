@@ -10,6 +10,7 @@ import {
   blockedChoices,
   type CreateTaskRequest,
   clarifyDepths,
+  type EditTaskRequest,
   type Effort,
   efforts,
   isModelName,
@@ -120,6 +121,37 @@ export const taskRoutes: Route[] = [
       if (!priority) throw new HttpError(400, `priority must be ${priorities.join(', ')}`)
       return [200, tasks.setPriority(ref, priority)]
     },
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<EditTaskRequest> | null
+      const { title, description } = body ?? {}
+      if (title !== undefined && typeof title !== 'string') {
+        throw new HttpError(400, 'title must be text')
+      }
+      if (description !== undefined && typeof description !== 'string') {
+        throw new HttpError(400, 'description must be text')
+      }
+      if (title === undefined && description === undefined) {
+        throw new HttpError(400, 'send a title, a description or both')
+      }
+      const name = title === undefined ? undefined : oneLine(title)
+      if (name === '') throw new HttpError(400, 'a Task needs a title')
+      return [
+        200,
+        await tasks.edit(ref, {
+          ...(name !== undefined && { title: name }),
+          ...(description !== undefined && { description: description.trim() }),
+        }),
+      ]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/descriptions$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.descriptions(ref)],
   },
   {
     method: 'POST',

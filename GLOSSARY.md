@@ -88,6 +88,10 @@ _Avoid_: Reopen, amendment, revision
 The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
 _Avoid_: Origin, link, ticket
 
+**Original request**:
+The first version of a Task’s description, kept as written when the Task was created. The human can edit the description at any time; each edit is a new version, and the Original request never changes.
+_Avoid_: First draft, initial description
+
 **Priority**:
 How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Task’s place in its column it decides which Queued Task starts first.
 _Avoid_: Severity, importance
