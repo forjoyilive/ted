@@ -89,8 +89,12 @@ async function start() {
 
 type Client = Awaited<ReturnType<typeof start>>
 
-async function tooBigTask(client: Client): Promise<{ task: Task; sizeCheck: Comment }> {
+async function tooBigTask(
+  client: Client,
+  extra: Record<string, unknown> = {},
+): Promise<{ task: Task; sizeCheck: Comment }> {
   const task = await client.ok<Task>('POST', '/tasks', {
+    ...extra,
     title: steps(
       { everyMessage: [{ endTurn: true }] },
       { run: ['ted', 'outcome', 'advance'] },
@@ -165,7 +169,8 @@ const threadLines = async (client: Client, task: Task) =>
 describe('Plan in chat from a Task', () => {
   test('opens a chat linked to the Task, which waits in Clarify; approval narrows it and its Task Lead carries on', async () => {
     const client = await start()
-    const { task, sizeCheck } = await tooBigTask(client)
+    const lead = { agent: 'claude', effort: 'high' }
+    const { task, sizeCheck } = await tooBigTask(client, { lead })
     const { answered, planId } = await planInChat(
       client,
       sizeCheck,
@@ -226,8 +231,13 @@ describe('Plan in chat from a Task', () => {
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     const sync = tasks.find((t) => t.title === 'Sync queue')
     const badge = tasks.find((t) => t.title === 'Offline badge')
-    expect(sync).toMatchObject({ stage: 'backlog', blockedBy: [task.id], createdBy: 'planning' })
-    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [] })
+    expect(sync).toMatchObject({
+      stage: 'backlog',
+      blockedBy: [task.id],
+      createdBy: 'planning',
+      lead,
+    })
+    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [], lead })
     expect(await getTask(client, task.id)).toMatchObject({
       stage: 'clarify',
       title: 'Local note cache',

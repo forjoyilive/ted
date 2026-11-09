@@ -606,10 +606,11 @@ export function createPlans(options: PlansOptions): Plans {
     )
     const startUnblocked = answer.proposal?.startUnblocked === true
     const text = answer.text?.trim() ?? ''
+    const lead = linkedTask(plan)?.lead
     const created = await createProposalTasks(store, proposal, shape, {
       firstPieceId: task?.id,
       factoryId: plan.factoryId,
-      fields: (row) => ({ plan: { planId: plan.id, row } }),
+      fields: (row) => ({ ...(lead && { lead }), plan: { planId: plan.id, row } }),
     })
     const outcome: ProposalCreated = { tasks: created, skipped: skip, startUnblocked }
     const answered = saved.answerRequest(request.id, {
