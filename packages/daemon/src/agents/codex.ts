@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import {
+  isModelName,
   type PermissionMode,
   type PlanWindow,
   type PlanWindowKind,
@@ -429,6 +430,9 @@ export function codexAgent(binary: string): Agent {
     kind: 'codex',
     binary,
     launch({ prompt, env, resume, model, effort, permissions, billing }) {
+      if (model !== undefined && !isModelName(model)) {
+        throw new Error(`“${model}” isn’t a model name`)
+      }
       const plan: CodexPlan = {
         thread:
           resume === undefined

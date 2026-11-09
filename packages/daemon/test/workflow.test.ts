@@ -240,6 +240,12 @@ describe('checking a layer', () => {
     ).toEqual(['error .ted/workflow.yaml 4 11 `stages.work.gate` must be true or false'])
   })
 
+  test('a model that isn’t a plain model name is an error', () => {
+    expect(
+      problems({ 'workflow.yaml': 'version: 1\nlead: { model: --permission-mode }\n' }),
+    ).toEqual(['error .ted/workflow.yaml 2 16 `lead.model` must be a model name'])
+  })
+
   test('an unknown key is a warning, so a newer file still loads', () => {
     const layer = checkLayer({
       kind: 'factory',

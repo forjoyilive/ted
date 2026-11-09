@@ -99,6 +99,27 @@ const userMessages = async (client: Client, runId: string) =>
   })
 
 describe('lead from workflow.yaml', () => {
+  test('a Task Lead model that isn’t a plain model name is refused', async () => {
+    const client = await startTed()
+    const task = await client.ok<Task>('POST', '/tasks', { title: 'Plain', factory: 'NB' })
+    for (const model of ['--dangerously-skip-permissions', '-x', 'opus sonnet', 'a"b', 'x\ny']) {
+      const put = await client.call('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', model })
+      expect(put.status).toBe(400)
+      expect(put.body).toMatchObject({ error: expect.stringMatching(/model name/) })
+      const created = await client.call('POST', '/tasks', {
+        title: 'Other',
+        factory: 'NB',
+        lead: { agent: 'codex', model },
+      })
+      expect(created.status).toBe(400)
+    }
+    const fine = await client.ok<Task>('PUT', `/tasks/${task.id}/lead`, {
+      agent: 'codex',
+      model: 'openai/gpt-6.1:latest',
+    })
+    expect(fine.lead).toEqual({ agent: 'codex', model: 'openai/gpt-6.1:latest' })
+  })
+
   test('each layer’s lead reaches a Claude Code Run as --model and --effort', async () => {
     await mkdir(path.join(home, 'library'), { recursive: true })
     await writeFile(

@@ -285,6 +285,71 @@ describe('sub-agents', () => {
     expect((await getTask(client, task.id)).stage).toBe('intake')
   })
 
+  test('a sub-agent can’t change the Task: blockers, Checks, the brief, Clarify depth and sub-agents are the Task Lead’s', async () => {
+    const client = await startTed()
+    const other = await client.ok<Task>('POST', '/tasks', { title: 'Other', factory: 'NB' })
+    const inner = await promptFile('inner.md', 'Inner', { endTurn: true })
+    const brief = path.join(scratch, 'brief.md')
+    await writeFile(brief, '# Goal\n\nx\n')
+    const prompt = await promptFile(
+      'meddle.md',
+      'Meddler',
+      { run: ['sh', '-c', `ted task block --by ${other.displayId}`] },
+      { run: ['sh', '-c', 'ted task unblock'] },
+      { run: ['sh', '-c', 'ted checks'] },
+      { run: ['sh', '-c', `ted brief write --file ${brief}`] },
+      { run: ['sh', '-c', 'ted clarify depth grilling "deep"'] },
+      { run: ['sh', '-c', `ted run start --prompt-file ${inner}`] },
+      { run: ['sh', '-c', 'ted status "Reading the parser"'] },
+      { endTurn: true },
+    )
+    const task = await startTask(
+      client,
+      steps({ run: ['sh', '-c', startAndWait(`--prompt-file ${prompt}`)] }, { endTurn: true }),
+    )
+    await waitForResults(client, task, 1)
+    const sub = (await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)).find(
+      (r) => r.role === 'sub-agent',
+    )
+    const { conversation } = await client.ok<{ conversation: never[] }>('GET', `/runs/${sub?.id}`)
+    const results = assistantTexts(conversation).flatMap((text) => {
+      try {
+        const parsed = JSON.parse(text) as { code: number; stderr: string }
+        return typeof parsed.code === 'number' ? [parsed] : []
+      } catch {
+        return []
+      }
+    })
+    expect(results.map((r) => r.code)).toEqual([1, 1, 1, 1, 1, 1, 0])
+    expect(results[0]?.stderr).toMatch(/only the Task Lead changes blockers/)
+    expect(results[1]?.stderr).toMatch(/only the Task Lead changes blockers/)
+    expect(results[2]?.stderr).toMatch(/only the Task Lead runs Checks/)
+    expect(results[3]?.stderr).toMatch(/only the Task Lead writes the Task brief/)
+    expect(results[4]?.stderr).toMatch(/only the Task Lead picks the Clarify depth/)
+    expect(results[5]?.stderr).toMatch(/only the Task Lead can start and steer sub-agents/)
+    const current = await getTask(client, task.id)
+    expect(current.blockedBy).toEqual([])
+    const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+    expect(runs.filter((r) => r.role === 'sub-agent')).toHaveLength(1)
+  })
+
+  test('a sub-agent model that isn’t a plain model name is refused', async () => {
+    const client = await startTed()
+    const prompt = await promptFile('m.md', 'Model', { endTurn: true })
+    const task = await startTask(
+      client,
+      steps(
+        { run: ['sh', '-c', `ted run start --model "opus;rm" --prompt-file ${prompt}`] },
+        { endTurn: true },
+      ),
+    )
+    const [result] = await waitForResults(client, task, 1)
+    expect(result?.code).not.toBe(0)
+    expect(result?.stderr).toMatch(/model must be a model name/)
+    const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+    expect(runs.filter((r) => r.role === 'sub-agent')).toHaveLength(0)
+  })
+
   test('a failed sub-agent is reported to the Task Lead, with no Inbox item', async () => {
     const client = await startTed()
     const prompt = await promptFile('crash.md', 'Crasher', { say: 'Trying' }, { exit: 3 })
