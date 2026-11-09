@@ -34,9 +34,11 @@ import {
   defaultMachineSettings,
   type Effort,
   type Factory,
+  type GitHubWait,
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type MergeMethod,
   type PermissionMode,
   type Priority,
   type Round,
@@ -84,13 +86,16 @@ import {
   factoryRepos,
   heldRuns,
   localFolders,
+  loopChecks,
   machineSettings,
   machineSettingValues,
   pullRequests,
+  reviewers,
   runInterrupts,
   runMessages,
   runs,
   schema,
+  sendBackAsks,
   sendBackResets,
   sendBacks,
   stageEntries,
@@ -245,6 +250,43 @@ export interface SubAgentRequest {
   at: string
 }
 
+export type ReviewerPurpose = 'review' | 'loop-check'
+
+export interface Reviewer {
+  runId: string
+  taskId: string
+  stage: StageId
+  purpose: ReviewerPurpose
+  agent: AgentKind
+  unavailable?: AgentKind
+  at: string
+}
+
+export type LoopVerdict = 'converging' | 'looping' | 'failed'
+
+export interface LoopCheck {
+  runId: string
+  taskId: string
+  to: AgentStageId
+  findings: string
+  checkRunId?: string
+  round: number
+  limit?: number
+  verdict?: LoopVerdict
+  at: string
+}
+
+export interface SendBackAsk {
+  commentId: string
+  taskId: string
+  from: AgentStageId
+  to: AgentStageId
+  findings: string
+  checkRunId?: string
+  loop: boolean
+  at: string
+}
+
 export interface QueuedTask extends QueueEntry {
   kind: 'task'
   priority: Priority
@@ -340,6 +382,20 @@ export interface TedStore {
   ): void
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
+  pullRequestWaiting(taskId: string, name: string, on: GitHubWait | undefined): void
+  autoMergeEnabled(
+    taskId: string,
+    name: string,
+    input: { method: MergeMethod; requested: MergeMethod },
+  ): void
+  pullRequestMerged(
+    taskId: string,
+    name: string,
+    input: { method?: MergeMethod; requested?: MergeMethod; noCi: boolean; byTed: boolean },
+  ): void
+  branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
+  pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
@@ -386,6 +442,7 @@ export interface TedStore {
   taskLog(taskId: string): LoggedEvent[]
   supersedeComment(id: string, input: NewComment): Comment
   listOpenRequests(): Comment[]
+  listAnsweredRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
   latestBrief(taskId: string): TaskBrief | undefined
   recordSendBack(input: {
@@ -434,6 +491,23 @@ export interface TedStore {
   requestSubAgent(request: Omit<SubAgentRequest, 'at'>): SubAgentRequest
   subAgentRequests(taskId?: string): SubAgentRequest[]
   dropSubAgentRequest(id: string): void
+  chooseReviewer(reviewer: Omit<Reviewer, 'at'>): Reviewer
+  reviewerOf(runId: string): Reviewer | undefined
+  reviewers(taskId: string): Reviewer[]
+  judgeValidate(input: {
+    taskId: string
+    outcome: 'passed' | 'sent-back'
+    checkRunId?: string
+    review?: { passed: boolean; notes?: number }
+    visual?: { passed: boolean; notes?: number }
+    reviewer?: { agent: AgentKind; unavailable?: AgentKind }
+  }): void
+  startLoopCheck(check: Omit<LoopCheck, 'at' | 'verdict'>): LoopCheck
+  finishLoopCheck(runId: string, verdict: LoopVerdict, reason: string): void
+  loopChecks(taskId?: string): LoopCheck[]
+  askAboutSendBack(ask: Omit<SendBackAsk, 'at'>): SendBackAsk
+  sendBackAsk(commentId: string): SendBackAsk | undefined
+  sendBackAsks(taskId: string): SendBackAsk[]
   setOnSubAgents(runId: string, on: boolean): void
   onSubAgents(runId: string): boolean
   recordRunOutput(runId: string, output: RunOutput): void
@@ -582,6 +656,40 @@ export async function openStore({
   const runName = (run: typeof runs.Type) =>
     run.name ?? (run.taskId !== null && run.parentRunId === null ? 'Task Lead' : 'Run')
 
+  const toReviewer = ({ unavailable, ...row }: typeof reviewers.Type): Reviewer => ({
+    ...row,
+    stage: row.stage as StageId,
+    purpose: row.purpose as ReviewerPurpose,
+    agent: row.agent as AgentKind,
+    ...(unavailable !== null && { unavailable: unavailable as AgentKind }),
+  })
+
+  const toLoopCheck = ({
+    toStage,
+    checkRunId,
+    limit,
+    verdict,
+    ...row
+  }: typeof loopChecks.Type): LoopCheck => ({
+    ...row,
+    to: toStage as AgentStageId,
+    ...(checkRunId !== null && { checkRunId }),
+    ...(limit !== null && { limit }),
+    ...(verdict !== null && { verdict: verdict as LoopVerdict }),
+  })
+
+  const toSendBackAsk = ({
+    fromStage,
+    toStage,
+    checkRunId,
+    ...row
+  }: typeof sendBackAsks.Type): SendBackAsk => ({
+    ...row,
+    from: fromStage as AgentStageId,
+    to: toStage as AgentStageId,
+    ...(checkRunId !== null && { checkRunId }),
+  })
+
   const toSubAgentRequest = ({
     model,
     effort,
@@ -622,6 +730,16 @@ export async function openStore({
             url: row.url,
             base: row.base,
             state: row.state as TaskPullRequest['state'],
+            ...(row.mergedAt !== null && {
+              merged: {
+                at: row.mergedAt,
+                ...(row.mergeMethod !== null && { method: row.mergeMethod as MergeMethod }),
+                noCi: row.mergedWithoutCi === true,
+              },
+            }),
+            ...(row.autoMerge !== null && { autoMerge: row.autoMerge as MergeMethod }),
+            ...(row.waitingOn !== null && { waiting: row.waitingOn as GitHubWait }),
+            ...(row.signedOffCommit !== null && { signedOff: row.signedOffCommit }),
           },
         }),
     }
@@ -680,6 +798,12 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
+  const isMerged = (taskId: string): boolean =>
+    taskRow(taskId)?.stage === 'done' &&
+    store
+      .query(queryDb(pullRequests.where({ taskId })))
+      .every((row) => row.number === null || row.state === 'merged')
+
   const blockerRows = (taskId: string) =>
     store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
 
@@ -691,7 +815,7 @@ export async function openStore({
       return {
         blockerId: row.blockerId,
         displayId: blocker ? `${factoryKey(blocker.factoryId)}-${blocker.number}` : row.blockerId,
-        merged: blocker?.stage === 'done',
+        merged: isMerged(row.blockerId),
         ...(row.setByRunId !== null && { setByRunId: row.setByRunId }),
         at: row.at,
       }
@@ -755,10 +879,13 @@ export async function openStore({
     const repos = reposOf(row.id)
     const waitingOn = blockedBy.flatMap((id) => {
       const blocker = taskRow(id)
-      return blocker && blocker.stage !== 'done'
-        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
-        : []
+      return blocker && !isMerged(id) ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`] : []
     })
+    const github =
+      stage === 'merge'
+        ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
+            ?.waiting
+        : undefined
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -789,6 +916,7 @@ export async function openStore({
       ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(github !== undefined && { github }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1600,6 +1728,67 @@ export async function openStore({
       commit(events.pullRequestClosed({ taskId, name, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    pullRequestWaiting(taskId, name, on) {
+      commit(
+        events.pullRequestWaitChanged({
+          taskId,
+          name,
+          on: on ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    autoMergeEnabled(taskId, name, { method, requested }) {
+      commit(
+        events.pullRequestAutoMergeEnabled({
+          taskId,
+          name,
+          method,
+          requested,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    pullRequestMerged(taskId, name, { method, requested, noCi, byTed }) {
+      commit(
+        events.pullRequestMerged({
+          taskId,
+          name,
+          method: method ?? null,
+          requested: requested ?? null,
+          noCi,
+          byTed,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    branchRebased(taskId, name, { commit: rebased, onto }) {
+      commit(
+        events.taskBranchRebased({
+          taskId,
+          name,
+          commit: rebased,
+          onto,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    isMerged: (taskId) => isMerged(taskId),
+    pullRequestSignedOff(taskId, name, signedOff) {
+      commit(
+        events.pullRequestSignedOff({
+          taskId,
+          name,
+          commit: signedOff ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
     setLocalFolder(repo, path) {
       commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
     },
@@ -1747,6 +1936,11 @@ export async function openStore({
         }))
         .sort((a, b) => sequence(a.id) - sequence(b.id)),
     listOpenRequests: () => openRequestRows().map(toComment),
+    listAnsweredRequests: () =>
+      store
+        .query(queryDb(comments.orderBy('createdAt', 'asc')))
+        .filter((row) => row.kind !== 'note' && row.answer !== null)
+        .map(toComment),
     writeBrief({ taskId, text, runId }) {
       const row = taskRow(taskId)
       if (!row) throw new Error(`no Task ${taskId}`)
@@ -1943,6 +2137,88 @@ export async function openStore({
       commit(events.subAgentRequestDropped({ id, at: new Date().toISOString() }))
       updatedTask(row.taskId)
     },
+    chooseReviewer({ unavailable, ...reviewer }) {
+      const at = new Date().toISOString()
+      commit(events.reviewerChosen({ ...reviewer, unavailable: unavailable ?? null, at }))
+      return { ...reviewer, ...(unavailable !== undefined && { unavailable }), at }
+    },
+    reviewerOf: (runId) => {
+      const row = store.query(queryDb(reviewers.where({ runId }))).at(0)
+      return row && toReviewer(row)
+    },
+    reviewers: (taskId) =>
+      store.query(queryDb(reviewers.where({ taskId }).orderBy('at', 'asc'))).map(toReviewer),
+    judgeValidate({ taskId, outcome, checkRunId, review, visual, reviewer }) {
+      const judged = (j: { passed: boolean; notes?: number } | undefined) =>
+        j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
+      commit(
+        events.validateJudged({
+          id: randomUUID(),
+          taskId,
+          outcome,
+          checkRunId: checkRunId ?? null,
+          review: judged(review),
+          visual: judged(visual),
+          reviewer:
+            reviewer === undefined
+              ? null
+              : { agent: reviewer.agent, unavailable: reviewer.unavailable ?? null },
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    startLoopCheck({ checkRunId, limit, ...check }) {
+      const at = new Date().toISOString()
+      commit(
+        events.loopCheckStarted({
+          ...check,
+          checkRunId: checkRunId ?? null,
+          limit: limit ?? null,
+          at,
+        }),
+      )
+      updatedTask(check.taskId)
+      return {
+        ...check,
+        ...(checkRunId !== undefined && { checkRunId }),
+        ...(limit !== undefined && { limit }),
+        at,
+      }
+    },
+    finishLoopCheck(runId, verdict, reason) {
+      const row = store.query(queryDb(loopChecks.where({ runId }))).at(0)
+      if (!row || row.verdict !== null) return
+      commit(
+        events.loopCheckFinished({
+          runId,
+          taskId: row.taskId,
+          verdict,
+          reason,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(row.taskId)
+    },
+    loopChecks: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? loopChecks : loopChecks.where({ taskId })).orderBy('at', 'asc'),
+          ),
+        )
+        .map(toLoopCheck),
+    askAboutSendBack({ checkRunId, ...ask }) {
+      const at = new Date().toISOString()
+      commit(events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }))
+      return { ...ask, ...(checkRunId !== undefined && { checkRunId }), at }
+    },
+    sendBackAsk: (commentId) => {
+      const row = store.query(queryDb(sendBackAsks.where({ commentId }))).at(0)
+      return row && toSendBackAsk(row)
+    },
+    sendBackAsks: (taskId) =>
+      store.query(queryDb(sendBackAsks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBackAsk),
     setOnSubAgents(runId, on) {
       if (waitingOnSubAgents.has(runId) === on) return
       if (on) waitingOnSubAgents.add(runId)

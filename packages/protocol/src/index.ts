@@ -242,7 +242,10 @@ export {
   efforts,
   type GitHubWait,
   type InboxItem,
+  type Judgment,
+  type MergeMethod,
   type MoveTaskRequest,
+  mergeMethods,
   type Outcome,
   type OutcomeResult,
   type PermissionAsk,
@@ -280,6 +283,7 @@ export {
   type TrackStage,
   type TrackState,
   taskStatusKinds,
+  type ValidateJudgments,
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'

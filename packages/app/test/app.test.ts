@@ -321,14 +321,7 @@ describe('TED app', () => {
   }, 90_000)
 
   test('a working Run’s chat queues a message, deletes it, and interrupts the turn with ⌘↵', async () => {
-    await ted(
-      'dev',
-      'factory',
-      'add',
-      await makeOriginRepo(path.join(home, 'origin')),
-      '--key',
-      'NB',
-    )
+    await addFactory(await makeOriginRepo(path.join(home, 'origin')), 'NB')
     const steps = [
       { everyMessage: [{ say: 'Redirected.' }, { endTurn: true }] },
       { say: 'Working on the sync layer.' },
@@ -557,7 +550,10 @@ describe('TED app', () => {
       .getByRole('region', { name: 'Blocking findings' })
       .getByText(/The Check “Tests”/)
       .waitFor()
-    await thread.getByText('Checks passed at Validate').waitFor({ timeout: 40_000 })
+    await thread
+      .getByText(/^(Checks passed at Validate|Validate passed)$/)
+      .first()
+      .waitFor({ timeout: 40_000 })
 
     await row.getByRole('button', { name: '✗ Tests' }).click()
     const dialog = window.getByRole('dialog', { name: 'Tests output' })
@@ -566,6 +562,68 @@ describe('TED app', () => {
     await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
     await window.getByRole('button', { name: 'Close' }).click()
     await dialog.waitFor({ state: 'detached' })
+  }, 90_000)
+
+  test('the Review sign-off card starts with the confirmation row, Review notes included', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, {
+      '.gitignore': 'stub-*\nn\nbrief.md\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate, review]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        '',
+      ].join('\n'),
+    })
+    const brief = [
+      '## Goal',
+      'Export works.',
+      '## Decisions so far',
+      'None.',
+      '## Current state',
+      'Done.',
+      '## Open questions',
+      'None.',
+      '## Next step',
+      'Merge.',
+    ].join('\n\n')
+    const script = [
+      'n=$(cat n 2>/dev/null || echo 0); n=$((n+1)); echo $n > n;',
+      'case $n in',
+      '2) echo x > work.txt; ted outcome advance;;',
+      '3) ted outcome advance --review pass --review-notes 2 --visual pass;;',
+      `4) printf '%s' '${brief}' > brief.md; ted brief write --file brief.md; ted outcome advance;;`,
+      '[5-9]) :;;',
+      '*) ted outcome advance;;',
+      'esac',
+    ].join(' ')
+    const run = { run: ['sh', '-c', script] }
+    const steps = JSON.stringify({ steps: [{ everyMessage: [run, { endTurn: true }] }, run] })
+    await addFactory(origin, 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await ted('task', 'start', 'NB-1')
+
+    const passed = thread.getByRole('listitem').filter({ hasText: 'Validate passed' })
+    await passed.waitFor({ timeout: 40_000 })
+    await passed.getByRole('listitem').filter({ hasText: 'Review · 2 notes' }).waitFor()
+    const card = thread.getByRole('region', { name: 'Sign-off' })
+    await card.waitFor({ timeout: 40_000 })
+    const row = card.getByRole('list', { name: 'Checks' })
+    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
+    await row.getByRole('listitem').filter({ hasText: '✓Review · 2 notes' }).waitFor()
+    await row
+      .getByRole('listitem')
+      .filter({ hasText: /^✓Visual$/ })
+      .waitFor()
   }, 90_000)
 
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
@@ -2014,6 +2072,19 @@ async function channelsOf(pid: number): Promise<string[]> {
   return targets.filter((target) => /^(pipe|socket):/.test(target))
 }
 
+async function twoFactories(): Promise<void> {
+  for (const [name, key] of [
+    ['notebook', 'NB'],
+    ['site', 'MS'],
+  ] as const) {
+    const parent = path.join(home, 'origins', name)
+    const made = await makeOriginRepo(parent)
+    const origin = path.join(path.dirname(made), `${name}.git`)
+    await rename(made, origin)
+    await addFactory(origin, key)
+  }
+}
+
 describe('Inbox and Gates', () => {
   test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
@@ -2308,6 +2379,78 @@ describe('Inbox and Gates', () => {
   })
 })
 
+describe('Full Inbox', () => {
+  const asking = (question: string) =>
+    JSON.stringify({
+      steps: [{ run: ['ted', 'outcome', 'ask', '--choice', 'Yes', question] }, { endTurn: true }],
+    })
+
+  test('rows from every Factory sort by Priority, chips filter, rows stay bold until opened, answering moves on, and Answered looks back', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    const client = await daemonClient()
+    for (const [factory, priority, question] of [
+      ['NB', 'low', 'Low question?'],
+      ['NB', 'urgent', 'Urgent question?'],
+      ['MS', 'none', 'Site question?'],
+    ] as const) {
+      const task = await client.createTask({ factory, priority, title: asking(question) })
+      await client.startTask(task.id)
+    }
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const headlines = () =>
+      inbox
+        .getByRole('listitem')
+        .evaluateAll((rows) => rows.map((row) => row.querySelector('[data-headline]')?.textContent))
+    await expect
+      .poll(headlines, { timeout: 30_000 })
+      .toEqual(['Urgent question?', 'Low question?', 'Site question?'])
+    const weight = (text: string) =>
+      inbox.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).fontWeight)
+    expect(await weight('Low question?')).toBe('600')
+
+    const chip = (name: string) => inbox.getByRole('button', { name, exact: true })
+    await chip('All 3').waitFor()
+    await chip('notebook 2').waitFor()
+    await chip('site 1').click()
+    expect(await chip('site 1').getAttribute('aria-pressed')).toBe('true')
+    await expect.poll(headlines).toEqual(['Site question?'])
+    await chip('All 3').click()
+    await expect.poll(headlines).toHaveLength(3)
+
+    await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
+    expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
+    await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
+    await sidebar(window)
+      .getByRole('button', { name: /^Inbox/ })
+      .getByText('3')
+      .waitFor()
+
+    const row = (text: string) =>
+      inbox.getByRole('button').filter({ has: window.getByText(text, { exact: true }) })
+    await row('Urgent question?').click()
+    await expect.poll(() => weight('Urgent question?')).toBe('400')
+    expect(await weight('Low question?')).toBe('600')
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Question', exact: true })
+    await card.getByText('Urgent question?').waitFor()
+    await card.getByRole('button', { name: 'Yes' }).click()
+    await expect.poll(headlines).toEqual(['Low question?'])
+    await expect.poll(() => row('Low question?').getAttribute('aria-current')).toBe('true')
+    await card.getByText('Low question?').waitFor()
+
+    await inbox.getByRole('switch', { name: 'Answered' }).click()
+    await expect.poll(headlines).toEqual(['Urgent question?'])
+    expect(await weight('Urgent question?')).toBe('400')
+    await row('Urgent question?').click()
+    const answered = thread.getByRole('region', { name: 'Question, answered' })
+    await answered.getByRole('region', { name: 'Question, read-only' }).waitFor()
+    expect(await answered.getByRole('button', { name: 'Hide request' }).count()).toBe(1)
+  })
+})
+
 describe('Permission requests', () => {
   test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
@@ -2368,19 +2511,6 @@ describe('Permission requests', () => {
 
 describe('List and All Tasks', () => {
   const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
-
-  async function twoFactories(): Promise<void> {
-    for (const [name, key] of [
-      ['notebook', 'NB'],
-      ['site', 'MS'],
-    ] as const) {
-      const parent = path.join(home, 'origins', name)
-      const made = await makeOriginRepo(parent)
-      const origin = path.join(path.dirname(made), `${name}.git`)
-      await rename(made, origin)
-      await addFactory(origin, key)
-    }
-  }
 
   const rowIds = (window: Page) =>
     window

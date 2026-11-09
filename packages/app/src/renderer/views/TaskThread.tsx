@@ -110,10 +110,11 @@ function EventRow({
         )
       }
     >
-      {checkRun && (
+      {(checkRun || event.judgments) && (
         <ChecksRow
-          checks={checkRun.checks}
-          onOpen={(position) => onOpenOutput(checkRun, position)}
+          checks={checkRun?.checks ?? []}
+          {...(event.judgments && { judgments: event.judgments })}
+          onOpen={(position) => checkRun && onOpenOutput(checkRun, position)}
         />
       )}
       {event.findings !== undefined && <Findings text={event.findings} />}
@@ -188,6 +189,7 @@ export function TaskPanes({
   factories,
   backLink,
   requestId,
+  answeredId,
   onBack,
   onOpenTask,
 }: {
@@ -196,10 +198,14 @@ export function TaskPanes({
   factories: readonly Factory[]
   backLink: string | undefined
   requestId?: string | undefined
+  answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  useEffect(() => {
+    if (answeredId !== undefined) setShown(undefined)
+  }, [answeredId])
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
   const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
@@ -217,6 +223,7 @@ export function TaskPanes({
         task={task}
         backLink={backLink}
         requestId={requestId}
+        answeredId={answeredId}
         onBack={onBack}
         onOpenTask={onOpenTask}
         shownRun={visibleRun}
@@ -233,6 +240,7 @@ export function TaskThread({
   task,
   backLink,
   requestId,
+  answeredId,
   onBack,
   onOpenTask,
   shownRun,
@@ -243,6 +251,7 @@ export function TaskThread({
   task: Task
   backLink: string | undefined
   requestId?: string | undefined
+  answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
   shownRun: string | undefined
@@ -258,6 +267,9 @@ export function TaskThread({
   const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  useEffect(() => {
+    if (answeredId !== undefined) setFilter(undefined)
+  }, [answeredId])
   const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
@@ -395,7 +407,13 @@ export function TaskThread({
                     : undefined
                 return (
                   <li key={comment.id} className={styles.requestItem}>
-                    <AnsweredCard request={comment} task={task} newer={newer} />
+                    <AnsweredCard
+                      key={comment.id === answeredId ? 'shown' : 'collapsed'}
+                      request={comment}
+                      task={task}
+                      newer={newer}
+                      expanded={comment.id === answeredId}
+                    />
                   </li>
                 )
               }

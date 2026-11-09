@@ -9,6 +9,8 @@ async function serve(services: Partial<Services>): Promise<{ server: http.Server
   return listen({
     version: '0.0.0',
     token: 'secret',
+    appToken: 'app-key',
+    appNonces: new Map(),
     data,
     keepaliveMs: 60_000,
     runTokens: { verify: () => undefined },
@@ -26,7 +28,7 @@ test('a write route answers only after the store has saved the write', async () 
     banners: { dismiss: () => ({}) } as unknown as Services['banners'],
   })
   try {
-    const reply = api(port, 'secret')
+    const reply = api(port, { appKey: 'app-key' })
       .call('POST', '/banners/b1/dismiss')
       .then((result) => {
         answered = true

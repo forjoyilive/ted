@@ -148,7 +148,8 @@ const drainTimeoutMs = 10_000
 
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
-    options.idle?.reset()
+    const release = options.idle?.hold()
+    if (release) res.on('close', release)
     handle(req, res, options).catch(async (error: unknown) => {
       await drain(req)
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
@@ -262,6 +263,7 @@ const signedResponses = new WeakMap<http.ServerResponse, { key: string; nonce: s
 
 async function readSignedBody(req: http.IncomingMessage, url: string): Promise<Buffer> {
   const limit = url === '/attachments' ? maxAttachmentBytes : maxBodyBytes
+  if (Number(req.headers['content-length']) > limit) throw new HttpError(413, 'body too large')
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {

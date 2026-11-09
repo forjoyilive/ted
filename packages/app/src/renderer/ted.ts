@@ -77,6 +77,7 @@ export const ted = {
   listThreadEvents: (taskId: string) =>
     window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  listAnswered: () => window.ted.request('listAnswered') as Promise<InboxItem[]>,
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,

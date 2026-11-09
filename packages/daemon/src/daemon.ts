@@ -47,6 +47,7 @@ export interface DaemonOptions {
   disk?: DaemonDiskOptions
   nudgeAfterMs?: number
   appToken?: string
+  mergePollMs?: number
   stallAfterMs?: number
   online?: DaemonOnlineOptions
   limitProbeMs?: number
@@ -234,6 +235,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         gh: integrations.gh,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
+        ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
       wake = () => tasks.wake()

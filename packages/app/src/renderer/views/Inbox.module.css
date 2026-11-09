@@ -1,3 +1,113 @@
+.header {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.answeredSwitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 2px 4px;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-12-5);
+}
+
+.answeredSwitch:focus-visible,
+.chip:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.track {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  transition: background-color 120ms;
+}
+
+.knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--text-on-accent);
+  box-shadow: 0 1px 2px var(--shadow-popover);
+  transition: transform 120ms;
+}
+
+.answeredSwitch[aria-checked='true'] {
+  color: var(--text-primary);
+}
+
+.answeredSwitch[aria-checked='true'] .track {
+  background: var(--accent-default);
+}
+
+.answeredSwitch[aria-checked='true'] .knob {
+  transform: translateX(10px);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.chip:hover {
+  background: var(--surface-hover);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--control-selected-bg);
+  background: var(--control-selected-bg);
+  color: var(--control-selected-fg);
+}
+
+.chipCount {
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip[aria-pressed='true'] .chipCount {
+  color: inherit;
+  opacity: 0.7;
+}
+
 .rows {
   flex: 1;
   margin: 0;
@@ -58,10 +168,14 @@
   display: -webkit-box;
   overflow: hidden;
   font-size: var(--text-14);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-regular);
   line-height: var(--leading-tight);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+.unread {
+  font-weight: var(--weight-semibold);
 }
 
 .where {

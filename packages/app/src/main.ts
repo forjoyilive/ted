@@ -88,6 +88,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
+  listAnswered: (client) => client.listAnswered(),
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,

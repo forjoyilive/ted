@@ -199,6 +199,11 @@ export async function changedFiles(worktree: string, base: string): Promise<stri
   return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
 }
 
+export async function commitAt(worktree: string, at: string): Promise<string | undefined> {
+  const out = await git(worktree, ...noHooks, 'rev-list', '-1', `--before=${at}`, 'HEAD', '--')
+  return out === '' ? undefined : out
+}
+
 export async function commitsAhead(worktree: string, base: string): Promise<number> {
   const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..HEAD`, '--')
   return Number.parseInt(out, 10) || 0
@@ -256,4 +261,139 @@ export async function pushBranch(
     await rm(scratch, { recursive: true, force: true })
   }
   return commit
+}
+
+export async function fetchBranch(
+  worktree: string,
+  options: { url: string; branch: string; haves?: string[]; timeoutMs?: number },
+): Promise<string> {
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-fetch-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const fetched = 'refs/ted/fetched'
+  const run = (args: string[], env: NodeJS.ProcessEnv, timeout?: number) =>
+    execFileAsync('git', args, {
+      cwd: scratch,
+      env,
+      maxBuffer: 16 * 1024 * 1024,
+      ...(timeout !== undefined && { timeout }),
+    })
+  try {
+    await run(['init', '--bare', '--quiet', gitDir], worktreeCommandEnv({}, { GIT_DIR: gitDir }))
+    const env = worktreeCommandEnv(
+      {},
+      { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects },
+    )
+    for (const [i, have] of (options.haves ?? []).entries()) {
+      await run(['update-ref', `refs/ted/have-${i}`, have], env).catch(() => undefined)
+    }
+    await run(
+      [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'protocol.ext.allow=never',
+        'fetch',
+        '--no-tags',
+        '--quiet',
+        '--',
+        options.url,
+        `+refs/heads/${options.branch}:${fetched}`,
+      ],
+      env,
+      options.timeoutMs ?? 5 * 60_000,
+    )
+    const { stdout } = await run(['rev-parse', '--verify', `${fetched}^{commit}`], env)
+    return stdout.trim()
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? ''
+    const reason = stderr
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`git fetch failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean> {
+  return git(repo, ...noHooks, 'merge-base', '--is-ancestor', ancestor, commit).then(
+    () => true,
+    () => false,
+  )
+}
+
+export async function mergeBase(repo: string, a: string, b: string): Promise<string> {
+  return git(repo, ...noHooks, 'merge-base', a, b)
+}
+
+export async function treeOf(repo: string, commit: string): Promise<string> {
+  return git(repo, ...noHooks, 'rev-parse', '--verify', '--end-of-options', `${commit}^{tree}`)
+}
+
+export async function replayedTree(
+  worktree: string,
+  input: { from: string; to: string; onto: string },
+): Promise<string | undefined> {
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-replay-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
+      cwd: scratch,
+      env: worktreeCommandEnv({}, { GIT_DIR: gitDir }),
+    })
+    const { stdout } = await execFileAsync(
+      'git',
+      ['merge-tree', '--write-tree', '--merge-base', input.from, input.onto, input.to],
+      {
+        cwd: scratch,
+        env: worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects }),
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    )
+    return stdout.split('\n')[0]?.trim() || undefined
+  } catch {
+    return undefined
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function headCommit(worktree: string): Promise<string> {
+  return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+}
+
+export async function moveBranchTo(worktree: string, commit: string): Promise<void> {
+  const keys = await git(worktree, 'config', '--name-only', '--get-regexp', '^filter\\.').catch(
+    () => '',
+  )
+  const filters = new Set(
+    keys
+      .split('\n')
+      .map((key) => /^filter\.(.+)\.[^.]+$/.exec(key.trim())?.[1])
+      .filter((name): name is string => name !== undefined),
+  )
+  const noFilters = [...filters].flatMap((name) => [
+    ...['clean', 'smudge', 'process'].flatMap((part) => ['-c', `filter.${name}.${part}=`]),
+    '-c',
+    `filter.${name}.required=false`,
+  ])
+  await git(
+    worktree,
+    ...noHooks,
+    ...noFilters,
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'submodule.recurse=false',
+    'reset',
+    '--keep',
+    commit,
+  )
 }
