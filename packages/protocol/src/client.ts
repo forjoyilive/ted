@@ -4,7 +4,15 @@ import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings } from './settings.ts'
-import type { Attachment, Comment, CreateTaskRequest, Outcome, Task, TaskDefaults } from './task.ts'
+import type {
+  Attachment,
+  Comment,
+  CreateTaskRequest,
+  Outcome,
+  SetTaskLeadRequest,
+  Task,
+  TaskDefaults,
+} from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -40,6 +48,14 @@ export class DaemonClient {
 
   startTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  }
+
+  setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  useDefaultModel(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
   }
 
   listComments(ref: string): Promise<Comment[]> {

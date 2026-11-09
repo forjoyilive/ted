@@ -86,8 +86,8 @@ export async function hostRecords(home: string, runId: string): Promise<Record<s
 export async function killRunHosts(home: string): Promise<void> {
   const runIds = await readdir(path.join(home, 'runs')).catch(() => [])
   for (const runId of runIds) {
-    const start = (await hostRecords(home, runId)).find((r) => r.t === 'start')
-    for (const pid of [start?.agentPid, start?.hostPid]) {
+    const starts = (await hostRecords(home, runId)).filter((r) => r.t === 'start')
+    for (const pid of starts.flatMap((start) => [start.agentPid, start.hostPid])) {
       try {
         if (typeof pid === 'number') process.kill(pid, 'SIGKILL')
       } catch {}

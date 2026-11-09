@@ -71,7 +71,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     banners,
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
-    defaultLead: () => agents.defaultLead(),
+    agents,
     attachmentFile: (attachment) => attachments.file(attachment),
   })
   const token = randomBytes(32).toString('hex')

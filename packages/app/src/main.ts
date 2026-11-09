@@ -12,6 +12,10 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  getRun: async (client, runId) => (await client.getRun(String(runId))).run,
+  setTaskLead: (client, taskId, lead) =>
+    client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
+  useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),

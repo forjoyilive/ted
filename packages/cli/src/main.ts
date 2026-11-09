@@ -8,10 +8,13 @@ import {
   type AgentKind,
   agentKinds,
   type Banner,
+  type Effort,
+  efforts,
   type Factory,
   isShowing,
   type RunWithConversation,
   readDaemonInfo,
+  type TaskLead,
   tedHome,
   tedPaths,
 } from '@ted/protocol'
@@ -25,6 +28,10 @@ const usage = `Usage:
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+                                             Set the Task Lead's agent, model and effort
+  ted task lead <id> --default-model         Run this Task Lead on the CLI's default model
+                                             when its model isn't available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key>
                                              Add a one-repo Factory (development only)
@@ -44,6 +51,9 @@ function parse() {
       options: {
         agent: { type: 'string' },
         cwd: { type: 'string' },
+        'default-model': { type: 'boolean' },
+        effort: { type: 'string' },
+        model: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
         task: { type: 'string' },
@@ -111,6 +121,30 @@ try {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
     console.log(`Started ${task.displayId} on branch ${task.branch}`)
+  } else if (
+    group === 'task' &&
+    command === 'lead' &&
+    rest.length === 1 &&
+    options['default-model']
+  ) {
+    const ref = rest[0] ?? ''
+    const task = await withDaemon(home, (client) => client.useDefaultModel(ref))
+    console.log(`${task.displayId}’s Task Lead now runs on the default model`)
+  } else if (group === 'task' && command === 'lead' && rest.length === 2) {
+    const [ref = '', agent = ''] = rest
+    const { model, effort } = options
+    if (!agentKinds.includes(agent as AgentKind))
+      throw new UsageError('agent must be claude or codex')
+    if (effort !== undefined && !efforts.includes(effort as Effort)) {
+      throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
+    }
+    const lead: TaskLead = {
+      agent: agent as AgentKind,
+      ...(model !== undefined && { model }),
+      ...(effort !== undefined && { effort: effort as Effort }),
+    }
+    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
@@ -232,9 +266,13 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
+function describeLead({ agent, model, effort }: TaskLead): string {
+  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+}
+
 function formatRun({ run, conversation }: RunWithConversation): string {
   return [
-    `Run ${run.id}  ${run.agent}  ${run.state}`,
+    `Run ${run.id}  ${run.agent}  ${run.state}${run.problem === 'model-unavailable' ? '  model unavailable' : ''}`,
     `Session ${run.sessionId ?? 'not known yet'}`,
     ...conversation.map((entry) => summarize(entry.line)),
   ].join('\n')

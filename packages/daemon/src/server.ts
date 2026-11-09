@@ -9,12 +9,14 @@ import {
   appearances,
   type CreateTaskRequest,
   clarifyDepths,
+  type Effort,
   efforts,
   type MachineSettings,
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
   type StartDevRunRequest,
+  type TaskLead,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
@@ -91,6 +93,18 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/lead$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      return [200, tasks.setLead(ref, agentChoice(await readJson(req)))]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/lead\/use-default-model$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.useDefaultModel(ref)],
   },
   {
     method: 'GET',
@@ -276,6 +290,24 @@ function streamEvents(
     unsubscribe()
     release?.()
   })
+}
+
+function agentChoice(body: unknown): TaskLead {
+  const { agent, model, effort } = (body ?? {}) as Record<string, unknown>
+  if (!agentKinds.includes(agent as AgentKind)) {
+    throw new HttpError(400, 'agent must be claude or codex')
+  }
+  if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
+    throw new HttpError(400, 'model must be a name')
+  }
+  if (effort !== undefined && !efforts.includes(effort as Effort)) {
+    throw new HttpError(400, `effort must be one of ${efforts.join(', ')}`)
+  }
+  return {
+    agent: agent as AgentKind,
+    ...(typeof model === 'string' && { model: model.trim() }),
+    ...(effort !== undefined && { effort: effort as Effort }),
+  }
 }
 
 function identify(authorization: string | undefined, options: ServerOptions): Caller | undefined {

@@ -153,6 +153,44 @@ describe('TED app', () => {
     await details.getByText('Done', { exact: true }).waitFor()
   })
 
+  test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
+    await ted('task', 'create', 'Fix login')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'DEV-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await expect.poll(() => details.getByLabel('Agent').inputValue()).toBe('claude')
+
+    await details.getByLabel('Agent').selectOption('codex')
+    await details.getByLabel('Model').fill('gpt-6-mini')
+    await details.getByLabel('Effort').selectOption('low')
+    await details.getByRole('button', { name: 'Save' }).click()
+
+    await details.getByText('Codex · gpt-6-mini · low').waitFor()
+  })
+
+  test('a model the plan doesn’t include shows Model unavailable until the human picks the default', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    await ted('task', 'lead', 'NB-1', 'claude', '--model', 'unavailable-9')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Backlog').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await details.getByText('Model unavailable').waitFor()
+    await window
+      .getByRole('region', { name: 'Task thread' })
+      .getByText(/won’t switch models on its own/)
+      .waitFor()
+    await details.getByRole('button', { name: 'Use the default model' }).click()
+    await details.getByText('Model unavailable').waitFor({ state: 'detached' })
+  })
+
   test('closing the app leaves the daemon running, and reopening reconnects to it', async () => {
     await launchApp()
     const pid = await daemonPid()

@@ -6,8 +6,10 @@ import type {
   DaemonEvent,
   Factory,
   MachineSettings,
+  Run,
   Task,
   TaskDefaults,
+  TaskLead,
 } from '@ted/protocol'
 
 export interface TedBridge {
@@ -25,6 +27,11 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  setTaskLead: (taskId: string, lead: TaskLead) =>
+    window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  pickDefaultModel: (taskId: string) =>
+    window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,

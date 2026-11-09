@@ -1,0 +1,110 @@
+import type { AgentKind, Effort, Run, Task, TaskLead } from '@ted/protocol'
+import { agentKinds } from '@ted/protocol/run'
+import { efforts } from '@ted/protocol/task'
+import { type FormEvent, useEffect, useState } from 'react'
+import { agentLabels, leadSummary } from '../task-fields.ts'
+import { ted } from '../ted.ts'
+import styles from './TaskLeadField.module.css'
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+export function TaskLeadField({ task }: { task: Task }) {
+  const lead = task.lead
+  const [run, setRun] = useState<Run | undefined>()
+  const [agent, setAgent] = useState<AgentKind>(lead?.agent ?? 'claude')
+  const [model, setModel] = useState(lead?.model ?? '')
+  const [effort, setEffort] = useState<Effort | ''>(lead?.effort ?? '')
+  const [error, setError] = useState<string | undefined>()
+
+  useEffect(() => {
+    const runId = task.leadRunId
+    if (runId === undefined) return setRun(undefined)
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'run-updated' && event.run.id === runId) setRun(event.run)
+    })
+    void ted.getRun(runId).then(setRun)
+    return unsubscribe
+  }, [task.leadRunId])
+
+  const save = (event: FormEvent) => {
+    event.preventDefault()
+    const choice: TaskLead = {
+      agent,
+      ...(model.trim() !== '' && { model: model.trim() }),
+      ...(effort !== '' && { effort }),
+    }
+    ted.setTaskLead(task.id, choice).then(
+      () => setError(undefined),
+      (e: unknown) => setError(errorText(e)),
+    )
+  }
+
+  const pickDefaultModel = () => {
+    ted.pickDefaultModel(task.id).then(
+      () => setError(undefined),
+      (e: unknown) => setError(errorText(e)),
+    )
+  }
+
+  return (
+    <div className={styles.field}>
+      {lead && <span>{leadSummary(lead)}</span>}
+      {run?.problem === 'model-unavailable' && (
+        <div className={styles.problem}>
+          <span>Model unavailable</span>
+          <button type="button" className={styles.button} onClick={pickDefaultModel}>
+            Use the default model
+          </button>
+        </div>
+      )}
+      <form className={styles.form} onSubmit={save}>
+        <label className={styles.label}>
+          Agent
+          <select
+            className={styles.control}
+            value={agent}
+            onChange={(e) => setAgent(e.target.value as AgentKind)}
+          >
+            {agentKinds.map((kind) => (
+              <option key={kind} value={kind}>
+                {agentLabels[kind]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.label}>
+          Model
+          <input
+            className={styles.control}
+            value={model}
+            placeholder="Default model"
+            onChange={(e) => setModel(e.target.value)}
+          />
+        </label>
+        <label className={styles.label}>
+          Effort
+          <select
+            className={styles.control}
+            value={effort}
+            onChange={(e) => setEffort(e.target.value as Effort | '')}
+          >
+            <option value="">Default effort</option>
+            {efforts.map((level) => (
+              <option key={level} value={level}>
+                {level}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button type="submit" className={styles.button}>
+          Save
+        </button>
+      </form>
+      {error && (
+        <p role="alert" className={styles.error}>
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}

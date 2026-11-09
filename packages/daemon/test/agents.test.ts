@@ -31,6 +31,51 @@ describe('agent kinds', () => {
     expect(resumed.args).toEqual(fresh.args)
   })
 
+  test('Claude Code gets the model and effort as --model and --effort, ultra as max', () => {
+    const plain = agents.get('claude').launch(run)
+    const chosen = agents.get('claude').launch({ ...run, model: 'opus', effort: 'high' })
+    const ultra = agents.get('claude').launch({ ...run, effort: 'ultra' })
+
+    expect(plain.args).not.toContain('--model')
+    expect(plain.args).not.toContain('--effort')
+    expect(chosen.args[chosen.args.indexOf('--model') + 1]).toBe('opus')
+    expect(chosen.args[chosen.args.indexOf('--effort') + 1]).toBe('high')
+    expect(ultra.args[ultra.args.indexOf('--effort') + 1]).toBe('max')
+  })
+
+  test('Codex gets the model and effort in its plan', () => {
+    const plain = JSON.parse(agents.get('codex').launch(run).input)
+    const chosen = JSON.parse(
+      agents.get('codex').launch({ ...run, model: 'gpt-6-astra', effort: 'ultra' }).input,
+    )
+
+    expect(plain.model).toBeUndefined()
+    expect(plain.effort).toBeUndefined()
+    expect(chosen).toMatchObject({ model: 'gpt-6-astra', effort: 'ultra' })
+  })
+
+  test('each kind knows its own model-unavailable error', () => {
+    const claudeLine = JSON.stringify({
+      type: 'assistant',
+      error: 'model_not_found',
+      message: { content: [{ type: 'text', text: 'There’s an issue with the selected model' }] },
+    })
+    const codexLine = JSON.stringify({
+      method: 'error',
+      params: {
+        error: {
+          message:
+            '{"type":"error","status":400,"error":{"message":"The model is not supported","code":"model_not_found"}}',
+        },
+        willRetry: false,
+      },
+    })
+    expect(agents.get('claude').problemFrom(claudeLine)).toBe('model-unavailable')
+    expect(agents.get('claude').problemFrom(codexLine)).toBeUndefined()
+    expect(agents.get('codex').problemFrom(codexLine)).toBe('model-unavailable')
+    expect(agents.get('codex').problemFrom(claudeLine)).toBeUndefined()
+  })
+
   test('the Task Lead defaults to Claude Code, or Codex when only Codex is installed', () => {
     const stub = process.execPath
     expect(createAgents({ claudeBin: stub, codexBin: stub }).defaultLead()).toBe('claude')
