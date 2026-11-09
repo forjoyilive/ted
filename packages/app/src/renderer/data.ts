@@ -66,10 +66,13 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
   return [...byId.values()]
 }
 
+const keepAll = () => undefined
+
 function useLive<T extends { id: string }>(
   load: () => Promise<T[]>,
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
+  drop: (event: TedEvent) => string | undefined = keepAll,
 ): T[] {
   const [items, setItems] = useState<T[]>([])
   const { epoch } = useConnection()
@@ -81,21 +84,32 @@ function useLive<T extends { id: string }>(
     if (loaded.current !== load) setItems([])
     loaded.current = load
     let fresh: T[] | undefined = []
+    const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
+      const gone = drop(event)
+      if (gone !== undefined) {
+        dropped.add(gone)
+        setItems((current) => current.filter((item) => item.id !== gone))
+        return
+      }
       const item = pick(event)
-      if (!item) return
+      if (!item || dropped.has(item.id)) return
       fresh?.push(item)
       setItems((current) => mergeById(current, [item]).sort(order))
     })
     void load().then(
       (loaded) => {
-        setItems(mergeById(loaded, fresh ?? []).sort(order))
+        setItems(
+          mergeById(loaded, fresh ?? [])
+            .filter((item) => !dropped.has(item.id))
+            .sort(order),
+        )
         fresh = undefined
       },
       () => undefined,
     )
     return unsubscribe
-  }, [load, pick, order, epoch])
+  }, [load, pick, order, drop, epoch])
 
   return items
 }
@@ -106,11 +120,13 @@ const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
 const taskFrom = (event: TedEvent) =>
   event.type === 'task-created' || event.type === 'task-updated' ? event.task : undefined
 
+const deletedTask = (event: TedEvent) => (event.type === 'task-deleted' ? event.taskId : undefined)
+
 const factoryFrom = (event: TedEvent) =>
   event.type === 'factory-added' || event.type === 'factory-updated' ? event.factory : undefined
 
 export function useTasks(): Task[] {
-  return useLive(ted.listTasks, taskFrom, byCreatedAt)
+  return useLive(ted.listTasks, taskFrom, byCreatedAt, deletedTask)
 }
 
 export function useFactories(): Factory[] {
@@ -185,6 +201,7 @@ const inboxEvents = new Set<TedEvent['type']>([
   'comment-updated',
   'task-created',
   'task-updated',
+  'task-deleted',
 ])
 
 export function useInbox(): InboxItem[] {

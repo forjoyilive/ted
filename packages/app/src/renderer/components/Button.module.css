@@ -37,6 +37,11 @@
   color: var(--text-on-accent);
 }
 
+.danger {
+  background: var(--status-destructive);
+  color: var(--text-on-accent);
+}
+
 .secondary {
   border-color: var(--border-control);
   background: var(--surface-card);

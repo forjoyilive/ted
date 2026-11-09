@@ -137,6 +137,8 @@ describe('the token in daemon.json and the app’s token', () => {
     ['message a Run', 'POST', '/runs/r1/messages', { text: 'go ahead' }],
     ['save a Linear key', 'PUT', '/integrations/linear/key', { key: 'lin_api_x' }],
     ['archive a Task', 'POST', '/tasks/DEV-1/archive', {}],
+    ['unarchive a Task', 'POST', '/tasks/DEV-1/unarchive', {}],
+    ['delete a Task', 'POST', '/tasks/DEV-1/delete', {}],
     ['install the ted command', 'POST', '/command-line/install', {}],
     ['stop the daemon and its Runs', 'POST', '/shutdown', {}],
     ['post a Comment as the human', 'POST', '/tasks/DEV-1/comments', { body: 'Approved' }],
