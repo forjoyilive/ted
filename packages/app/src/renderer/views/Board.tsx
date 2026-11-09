@@ -17,6 +17,7 @@ import { Button } from '../components/Button.tsx'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { useConnection } from '../data.ts'
 import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
@@ -72,8 +73,10 @@ function RefusedIcon() {
 
 function useBoardStages(factoryId: string, stagesInUse: string): readonly BoardStage[] {
   const [loaded, setLoaded] = useState<{ factoryId: string; stages: BoardStage[] }>()
+  const { epoch } = useConnection()
   useEffect(() => {
     void stagesInUse
+    void epoch
     let live = true
     ted
       .factoryBoard(factoryId)
@@ -84,7 +87,7 @@ function useBoardStages(factoryId: string, stagesInUse: string): readonly BoardS
     return () => {
       live = false
     }
-  }, [factoryId, stagesInUse])
+  }, [factoryId, stagesInUse, epoch])
   return loaded?.factoryId === factoryId ? loaded.stages : builtInStages
 }
 
