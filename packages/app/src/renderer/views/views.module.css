@@ -195,6 +195,19 @@
   margin-right: 0;
 }
 
+.metaLink {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.metaLink:hover {
+  text-decoration: underline;
+}
+
 .taskMeta {
   color: var(--text-caption);
   font-size: var(--text-12-5);

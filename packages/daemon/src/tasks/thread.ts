@@ -137,6 +137,12 @@ export function threadEvents(
       case 'v2.TaskCreated':
         add(entry, 'done', 'You created this Task')
         break
+      case 'v1.TaskFollowsUp':
+        add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
+        break
+      case 'v1.TaskFollowedUp':
+        add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break

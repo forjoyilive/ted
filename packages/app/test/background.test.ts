@@ -1,9 +1,10 @@
-import { type Activity, type Banner, noActivity } from '@ted/protocol'
+import { type Activity, type Banner, noActivity, type Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import {
   appMenu,
   closeNotice,
   type MenuEntry,
+  mergedNotice,
   problemNotice,
   quitAnswer,
   quitDialog,
@@ -278,5 +279,43 @@ describe('problem notifications', () => {
 
   test('warnings never notify', () => {
     expect(problemNotice(banner({ severity: 'warning' }))).toBeUndefined()
+  })
+})
+
+describe('Task merged notifications', () => {
+  const merged = (at: string, changes: Partial<Task> = {}) =>
+    ({
+      id: 't1',
+      factoryId: 'f1',
+      displayId: 'NB-28',
+      title: 'Image paste in the editor',
+      stage: 'done',
+      merged: { at, pullRequests: [470, 88] },
+      ...changes,
+    }) as Task
+  const now = Date.parse('2026-11-09T12:00:30Z')
+
+  test('a Task that just reached Done notifies and opens the Task', () => {
+    expect(mergedNotice(merged('2026-11-09T12:00:00Z'), now)).toEqual({
+      title: 'NB-28 merged',
+      body: 'Image paste in the editor · PR #470, #88',
+      opens: { kind: 'open-task', taskId: 't1', factoryId: 'f1' },
+    })
+  })
+
+  test('Tasks that merged a while ago, archived Tasks and unmerged Tasks don’t', () => {
+    expect(mergedNotice(merged('2026-11-09T11:50:00Z'), now)).toBeUndefined()
+    expect(
+      mergedNotice(
+        merged('2026-11-09T12:00:00Z', { archived: { at: '', ended: { kind: 'never-started' } } }),
+        now,
+      ),
+    ).toBeUndefined()
+    expect(
+      mergedNotice(
+        { ...merged('2026-11-09T12:00:00Z'), stage: 'merge', merged: undefined } as unknown as Task,
+        now,
+      ),
+    ).toBeUndefined()
   })
 })

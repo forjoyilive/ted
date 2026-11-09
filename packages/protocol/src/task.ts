@@ -161,9 +161,29 @@ export interface Task {
   tabs: ConversationTab[]
   repos: TaskRepo[]
   createdBy: CreatedBy
+  followUpOf?: TaskLink
+  merged?: TaskMerged
   createdAt: string
   updatedAt: string
   archived?: TaskArchive
+}
+
+export interface TaskLink {
+  id: string
+  displayId: string
+}
+
+export interface TaskMerged {
+  at: string
+  pullRequests: number[]
+}
+
+export interface FollowUpRequest {
+  comment?: string
+}
+
+export interface ArchiveDoneResult {
+  archived: number
 }
 
 export interface MoveTaskRequest {

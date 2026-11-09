@@ -6,6 +6,7 @@ import {
   isShowing,
   type QuitChoice,
   type RunCounts,
+  type Task,
   workRunning,
 } from '@ted/protocol'
 
@@ -15,6 +16,7 @@ export type MenuCommand =
   | { kind: 'new-task' }
   | { kind: 'settings'; section?: string }
   | { kind: 'banner'; bannerId: string }
+  | { kind: 'open-task'; taskId: string; factoryId: string }
   | { kind: 'restart-to-update' }
   | { kind: 'quit' }
 
@@ -243,5 +245,21 @@ export function problemNotice(banner: Banner): ProblemNotice | undefined {
     title: 'TED',
     body: banner.text,
     opens: section !== undefined ? { kind: 'settings', section } : { kind: 'open-ted' },
+  }
+}
+
+const mergedNoticeWindowMs = 60_000
+
+export function mergedNotice(task: Task, now: number): ProblemNotice | undefined {
+  if (task.stage !== 'done' || !task.merged || task.archived) return undefined
+  if (now - Date.parse(task.merged.at) > mergedNoticeWindowMs) return undefined
+  const { pullRequests } = task.merged
+  return {
+    title: `${task.displayId} merged`,
+    body:
+      pullRequests.length > 0
+        ? `${task.title} · PR ${pullRequests.map((n) => `#${n}`).join(', ')}`
+        : task.title,
+    opens: { kind: 'open-task', taskId: task.id, factoryId: task.factoryId },
   }
 }

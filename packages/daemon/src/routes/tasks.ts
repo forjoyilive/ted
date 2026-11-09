@@ -12,6 +12,7 @@ import {
   clarifyDepths,
   type Effort,
   efforts,
+  type FollowUpRequest,
   isModelName,
   type PostCommentRequest,
   priorities,
@@ -135,6 +136,23 @@ export const taskRoutes: Route[] = [
         tasks.archive(ref, { closePullRequests: close === true, blocked: blockedChoice(body) }),
       ]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/follow-up$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readOptionalJson(req)) as Partial<FollowUpRequest> | null
+      const comment = body?.comment
+      if (comment !== undefined && typeof comment !== 'string') {
+        throw new HttpError(400, 'comment must be text')
+      }
+      return [201, await tasks.followUp(ref, { ...(comment !== undefined && { comment }) })]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/archive-done$/,
+    handle: async ({ params: [key = ''] }, { tasks }) => [200, tasks.archiveDone(key)],
   },
   {
     method: 'POST',

@@ -56,6 +56,7 @@ export const tasks = State.SQLite.table({
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
+    followUpOf: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -621,6 +622,14 @@ export const events = {
       mediaType: Schema.String,
       at: Schema.String,
     }),
+  }),
+  taskFollowsUp: Events.synced({
+    name: 'v1.TaskFollowsUp',
+    schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskFollowedUp: Events.synced({
+    name: 'v1.TaskFollowedUp',
+    schema: Schema.Struct({ taskId: Schema.String, followUpId: Schema.String, at: Schema.String }),
   }),
   taskSourceSet: Events.synced({
     name: 'v1.TaskSourceSet',
@@ -1450,6 +1459,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskArchived': (args) => task(args),
   'v2.TaskArchived': (args) => task(args, { closing: args.closing, branches: args.branches }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
+  'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
+  'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
@@ -1634,6 +1645,10 @@ const materializers = counted(
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.TaskFollowsUp': ({ taskId, originalId }) =>
+        tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskFollowedUp': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
       'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
         tasks.update({ stage, branch, worktree }).where({ id: taskId }),

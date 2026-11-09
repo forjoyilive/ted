@@ -2868,6 +2868,75 @@ describe('Board', () => {
     await backlog.getByRole('button', { name: 'Start NB-1' }).click()
     await board.getByRole('region', { name: 'Intake' }).locator('[data-task="NB-1"]').waitFor()
   })
+
+  const toDone = JSON.stringify({
+    steps: [
+      { everyMessage: [{ run: ['ted', 'outcome', 'advance'] }] },
+      { run: ['ted', 'outcome', 'advance'] },
+    ],
+  })
+
+  async function doneTasks(count: number): Promise<DaemonClient> {
+    const client = await daemonClient()
+    for (let i = 0; i < count; i++) {
+      const task = await client.createTask({ factory: 'NB', title: toDone })
+      await client.startTask(task.id)
+    }
+    await waitUntil(
+      async () =>
+        (await client.listTasks()).filter((t) => t.stage === 'done').length === count || undefined,
+      'the Tasks to reach Done',
+      30_000,
+    )
+    return client
+  }
+
+  test('the Done column lists Done Tasks as compact cards; Show all opens the List; Archive all asks with the count', async () => {
+    const window = await boardOf('version: 1\norder: [intake, work, merge]\n')
+    await doneTasks(2)
+    const board = await openBoard(window)
+    const done = board.getByRole('region', { name: 'Done' })
+
+    await waitFor(async () => (await cardIds(done)).length === 2)
+    await done.locator('[data-task="NB-2"]').getByText('NB-2 · Merged just now').waitFor()
+    await done.getByRole('button', { name: 'Show all 2 →' }).click()
+    await window.getByRole('heading', { name: /widgets\s*\/\s*List/ }).waitFor()
+    await window.getByText('Stage is Done').waitFor()
+
+    await sidebar(window).getByRole('button', { name: 'Board', exact: true }).click()
+    await board.getByRole('button', { name: 'Done column actions' }).click()
+    await board.getByRole('menuitem', { name: 'Archive all in Done' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
+    await dialog.getByRole('button', { name: 'Archive 2' }).click()
+    await waitFor(async () => (await cardIds(done)).length === 0)
+    expect(await board.getByRole('button', { name: /Show all/ }).count()).toBe(0)
+  })
+
+  test('a Comment on a Done Task offers Comment only and Follow up, which opens the linked Task', async () => {
+    const window = await boardOf('version: 1\norder: [intake, work, merge]\n')
+    await doneTasks(1)
+    const board = await openBoard(window)
+    const done = board.getByRole('region', { name: 'Done' })
+    await done.locator('[data-task="NB-1"]').getByRole('button').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText(/· Merged just now/).waitFor()
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    await box.fill(forever())
+    await thread.getByRole('button', { name: 'Comment only' }).waitFor()
+    await thread.getByRole('button', { name: 'Follow up' }).click()
+
+    await thread.getByText(/NB-2\s+·\s+Follow-up to NB-1/).waitFor()
+    await thread.getByRole('button', { name: 'NB-1' }).click()
+    await thread.getByText('You followed up in NB-2').waitFor()
+
+    await thread.getByRole('button', { name: 'Task actions' }).click()
+    await thread.getByRole('menuitem', { name: /Follow up…/ }).click()
+    const dialog = window.getByRole('dialog', { name: 'Follow up NB-1?' })
+    await dialog.getByRole('textbox').fill(forever())
+    await dialog.getByRole('button', { name: 'Follow up' }).click()
+    await thread.getByText(/NB-3\s+·\s+Follow-up to NB-1/).waitFor()
+  })
 })
 
 async function waitFor(check: () => Promise<boolean>): Promise<void> {

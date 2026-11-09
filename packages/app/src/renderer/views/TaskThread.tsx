@@ -10,6 +10,7 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
@@ -36,6 +37,7 @@ import {
   useTaskRuns,
   useThreadEvents,
 } from '../data.ts'
+import { useNow } from '../requests.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { clarifyDepthText, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
@@ -193,6 +195,7 @@ export function TaskPanes({
   answeredId,
   onBack,
   onOpenTask,
+  onFollowedUp,
 }: {
   task: Task
   tasks: readonly Task[]
@@ -202,6 +205,7 @@ export function TaskPanes({
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
+  onFollowedUp: (followUp: Task) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
   useEffect(() => {
@@ -227,6 +231,7 @@ export function TaskPanes({
         answeredId={answeredId}
         onBack={onBack}
         onOpenTask={onOpenTask}
+        onFollowedUp={onFollowedUp}
         shownRun={visibleRun}
         onShowRun={show}
         onOpenRun={openRun}
@@ -244,6 +249,7 @@ export function TaskThread({
   answeredId,
   onBack,
   onOpenTask,
+  onFollowedUp,
   shownRun,
   onShowRun,
   onOpenRun,
@@ -255,6 +261,7 @@ export function TaskThread({
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
+  onFollowedUp: (followUp: Task) => void
   shownRun: string | undefined
   onShowRun: (runId: string | undefined) => void
   onOpenRun: (runId: string) => void
@@ -295,6 +302,8 @@ export function TaskThread({
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
   const headerAction = statusAction(task)
+  const now = useNow()
+  const activity = mergedLine(task, now) ?? task.activity
   const pin = (id: string) => setChosen({ from: requestId, id })
 
   return (
@@ -307,7 +316,23 @@ export function TaskThread({
       {task.archived && <ArchivedBar task={task} />}
       <header className={styles.taskHeader}>
         <div className={styles.headerRow}>
-          <span className={styles.taskMeta}>{`${task.displayId}  ·  Created by you`}</span>
+          <span className={styles.taskMeta}>
+            {`${task.displayId}  ·  `}
+            {task.followUpOf ? (
+              <>
+                {'Follow-up to '}
+                <button
+                  type="button"
+                  className={styles.metaLink}
+                  onClick={() => task.followUpOf && onOpenTask(task.followUpOf.id)}
+                >
+                  {task.followUpOf.displayId}
+                </button>
+              </>
+            ) : (
+              'Created by you'
+            )}
+          </span>
           <RunIcons runs={task.runs} />
         </div>
         <div className={styles.headerRow}>
@@ -326,7 +351,7 @@ export function TaskThread({
               {headerAction.label}
             </Button>
           )}
-          <TaskActionsMenu task={task} />
+          <TaskActionsMenu task={task} onFollowedUp={onFollowedUp} />
         </div>
         <div className={styles.headerRow}>
           <StageTrack
@@ -338,9 +363,7 @@ export function TaskThread({
           {task.archived ? (
             <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
           ) : (
-            task.activity !== undefined && (
-              <span className={styles.activity}>· {task.activity}</span>
-            )
+            activity !== undefined && <span className={styles.activity}>· {activity}</span>
           )}
         </div>
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
@@ -443,7 +466,7 @@ export function TaskThread({
             </div>
           ) : (
             <div className={styles.pinned}>
-              <CommentBox key={task.id} task={task} />
+              <CommentBox key={task.id} task={task} onFollowedUp={onFollowedUp} />
             </div>
           )}
         </>

@@ -2,6 +2,7 @@ import type { Factory, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import {
   defaultView,
+  doneView,
   dropAction,
   dropTargets,
   filterChips,
@@ -275,5 +276,20 @@ describe('selection', () => {
     expect(selectionRange(list, 'NB-2', 'NB-4')).toEqual(['NB-2', 'NB-3', 'NB-4'])
     expect(selectionRange(list, 'NB-4', 'NB-1')).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
     expect(selectionRange(list, undefined, 'NB-3')).toEqual(['NB-3'])
+  })
+})
+
+describe('Show all from the Board’s Done column', () => {
+  test('opens the List with only Done Tasks, newest first and ungrouped', () => {
+    const done = [
+      task({ displayId: 'NB-1', stage: 'done', updatedAt: '2026-11-01T00:00:00Z' }),
+      task({ displayId: 'NB-2', stage: 'done', updatedAt: '2026-11-05T00:00:00Z' }),
+      task({ displayId: 'NB-3', stage: 'work' }),
+    ]
+    const view = doneView('nb')
+
+    expect(view).toMatchObject({ sort: 'updated', group: 'none', filters: { stages: ['done'] } })
+    const shown = sortTasks(filterTasks(done, view.filters), view.sort)
+    expect(shown.map((t) => t.displayId)).toEqual(['NB-2', 'NB-1'])
   })
 })

@@ -26,7 +26,7 @@ function useBlocked(task: Task): Task[] {
   return useTasks().filter((t) => t.blockedBy.includes(task.id) && !t.archived)
 }
 
-function Dialog({
+export function Dialog({
   children,
   onClose,
 }: {
@@ -273,6 +273,120 @@ export function DeleteDialog({
             <Button onClick={onClose}>Cancel</Button>
             <Button variant="danger" disabled={busy} onClick={() => void remove()}>
               {busy ? 'Deleting…' : `Delete ${task.displayId}`}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+export function FollowUpDialog({
+  task,
+  onClose,
+  onCreated,
+}: {
+  task: Task
+  onClose: () => void
+  onCreated?: (created: Task) => void
+}) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+
+  async function followUp() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      const created = await ted.followUpTask(task.id, text.trim() === '' ? undefined : text)
+      onClose()
+      onCreated?.(created)
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog onClose={onClose}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>{`Follow up ${task.displayId}?`}</h2>
+          <p className={styles.body}>
+            {`${task.title}. TED creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
+          </p>
+          <textarea
+            className={styles.text}
+            aria-label="What should the Follow-up change?"
+            placeholder="What should change?"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter' || !(event.metaKey || event.ctrlKey)) return
+              event.preventDefault()
+              void followUp()
+            }}
+          />
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void followUp()}>
+              Follow up
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+export function ArchiveDoneDialog({
+  factoryId,
+  count,
+  onClose,
+}: {
+  factoryId: string
+  count: number
+  onClose: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const tasks = count === 1 ? '1 Done Task' : `${count} Done Tasks`
+
+  async function archive() {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.archiveDone(factoryId)
+      onClose()
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Dialog onClose={onClose}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>{`Archive ${tasks}?`}</h2>
+          <p className={styles.body}>
+            They leave the Board and the List. Comments, briefs and Conversations are kept, and you
+            can unarchive any of them later.
+          </p>
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button onClick={onClose}>Cancel</Button>
+            <Button variant="primary" disabled={busy} onClick={() => void archive()}>
+              {`Archive ${count}`}
             </Button>
           </div>
         </>
