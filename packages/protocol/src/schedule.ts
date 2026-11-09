@@ -228,12 +228,15 @@ function rruleRule(text: string): Rule {
   }
   const freq = parts.get('FREQ') ?? ''
   const freqs = ['MINUTELY', 'HOURLY', 'DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
-  if (!freqs.includes(freq)) throw new ScheduleError(`FREQ “${freq}” isn’t one of ${freqs.join(', ')}`)
+  if (!freqs.includes(freq))
+    throw new ScheduleError(`FREQ “${freq}” isn’t one of ${freqs.join(', ')}`)
   const interval = parts.has('INTERVAL')
     ? (rruleNumbers(parts.get('INTERVAL') ?? '', 1, 10_000, 'INTERVAL')[0] ?? 1)
     : 1
   const startMinutes =
-    dtstart === undefined ? 0 : new Date(dtstart).getUTCHours() * 60 + new Date(dtstart).getUTCMinutes()
+    dtstart === undefined
+      ? 0
+      : new Date(dtstart).getUTCHours() * 60 + new Date(dtstart).getUTCMinutes()
   const byMinute = parts.has('BYMINUTE')
     ? rruleNumbers(parts.get('BYMINUTE') ?? '', 0, 59, 'BYMINUTE')
     : undefined
@@ -290,7 +293,8 @@ function rruleRule(text: string): Rule {
   if (freq === 'MONTHLY' && !rule.monthDays && !rule.weekDays && !rule.nthWeekDays) {
     rule.monthDays = new Set([new Date(startDay).getUTCDate()])
   }
-  if (freq === 'YEARLY' && !rule.months) rule.months = new Set([new Date(startDay).getUTCMonth() + 1])
+  if (freq === 'YEARLY' && !rule.months)
+    rule.months = new Set([new Date(startDay).getUTCMonth() + 1])
   if (freq === 'YEARLY' && !rule.monthDays && !rule.weekDays && !rule.nthWeekDays) {
     rule.monthDays = new Set([new Date(startDay).getUTCDate()])
   }
@@ -364,7 +368,9 @@ function instantOf(wall: number, timeZone: string): number {
 
 function nthOfMonth(day: Date): { nth: number; last: number } {
   const date = day.getUTCDate()
-  const daysInMonth = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0)).getUTCDate()
+  const daysInMonth = new Date(
+    Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0),
+  ).getUTCDate()
   return { nth: Math.ceil(date / 7), last: -Math.ceil((daysInMonth - date + 1) / 7) }
 }
 
@@ -372,7 +378,9 @@ function dayMatches(rule: Rule, dayStart: number): boolean {
   const day = new Date(dayStart)
   if (rule.months && !rule.months.has(day.getUTCMonth() + 1)) return false
   if (rule.interval && !onInterval(rule.interval, dayStart)) return false
-  const daysInMonth = new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0)).getUTCDate()
+  const daysInMonth = new Date(
+    Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0),
+  ).getUTCDate()
   const date = day.getUTCDate()
   const byMonthDay =
     rule.monthDays === undefined
@@ -569,7 +577,11 @@ function describeRule(rule: Rule, timeZone: string): string | undefined {
   }
   if (rule.nthWeekDays) {
     const ordinal = (n: number) =>
-      n === -1 ? 'last' : n < 0 ? `${-n}th from last` : (['1st', '2nd', '3rd', '4th', '5th'][n - 1] ?? `${n}th`)
+      n === -1
+        ? 'last'
+        : n < 0
+          ? `${-n}th from last`
+          : (['1st', '2nd', '3rd', '4th', '5th'][n - 1] ?? `${n}th`)
     days.push(
       `on the ${and(rule.nthWeekDays.map((n) => `${ordinal(n.nth)} ${dayNames[n.day] ?? ''}`))} of the month`,
     )
@@ -583,9 +595,7 @@ function describeRule(rule: Rule, timeZone: string): string | undefined {
   const monthPart = rule.months
     ? ` in ${and([...rule.months].sort((a, b) => a - b).map((m) => monthNames[m - 1] ?? ''))}`
     : ''
-  const every = rule.interval
-    ? ` every ${rule.interval.every} ${rule.interval.unit}s`
-    : ''
+  const every = rule.interval ? ` every ${rule.interval.every} ${rule.interval.unit}s` : ''
   const lead = repeating ? times : `At ${times}`
   const text = [lead, dayPart].filter((s) => s !== '').join(' ') + monthPart + every
   return repeating && dayPart === '' && monthPart === '' && every === ''

@@ -237,6 +237,7 @@ export interface NewTask {
   attachments?: Attachment[]
   source?: TaskSource
   followUpOf?: string
+  automation?: { automationId: string; firingId: string }
 }
 
 export interface PlannedStage {
@@ -1620,6 +1621,7 @@ export async function openStore({
       attachments = [],
       source,
       followUpOf,
+      automation,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1668,11 +1670,13 @@ export async function openStore({
               events.taskFollowedUp({ taskId: followUpOf, followUpId: id, at }),
             ]
           : []),
+        ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
+      if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
     },

@@ -63,7 +63,12 @@ export interface Automations {
   list(factory?: string): Promise<Automation[]>
   detail(ref: string, factory?: string): Promise<AutomationDetail>
   create(input: CreateAutomationRequest, caller: Caller): Promise<Automation>
-  edit(ref: string, input: EditAutomationRequest, caller: Caller, factory?: string): Promise<Automation>
+  edit(
+    ref: string,
+    input: EditAutomationRequest,
+    caller: Caller,
+    factory?: string,
+  ): Promise<Automation>
   setOn(ref: string, on: boolean, caller: Caller, factory?: string): Promise<Automation>
   runNow(ref: string, caller: Caller, factory?: string): Promise<AutomationRun>
   retry(firingId: string, caller: Caller): Promise<AutomationRun>
@@ -197,7 +202,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
       return queuedFirings().flatMap((f): QueueEntry[] => {
         const automation = saved.get(f.automationId)
         return automation
-          ? [{ id: f.id, kind: 'automation', rank: Date.parse(f.at), factoryId: automation.factoryId }]
+          ? [
+              {
+                id: f.id,
+                kind: 'automation',
+                rank: Date.parse(f.at),
+                factoryId: automation.factoryId,
+              },
+            ]
           : []
       })
     },
@@ -396,10 +408,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   function settle(runId: string): void {
+    if (closed) return
     const own = runOf(runId)
-    if (!own || own.firing.state !== 'started' || closed) return
+    if (own?.firing.state !== 'started') return
     const run = store.getRun(runId)
-    if (!run || run.state !== 'idle') return
+    if (run?.state !== 'idle') return
     if (limited.has(runId) || store.agentPauses()[run.agent] !== undefined) return
     if (openQuestion(own.firing.id)) return
     const message = finalMessage(runId)
@@ -409,8 +422,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   function ended(runId: string, stopped: boolean, lastLines: readonly string[]): void {
+    if (closed) return
     const own = runOf(runId)
-    if (!own || own.firing.state !== 'started' || closed) return
+    if (own?.firing.state !== 'started') return
     limited.delete(runId)
     const message = finalMessage(runId)
     if (stopped) {
@@ -431,10 +445,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   runs.observe({
     usage(run, signal) {
-      if (signal.limited && runOf(run.id)) limited.add(run.id)
+      if (!closed && signal.limited && runOf(run.id)) limited.add(run.id)
     },
     authFailed(run) {
-      if (runOf(run.id)) limited.add(run.id)
+      if (!closed && runOf(run.id)) limited.add(run.id)
     },
     settled(run) {
       setImmediate(() => settle(run.id))
@@ -445,6 +459,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   })
 
   health.onReady(() => {
+    if (closed) return
     for (const runId of [...limited]) {
       const run = store.getRun(runId)
       if (!run || store.agentPauses()[run.agent] === undefined) limited.delete(runId)
@@ -453,9 +468,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
   })
 
   const unsubscribe = store.subscribe((event) => {
+    if (closed) return
     if (event.type === 'run-updated' && event.run.state === 'working') limited.delete(event.run.id)
-    if (event.type === 'run-updated' && event.run.state === 'idle' && runOf(event.run.id)) {
-      setImmediate(() => settle(event.run.id))
+    if (event.type === 'run-updated' && event.run.state === 'idle' && saved.firing(event.run.id)) {
+      const runId = event.run.id
+      setImmediate(() => settle(runId))
     }
     if (event.type === 'factory-added' || event.type === 'factory-updated') {
       setImmediate(() => {
@@ -536,13 +553,18 @@ export function createAutomations(options: AutomationsOptions): Automations {
     arm()
   }
 
-  function nowOf(firing: StoredFiring | undefined, place: (id: string) => number): AutomationNow | undefined {
+  function nowOf(
+    firing: StoredFiring | undefined,
+    place: (id: string) => number,
+  ): AutomationNow | undefined {
     if (!firing) return undefined
     const status = statusOf(firing)
     if (status === 'queued') {
       const agent = agentOf(firing)
       const reason = agent === undefined ? undefined : store.agentPauses()[agent]
-      return reason !== undefined ? { kind: 'paused', reason } : { kind: 'queued', place: place(firing.id) }
+      return reason !== undefined
+        ? { kind: 'paused', reason }
+        : { kind: 'queued', place: place(firing.id) }
     }
     if (status === 'working' || status === 'idle') return { kind: 'working' }
     if (status === 'waiting') return { kind: 'waiting' }
@@ -885,7 +907,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     async answer(id, { choice, text }) {
       const comment = saved.comment(id)
-      if (!comment || comment.kind !== 'question') throw new RequestError(404, `no question ${id}`)
+      if (comment?.kind !== 'question') throw new RequestError(404, `no question ${id}`)
       if (comment.answer) throw new RequestError(409, 'this question was already answered')
       if (choice !== undefined && !comment.choices?.includes(choice)) {
         throw new RequestError(400, `“${choice}” isn’t one of the choices`)

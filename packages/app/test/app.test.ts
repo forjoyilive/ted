@@ -2683,7 +2683,9 @@ describe('List and All Tasks', () => {
       .dragTo(main.locator('tr[data-task="NB-2"]'), { targetPosition: { x: 400, y: 4 } })
 
     await main.locator('tr[data-task="MS-1"]').getByText('1st', { exact: true }).waitFor()
-    expect((await client.getSlots()).queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId))).toEqual(['MS-1', 'NB-2'])
+    expect(
+      (await client.getSlots()).queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId)),
+    ).toEqual(['MS-1', 'NB-2'])
 
     await main.getByRole('button', { name: 'Clear Status is Queued' }).click()
     await main.getByText('machine-wide queue, in start order').waitFor({ state: 'detached' })

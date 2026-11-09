@@ -13,12 +13,14 @@ const iso = (ms: number[]) => ms.map((t) => new Date(t).toISOString())
 describe('schedules', () => {
   test('a weekday cron fires at 09:00 in its own time zone', () => {
     const schedule = scheduleFromExpression('0 9 * * 1-5')
-    expect(
-      iso(nextFirings(schedule, 'Europe/London', at('2026-11-06T12:00:00Z'), 3)),
-    ).toEqual(['2026-11-09T09:00:00.000Z', '2026-11-10T09:00:00.000Z', '2026-11-11T09:00:00.000Z'])
-    expect(
-      iso(nextFirings(schedule, 'America/New_York', at('2026-11-06T12:00:00Z'), 1)),
-    ).toEqual(['2026-11-06T14:00:00.000Z'])
+    expect(iso(nextFirings(schedule, 'Europe/London', at('2026-11-06T12:00:00Z'), 3))).toEqual([
+      '2026-11-09T09:00:00.000Z',
+      '2026-11-10T09:00:00.000Z',
+      '2026-11-11T09:00:00.000Z',
+    ])
+    expect(iso(nextFirings(schedule, 'America/New_York', at('2026-11-06T12:00:00Z'), 1))).toEqual([
+      '2026-11-06T14:00:00.000Z',
+    ])
   })
 
   test('clock times follow summer time', () => {
@@ -111,9 +113,7 @@ describe('schedules', () => {
     expect(describeSchedule({ kind: 'every', every: 2, unit: 'hours' }, 'UTC')).toBe(
       'Every 2 hours',
     )
-    expect(describeSchedule(scheduleFromExpression('*/30 * * * *'), 'UTC')).toBe(
-      'Every 30 minutes',
-    )
+    expect(describeSchedule(scheduleFromExpression('*/30 * * * *'), 'UTC')).toBe('Every 30 minutes')
     expect(
       describeSchedule({ kind: 'weekly', days: ['mon', 'thu'], at: '07:30' }, 'Asia/Tokyo'),
     ).toBe('Mon and Thu at 07:30 · Asia/Tokyo')

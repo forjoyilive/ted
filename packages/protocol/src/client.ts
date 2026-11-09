@@ -34,7 +34,6 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
-import type { AutomationSchedule } from './schedule.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -65,6 +64,7 @@ import type {
   SubAgent,
   SubAgentWait,
 } from './run.ts'
+import type { AutomationSchedule } from './schedule.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
@@ -205,7 +205,10 @@ export class DaemonClient {
   }
 
   deleteAutomation(ref: string, factory?: string): Promise<{ deleted: boolean }> {
-    return this.#request('DELETE', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+    return this.#request(
+      'DELETE',
+      `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`,
+    )
   }
 
   postAutomationComment(input: { body: string; choices?: string[] }): Promise<AutomationRequest> {

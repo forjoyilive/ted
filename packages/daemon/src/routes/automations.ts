@@ -133,10 +133,7 @@ export const automationRoutes: Route[] = [
       const text = typeof body.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       const choices = optionalStrings(body.choices, 'choices')
-      return [
-        201,
-        automations.comment(caller, { body: text, ...(choices && { choices }) }),
-      ]
+      return [201, automations.comment(caller, { body: text, ...(choices && { choices }) })]
     },
   },
   {

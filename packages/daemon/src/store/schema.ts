@@ -2398,9 +2398,7 @@ const materializers = counted(
       'v1.AutomationCreated': ({ at, ...automation }) =>
         automations.insert({ ...automation, handledUntil: at, createdAt: at }),
       'v1.AutomationEdited': ({ id, rescheduled, at, ...fields }) =>
-        automations
-          .update({ ...fields, ...(rescheduled && { handledUntil: at }) })
-          .where({ id }),
+        automations.update({ ...fields, ...(rescheduled && { handledUntil: at }) }).where({ id }),
       'v1.AutomationSwitched': ({ id, on, at }) =>
         automations.update({ on, ...(on && { handledUntil: at }) }).where({ id }),
       'v1.AutomationDeleted': ({ id }) => [

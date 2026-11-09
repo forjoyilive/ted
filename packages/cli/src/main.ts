@@ -6,7 +6,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
-import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
 import {
   type AgentKind,
   type AgentStageId,
@@ -32,6 +31,7 @@ import {
   tedPaths,
   type ValidateJudgments,
 } from '@ted/protocol'
+import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
 
 const usage = `Usage:
   ted help                                   Show this list of commands

@@ -35,10 +35,10 @@ import type {
   RoundInput,
   Run,
   RunSlots,
-  SlotHolder,
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
+  SlotHolder,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -147,13 +147,7 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import {
-  type QueueEntry,
-  type QueueSource,
-  queueOrder,
-  type SlotUse,
-  startsNow,
-} from './queue.ts'
+import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -172,6 +166,7 @@ import {
   roundAnswerSummary,
   roundAnswers,
 } from './rounds.ts'
+import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
@@ -181,10 +176,11 @@ export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: 
 export interface CreateTaskInput
   extends Omit<
     NewTask,
-    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf'
+    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf' | 'automation'
   > {
   title?: string
   source?: string
+  followUp?: string
   factory?: string
   blockedBy?: string[]
   attachments?: Attachment[]
@@ -192,7 +188,7 @@ export interface CreateTaskInput
 }
 
 export interface Tasks {
-  create(input: CreateTaskInput): Promise<Task>
+  create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string): Promise<Comment>
   defaults(factoryId: string): Promise<TaskDefaults>
   board(factoryId: string): Promise<FactoryBoard>
@@ -554,16 +550,19 @@ export function createTasks(options: {
       limit: use.limit,
       working: use.working,
       queued: queue.length,
-      holders: holders.map(({ task, runs, subAgentRuns, settingUp }): SlotHolder => ({
-        kind: 'task' as const,
-        taskId: task.id,
-        displayId: task.displayId,
-        title: task.title,
-        factoryId: task.factoryId,
-        runs,
-        subAgents: subAgentRuns,
-        settingUp,
-      }))
+      holders: holders
+        .map(
+          ({ task, runs, subAgentRuns, settingUp }): SlotHolder => ({
+            kind: 'task' as const,
+            taskId: task.id,
+            displayId: task.displayId,
+            title: task.title,
+            factoryId: task.factoryId,
+            runs,
+            subAgents: subAgentRuns,
+            settingUp,
+          }),
+        )
         .concat(others),
       queue,
       factories: factoryIds.flatMap((factoryId) => {
@@ -3746,6 +3745,81 @@ export function createTasks(options: {
     ].join('\n\n')
   }
 
+  function automationCaller(caller: Caller) {
+    if (caller.kind !== 'run') return undefined
+    const firing = store.automations.firing(caller.runId)
+    const automation = firing && store.automations.get(firing.automationId)
+    const factory = automation && store.getFactory(automation.factoryId)
+    if (!firing || !automation || !factory) {
+      throw new RequestError(
+        403,
+        'Only an Automation Run creates Tasks with `ted task create`. Ask the human to create it.',
+      )
+    }
+    if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
+    return {
+      factoryKey: factory.key,
+      link: { automationId: automation.id, firingId: firing.id },
+    }
+  }
+
+  async function createFollowUp(
+    ref: string,
+    input: {
+      title?: string
+      description?: string
+      sourceUrl?: string
+      factoryId?: string
+      automation?: { automationId: string; firingId: string }
+    },
+  ): Promise<Task> {
+    const original = find(ref)
+    if (input.factoryId !== undefined && original.factoryId !== input.factoryId) {
+      throw new RequestError(409, `${original.displayId} is in another Factory`)
+    }
+    if (original.archived) {
+      throw new RequestError(409, `${original.displayId} is archived; it can’t be followed up`)
+    }
+    if (original.stage !== 'done') {
+      throw new RequestError(
+        409,
+        `${original.displayId} isn’t Done; only a Done Task can be followed up`,
+      )
+    }
+    const url = original.source?.url ?? input.sourceUrl
+    if (
+      input.sourceUrl !== undefined &&
+      original.source !== undefined &&
+      sourceKey(input.sourceUrl) !== sourceKey(original.source.url)
+    ) {
+      throw new RequestError(
+        400,
+        `a Follow-up shares ${original.displayId}’s source, ${original.source.url}`,
+      )
+    }
+    if (url !== undefined) {
+      const clash = sourceClash(store.listTasks(), original.factoryId, url)
+      if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
+    }
+    const lead =
+      original.lead ??
+      leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+    const text = input.description?.trim() ?? ''
+    const task = await store.createTask({
+      title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
+      description: text,
+      priority: original.priority,
+      lead,
+      factoryId: original.factoryId,
+      ...(original.source
+        ? { source: original.source }
+        : url !== undefined && { source: taskSource(url, undefined) }),
+      followUpOf: original.id,
+      ...(input.automation && { automation: input.automation }),
+    })
+    return start(task.id)
+  }
+
   function followUpNote(task: StoredTask): string | undefined {
     if (!task.followUpOf || store.latestBrief(task.id)) return undefined
     const original = store.getTask(task.followUpOf.id)
@@ -4319,23 +4393,48 @@ export function createTasks(options: {
   }
 
   return {
-    async create({
-      title,
-      factory: key,
-      blockedBy = [],
-      start: startNow,
-      lead,
-      source: sourceUrl,
-      ...fields
-    }) {
+    async create(
+      {
+        title,
+        factory: givenKey,
+        blockedBy = [],
+        start: startNow,
+        lead,
+        source: sourceUrl,
+        followUp,
+        ...fields
+      },
+      caller = { kind: 'app' },
+    ) {
+      const automation = automationCaller(caller)
+      const key = automation?.factoryKey ?? givenKey
+      if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
+        throw new RequestError(
+          403,
+          `this Automation creates Tasks only in ${automation.factoryKey}, its own Factory`,
+        )
+      }
+      const factory =
+        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
+      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      if (followUp !== undefined) {
+        return createFollowUp(followUp, {
+          ...(title !== undefined && { title }),
+          ...(fields.description !== undefined && { description: fields.description }),
+          ...(sourceUrl !== undefined && { sourceUrl }),
+          ...(factory && { factoryId: factory.id }),
+          ...(automation && { automation: automation.link }),
+        })
+      }
+      if (sourceUrl !== undefined && factory && caller.kind !== 'app') {
+        const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
+        if (clash) throw new RequestError(409, clashMessage(clash))
+      }
       const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
       const name =
         title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
-      const factory =
-        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
-      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
         ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
@@ -4353,6 +4452,7 @@ export function createTasks(options: {
         blockedBy: blockers,
         startRequested: startNow === true,
         ...(factory && { factoryId: factory.id }),
+        ...(automation && { automation: automation.link }),
       })
       if (!factory) return task
       if (!resolution) {

@@ -111,7 +111,10 @@ export async function automationCommand(
   }
 }
 
-async function createInput(home: string, options: AutomationOptions): Promise<CreateAutomationRequest> {
+async function createInput(
+  home: string,
+  options: AutomationOptions,
+): Promise<CreateAutomationRequest> {
   const template =
     options.template === undefined
       ? undefined
