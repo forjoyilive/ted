@@ -674,7 +674,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Stop** (Task actions menu or palette; no shortcut) stops every Run on the Task (kept as history), frees its slots, keeps the worktree and Apps, and leaves the Task in its Stage as **Stopped**. Stopping the Task Lead’s Run is the same action. There’s no human Pause; Paused is only for agents that can’t run. (KRI-55, KRI-56)
 - **Resume** (`S`, the header button, or **Send and resume** in the comment box) starts a fresh Task Lead Run from the brief plus Comments since, through the queue. (KRI-55, KRI-61, KRI-63)
 - **Retry** on a Failed Task is Send and resume. It is on the FAILED ask, on hover and in the menu of a Failed card or List row, and on `S`. (KRI-61, KRI-8 coordinator decision 14, KRI-56)
-- **Task Lead goes idle without asking:** TED sends one nudge into the Run: “Continue, or post a Comment if you need the human.” If it goes idle again with nothing open, TED posts a `question`, “The Task Lead stopped without saying why”, with the agent’s last message and **Nudge again**. (KRI-55)
+- **Task Lead goes idle without asking:** after the Run has been idle for 60 seconds with no unanswered request, TED sends one nudge into the Run: “Continue, or post a Comment if you need the human.” The delay is fixed, with no user-facing setting. It measures time in the idle state; thinking or running a tool while the Run is working does not count. If it goes idle again with nothing open, TED posts a `question`, “The Task Lead stopped without saying why”, with the agent’s last message and **Nudge again**. (KRI-55, KRI-177)
 
 ### 6.19 Archive and delete
 
