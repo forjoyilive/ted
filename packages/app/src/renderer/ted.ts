@@ -18,6 +18,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  FactoryBoard,
   InboxItem,
   IntegrationsHealth,
   LinearLookup,
@@ -116,6 +117,8 @@ export const ted = {
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
+  factoryBoard: (factoryId: string) =>
+    window.ted.request('factoryBoard', factoryId) as Promise<FactoryBoard>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>

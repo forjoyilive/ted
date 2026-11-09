@@ -2094,6 +2094,142 @@ describe('List and All Tasks', () => {
   })
 })
 
+describe('Board', () => {
+  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+
+  async function boardOf(workflow?: string): Promise<Page> {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    if (workflow !== undefined) await commitToOrigin(parent, { '.ted/workflow.yaml': workflow })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    return launchApp()
+  }
+
+  async function openBoard(window: Page) {
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const board = window.getByRole('region', { name: 'widgets' })
+    await board.getByRole('region', { name: 'Backlog' }).waitFor()
+    return board
+  }
+
+  const cardIds = (column: ReturnType<Page['getByRole']>) =>
+    column
+      .locator('[data-task]')
+      .evaluateAll((cards) => cards.map((card) => card.getAttribute('data-task')))
+
+  const columnNames = (board: ReturnType<Page['getByRole']>) =>
+    board
+      .locator('[data-stage]')
+      .evaluateAll((columns) => columns.map((column) => column.getAttribute('aria-label')))
+
+  test('columns follow the Factory’s Workflow, with Gated Stages marked', async () => {
+    const window = await boardOf(
+      'version: 1\norder: [intake, work, review]\nstages:\n  review: { gate: true }\n',
+    )
+    const board = await openBoard(window)
+
+    await waitFor(async () => (await columnNames(board)).length === 5)
+    expect(await columnNames(board)).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
+    await board.getByRole('region', { name: 'Review' }).getByText('Gate').waitFor()
+    expect(await board.getByRole('region', { name: 'Work' }).getByText('Gate').count()).toBe(0)
+    await board.getByRole('heading', { name: /widgets\s*\/\s*Board/ }).waitFor()
+    await board.getByRole('button', { name: 'Filter' }).waitFor()
+    await board.getByRole('button', { name: 'Plan' }).waitFor()
+  })
+
+  test('dragging Backlog → Intake starts a Task, Queued → Backlog un-starts it, other drops are refused', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.updateSettings({ maxWorkingRuns: 1 })
+    await ted('task', 'create', '--factory', 'NB', forever())
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    await ted('task', 'start', 'NB-1')
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    const intake = board.getByRole('region', { name: 'Intake' })
+    await backlog.locator('[data-task="NB-2"]').waitFor()
+
+    await backlog.locator('[data-task="NB-2"]').dragTo(board.getByRole('region', { name: 'Work' }))
+    await sleep(300)
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.stage).toBe('backlog')
+
+    await backlog.locator('[data-task="NB-2"]').dragTo(intake)
+    await intake.locator('[data-task="NB-2"]').getByText('Queued · 1st').waitFor()
+    await intake.locator('[data-task="NB-2"]').getByText('Waiting for a free Run slot').waitFor()
+
+    await intake.locator('[data-task="NB-2"]').dragTo(backlog)
+    await backlog.locator('[data-task="NB-2"]').waitFor()
+    expect((await client.getSlots()).queued).toBe(0)
+  })
+
+  test('the drag shows the drop slot in Intake and dims the columns it can’t go to', async () => {
+    const window = await boardOf()
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    const board = await openBoard(window)
+    const card = board.getByRole('region', { name: 'Backlog' }).locator('[data-task="NB-1"]')
+    await card.waitFor()
+
+    await card.hover()
+    await window.mouse.down()
+    const intake = board.getByRole('region', { name: 'Intake' })
+    const box = await intake.boundingBox()
+    if (!box) throw new Error('no Intake column')
+    await window.mouse.move(box.x + 100, box.y + 60, { steps: 5 })
+    await window.mouse.move(box.x + 110, box.y + 70, { steps: 5 })
+
+    await intake.getByText('Drop to Start').waitFor()
+    await intake.getByText('Joins the queue as Queued · 1st').waitFor()
+    expect(await board.getByRole('region', { name: 'Work' }).getAttribute('data-drop')).toBe('no')
+    await window.mouse.up()
+  })
+
+  test('dragging up a column changes rank, and across Priority groups the Priority', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
+    await client.createTask({ factory: 'NB', title: 'Export notes' })
+    await client.createTask({ factory: 'NB', title: 'Note history' })
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    await waitFor(async () => (await cardIds(backlog)).length === 3)
+    expect(await cardIds(backlog)).toEqual(['NB-1', 'NB-2', 'NB-3'])
+
+    await backlog
+      .locator('[data-task="NB-3"]')
+      .dragTo(backlog.locator('[data-task="NB-2"]'), { targetPosition: { x: 40, y: 4 } })
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-1,NB-3,NB-2')
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-3')?.priority).toBe('none')
+
+    await backlog
+      .locator('[data-task="NB-2"]')
+      .dragTo(backlog.locator('[data-task="NB-1"]'), { targetPosition: { x: 40, y: 4 } })
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-2,NB-1,NB-3')
+    expect((await client.listTasks()).find((t) => t.displayId === 'NB-2')?.priority).toBe('high')
+  })
+
+  test('Start on a Backlog card starts it; a blocked card has no Start; Filter narrows the cards', async () => {
+    const window = await boardOf()
+    const client = await daemonClient()
+    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
+    await client.createTask({ factory: 'NB', title: 'Export notes', blockedBy: ['NB-1'] })
+    const board = await openBoard(window)
+    const backlog = board.getByRole('region', { name: 'Backlog' })
+    await backlog.locator('[data-task="NB-2"]').getByText('Starts when NB-1 merges').waitFor()
+    expect(await backlog.getByRole('button', { name: 'Start NB-2' }).count()).toBe(0)
+
+    await board.getByRole('button', { name: 'Filter' }).click()
+    expect(await board.getByRole('menuitem', { name: 'Stage' }).count()).toBe(0)
+    expect(await board.getByRole('menuitemradio', { name: 'Only' }).count()).toBe(0)
+    await board.getByRole('menuitem', { name: 'Priority' }).hover()
+    await board.getByRole('menuitemcheckbox', { name: /High/ }).click()
+    await window.keyboard.press('Escape')
+    await waitFor(async () => (await cardIds(backlog)).join() === 'NB-1')
+
+    await backlog.getByRole('button', { name: 'Start NB-1' }).click()
+    await board.getByRole('region', { name: 'Intake' }).locator('[data-task="NB-1"]').waitFor()
+  })
+})
+
 async function waitFor(check: () => Promise<boolean>): Promise<void> {
   const deadline = Date.now() + 10_000
   while (!(await check())) {

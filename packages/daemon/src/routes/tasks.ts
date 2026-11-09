@@ -285,6 +285,11 @@ export const taskRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/task-defaults$/,
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.defaults(id)],
   },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/board$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.board(id)],
+  },
 ]
 
 function agentChoice(body: unknown): TaskLead {

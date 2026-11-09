@@ -10,6 +10,7 @@ import type {
   Comment,
   CommentAnswer,
   DaemonEvent,
+  FactoryBoard,
   InboxItem,
   LinearIssue,
   MoveTaskRequest,
@@ -50,7 +51,7 @@ import type {
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
-import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import { boardStages, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import {
   backStageMessage,
   nextStageMessage,
@@ -94,6 +95,7 @@ export interface CreateTaskInput
 export interface Tasks {
   create(input: CreateTaskInput): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
+  board(factoryId: string): Promise<FactoryBoard>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
   move(ref: string, request: MoveTaskRequest): Task
@@ -1492,6 +1494,13 @@ export function createTasks(options: {
         lead: leadFrom(resolution.workflow.settings),
         clarifyDepth: clarifyDepths.find((d) => d === depth) ?? 'auto',
       }
+    },
+
+    async board(factoryId) {
+      const factory = store.getFactory(factoryId)
+      if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      return { stages: boardStages(resolution.workflow) }
     },
 
     start,

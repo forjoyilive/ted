@@ -1,4 +1,10 @@
-import { type AgentStageId, agentStageIds, type LayerKind, type StageId } from '@ted/protocol'
+import {
+  type AgentStageId,
+  agentStageIds,
+  type BoardStage,
+  type LayerKind,
+  type StageId,
+} from '@ted/protocol'
 import {
   type AgentChoice,
   type CheckedLayer,
@@ -74,4 +80,13 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
       return stages.find((id) => id !== 'backlog' && builtInOrder.indexOf(id) > rank) ?? 'done'
     },
   }
+}
+
+export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {
+  const { stages } = workflow.settings
+  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => ({
+    id,
+    enabled: id === 'done' || stages[id]?.enabled !== false,
+    gate: id !== 'backlog' && id !== 'done' && stages[id]?.gate === true,
+  }))
 }
