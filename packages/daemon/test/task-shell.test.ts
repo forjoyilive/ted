@@ -184,9 +184,11 @@ describe('Task shell', () => {
     )
     expect(later.running).toBe(true)
     expect(later.data).toContain(`pid=${pid}`)
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 1 })
 
     await ted.ok('POST', `/tasks/${task.id}/archive`)
     await waitUntil(async () => !alive(pid) || undefined, 'the shell to end')
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 0 })
     expect((await ted.call('POST', shellRoute(task, '/input'), { data: 'x' })).status).toBe(404)
   })
 

@@ -593,6 +593,7 @@ export interface TedStore {
   closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
   activity(): Activity
+  setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -1573,6 +1574,7 @@ export async function openStore({
     }
   }
 
+  let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
     const held = store.query(queryDb(heldRuns)).length
@@ -1595,6 +1597,7 @@ export async function openStore({
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
       checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
+      shellsRunning,
     }
   }
   let lastActivity = activity()
@@ -2934,6 +2937,10 @@ export async function openStore({
     },
     settings,
     activity,
+    setShellsRunning(count) {
+      shellsRunning = count
+      noteActivity()
+    },
     updateSettings(changes) {
       const current = settings()
       const changed = Object.fromEntries(

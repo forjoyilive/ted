@@ -4,7 +4,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { useSettings } from '../data.ts'
+import { useConnection, useSettings } from '../data.ts'
 import { openInEditor } from '../editor.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
@@ -13,6 +13,7 @@ import styles from './TaskShell.module.css'
 
 const pollWaitMs = 20_000
 const retryMs = 1_000
+const worktreeGone = /has no worktree|worktree for .* isn’t on disk/
 
 function hex(colour: string): string {
   const parts = /(\d+)\D+(\d+)\D+(\d+)/.exec(colour)
@@ -88,6 +89,7 @@ export function TaskShell({
   onBack: () => void
 }) {
   const settings = useSettings()
+  const { epoch } = useConnection()
   const fontSize = settings?.terminalFontSize ?? 13
   const fontSizeRef = useRef(fontSize)
   fontSizeRef.current = fontSize
@@ -103,6 +105,7 @@ export function TaskShell({
   const [restarts, setRestarts] = useState(0)
 
   useEffect(() => {
+    void epoch
     const element = host.current
     if (!element) return
     const terminal = new Terminal({
@@ -187,7 +190,22 @@ export function TaskShell({
         } catch (error) {
           if (closed) return
           const message = readableError(error)
-          if (/^No shell is open|has no worktree/.test(message)) {
+          if (/^No shell is open/.test(message)) {
+            const reopened = await ted
+              .openShell(taskId, repo, sizeOf(terminal))
+              .catch((failure: unknown) => readableError(failure))
+            if (closed) return
+            if (typeof reopened !== 'string') {
+              setShell(reopened)
+              generation = reopened.generation
+              from = 0
+              continue
+            }
+            if (worktreeGone.test(reopened)) {
+              setGone(true)
+              return
+            }
+          } else if (worktreeGone.test(message)) {
             setGone(true)
             return
           }
@@ -222,7 +240,7 @@ export function TaskShell({
       terminal.dispose()
       terminalRef.current = undefined
     }
-  }, [taskId, repo, restarts])
+  }, [taskId, repo, restarts, epoch])
 
   useEffect(() => {
     const terminal = terminalRef.current

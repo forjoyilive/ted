@@ -14,6 +14,8 @@ export interface ShellsOptions {
   target(ref: string, repo: string): Promise<ShellTarget>
   subscribe(listener: (event: DaemonEvent) => void): () => void
   idle?: IdleTimer
+  program?: () => string
+  onRunning?: (count: number) => void
   scrollbackChars?: number
   maxWaitMs?: number
 }
@@ -57,6 +59,14 @@ export function createShells(options: ShellsOptions): Shells {
   const shells = new Map<string, Shell>()
   const scrollback = options.scrollbackChars ?? 512 * 1024
   const maxWaitMs = options.maxWaitMs ?? 25_000
+  const program = options.program ?? (() => loginShell(process.env))
+  let reported = 0
+  const report = () => {
+    const count = [...shells.values()].filter((s) => s.process !== undefined).length
+    if (count === reported) return
+    reported = count
+    options.onRunning?.(count)
+  }
 
   const unsubscribe = options.subscribe((event) => {
     if (event.type === 'task-deleted') {
@@ -76,6 +86,7 @@ export function createShells(options: ShellsOptions): Shells {
     shells.delete(keyOf(shell.taskId, shell.repo))
     stop(shell)
     wake(shell)
+    report()
   }
 
   function stop(shell: Shell): void {
@@ -116,7 +127,7 @@ export function createShells(options: ShellsOptions): Shells {
       COLORTERM: 'truecolor',
       TERM_PROGRAM: 'TED',
     }
-    const child = pty.spawn(loginShell(target.env), ['-l'], {
+    const child = pty.spawn(program(), ['-l'], {
       name: 'xterm-256color',
       cols: size.cols,
       rows: size.rows,
@@ -140,7 +151,9 @@ export function createShells(options: ShellsOptions): Shells {
       shell.release?.()
       shell.release = undefined
       wake(shell)
+      report()
     })
+    report()
   }
 
   function info(shell: Shell): TaskShell {

@@ -230,6 +230,16 @@ describe('quitting', () => {
     )
   })
 
+  test('an open Task shell asks before quitting', () => {
+    expect(quitPlan(activity({ shellsRunning: 1 }), 'ask')).toBe('ask')
+    expect(quitDialog(activity({ shellsRunning: 1 })).message).toBe(
+      '1 Task shell is open. Keep TED running in the background so it keeps going?',
+    )
+    expect(quitDialog(activity({ shellsRunning: 2 })).message).toBe(
+      '2 Task shells are open. Keep TED running in the background so they keep going?',
+    )
+  })
+
   test('the dialog names both when Runs and Automations are going', () => {
     expect(quitDialog(activity({ active: 1, automationsOn: 2 })).message).toBe(
       '1 Run is still going and 2 Automations are on. Keep TED running in the background?',

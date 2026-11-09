@@ -31,7 +31,7 @@ import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { listen } from './server.ts'
-import { createShells } from './shells.ts'
+import { createShells, loginShell } from './shells.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -324,6 +324,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           return { ...access, env: { ...access.env, TED_HOME: paths.home } }
         },
         subscribe: (listener) => store.subscribe(listener),
+        program: () => loginShell(environment.current()),
+        onRunning: (count) => store.setShellsRunning(count),
         ...(idle && { idle }),
       })
       const editorOptions = options.editors ?? {}
