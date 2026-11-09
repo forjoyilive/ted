@@ -29,6 +29,7 @@ interface StubHealth {
   signedIn?: boolean
   autoUnavailable?: boolean
   resumeFails?: boolean
+  resumeWaitsFor?: string
 }
 
 function stubHealth(): StubHealth {
@@ -67,6 +68,11 @@ const flag = (name: string) => {
 
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
 appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
+
+const resumeGate = flag('--resume') !== undefined ? stubHealth().resumeWaitsFor : undefined
+while (resumeGate !== undefined && !existsSync(resumeGate)) {
+  await sleep(20)
+}
 
 if (flag('--resume') !== undefined && stubHealth().resumeFails) {
   process.stderr.write(`No conversation found with session ID: ${flag('--resume')}\n`, () =>

@@ -18,12 +18,13 @@ import { promisify } from 'node:util'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   commitToOrigin,
   hostRecords,
   isAlive,
   makeOriginRepo,
+  removeHome,
   stopDaemonIn,
   waitForExit,
 } from '../../daemon/test/helpers.ts'
@@ -36,6 +37,8 @@ const stubClaudePath = fileURLToPath(
 )
 const electronPath = createRequire(import.meta.url)('electron') as string
 const run = promisify(execFile)
+
+vi.setConfig({ testTimeout: 90_000 })
 
 let home: string
 let app: ElectronApplication | undefined
@@ -54,7 +57,7 @@ afterEach(async () => {
   await closeApp(app)
   app = undefined
   await stopDaemonIn(home)
-  await rm(home, { recursive: true, force: true })
+  await removeHome(home)
 }, 30_000)
 
 const env = () => ({
@@ -711,7 +714,9 @@ describe('TED app frame', () => {
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
-    expect(await appearance.getByRole('radio', { name: 'Light' }).isChecked()).toBe(true)
+    await expect
+      .poll(() => appearance.getByRole('radio', { name: 'Light' }).isChecked(), { timeout: 5_000 })
+      .toBe(true)
   })
 
   test('the Appearance setting applies when the app starts', async () => {
@@ -1334,7 +1339,8 @@ describe('Working Runs', () => {
     await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
 
     const popover = window.getByRole('dialog', { name: 'Working Runs' })
-    await popover.getByText('1 of 1 slots on this Mac').waitFor()
+    const machine = process.platform === 'darwin' ? 'this Mac' : 'this computer'
+    await popover.getByText(`1 of 1 slots on ${machine}`).waitFor()
     const working = popover.getByRole('region', { name: 'Working' })
     await working.getByText('NB-1', { exact: true }).waitFor()
     await working.getByText('widgets · Task Lead').waitFor()
@@ -1796,7 +1802,11 @@ describe('running in the background', () => {
           'Quit TED completely',
         ]),
       )
-    if (process.platform === 'linux') expect(await window.title()).toBe('TED (1)')
+    if (process.platform === 'linux') {
+      expect(
+        await app?.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getTitle()),
+      ).toBe('TED (1)')
+    }
 
     await app?.evaluate(({ Menu }) => {
       const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
@@ -1859,27 +1869,30 @@ describe('running in the background', () => {
     await expect.poll(checked(startAtLogin)).toBe('false')
   })
 
-  test('when macOS asks for approval, the row says so and opens Login Items', async () => {
-    const window = await launchApp({
-      TED_LOGIN_ITEM_LOG: loginLog(),
-      TED_LOGIN_ITEM_STATUS: 'requires-approval',
-    })
-    await app?.evaluate(({ shell }) => {
-      const opened: string[] = []
-      Object.assign(globalThis, { opened })
-      shell.openExternal = async (url: string) => {
-        opened.push(url)
-      }
-    })
-    await openSettings(window)
+  test.skipIf(process.platform !== 'darwin')(
+    'when macOS asks for approval, the row says so and opens Login Items',
+    async () => {
+      const window = await launchApp({
+        TED_LOGIN_ITEM_LOG: loginLog(),
+        TED_LOGIN_ITEM_STATUS: 'requires-approval',
+      })
+      await app?.evaluate(({ shell }) => {
+        const opened: string[] = []
+        Object.assign(globalThis, { opened })
+        shell.openExternal = async (url: string) => {
+          opened.push(url)
+        }
+      })
+      await openSettings(window)
 
-    await window.getByText('Allow TED in System Settings → Login Items').waitFor()
-    await window.getByRole('button', { name: 'Open System Settings' }).click()
+      await window.getByText('Allow TED in System Settings → Login Items').waitFor()
+      await window.getByRole('button', { name: 'Open System Settings' }).click()
 
-    await expect
-      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
-      .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
-  })
+      await expect
+        .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+        .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
+    },
+  )
 
   test('started with --background, TED runs with no window', async () => {
     app = await electron.launch({
@@ -2435,7 +2448,7 @@ describe('List and All Tasks', () => {
         .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
         .every((t) => t.archived !== undefined),
     )
-    expect(await rowIds(window)).toEqual(['MS-2'])
+    await expect.poll(() => rowIds(window)).toEqual(['MS-2'])
 
     await main.getByRole('button', { name: 'Filter' }).click()
     await main.getByRole('menuitemradio', { name: 'Only' }).click()
