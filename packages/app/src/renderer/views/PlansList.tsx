@@ -122,9 +122,9 @@ function Group({
             <tr>
               <th className={styles.titleColumn}>Title</th>
               <th className={styles.statusColumn}>Status</th>
-              <th>Started</th>
-              <th>Tasks</th>
-              <th>Agent</th>
+              <th className={styles.startedColumn}>Started</th>
+              <th className={styles.tasksColumn}>Tasks</th>
+              <th className={styles.agentColumn}>Agent</th>
               <th className={styles.moreColumn}>
                 <span className={styles.hidden}>Actions</span>
               </th>

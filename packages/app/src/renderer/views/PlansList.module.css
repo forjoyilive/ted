@@ -61,6 +61,7 @@ h2.groupHeading::before {
 .table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: var(--text-13);
 }
 
@@ -96,9 +97,26 @@ h2.groupHeading::before {
   width: 30%;
 }
 
+.startedColumn {
+  width: 10%;
+}
+
+.tasksColumn {
+  width: 12%;
+}
+
+.agentColumn {
+  width: 10%;
+}
+
 .moreColumn {
   width: 32px;
   text-align: right;
+}
+
+.titleColumn,
+.statusColumn {
+  overflow: hidden;
 }
 
 .title {
