@@ -1,5 +1,6 @@
-import { type AgentHealth, allTasksScope, type Banner, type Task } from '@ted/protocol'
+import type { AgentHealth, Banner, Task } from '@ted/protocol'
 import { runsPaused } from '@ted/protocol/health'
+import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'

@@ -1,19 +1,18 @@
-import {
-  allTasksScope,
-  type CreatedBy,
-  type Factory,
-  type ListColumn,
-  type ListFilters,
-  type ListGroup,
-  type ListSort,
-  type ListView,
-  type Priority,
-  priorities,
-  type StageId,
-  type StatusFilter,
-  type Task,
-  taskStatusKinds,
+import type {
+  CreatedBy,
+  Factory,
+  ListColumn,
+  ListFilters,
+  ListGroup,
+  ListSort,
+  ListView,
+  Priority,
+  StageId,
+  StatusFilter,
+  Task,
 } from '@ted/protocol'
+import { allTasksScope } from '@ted/protocol/list-view'
+import { priorities, taskStatusKinds } from '@ted/protocol/task'
 import { priorityLabels } from './task-fields.ts'
 
 export const stageOrder: readonly StageId[] = [
