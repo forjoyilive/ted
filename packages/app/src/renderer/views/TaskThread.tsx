@@ -87,6 +87,7 @@ function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
           <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
+          {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
         {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
@@ -361,10 +362,13 @@ export function TaskThread({
                   {task.followUpOf.displayId}
                 </button>
               </>
+            ) : task.setup ? (
+              'Created by TED'
             ) : (
               'Created by you'
             )}
           </span>
+          {task.setup && <span className={styles.setupTag}>Setup</span>}
           <RunIcons runs={task.runs} />
         </div>
         <div className={styles.headerRow}>
@@ -579,6 +583,12 @@ export function TaskDetails({
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
+      {task.setup && (
+        <p className={styles.setupNote}>
+          The Design and Review Gates are always on for a setup Task. Tasks started before it merges
+          use TED’s defaults.
+        </p>
+      )}
       <dl className={styles.details}>
         <dt>Priority</dt>
         <dd>

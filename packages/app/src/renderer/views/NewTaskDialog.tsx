@@ -18,6 +18,7 @@ import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { Select } from '../components/Select.tsx'
+import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import {
   agentLabels,
   clarifyDepthLabels,
@@ -38,6 +39,7 @@ interface NewTaskDialogProps {
   factoryId: string | undefined
   initialDescription?: string
   onClose: () => void
+  onOpenTask?: (task: Task) => void
 }
 
 export function NewTaskDialog({
@@ -46,6 +48,7 @@ export function NewTaskDialog({
   factoryId,
   initialDescription = '',
   onClose,
+  onOpenTask,
 }: NewTaskDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
@@ -54,6 +57,10 @@ export function NewTaskDialog({
 
   const [factory, setFactory] = useState(
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
+  )
+  const setup = setupNotice(
+    factories.find((f) => f.id === factory),
+    tasks,
   )
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState(initialDescription)
@@ -420,6 +427,23 @@ export function NewTaskDialog({
         )}
       </section>
 
+      {setup && (
+        <p className={styles.setupNotice} role="note">
+          <span>{setupNoticeText(setup)}</span>
+          {onOpenTask && setup.kind === 'open' && (
+            <button
+              type="button"
+              className={styles.setupLink}
+              onClick={() => {
+                onClose()
+                onOpenTask(setup.task)
+              }}
+            >
+              Open setup Task
+            </button>
+          )}
+        </p>
+      )}
       <footer className={styles.footer}>
         <div className={styles.start}>
           <input

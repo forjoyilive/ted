@@ -50,6 +50,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   planning: 'A planning chat',
   split: 'A split',
   'follow-up': 'A Follow-up',
+  setup: 'Factory setup',
 }
 
 export const sortLabels: Record<ListSort, string> = {

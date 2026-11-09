@@ -55,6 +55,7 @@ import {
   viewKey,
 } from '../list-view.ts'
 import { age, useNow } from '../requests.ts'
+import { startTask } from '../setup-notice.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import styles from './TaskList.module.css'
@@ -578,7 +579,7 @@ export function TaskList({
     const action = dropAction(moving.task, view.group, moving.group, target.group)
     if (!action) return
     const task = moving.task
-    if (action === 'start') await ted.startTask(task.id)
+    if (action === 'start') await startTask(task)
     if (action === 'unstart') await ted.moveToBacklog(task.id)
     const placed = neighbours(group.tasks, task.id, target.index)
     if (placed.after === undefined && placed.before === undefined) {

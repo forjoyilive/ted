@@ -907,3 +907,8 @@
   display: flex;
   justify-content: flex-end;
 }
+
+.setupError {
+  color: var(--status-failed-fg);
+  font-size: var(--text-12);
+}

@@ -252,6 +252,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
   reorderFactories: (client, factoryIds) =>
     client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),
+  newSetupTask: (client, factoryId) => client.newSetupTask(String(factoryId)),
   factoryRemoval: (client, factoryId) => client.factoryRemoval(String(factoryId)),
   removeFactory: (client, factoryId, request) => {
     const given = request as { key?: unknown; closePullRequests?: unknown } | undefined

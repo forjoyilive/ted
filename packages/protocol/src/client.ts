@@ -675,6 +675,10 @@ export class DaemonClient {
     } satisfies ReorderFactoriesRequest)
   }
 
+  newSetupTask(factoryId: string): Promise<Task> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/setup-task`)
+  }
+
   factoryRemoval(factoryId: string): Promise<FactoryRemoval> {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/removal`)
   }
