@@ -33,10 +33,14 @@ export async function defaultBranch(repo: string): Promise<string> {
 }
 
 export async function branchExists(repo: string, branch: string): Promise<boolean> {
-  return git(repo, 'show-ref', '--verify', '--quiet', `refs/heads/${branch}`).then(
-    () => true,
-    () => false,
-  )
+  for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+    const found = await git(repo, 'show-ref', '--verify', '--quiet', ref).then(
+      () => true,
+      () => false,
+    )
+    if (found) return true
+  }
+  return false
 }
 
 export async function addWorktree(

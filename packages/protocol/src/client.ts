@@ -56,6 +56,22 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
   }
 
+  listFactories(): Promise<Factory[]> {
+    return this.#request('GET', '/factories')
+  }
+
+  setLocalFolder(key: string, path: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
+  }
+
+  async setupLog(ref: string, repo: string): Promise<string> {
+    const { text } = await this.#request<{ text: string }>(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
+    )
+    return text
+  }
+
   addFactory(input: AddFactoryRequest): Promise<Factory> {
     return this.#request('POST', '/dev/factories', input)
   }

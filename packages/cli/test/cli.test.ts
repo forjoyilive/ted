@@ -239,6 +239,22 @@ describe('ted dev factory and ted task start', () => {
     expect(listed).toMatch(/^NB-1 {2}Done {2}/)
   })
 
+  test('a Factory remembers its local folder, given when added or set later', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const first = path.join(home, 'first')
+    const second = path.join(home, 'second')
+    await mkdir(first)
+    await mkdir(second)
+
+    await ted(['dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', first])
+    const set = await ted(['dev', 'factory', 'local-folder', 'NB', second])
+
+    expect(set.stdout.trim()).toBe(`NB copies files from ${second}`)
+    await expect(
+      ted(['dev', 'factory', 'local-folder', 'NB', path.join(home, 'missing')]),
+    ).rejects.toMatchObject({ code: 1 })
+  })
+
   test('comment and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
   })

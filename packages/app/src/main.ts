@@ -1,11 +1,25 @@
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
 import { type DaemonClient, type DaemonEvent, tedHome } from '@ted/protocol'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listFactories: (client) => client.listFactories(),
+  setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  locateLocalFolder: async (client, key) => {
+    const options: OpenDialogOptions = {
+      title: 'Locate the local folder',
+      properties: ['openDirectory'],
+    }
+    const chosen = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    const [folder] = chosen.filePaths
+    if (chosen.canceled || folder === undefined) return undefined
+    return client.setLocalFolder(String(key), folder)
+  },
 }
 
 let window: BrowserWindow | undefined

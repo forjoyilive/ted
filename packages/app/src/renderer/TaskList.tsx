@@ -1,5 +1,6 @@
 import type { Comment, Task } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { CodeSection } from './CodeSection.tsx'
 import { ted } from './ted.ts'
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
@@ -56,6 +57,7 @@ function TaskItem({ task }: { task: Task }) {
         {task.displayId} {task.title}
       </strong>{' '}
       <span>{stageName(task.stage)}</span>
+      <CodeSection task={task} />
       {comments.length > 0 && (
         <ul>
           {comments.map((comment) => (

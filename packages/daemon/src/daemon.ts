@@ -52,7 +52,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     workflows: createWorkflows({ store, libraryDir: paths.library, reposDir: paths.repos }),
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
+    logsDir: paths.logs,
     leadAgent: () => agents.defaultLead(),
+    ...(idle && { idle }),
   })
   const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({

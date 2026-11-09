@@ -87,6 +87,36 @@ export const workflowLayers = State.SQLite.table({
   },
 })
 
+export const taskRepos = State.SQLite.table({
+  name: 'taskRepos',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    branch: State.SQLite.text(),
+    worktree: State.SQLite.text(),
+    copied: State.SQLite.text(),
+    skipped: State.SQLite.text(),
+    setupCommand: State.SQLite.text({ nullable: true }),
+    setupState: State.SQLite.text({ nullable: true }),
+    setupExitCode: State.SQLite.integer({ nullable: true }),
+    teardownCommand: State.SQLite.text({ nullable: true }),
+    teardownOutcome: State.SQLite.text({ nullable: true }),
+    removedAt: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
+export const localFolders = State.SQLite.table({
+  name: 'localFolders',
+  columns: {
+    repo: State.SQLite.text({ primaryKey: true }),
+    path: State.SQLite.text(),
+    setAt: State.SQLite.text(),
+  },
+})
+
 const runStartedFields = {
   id: Schema.String,
   agent: Schema.String,
@@ -181,6 +211,52 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskWorktreeCreated: Events.synced({
+    name: 'v1.TaskWorktreeCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      repo: Schema.String,
+      branch: Schema.String,
+      worktree: Schema.String,
+      copied: Schema.Array(Schema.String),
+      skipped: Schema.Array(Schema.Struct({ path: Schema.String, reason: Schema.String })),
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeSetupStarted: Events.synced({
+    name: 'v1.TaskWorktreeSetupStarted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      command: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeSetupFinished: Events.synced({
+    name: 'v1.TaskWorktreeSetupFinished',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      outcome: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeRemoved: Events.synced({
+    name: 'v1.TaskWorktreeRemoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      teardownCommand: Schema.NullOr(Schema.String),
+      teardownOutcome: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  localFolderSet: Events.synced({
+    name: 'v1.LocalFolderSet',
+    schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -210,12 +286,50 @@ const materializers = State.SQLite.materializers(events, {
   'v1.RunSessionIdentified': ({ runId, sessionId }) =>
     runs.update({ sessionId }).where({ id: runId }),
   'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
+    taskRepos
+      .insert({
+        ...row,
+        id: `${taskId}:${name}`,
+        taskId,
+        name,
+        copied: JSON.stringify(copied),
+        skipped: JSON.stringify(skipped),
+        createdAt: at,
+      })
+      .onConflict('id', 'replace'),
+  'v1.TaskWorktreeSetupStarted': ({ taskId, name, command }) =>
+    taskRepos
+      .update({ setupCommand: command, setupState: 'running', setupExitCode: null })
+      .where({ id: `${taskId}:${name}` }),
+  'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
+    taskRepos
+      .update({ setupState: outcome, setupExitCode: exitCode })
+      .where({ id: `${taskId}:${name}` }),
+  'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
+    taskRepos
+      .update({ teardownCommand, teardownOutcome, removedAt: at })
+      .where({ id: `${taskId}:${name}` }),
+    tasks.update({ worktree: null }).where({ id: taskId }),
+  ],
+  'v1.LocalFolderSet': ({ repo, path, at }) =>
+    localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
   'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
 })
 
 const state = State.SQLite.makeState({
-  tables: { factories, tasks, runs, conversationEntries, comments, stageEntries, workflowLayers },
+  tables: {
+    factories,
+    tasks,
+    runs,
+    conversationEntries,
+    comments,
+    stageEntries,
+    workflowLayers,
+    taskRepos,
+    localFolders,
+  },
   materializers,
 })
 
