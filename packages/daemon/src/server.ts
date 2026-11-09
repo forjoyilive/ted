@@ -17,6 +17,7 @@ import {
   priorities,
   type ReportOutcomeRequest,
   type SetActivityRequest,
+  type SetLocalFolderRequest,
   type StartDevRunRequest,
   type TaskLead,
   terminalFontSizes,
@@ -26,7 +27,7 @@ import type { Attachments } from './attachments.ts'
 import type { Banners } from './banners.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
-import { addFactory } from './factories.ts'
+import { addFactory, listFactories, setLocalFolder } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
 import { readProfile } from './profile.ts'
 import { redactSecrets } from './redact.ts'
@@ -133,6 +134,28 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup-log$/,
+    async handle({ params: [ref = '', name = ''] }, { tasks }) {
+      return [200, { text: await tasks.setupLog(ref, name) }]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories$/,
+    handle: async (_, { store }) => [200, await listFactories(store)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/local-folder$/,
+    async handle({ req, params: [key = ''] }, { store }) {
+      const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
+      const folder = typeof body?.path === 'string' ? body.path : ''
+      if (folder === '') throw new HttpError(400, 'path is required')
+      return [200, await setLocalFolder(store, key, folder)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,
@@ -166,14 +189,6 @@ const routes: Route[] = [
       if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
       return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
     },
-  },
-  {
-    method: 'GET',
-    path: /^\/factories$/,
-    handle: async (_, { store }) => [
-      200,
-      store.listFactories().map(({ cloneUrl: _, ...factory }) => factory),
-    ],
   },
   {
     method: 'GET',
@@ -246,7 +261,14 @@ const routes: Route[] = [
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
-      return [201, await addFactory({ store, reposDir, workflows }, { repo, key })]
+      const localFolder = typeof body?.localFolder === 'string' ? body.localFolder : undefined
+      return [
+        201,
+        await addFactory(
+          { store, reposDir, workflows },
+          { repo, key, ...(localFolder !== undefined && { localFolder }) },
+        ),
+      ]
     },
   },
   {

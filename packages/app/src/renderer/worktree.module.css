@@ -1,0 +1,107 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--status-warning-border);
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-13);
+}
+
+.bannerAction {
+  padding: 2px 10px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 6px;
+  background: var(--surface-pane);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.code {
+  margin-top: 20px;
+  font-size: var(--text-13);
+}
+
+.heading {
+  margin: 0 0 8px;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+  font-weight: 500;
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-tertiary);
+}
+
+.repos {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.repo {
+  display: grid;
+  gap: 4px;
+}
+
+.repoName {
+  font-weight: 500;
+}
+
+.branch,
+.path {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.path {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: copy;
+}
+
+.path:hover {
+  color: var(--text-primary);
+}
+
+.path:focus-visible,
+.bannerAction:focus-visible,
+.link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.setup {
+  margin: 0;
+  color: var(--status-waiting-fg);
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.log {
+  max-height: 200px;
+  margin: 4px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}

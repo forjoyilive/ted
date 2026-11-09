@@ -99,6 +99,18 @@ export class DaemonClient {
     return (await res.json()) as Attachment
   }
 
+  setLocalFolder(key: string, path: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
+  }
+
+  async setupLog(ref: string, repo: string): Promise<string> {
+    const { text } = await this.#request<{ text: string }>(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
+    )
+    return text
+  }
+
   getSettings(): Promise<MachineSettings> {
     return this.#request('GET', '/settings')
   }

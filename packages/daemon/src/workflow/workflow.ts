@@ -26,9 +26,11 @@ export async function taskLeadPrompt(
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
   attachmentFile?: (attachment: Attachment) => string,
+  setupReport?: string,
 ): Promise<string> {
   const preamble = await readFile(new URL('preamble.md', defaults), 'utf8')
   return [
+    ...(setupReport !== undefined ? [setupReport] : []),
     preamble.trim(),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),

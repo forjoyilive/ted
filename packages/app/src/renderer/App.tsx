@@ -10,6 +10,7 @@ import {
 import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { useBanners, useFactories, useSettings, useTasks } from './data.ts'
+import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
   currentFactoryId,
@@ -215,6 +216,7 @@ export function App() {
         onNewTask={openNewTask}
       />
       <main className={styles.main}>
+        <FactoryBanners />
         {bannerStack('Problems', appWideBanners(banners))}
         <div className={styles.panes}>{main()}</div>
       </main>

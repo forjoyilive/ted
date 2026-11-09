@@ -1,5 +1,6 @@
 import type { AgentStageId, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
+import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
@@ -143,6 +144,7 @@ export function TaskDetails({
           </>
         )}
       </dl>
+      <CodeSection task={task} />
     </aside>
   )
 }

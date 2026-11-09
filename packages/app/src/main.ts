@@ -16,6 +16,7 @@ import {
   ipcMain,
   nativeImage,
   nativeTheme,
+  type OpenDialogOptions,
   shell,
 } from 'electron'
 
@@ -36,6 +37,19 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       { name: String(name), mediaType: String(mediaType) },
       new Uint8Array(bytes),
     )
+  },
+  setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  locateLocalFolder: async (client, key) => {
+    const options: OpenDialogOptions = {
+      title: 'Locate the local folder',
+      properties: ['openDirectory'],
+    }
+    const chosen = window
+      ? await dialog.showOpenDialog(window, options)
+      : await dialog.showOpenDialog(options)
+    const [folder] = chosen.filePaths
+    if (chosen.canceled || folder === undefined) return undefined
+    return client.setLocalFolder(String(key), folder)
   },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
