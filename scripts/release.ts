@@ -67,6 +67,29 @@ function install(): void {
   step('Copy', 'ditto', [built, installed])
 }
 
+export function pickSigningIdentity(listing: string): string | undefined {
+  const names = [
+    ...listing.matchAll(/"((?:Developer ID Application|Apple Development): [^"]+)"/g),
+  ].map((match) => match[1] ?? '')
+  return names.find((name) => name.startsWith('Developer ID Application')) ?? names[0]
+}
+
+function useSigningIdentity(): void {
+  if (process.env.CSC_LINK || process.env.CSC_NAME) return
+  const listing = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
+    encoding: 'utf8',
+  })
+  const name = process.env.TED_SIGN_IDENTITY || pickSigningIdentity(listing)
+  if (name === undefined) {
+    console.log(
+      '\nNo code-signing identity found; building unsigned, so macOS will ask again for the keychain.',
+    )
+    return
+  }
+  console.log(`\n== Signing with ${name}`)
+  process.env.CSC_NAME = name
+}
+
 async function main(): Promise<void> {
   if (process.argv.includes('--install')) {
     install()
@@ -101,6 +124,7 @@ async function main(): Promise<void> {
   }
   step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `TED ${version}`])
   step('Push', 'git', ['push', '--atomic', 'origin', 'main', `v${version}`])
+  useSigningIdentity()
   step('Build', 'pnpm', ['package', '--mac', '--arm64', '--dir'])
   step('Smoke test the build', 'pnpm', ['--filter', '@ted/app', 'smoke'])
   install()

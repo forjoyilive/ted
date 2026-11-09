@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
-import { isNewer, parseVersion } from './release.ts'
+import { isNewer, parseVersion, pickSigningIdentity } from './release.ts'
 
 describe('release versions', () => {
   test('reads plain versions only', () => {
@@ -58,5 +58,24 @@ describe('check output', () => {
     expect(summary(output)).toBe(
       '\x1b[2m Test Files \x1b[22m 1 passed (1)\n      Tests  3 passed (3)',
     )
+  })
+})
+
+describe('signing identity', () => {
+  const listing = (...names: string[]) =>
+    names.map((name, i) => `  ${i + 1}) ${'A'.repeat(40)} "${name}"`).join('\n')
+
+  test('prefers a Developer ID, then an Apple Development identity', () => {
+    expect(
+      pickSigningIdentity(listing('Apple Development: A (1)', 'Developer ID Application: B (2)')),
+    ).toBe('Developer ID Application: B (2)')
+    expect(pickSigningIdentity(listing('Apple Development: A (1)'))).toBe(
+      'Apple Development: A (1)',
+    )
+  })
+
+  test('ignores other identities and finds none in an empty listing', () => {
+    expect(pickSigningIdentity(listing('iPhone Distribution: C (3)'))).toBeUndefined()
+    expect(pickSigningIdentity('     0 valid identities found')).toBeUndefined()
   })
 })
