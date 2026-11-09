@@ -10,7 +10,12 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
-import { hostRecords, killRunHosts, makeOriginRepo } from '../../daemon/test/helpers.ts'
+import {
+  commitToOrigin,
+  hostRecords,
+  killRunHosts,
+  makeOriginRepo,
+} from '../../daemon/test/helpers.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -859,6 +864,103 @@ describe('banners', () => {
 
     await failed.waitFor({ state: 'detached' })
     await nav.getByRole('img', { name: 'A problem stops work' }).waitFor({ state: 'detached' })
+  })
+})
+
+describe('Working Runs', () => {
+  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+
+  async function twoTasksOneSlot(): Promise<Page> {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', forever())
+    await ted('task', 'create', '--factory', 'NB', 'Second Task')
+    const window = await launchApp()
+    await (await daemonClient()).updateSettings({ maxWorkingRuns: 1 })
+    return window
+  }
+
+  test('the sidebar footer counts working and queued Runs live and opens the popover', async () => {
+    const window = await twoTasksOneSlot()
+    const footer = sidebar(window).locator('footer')
+    await footer.getByText('Nothing running').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+    await ted('task', 'start', 'NB-2')
+    await footer.getByRole('button', { name: '1 of 1 Runs working · 1 queued' }).click()
+
+    const popover = window.getByRole('dialog', { name: 'Working Runs' })
+    await popover.getByText('1 of 1 slots on this Mac').waitFor()
+    const working = popover.getByRole('region', { name: 'Working' })
+    await working.getByText('NB-1', { exact: true }).waitFor()
+    await working.getByText('widgets · Task Lead').waitFor()
+    await working.getByText('1 Run', { exact: true }).waitFor()
+    const queued = popover.getByRole('region', { name: 'Queued' })
+    await queued.getByText('1st', { exact: true }).waitFor()
+    await queued.getByText('NB-2 · Second Task').waitFor()
+    await queued.getByText('widgets · None').waitFor()
+
+    await popover.getByRole('button', { name: 'Open in List →' }).click()
+    await window.getByRole('heading', { name: 'All Tasks', level: 1 }).waitFor()
+    expect(await popover.count()).toBe(0)
+  })
+
+  test('with nothing working the popover says so', async () => {
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'Nothing running' }).click()
+    const popover = window.getByRole('dialog', { name: 'Working Runs' })
+    await popover.getByText('No Runs working. Nothing queued.').waitFor()
+    await window.keyboard.press('Escape')
+    await popover.waitFor({ state: 'detached' })
+  })
+
+  test('S starts the open Backlog Task, and Move to Backlog takes a queued one back', async () => {
+    const window = await twoTasksOneSlot()
+    await ted('task', 'start', 'NB-1')
+    await openAllTasks(window)
+    await taskRow(window, 'NB-2').click()
+    const header = window.getByRole('region', { name: 'Task thread' }).locator('header')
+    await header.getByText('· Not started').waitFor()
+
+    await window.keyboard.press('s')
+    await header.getByText('Queued · 1st', { exact: true }).waitFor()
+
+    await header.getByRole('button', { name: 'Move to Backlog' }).click()
+    await header.getByText('· Not started').waitFor()
+    expect((await (await daemonClient()).getSlots()).queued).toBe(0)
+  })
+
+  test('a Factory at its cap shows it in the Board and List header', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', forever())
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const board = window.getByRole('region', { name: 'widgets' })
+    await board.getByRole('heading', { name: 'widgets', level: 1 }).waitFor()
+    expect(await board.getByText('1 of 1 working').count()).toBe(0)
+
+    await ted('task', 'start', 'NB-1')
+
+    await board.getByText('1 of 1 working').waitFor()
+    await sidebar(window).getByRole('button', { name: 'List' }).click()
+    await window.getByRole('region', { name: 'widgets' }).getByText('1 of 1 working').waitFor()
+  })
+
+  test('Settings · Limits changes the limit and shows what is working now', async () => {
+    const window = await twoTasksOneSlot()
+    await ted('task', 'start', 'NB-1')
+    await ted('task', 'start', 'NB-2')
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Limits', exact: true }).click()
+    await window.getByText('Now: 1 of 1 Runs working · 1 queued').waitFor()
+
+    await window.getByRole('button', { name: 'More working Runs' }).click()
+
+    await window.getByText('Now: 2 of 2 Runs working').waitFor()
+    expect((await (await daemonClient()).getSettings()).maxWorkingRuns).toBe(2)
   })
 })
 

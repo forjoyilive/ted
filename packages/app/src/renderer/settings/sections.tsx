@@ -5,6 +5,7 @@ import { SettingsPage } from './controls.tsx'
 import { DeveloperPage } from './DeveloperPage.tsx'
 import { GeneralPage } from './GeneralPage.tsx'
 import { IntegrationsPage } from './IntegrationsPage.tsx'
+import { LimitsPage } from './LimitsPage.tsx'
 import styles from './settings.module.css'
 
 export interface SettingsPageProps {
@@ -29,7 +30,7 @@ export const settingsSections: readonly SettingsSection[] = [
   { id: 'general', label: 'General', Page: GeneralPage },
   { id: 'notifications', label: 'Notifications' },
   { id: 'agents', label: 'Agents' },
-  { id: 'limits', label: 'Limits' },
+  { id: 'limits', label: 'Limits', Page: LimitsPage },
   { id: 'integrations', label: 'Integrations', Page: IntegrationsPage },
   { id: 'library', label: 'Library' },
   { id: 'storage', label: 'Storage' },

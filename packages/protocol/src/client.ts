@@ -13,6 +13,7 @@ import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
+import type { RunSlots } from './slots.ts'
 import type {
   Attachment,
   Comment,
@@ -65,6 +66,14 @@ export class DaemonClient {
 
   useDefaultModel(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/lead/use-default-model`)
+  }
+
+  moveToBacklog(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
+  }
+
+  getSlots(): Promise<RunSlots> {
+    return this.#request('GET', '/slots')
   }
 
   listComments(ref: string): Promise<Comment[]> {
