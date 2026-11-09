@@ -1,3 +1,4 @@
+import type { ConversationTab } from './chat.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -108,6 +109,7 @@ export interface Task {
   track: TrackStage[]
   commentBox: CommentBox
   runs: TaskRun[]
+  tabs: ConversationTab[]
   repos: TaskRepo[]
   createdAt: string
 }
@@ -199,6 +201,7 @@ export interface ThreadEvent {
   tone: ThreadEventTone
   text: string
   findings?: string
+  runId?: string
 }
 
 export interface InboxItem {

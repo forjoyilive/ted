@@ -124,6 +124,27 @@ export const conversationEntries = State.SQLite.table({
     runId: State.SQLite.text(),
     offset: State.SQLite.integer(),
     line: State.SQLite.text(),
+    at: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const runMessages = State.SQLite.table({
+  name: 'runMessages',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    runId: State.SQLite.text(),
+    text: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const conversationTabs = State.SQLite.table({
+  name: 'conversationTabs',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    openedAt: State.SQLite.text(),
   },
 })
 
@@ -739,6 +760,35 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runOutputReadV2: Events.synced({
+    name: 'v2.RunOutputRead',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      toOffset: Schema.Number,
+      entries: Schema.Array(
+        Schema.Struct({ offset: Schema.Number, line: Schema.String, at: Schema.String }),
+      ),
+    }),
+  }),
+  runMessageSent: Events.synced({
+    name: 'v1.RunMessageSent',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      lead: Schema.Boolean,
+      text: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  conversationTabOpened: Events.synced({
+    name: 'v1.ConversationTabOpened',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  conversationTabClosed: Events.synced({
+    name: 'v1.ConversationTabClosed',
+    schema: Schema.Struct({ taskId: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -804,6 +854,11 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     }),
   'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
   'v1.TaskRunReleased': (args) => task(args),
+  'v1.RunMessageSent': (args) => ({
+    taskId: args.lead === true ? str(args.taskId) : null,
+    at: String(args.at),
+    data: { runId: args.runId, messageId: args.id },
+  }),
 }
 
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
@@ -942,6 +997,19 @@ const materializers = counted(
           conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
         ),
       ],
+      'v2.RunOutputRead': ({ runId, toOffset, entries }) => [
+        runs.update({ readOffset: toOffset }).where({ id: runId }),
+        ...entries.map(({ offset, line, at }) =>
+          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line, at }),
+        ),
+      ],
+      'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
+      'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
+        conversationTabs
+          .insert({ id: `${taskId}:${runId}`, taskId, runId, openedAt: at })
+          .onConflict('id', 'ignore'),
+      'v1.ConversationTabClosed': ({ taskId, runId }) =>
+        conversationTabs.delete().where({ id: `${taskId}:${runId}` }),
       'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
       'v1.RunSessionIdentified': ({ runId, sessionId }) =>
         runs.update({ sessionId }).where({ id: runId }),
@@ -1033,6 +1101,8 @@ const state = State.SQLite.makeState({
     taskSources,
     runs,
     conversationEntries,
+    runMessages,
+    conversationTabs,
     comments,
     taskLog,
     taskBriefs,
