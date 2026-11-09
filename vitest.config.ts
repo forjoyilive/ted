@@ -5,6 +5,8 @@ export default defineConfig({
   test: {
     include: ['packages/*/test/**/*.test.ts'],
     testTimeout: 30_000,
+    globalSetup: ['packages/daemon/test/support/global-setup.ts'],
+    setupFiles: ['packages/daemon/test/support/setup.ts'],
     env: {
       TED_GH_BIN: fileURLToPath(
         new URL('./packages/daemon/test/fixtures/stub-gh.ts', import.meta.url),

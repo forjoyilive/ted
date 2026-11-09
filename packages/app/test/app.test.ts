@@ -25,6 +25,7 @@ import {
   killRunHosts,
   makeOriginRepo,
 } from '../../daemon/test/helpers.ts'
+import { closeApp } from './close-app.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -48,7 +49,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await app?.close()
+  await closeApp(app)
   app = undefined
   const info = await readDaemonInfo(home)
   if (info && isAlive(info.pid)) {
