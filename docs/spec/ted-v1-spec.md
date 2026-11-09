@@ -58,7 +58,7 @@ TED (“Totally Excellent Development”) is a desktop app for running software 
   - Allowed: post Comments and set the activity line; report outcomes (the Task Lead only); start, message and stop its own sub-agents; edit its own Task’s title, description, Repos and blockers (`ted task block` may name any Task as the blocker); create Tasks (Automations through `ted task create`, Splits and Planning Runs through `ted task propose`); read Tasks, the brief and Checks; report its own tool-call boundary so TED can deliver a queued Run-chat message (10.6).
   - Refused: answering or approving any Inbox item; signing off, merging, archiving or deleting; editing any other Task; changing settings, Automations or `workflow.yaml` through the API. A Task may still change `.ted/` files on its branch, which go through review.
   - Run tokens prevent mistakes. Agents run as the same user and can read `daemon.json`, so the human’s decisions need the app’s in-memory token, not that file’s. (ADR 0054-the-app-holds-the-human-token-in-memory)
-- `GH_TOKEN` and `GITHUB_TOKEN` are left in agents’ environment. Agents only commit; TED pushes (9.1). (KRI-59)
+- Credential variables, including `GH_TOKEN`, `GITHUB_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`, are kept out of the commands agents run, so a prompt-injected command can’t read them. Agents only commit; TED pushes (9.1). (KRI-59, ADR 0057)
 - The full command set is in 7.10.
 
 ### 2.4 OS permissions and secrets

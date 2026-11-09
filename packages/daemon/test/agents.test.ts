@@ -251,7 +251,7 @@ describe('usage, credentials and cost', () => {
     expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
   })
 
-  test('under Subscription TED removes what Claude Code’s scrub would, keeping what Claude signs in with', () => {
+  test('under Subscription TED removes credentials from the Claude Run, including Claude’s and GitHub’s tokens', () => {
     const removed = {
       ANTHROPIC_API_KEY: 'k',
       ANTHROPIC_AUTH_TOKEN: 't',
@@ -271,17 +271,18 @@ describe('usage, credentials and cost', () => {
       SSH_AUTH_SOCK: '/tmp/agent.sock',
       DATABASE_URL: 'postgres://user:pw@db.example.com/app',
       SESSION: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
+      CLAUDE_CODE_OAUTH_REFRESH_TOKEN: 'r',
+      GITHUB_TOKEN: 'g',
+      GH_TOKEN: 'g',
+      GH_ENTERPRISE_TOKEN: 'g',
+      GITHUB_ENTERPRISE_TOKEN: 'g',
     }
     const kept = {
       PATH: '/bin',
       HOME: '/Users/me',
       PWD: '/work',
-      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
       CLAUDE_CONFIG_DIR: '/Users/me/.claude-work',
-      GITHUB_TOKEN: 'g',
-      GH_TOKEN: 'g',
-      GH_ENTERPRISE_TOKEN: 'g',
-      GITHUB_ENTERPRISE_TOKEN: 'g',
       HTTPS_PROXY: 'http://u:p@proxy:8080',
       http_proxy: 'http://u:p@proxy:8080',
       GIT_CONFIG_COUNT: '1',
@@ -297,8 +298,36 @@ describe('usage, credentials and cost', () => {
     const launched = claude.launch({ ...run, env: { ...removed, ...kept } }).env
     for (const name of Object.keys(removed)) expect(launched[name], name).toBeUndefined()
     expect(launched).toMatchObject(kept)
+    expect(claude.environment({ ...removed, ...kept }, 'subscription')).toEqual(launched)
     const apiKey = claude.launch({ ...run, env: { ...removed, ...kept }, billing: 'api-key' }).env
-    expect(apiKey.AWS_SECRET_ACCESS_KEY).toBe('s')
+    expect(apiKey).toMatchObject({ ...kept, ANTHROPIC_API_KEY: 'k', ANTHROPIC_AUTH_TOKEN: 't' })
+    expect(apiKey.GH_TOKEN).toBeUndefined()
+    expect(apiKey.AWS_SECRET_ACCESS_KEY).toBeUndefined()
     expect(apiKey.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+  })
+
+  test('Codex’s process holds no credentials but its own key under API key billing, so a restart can’t bring them back', () => {
+    const removed = {
+      NPM_TOKEN: 'n',
+      GH_TOKEN: 'g',
+      AWS_SECRET_ACCESS_KEY: 's',
+      DATABASE_URL: 'postgres://user:pw@db.example.com/app',
+      SSH_AUTH_SOCK: '/tmp/agent.sock',
+    }
+    const kept = {
+      PATH: '/bin',
+      GIT_CONFIG_COUNT: '1',
+      GIT_CONFIG_KEY_0: 'url.file:///x/.insteadOf',
+      HTTPS_PROXY: 'http://u:p@proxy:8080',
+      TED_RUN_CAPABILITY: 'run-1.abc',
+    }
+    const keys = { CODEX_API_KEY: 'c', OPENAI_API_KEY: 'o' }
+    const env = { ...removed, ...kept, ...keys }
+    const subscription = codex.launch({ ...run, env }).env
+    expect(subscription).toEqual(kept)
+    expect(codex.environment(env, 'subscription')).toEqual(kept)
+    const apiKey = codex.launch({ ...run, env, billing: 'api-key' })
+    expect(apiKey.env).toEqual({ ...kept, ...keys })
+    expect(apiKey.args).toEqual(codex.launch({ ...run, env: {}, billing: 'api-key' }).args)
   })
 })

@@ -160,11 +160,43 @@ export function fromEpoch(value: unknown): string | undefined {
   return new Date(value > 1e12 ? value : value * 1000).toISOString()
 }
 
-export function withoutKeys(
+const credentialWords = new Set([
+  'TOKEN',
+  'KEY',
+  'APIKEY',
+  'SECRET',
+  'PASSWORD',
+  'PASSWD',
+  'PASS',
+  'AUTH',
+  'CREDENTIALS',
+])
+
+const proxyName = /^(https?|all|no)_proxy$/i
+
+function looksLikeCredential(name: string, value: string | undefined): boolean {
+  if (proxyName.test(name) || name.startsWith('GIT_CONFIG_')) return false
+  if (
+    name
+      .toUpperCase()
+      .split('_')
+      .some((word) => credentialWords.has(word))
+  )
+    return true
+  if (value === undefined) return false
+  return (
+    /^[a-z][a-z0-9+.-]*:\/\/[^/@\s]*:[^/@\s]*@/i.test(value) ||
+    /^eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+$/.test(value)
+  )
+}
+
+export function withoutCredentials(
   env: NodeJS.ProcessEnv,
-  names: readonly string[],
-  billing: Billing = 'subscription',
+  keep: readonly string[] = [],
 ): NodeJS.ProcessEnv {
-  if (billing === 'api-key') return { ...env }
-  return Object.fromEntries(Object.entries(env).filter(([k]) => !names.includes(k)))
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      ([name, value]) => keep.includes(name) || !looksLikeCredential(name, value),
+    ),
+  )
 }
