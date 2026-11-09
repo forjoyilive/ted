@@ -1,5 +1,5 @@
 import type { AgentKind, RunState } from './run.ts'
-import type { Effort } from './task.ts'
+import type { Comment, Effort } from './task.ts'
 
 export type ChatToolStatus = 'running' | 'done' | 'failed'
 
@@ -34,6 +34,7 @@ export type ChatItem =
     }
   | { kind: 'human'; id: string; text: string; at: string; sent: boolean }
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
+  | { kind: 'permission'; id: string; request: Comment; at: string }
 
 export type RunRole = 'lead' | 'sub-agent' | 'run'
 

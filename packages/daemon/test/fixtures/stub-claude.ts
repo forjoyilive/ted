@@ -15,6 +15,11 @@ type Step =
   | { exit: number }
   | { everyMessage: Step[] }
   | { authError: true }
+  | {
+      permission: { tool: string; input: Record<string, unknown>; description?: string }
+      noWait?: true
+    }
+  | { cancelPermission: true }
   | { emit: Record<string, unknown> }
 
 const argv = process.argv.slice(2)
@@ -22,6 +27,7 @@ const argv = process.argv.slice(2)
 interface StubHealth {
   version?: string
   signedIn?: boolean
+  autoUnavailable?: boolean
 }
 
 function stubHealth(): StubHealth {
@@ -82,6 +88,13 @@ const hook = (name: string) => {
 }
 
 let everyMessage: Step[] = []
+let nextRequest = 0
+let lastRequest: string | undefined
+const answers = new Map<string, (response: unknown) => void>()
+const permissionMode = () => {
+  const asked = flag('--permission-mode') ?? 'default'
+  return asked === 'auto' && stubHealth().autoUnavailable ? 'default' : asked
+}
 
 async function runStep(step: Step): Promise<void> {
   if ('everyMessage' in step) everyMessage = step.everyMessage
@@ -101,6 +114,29 @@ async function runStep(step: Step): Promise<void> {
       is_error: true,
       result: 'Not logged in · Please run /login',
     })
+  } else if ('permission' in step) {
+    const requestId = `req-${++nextRequest}`
+    lastRequest = requestId
+    const answered = new Promise((resolve) => answers.set(requestId, resolve))
+    emit({
+      type: 'control_request',
+      request_id: requestId,
+      request: {
+        subtype: 'can_use_tool',
+        tool_name: step.permission.tool,
+        input: step.permission.input,
+        ...(step.permission.description !== undefined && {
+          description: step.permission.description,
+        }),
+      },
+    })
+    if (!step.noWait) say(JSON.stringify(await answered))
+  } else if ('cancelPermission' in step) {
+    if (lastRequest !== undefined) {
+      emit({ type: 'control_cancel_request', request_id: lastRequest })
+      answers.get(lastRequest)?.({ cancelled: true })
+      answers.delete(lastRequest)
+    }
   } else if ('say' in step) say(step.say)
   else if ('hook' in step) hook(step.hook)
   else if ('lines' in step) {
@@ -125,11 +161,41 @@ async function runStep(step: Step): Promise<void> {
   } else if ('exit' in step) process.stdout.write('', () => process.exit(step.exit))
 }
 
-for await (const line of createInterface({ input: process.stdin })) {
-  const message = JSON.parse(line) as { message: { content: string } }
+const messages: { message: { content: string } }[] = []
+let wake: (() => void) | undefined
+let closed = false
+createInterface({ input: process.stdin })
+  .on('line', (line) => {
+    const parsed = JSON.parse(line) as {
+      type?: string
+      message?: { content: string }
+      response?: { request_id?: string; response?: unknown }
+    }
+    if (parsed.type === 'control_response') {
+      const id = parsed.response?.request_id ?? ''
+      answers.get(id)?.(parsed.response?.response)
+      answers.delete(id)
+      return
+    }
+    messages.push(parsed as { message: { content: string } })
+    wake?.()
+  })
+  .on('close', () => {
+    closed = true
+    wake?.()
+  })
+for (;;) {
+  const message = messages.shift()
+  if (!message) {
+    if (closed) break
+    await new Promise<void>((resolve) => {
+      wake = resolve
+    })
+    continue
+  }
   emit({ type: 'user', message: message.message })
   hook('UserPromptSubmit')
-  emit({ type: 'system', subtype: 'init', cwd: process.cwd() })
+  emit({ type: 'system', subtype: 'init', cwd: process.cwd(), permissionMode: permissionMode() })
   if (model?.includes('unavailable')) {
     emit({
       type: 'assistant',

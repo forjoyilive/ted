@@ -1,5 +1,6 @@
 import type {
   ChatItem,
+  Comment,
   ConversationEntry,
   Run,
   RunChat,
@@ -46,6 +47,24 @@ function splitPrompt(prompt: string, preamble: string): { instructions?: string;
 function titleOf(text: string): string {
   const first = text.trim().split('\n')[0] ?? ''
   return first.replace(/^#+\s*/, '').slice(0, 120)
+}
+
+export function withPermissions(items: ChatItem[], requests: readonly Comment[]): ChatItem[] {
+  const merged = [...items]
+  for (const request of requests) {
+    const at = Date.parse(request.createdAt)
+    const after = merged.findLastIndex((item) => {
+      const when = 'at' in item && item.at !== undefined ? Date.parse(item.at) : undefined
+      return when === undefined || when <= at
+    })
+    merged.splice(after + 1, 0, {
+      kind: 'permission',
+      id: request.id,
+      request,
+      at: request.createdAt,
+    })
+  }
+  return merged
 }
 
 export function chatItems(input: {
@@ -203,12 +222,22 @@ export function createConversations(options: {
       subPreamble ??= subAgentPreamble().catch(() => '')
       return {
         run: summary(run, entries),
-        items: chatItems({
-          run,
-          entries: agents.get(run.agent).chat(entries, run.cwd),
-          messages: store.runMessages(runId),
-          preamble: run.parentRunId !== undefined ? await subPreamble : await preamble,
-        }),
+        items: withPermissions(
+          chatItems({
+            run,
+            entries: agents.get(run.agent).chat(entries, run.cwd),
+            messages: store.runMessages(runId),
+            preamble: run.parentRunId !== undefined ? await subPreamble : await preamble,
+          }),
+          run.taskId === undefined
+            ? []
+            : store
+                .listComments(run.taskId)
+                .filter(
+                  (c) =>
+                    c.kind === 'permission' && c.author.kind === 'run' && c.author.runId === run.id,
+                ),
+        ),
       }
     },
     taskRuns(ref) {

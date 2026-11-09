@@ -29,6 +29,7 @@ import {
   type MoveTaskRequest,
   noActivity,
   type Priority,
+  parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
@@ -108,11 +109,32 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  stopTask: (client, taskId) => client.stopTask(String(taskId)),
+  resumeTask: (client, taskId, comment) =>
+    client.resumeTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  openTaskSource: async (client, taskId) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const link = task?.source && parseLinearUrl(task.source.url)
+    if (!link) throw new Error('This Task has no Linear issue to open')
+    await shell.openExternal(link.url)
+  },
   moveTask: (client, taskId, request) =>
     client.moveTask(String(taskId), request as MoveTaskRequest),
   setPriority: (client, taskId, priority) =>
     client.setPriority(String(taskId), String(priority) as Priority),
-  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
+  archiveTask: (client, taskId, options) =>
+    client.archiveTask(String(taskId), {
+      closePullRequests:
+        (options as { closePullRequests?: unknown } | undefined)?.closePullRequests === true,
+    }),
+  openPullRequest: async (client, taskId, repoName) => {
+    const task = (await client.listTasks()).find((t) => t.id === String(taskId))
+    const url = task?.repos.find((r) => r.name === String(repoName))?.pullRequest?.url
+    if (url === undefined || !/^https:\/\/[^/\s]+\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(url)) {
+      throw new Error('That pull request has no GitHub link')
+    }
+    await shell.openExternal(url)
+  },
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
   unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),

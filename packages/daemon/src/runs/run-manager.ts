@@ -1,10 +1,19 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
+import { appendFileSync } from 'node:fs'
 import { appendFile, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { AgentKind, ConversationEntry, Run, RunProblem, RunState } from '@ted/protocol'
+import type {
+  AgentKind,
+  ConversationEntry,
+  PermissionMode,
+  Run,
+  RunProblem,
+  RunState,
+} from '@ted/protocol'
+import { hidesText, type PermissionPrompt, type PermissionReply } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -12,7 +21,7 @@ import { isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
 import type { RunTokens } from '../run-token.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
-import { type HostRecord, type LaunchFile, runFiles } from './host-files.ts'
+import { forGeneration, type HostRecord, type LaunchFile, runFiles } from './host-files.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -45,12 +54,14 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   name?: string
   env?: Record<string, string>
   resume?: string
+  permissions?: PermissionMode
 }
 
 export interface RunManager {
   start(input: StartRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
   send(runId: string, text: string): Promise<void>
+  answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
   stop(runId: string): Promise<void>
   observe(observer: RunObserver): void
   environment(): NodeJS.ProcessEnv
@@ -126,11 +137,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   async function followHostLog(runId: string): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
     let offset = store.runReadOffset(runId)
+    const generation = { count: await startsBefore(files.log, offset) }
     while (!closed) {
       const hostGone = offset > 0 && !isLockHeld(files.lock)
       const batch = await readRecords(files.log, offset)
       if (batch.toOffset > offset || hostGone) {
-        const finished = commitBatch(runId, batch, hostGone && batch.atEnd)
+        const finished = commitBatch(runId, batch, hostGone && batch.atEnd, generation)
         offset = batch.toOffset
         if (finished) return
       }
@@ -138,15 +150,24 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
-  function commitBatch(runId: string, batch: RecordBatch, hostGone: boolean): boolean {
+  function commitBatch(
+    runId: string,
+    batch: RecordBatch,
+    hostGone: boolean,
+    generation: { count: number },
+  ): boolean {
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
     const entries: ConversationEntry[] = []
     let state: RunState | undefined
     let sessionId: string | undefined
     let authFailed = false
     let problem: RunProblem | undefined
+    let autoModeUnavailable = false
+    const prompts: (PermissionPrompt & { generation: number })[] = []
+    const closedPermissions: string[] = []
     const accepted: string[] = []
     const errors: string[] = []
+    const startedWith = generation.count
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({
@@ -160,11 +181,53 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         sessionId = agent.sessionIdFrom(record.line) ?? sessionId
         problem = agent.problemFrom(record.line) ?? problem
         authFailed ||= agent.authErrorFrom(record.line)
-      } else if (record.t === 'exit') state = 'finished'
+        autoModeUnavailable ||= agent.autoModeUnavailableFrom(record.line)
+        const prompt = agent.permissionPromptFrom(record.line, (matches) => {
+          for (let i = entries.length - 2; i >= 0; i--) {
+            const line = entries[i]?.line
+            if (line !== undefined && matches(line)) return line
+          }
+          return store.conversation(runId).findLast((entry) => matches(entry.line))?.line
+        })
+        if (prompt) {
+          prompts.push({
+            ...prompt,
+            generation: generation.count,
+            ...(hidesText(prompt) && { refuse: true }),
+          })
+        }
+        const closed = agent.permissionClosedFrom(record.line)
+        if (closed !== undefined) closedPermissions.push(closed)
+      } else if (record.t === 'start') generation.count += 1
+      else if (record.t === 'exit') state = 'finished'
       else if (record.t === 'err') errors.push(record.line)
     }
     if (hostGone) state = 'finished'
+    const run = store.getRun(runId)
+    const askable = run?.taskId !== undefined
+    const refused =
+      state === 'finished' ? [] : prompts.filter((prompt) => !askable || prompt.refuse === true)
+    if (refused.length > 0) {
+      const lines = refused.flatMap((prompt) =>
+        agent
+          .permissionReply({ requestId: prompt.requestId, approved: false })
+          .map((line) => forGeneration(prompt.generation, line)),
+      )
+      appendFileSync(
+        runFiles(path.join(runsDir, runId)).input,
+        lines.map((line) => `${line}\n`).join(''),
+        { mode: 0o600 },
+      )
+    }
+    const agentRestarted = startedWith > 0 && generation.count > startedWith
+    const asked = askable
+      ? prompts.filter((prompt) => prompt.refuse !== true && prompt.generation === generation.count)
+      : []
     store.recordRunOutput(runId, {
+      ...(asked.length > 0 && { permissionPrompts: asked }),
+      ...(closedPermissions.length > 0 && { closedPermissions }),
+      ...(agentRestarted && { agentRestarted }),
+      ...(autoModeUnavailable && { autoModeUnavailable }),
       toOffset: batch.toOffset,
       entries,
       ...(state && { state }),
@@ -209,6 +272,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       id = randomUUID(),
       parentRunId,
       name,
+      permissions = 'auto',
     }) {
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
@@ -228,6 +292,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(resume !== undefined && { resume }),
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
+        permissions,
       })
       await writeLaunch(runDir, cwd, launch)
 
@@ -243,6 +308,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(effort !== undefined && { effort }),
         ...(parentRunId !== undefined && { parentRunId }),
         ...(name !== undefined && { name }),
+        permissions,
       })
       const host = nodeEntry(hostMain, [runDir])
       spawn(host.command, host.args, {
@@ -271,6 +337,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         resume: run.sessionId,
         ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
         ...(flags.effort !== undefined && { effort: flags.effort }),
+        permissions: run.permissions,
       })
       await writeLaunch(runDir, run.cwd, launch)
       const before = await startRecordCount(runDir)
@@ -287,6 +354,19 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
       await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
+    },
+    async answerPermission(runId, generation, reply) {
+      const run = store.getRun(runId)
+      if (!run) throw new Error(`no Run ${runId}`)
+      const lines = agents
+        .get(run.agent)
+        .permissionReply(reply)
+        .map((line) => forGeneration(generation, line))
+      await appendFile(
+        runFiles(path.join(runsDir, runId)).input,
+        lines.map((line) => `${line}\n`).join(''),
+        { mode: 0o600 },
+      )
     },
     async stop(runId) {
       const done = following.get(runId)
@@ -349,6 +429,22 @@ async function startRecords(runDir: string): Promise<Extract<HostRecord, { t: 's
     .split('\n')
     .filter((line) => line.startsWith('{"t":"start"'))
     .map((line) => JSON.parse(line) as Extract<HostRecord, { t: 'start' }>)
+}
+
+async function startsBefore(log: string, offset: number): Promise<number> {
+  if (offset === 0) return 0
+  const handle = await open(log, 'r').catch(() => undefined)
+  if (!handle) return 0
+  try {
+    const buffer = Buffer.alloc(offset)
+    const { bytesRead } = await handle.read(buffer, 0, offset, 0)
+    return buffer
+      .toString('utf8', 0, bytesRead)
+      .split('\n')
+      .filter((line) => line.startsWith('{"t":"start"')).length
+  } finally {
+    await handle.close()
+  }
 }
 
 const lastStartRecord = async (runDir: string) => (await startRecords(runDir)).at(-1)

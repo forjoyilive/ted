@@ -104,7 +104,7 @@ describe('Codex Runs', () => {
     await reaches(run.id, 'finished')
   })
 
-  test('approval requests are declined until TED routes them, and the Run carries on', async () => {
+  test('a Run outside a Task has no one to ask, so its approval requests are declined', async () => {
     const client = await startWithStubs()
     const run = await client.startRun(
       [{ approval: 'command' }, { approval: 'fileChange' }, { endTurn: true }],

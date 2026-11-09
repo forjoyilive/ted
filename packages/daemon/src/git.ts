@@ -1,6 +1,9 @@
 import { execFile, spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
 const execFileAsync = promisify(execFile)
@@ -194,4 +197,63 @@ export async function changedFiles(worktree: string, base: string): Promise<stri
     '-z',
   )
   return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
+}
+
+export async function commitsAhead(worktree: string, base: string): Promise<number> {
+  const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..HEAD`, '--')
+  return Number.parseInt(out, 10) || 0
+}
+
+export async function pushBranch(
+  worktree: string,
+  branch: string,
+  options: { url: string; expected?: string; timeoutMs?: number },
+): Promise<string> {
+  const commit = await git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const ref = `refs/heads/${branch}`
+  const lease =
+    options.expected === undefined ? [] : [`--force-with-lease=${ref}:${options.expected}`]
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-push-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const pushEnv = worktreeCommandEnv({}, { GIT_TERMINAL_PROMPT: '0', GIT_DIR: gitDir })
+  const args = [
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'protocol.ext.allow=never',
+    'push',
+    '--no-verify',
+    '--porcelain',
+    ...lease,
+    '--',
+    options.url,
+    `${commit}:${ref}`,
+  ]
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
+      cwd: scratch,
+      env: pushEnv,
+    })
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await execFileAsync('git', args, {
+      cwd: scratch,
+      env: pushEnv,
+      timeout: options.timeoutMs ?? 5 * 60_000,
+      maxBuffer: 16 * 1024 * 1024,
+    })
+  } catch (error) {
+    const output = `${(error as { stdout?: string }).stdout ?? ''}\n${(error as { stderr?: string }).stderr ?? ''}`
+    const reason = output
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => /^(fatal|error|remote:|!)/i.test(line))
+      .slice(-3)
+      .join('\n')
+    throw new GitError(redactSecrets(`git push failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+  return commit
 }

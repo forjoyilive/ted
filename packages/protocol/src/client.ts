@@ -37,6 +37,7 @@ import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AnswerRequest,
+  ArchiveTaskRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
@@ -46,6 +47,7 @@ import type {
   PostCommentRequest,
   Priority,
   ReportOutcomeRequest,
+  ResumeTaskRequest,
   SetPriorityRequest,
   SetTaskLeadRequest,
   Task,
@@ -123,6 +125,15 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/backlog`)
   }
 
+  stopTask(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/stop`)
+  }
+
+  resumeTask(ref: string, comment?: string): Promise<Task> {
+    const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
+  }
+
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
   }
@@ -132,8 +143,8 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/priority`, body)
   }
 
-  archiveTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`)
+  archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
   }
 
   getSlots(): Promise<RunSlots> {

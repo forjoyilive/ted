@@ -35,7 +35,7 @@ describe('taskStatus', () => {
       [{ openRequests: 1 }, 'waiting-on-you'],
       [{ paused: 'Claude usage limit, resets 14:20' }, 'paused'],
       [{ runs: ['working'] }, 'working'],
-      [{ stopped: true }, 'stopped'],
+      [{ stopped: { at: '2026-11-08T10:00:00.000Z', runs: 3, why: 'human' } }, 'stopped'],
       [{ blockedBy: ['NB-44'] }, 'blocked'],
       [{ queue: { place: 2 } }, 'queued'],
       [{ github: 'ci' }, 'waiting-for-github'],

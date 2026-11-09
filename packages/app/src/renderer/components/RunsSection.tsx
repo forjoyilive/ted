@@ -170,8 +170,12 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
               type="button"
               className={styles.action}
               aria-label="Stop Task"
-              title="Stopping a Task isn’t available yet"
-              disabled
+              title="Stop Task"
+              disabled={busy || run.taskId === undefined}
+              onClick={() => {
+                const taskId = run.taskId
+                if (taskId !== undefined) act(() => ted.stopTask(taskId))
+              }}
             >
               <StopIcon />
             </button>

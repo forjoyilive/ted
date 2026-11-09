@@ -105,11 +105,18 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
+  resumeTask: (taskId: string, comment?: string) =>
+    window.ted.request('resumeTask', taskId, comment) as Promise<Task>,
+  openTaskSource: (taskId: string) => window.ted.request('openTaskSource', taskId) as Promise<void>,
   moveTask: (taskId: string, request: MoveTaskRequest) =>
     window.ted.request('moveTask', taskId, request) as Promise<Task>,
   setPriority: (taskId: string, priority: Priority) =>
     window.ted.request('setPriority', taskId, priority) as Promise<Task>,
-  archiveTask: (taskId: string) => window.ted.request('archiveTask', taskId) as Promise<Task>,
+  archiveTask: (taskId: string, options: { closePullRequests?: boolean } = {}) =>
+    window.ted.request('archiveTask', taskId, options) as Promise<Task>,
+  openPullRequest: (taskId: string, repoName: string) =>
+    window.ted.request('openPullRequest', taskId, repoName) as Promise<void>,
   blockTask: (taskId: string, by: string) =>
     window.ted.request('blockTask', taskId, by) as Promise<Task>,
   unblockTask: (taskId: string, by: string) =>

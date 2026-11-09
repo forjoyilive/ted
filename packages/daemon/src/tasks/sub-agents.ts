@@ -3,6 +3,7 @@ import path from 'node:path'
 import type {
   AgentKind,
   Effort,
+  PermissionMode,
   Run,
   StartSubAgentRequest,
   SubAgent,
@@ -40,6 +41,7 @@ export interface SubAgentDeps {
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
+  permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(task: StoredTask): string
   worktreesDir: string
   pump(): void
@@ -168,6 +170,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : repo.worktree
     const prompt = await subAgentPrompt(task.displayId, request.prompt)
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
+    const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {
       if (cwd !== repo.worktree) {
         await git.removeWorktree(deps.clonePathFor(task), cwd).catch(() => undefined)
@@ -183,6 +186,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       parentRunId: request.parentRunId,
       name: request.name,
       env,
+      permissions,
       ...(request.model !== undefined && { model: request.model }),
       ...(request.effort !== undefined && { effort: request.effort }),
     })

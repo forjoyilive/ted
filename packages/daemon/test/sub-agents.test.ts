@@ -379,15 +379,21 @@ describe('sub-agents', () => {
 
   test('when the Task Lead Run ends, its sub-agents stop', async () => {
     const client = await startTed()
+    const started = path.join(scratch, 'started')
     const prompt = await promptFile(
       'forever.md',
       'Forever',
+      { run: ['touch', started] },
       { waitFor: path.join(scratch, 'never') },
       { endTurn: true },
     )
     const task = await startTask(
       client,
-      steps({ run: ['sh', '-c', `ted run start --prompt-file ${prompt}`] }, { exit: 0 }),
+      steps(
+        { run: ['sh', '-c', `ted run start --prompt-file ${prompt}`] },
+        { waitFor: started },
+        { exit: 0 },
+      ),
     )
     const sub = await waitUntil(async () => {
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)

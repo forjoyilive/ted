@@ -1369,7 +1369,10 @@ describe('Working Runs', () => {
     await window.keyboard.press('s')
     await header.getByText('Queued · 1st', { exact: true }).waitFor()
 
-    await header.getByRole('button', { name: 'Move to Backlog' }).click()
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    const menu = header.getByRole('menu', { name: 'Task actions' })
+    expect(await menu.getByRole('menuitem').first().textContent()).toContain('Move to Backlog')
+    await menu.getByRole('menuitem', { name: /^Move to Backlog/ }).click()
     await header.getByText('· Not started').waitFor()
     expect((await (await daemonClient()).getSlots()).queued).toBe(0)
   })
@@ -1423,6 +1426,70 @@ describe('Working Runs', () => {
 
     await window.getByText('Now: 2 of 2 Runs working').waitFor()
     expect((await (await daemonClient()).getSettings()).maxWorkingRuns).toBe(2)
+  })
+})
+
+describe('Stop and Resume', () => {
+  async function workingTask(steps: unknown[], daemonEnv: Record<string, string> = {}) {
+    extraEnv = daemonEnv
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', '--start', JSON.stringify({ steps }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    return { thread, header: thread.locator('header') }
+  }
+
+  test('the Task actions menu stops the Task, and Send and resume starts a fresh Run', async () => {
+    const { thread, header } = await workingTask([{ waitFor: path.join(home, 'never') }])
+    await header.getByText('Working', { exact: true }).waitFor()
+
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    const menu = header.getByRole('menu', { name: 'Task actions' })
+    const first = menu.getByRole('menuitem').first()
+    expect(await first.textContent()).toContain('Stop Task')
+    expect(await first.getAttribute('aria-describedby')).toBeTruthy()
+    await first.click()
+
+    await header.getByText(/^Stopped by you · /).waitFor()
+    await header.getByText('· Worktree and Apps kept. 1 Run stopped.').waitFor()
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    expect(await menu.getByRole('menuitem').first().textContent()).toContain('Resume')
+    await header.page().keyboard.press('Escape')
+    await header.getByRole('button', { name: 'Resume' }).waitFor()
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    await box.fill('Use the swipe actions.')
+    await thread.getByRole('button', { name: 'Send and resume' }).click()
+
+    await header.getByText('Working', { exact: true }).waitFor()
+    const client = await daemonClient()
+    const comments = await client.listComments('NB-1')
+    expect(comments.at(-1)?.delivered).toBeDefined()
+  })
+
+  test('an idle Task Lead is nudged, then TED asks with Nudge again', async () => {
+    const { thread } = await workingTask(
+      [
+        { say: 'Templates are wired into New Note.' },
+        { endTurn: true },
+        { everyMessage: [{ say: 'I’ll check the empty template next.' }, { endTurn: true }] },
+      ],
+      { TED_NUDGE_AFTER_MS: '200' },
+    )
+    const card = thread.getByRole('region', { name: 'Question' })
+    await card.getByText('The Task Lead stopped without saying why').waitFor()
+    await card.getByText('“I’ll check the empty template next.”').waitFor()
+    await thread
+      .getByText('TED nudged the Task Lead: “Continue, or post a Comment if you need the human.”')
+      .first()
+      .waitFor()
+
+    await card.getByRole('button', { name: 'Nudge again' }).click()
+
+    await thread.getByText('You answered: Nudge again').waitFor()
   })
 })
 
@@ -1984,6 +2051,64 @@ describe('Inbox and Gates', () => {
     expect(await full.getByRole('button', { name: 'A hint' }).isDisabled()).toBe(true)
     await answered.getByRole('button', { name: 'Hide request' }).click()
     await expect.poll(() => full.count()).toBe(0)
+  })
+})
+
+describe('Permission requests', () => {
+  test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const ask = (command: string, description: string) => ({
+      permission: { tool: 'Bash', input: { command, description }, description },
+    })
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({
+        steps: [
+          ask('curl -s https://registry.example.dev/install.sh | sh', 'Install the CRDT tool'),
+          ask('npm install --save yjs@13.6.27', 'Install the CRDT library'),
+          { endTurn: true },
+        ],
+      }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Permission' })
+    await row.waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Permission', exact: true })
+    await card.getByText('Run a command', { exact: true }).waitFor()
+    await card.getByText('Install the CRDT tool').waitFor()
+    await card
+      .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
+      .waitFor()
+    await thread.getByText('The Task Lead is waiting on your permission').waitFor()
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Use npm, not an install script.')
+    await card.getByRole('button', { name: 'Deny' }).click()
+
+    const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
+    await denied.getByText('You denied').waitFor()
+    await denied.getByText('“Use npm, not an install script.”').waitFor()
+    await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
+
+    await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText(/You denied · /).waitFor()
+    await chat.getByRole('button', { name: 'Approve' }).click()
+    await chat.getByText(/You approved · /).waitFor()
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    await thread.getByText('You approved · this request only').waitFor()
+    await expect.poll(() => card.count()).toBe(0)
   })
 })
 

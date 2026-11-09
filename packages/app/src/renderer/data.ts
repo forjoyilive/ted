@@ -438,7 +438,11 @@ export function useRunChat(runId: string): RunChat | undefined {
     () => ted.getRunChat(runId),
     (event) =>
       (event.type === 'run-output' && event.runId === runId) ||
-      (event.type === 'run-updated' && event.run.id === runId),
+      (event.type === 'run-updated' && event.run.id === runId) ||
+      ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+        event.comment.kind === 'permission' &&
+        event.comment.author.kind === 'run' &&
+        event.comment.author.runId === runId),
     runId,
   )
 }

@@ -13,6 +13,7 @@ import {
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
+  type ResumeTaskRequest,
   type RunChecksRequest,
   type SetActivityRequest,
   type TaskLead,
@@ -21,7 +22,7 @@ import {
 import type { Attachments } from '../attachments.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import type { CreateTaskInput } from '../tasks/tasks.ts'
-import { type Route, readJson } from './route.ts'
+import { type Route, readJson, readOptionalJson } from './route.ts'
 
 const maxActivityLength = 200
 
@@ -53,6 +54,23 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/stop$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.stop(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/resume$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<ResumeTaskRequest> | null
+      const comment = body?.comment
+      if (comment !== undefined && typeof comment !== 'string') {
+        throw new HttpError(400, 'comment must be text')
+      }
+      return [200, await tasks.resume(ref, { ...(comment !== undefined && { comment }) })]
+    },
   },
   {
     method: 'POST',
@@ -89,7 +107,14 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/archive$/,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.archive(ref)],
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readOptionalJson(req)) as Record<string, unknown> | null
+      const close = body?.closePullRequests
+      if (close !== undefined && typeof close !== 'boolean') {
+        throw new HttpError(400, 'closePullRequests must be true or false')
+      }
+      return [200, tasks.archive(ref, { closePullRequests: close === true })]
+    },
   },
   {
     method: 'POST',
@@ -462,6 +487,9 @@ function answerRequest(body: unknown): AnswerRequest {
   if (request.action === 'request-changes') {
     return { action: 'request-changes', text: text ?? '' }
   }
+  if (request.action === 'deny') {
+    return { action: 'deny', ...(text !== undefined && { text }) }
+  }
   if (request.action === 'answer') {
     if (request.choice !== undefined && typeof request.choice !== 'string') {
       throw new HttpError(400, 'choice must be a string')
@@ -472,7 +500,7 @@ function answerRequest(body: unknown): AnswerRequest {
       ...(text !== undefined && { text }),
     }
   }
-  throw new HttpError(400, 'action must be approve, request-changes or answer')
+  throw new HttpError(400, 'action must be approve, request-changes, deny or answer')
 }
 
 function oneLine(text: string): string {
