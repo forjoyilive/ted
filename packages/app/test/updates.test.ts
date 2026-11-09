@@ -211,8 +211,8 @@ describe('restarting to update', () => {
     expect(calls).toEqual(['install'])
   })
 
-  test('a hand-over that fails puts the update back to ready', async () => {
-    const { emit, updates, calls } = setUp({
+  test('a hand-over that fails puts the update back to ready and takes the daemon back', async () => {
+    const { emit, updates, calls, resumed } = setUp({
       handOver: async () => {
         throw new Error('daemon didn’t stop')
       },
@@ -220,6 +220,7 @@ describe('restarting to update', () => {
     emit({ kind: 'downloaded', version: '1.4.0' })
     await expect(updates.restart()).rejects.toThrow('daemon didn’t stop')
     expect(updates.status).toEqual(ready())
+    expect(resumed).toEqual(['1.4.0'])
     expect(calls).toEqual([])
   })
 

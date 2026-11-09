@@ -194,12 +194,15 @@ export function createUpdates(options: {
     set({ state: 'finishing', version, work: { checks: 0, merges: 0 } })
     try {
       await options.handOver((work) => set({ state: 'finishing', version, work }))
+      set({ state: 'restarting', version })
+      await options.markPending(version)
     } catch (error) {
       set({ state: 'ready', version, asksPassword })
+      await options
+        .installFailed(version)
+        .catch((failure: unknown) => console.error('couldn’t take the daemon back:', failure))
       throw error
     }
-    set({ state: 'restarting', version })
-    await options.markPending(version)
     source.install()
   }
 
