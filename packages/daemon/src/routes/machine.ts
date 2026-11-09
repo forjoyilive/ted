@@ -208,6 +208,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
+  firstLaunchDone: onOff('firstLaunchDone'),
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'billing must be an object of billing by agent')
