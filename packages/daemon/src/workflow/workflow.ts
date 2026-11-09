@@ -18,7 +18,13 @@ export function stageTitle(id: string): string {
 function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string {
   const file = workflow.stageFile(stage)
   if (!file) throw new Error(`no Stage file for ${stage}`)
-  return file.text.trim()
+  const gate =
+    workflow.settings.stages[stage]?.gate === true
+      ? [
+          `${stageTitle(stage)} has a Gate. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
+        ]
+      : []
+  return [file.text.trim(), ...gate].join('\n\n')
 }
 
 export async function taskLeadPrompt(
@@ -55,5 +61,18 @@ export function nextStageMessage(workflow: ResolvedWorkflow, stage: AgentStageId
   return [
     `TED moved this Task to ${stageTitle(stage)}. These are your instructions for this Stage.`,
     stageFileText(workflow, stage),
+  ].join('\n\n')
+}
+
+export function backStageMessage(
+  workflow: ResolvedWorkflow,
+  stage: AgentStageId,
+  from: AgentStageId,
+  findings: string,
+): string {
+  return [
+    `TED moved this Task back to ${stageTitle(stage)}. These are your instructions for this Stage.`,
+    stageFileText(workflow, stage),
+    `# Findings from ${stageTitle(from)}\n\n${findings.trim()}`,
   ].join('\n\n')
 }

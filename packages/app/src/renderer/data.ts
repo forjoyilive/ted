@@ -4,6 +4,7 @@ import type {
   Comment,
   DataStatus,
   Factory,
+  InboxItem,
   MachineSettings,
   RunSlots,
   StageEntry,
@@ -115,12 +116,44 @@ export function useComments(taskId: string): Comment[] {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
-      event.type === 'comment-posted' && event.comment.taskId === taskId
+      (event.type === 'comment-posted' || event.type === 'comment-updated') &&
+      event.comment.taskId === taskId
         ? event.comment
         : undefined,
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+const inboxEvents = new Set<TedEvent['type']>([
+  'comment-posted',
+  'comment-updated',
+  'task-created',
+  'task-updated',
+])
+
+export function useInbox(): InboxItem[] {
+  const [items, setItems] = useState<InboxItem[]>([])
+
+  useEffect(() => {
+    let latest = 0
+    const load = () => {
+      const call = ++latest
+      void ted.listInbox().then((loaded) => {
+        if (call === latest) setItems(loaded)
+      })
+    }
+    const unsubscribe = ted.onEvent((event) => {
+      if (inboxEvents.has(event.type)) load()
+    })
+    load()
+    return () => {
+      latest = -1
+      unsubscribe()
+    }
+  }, [])
+
+  return items
 }
 
 export function useSettings(): MachineSettings | undefined {

@@ -11,6 +11,7 @@ import {
 } from '@ted/daemon/launch'
 import {
   type Activity,
+  type AnswerRequest,
   type Banner,
   type CreateTaskRequest,
   type DaemonClient,
@@ -60,6 +61,9 @@ import { dotPng, trayIconPng } from './tray-icon.ts'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listInbox: (client) => client.listInbox(),
+  answerRequest: (client, commentId, answer) =>
+    client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),

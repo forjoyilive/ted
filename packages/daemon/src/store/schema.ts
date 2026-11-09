@@ -105,8 +105,50 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
+    authorKind: State.SQLite.text({ default: 'run' }),
     authorRunId: State.SQLite.text({ nullable: true }),
+    stage: State.SQLite.text({ nullable: true }),
+    title: State.SQLite.text({ nullable: true }),
+    choices: State.SQLite.text({ nullable: true }),
+    gate: State.SQLite.text({ nullable: true }),
+    answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskBriefs = State.SQLite.table({
+  name: 'taskBriefs',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    version: State.SQLite.integer(),
+    text: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    runId: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
+export const sendBacks = State.SQLite.table({
+  name: 'sendBacks',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    fromStage: State.SQLite.text(),
+    toStage: State.SQLite.text(),
+    findings: State.SQLite.text(),
+    counted: State.SQLite.boolean(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const sendBackResets = State.SQLite.table({
+  name: 'sendBackResets',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -312,6 +354,59 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  commentPostedV2: Events.synced({
+    name: 'v2.CommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      authorKind: Schema.String,
+      authorRunId: Schema.NullOr(Schema.String),
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  commentAnswered: Events.synced({
+    name: 'v1.CommentAnswered',
+    schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
+  }),
+  taskBriefWritten: Events.synced({
+    name: 'v1.TaskBriefWritten',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      version: Schema.Number,
+      text: Schema.String,
+      stage: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskSentBack: Events.synced({
+    name: 'v1.TaskSentBack',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      counted: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  sendBackCountReset: Events.synced({
+    name: 'v1.SendBackCountReset',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   runStarted: Events.synced({
     name: 'v1.RunStarted',
     schema: Schema.Struct(runStartedFields),
@@ -509,7 +604,14 @@ const materializers = counted(
       taskQueue.delete().where({ taskId }),
       tasks.update({ stage: 'backlog' }).where({ id: taskId }),
     ],
-    'v1.CommentPosted': (comment) => comments.insert(comment),
+    'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
+    'v2.CommentPosted': ({ choices, ...comment }) =>
+      comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+    'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+    'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
+    'v1.TaskSentBack': ({ from, to, ...row }) =>
+      sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+    'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
     'v1.RunStarted': (run) =>
       runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
     'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
@@ -524,7 +626,8 @@ const materializers = counted(
       tasks
         .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
         .where({ id: taskId }),
-    'v1.TedCommentPosted': (comment) => comments.insert({ ...comment, authorRunId: null }),
+    'v1.TedCommentPosted': (comment) =>
+      comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
     'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
       runs.update({ readOffset: toOffset }).where({ id: runId }),
       ...entries.map(({ offset, line }) =>
@@ -606,6 +709,9 @@ const state = State.SQLite.makeState({
     runs,
     conversationEntries,
     comments,
+    taskBriefs,
+    sendBacks,
+    sendBackResets,
     stageEntries,
     workflowLayers,
     taskRepos,

@@ -23,6 +23,7 @@ export type Screen =
 export interface Navigation {
   screen: Screen
   taskId?: string
+  requestId?: string
   lastFactoryId?: string
   lastViews: Readonly<Record<string, FactoryView>>
   settings?: { section: SettingsSectionId }
@@ -32,7 +33,7 @@ export interface Navigation {
 export type NavigationAction =
   | { type: 'open'; screen: Screen }
   | { type: 'open-factory'; factoryId: string }
-  | { type: 'open-task'; taskId: string; factoryId?: string }
+  | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
   | { type: 'close-task' }
   | { type: 'open-settings'; section?: SettingsSectionId }
   | { type: 'close-settings' }
@@ -46,7 +47,7 @@ export const initialNavigation: Navigation = {
 export function navigate(state: Navigation, action: NavigationAction): Navigation {
   switch (action.type) {
     case 'open': {
-      const { taskId: _, settings: __, ...rest } = state
+      const { taskId: _, requestId: ___, settings: __, ...rest } = state
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
       const { factoryId, view } = action.screen
       return {
@@ -63,14 +64,17 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         screen: { kind: 'factory', factoryId: action.factoryId, view },
       })
     }
-    case 'open-task':
+    case 'open-task': {
+      const { requestId: _, ...rest } = state
       return {
-        ...state,
+        ...rest,
         taskId: action.taskId,
+        ...(action.requestId !== undefined && { requestId: action.requestId }),
         ...(action.factoryId !== undefined && { lastFactoryId: action.factoryId }),
       }
+    }
     case 'close-task': {
-      const { taskId: _, ...rest } = state
+      const { taskId: _, requestId: __, ...rest } = state
       return rest
     }
     case 'open-settings': {

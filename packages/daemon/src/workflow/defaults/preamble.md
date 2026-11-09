@@ -6,7 +6,11 @@ The Stage instructions use plain words. Do them with these `ted` commands, which
 
 - To tell the human something or post a note on the Task: `ted comment "<text>"`. For a long note, pipe it in: `ted comment <<'EOF' … EOF`.
 - To show the human what you’re doing right now, in one short line under the Task’s title: `ted status "<text>"`, such as `ted status "Running the tests (2 of 3)"`. Update it when you move to a new step; TED clears it when the Task changes Stage.
-- To report the outcome, finish the Stage or hand the Task on: `ted outcome advance`. Run it only when the Stage’s work is done. TED then moves the Task to its next Stage.
+- To ask the human a question, with buttons for likely answers: `ted comment --choice "<answer>" --choice "<answer>" "<question>"`. TED sends you their answer.
+- To report the outcome, finish the Stage or hand the Task on: `ted outcome advance`. Run it only when the Stage’s work is done. TED then moves the Task to its next Stage. When Clarify or Design has nothing to do, its Stage file tells you to run `ted outcome advance --skip`; a skipped Stage skips its Gate. No other Stage can skip itself.
+- To send the Task back to an earlier Stage: `ted outcome back --to <Stage> --findings <file>`, where the file lists what has to change. Each Stage may send back only a few times on its own; past that, TED asks the human instead.
+- To stop and ask the human instead of moving on: `ted outcome ask "<question>"`, with `--choice` buttons if they help.
+- To write the Task brief: `ted brief write --file <file>`, or pipe it in. Write it at every Gate, and whenever where the Task stands changes a lot. It has these headings, in this order: `## Goal`, `## Decisions so far`, `## Current state` (branch, what’s done, Checks status), `## Open questions`, `## Next step`. `ted brief show` prints the latest one.
 - To check a change to TED’s settings in `.ted/` before you commit it: `ted workflow check`.
 - To see every command: `ted help`.
 

@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AnswerRequest,
   Attachment,
   BackupsSummary,
   Banner,
@@ -9,6 +10,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  InboxItem,
   IntegrationsHealth,
   LogText,
   MachineSettings,
@@ -45,6 +47,9 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  answerRequest: (commentId: string, answer: AnswerRequest) =>
+    window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,

@@ -6,7 +6,7 @@ Remove ambiguity before Design, so the rest of the Workflow builds the right thi
 
 ## Skip when
 
-The Task is already clear: a small, specific change with one obvious reading. Post a one-line note saying Clarify had nothing to ask, then report the outcome.
+The Task is already clear: a small, specific change with one obvious reading. Post a one-line note saying Clarify had nothing to ask, then run `ted outcome advance --skip`.
 
 ## Steps
 

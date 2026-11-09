@@ -15,12 +15,17 @@ import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type {
+  AnswerRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
-  Outcome,
+  InboxItem,
+  OutcomeResult,
+  PostCommentRequest,
+  ReportOutcomeRequest,
   SetTaskLeadRequest,
   Task,
+  TaskBrief,
   TaskDefaults,
 } from './task.ts'
 import type { StageEntry } from './workflow.ts'
@@ -84,16 +89,33 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
   }
 
-  postComment(ref: string, body: string): Promise<Comment> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
+  postComment(ref: string, comment: string | PostCommentRequest): Promise<Comment> {
+    const body = typeof comment === 'string' ? { body: comment } : comment
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, body)
+  }
+
+  listInbox(): Promise<InboxItem[]> {
+    return this.#request('GET', '/inbox')
+  }
+
+  answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
+  }
+
+  writeBrief(ref: string, text: string): Promise<TaskBrief> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/brief`, { text })
+  }
+
+  getBrief(ref: string): Promise<TaskBrief> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/brief`)
   }
 
   setActivity(ref: string, text: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/activity`, { text })
   }
 
-  reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
+  reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
   }
 
   listFactories(): Promise<Factory[]> {

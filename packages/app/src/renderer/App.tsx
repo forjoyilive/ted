@@ -13,7 +13,15 @@ import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
-import { useBanners, useConnection, useFactories, useSettings, useSlots, useTasks } from './data.ts'
+import {
+  useBanners,
+  useConnection,
+  useFactories,
+  useInbox,
+  useSettings,
+  useSlots,
+  useTasks,
+} from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
@@ -26,8 +34,9 @@ import {
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
+import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
-import { Inbox, Stub } from './views/OtherViews.tsx'
+import { Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
 import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
 
@@ -77,7 +86,12 @@ export function App() {
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const openNewTask = () => setNewTaskOpen(true)
-  const inboxCount = 0
+  const inbox = useInbox()
+  const inboxCount = inbox.length
+  const waiting: Record<string, { waiting: number }> = {}
+  for (const { task } of inbox) {
+    waiting[task.factoryId] = { waiting: (waiting[task.factoryId]?.waiting ?? 0) + 1 }
+  }
 
   useEffect(() => {
     if (settings === undefined) return
@@ -202,23 +216,40 @@ export function App() {
   )
 
   function main() {
-    if (task) {
+    const opened = task && (
+      <>
+        <TaskThread
+          task={task}
+          backLink={backLink(navigation)}
+          requestId={navigation.requestId}
+          onBack={() => dispatch({ type: 'close-task' })}
+          onOpenTask={openTaskByRef}
+        />
+        <TaskDetails task={task} tasks={tasks} factories={factories} />
+      </>
+    )
+    const { screen } = navigation
+    if (screen.kind === 'inbox') {
       return (
-        <>
-          <TaskThread
-            task={task}
-            backLink={backLink(navigation)}
-            onBack={() => dispatch({ type: 'close-task' })}
-            onOpenTask={openTaskByRef}
-          />
-          <TaskDetails task={task} tasks={tasks} factories={factories} />
-        </>
+        <Inbox
+          items={inbox}
+          factories={factories}
+          selected={navigation.requestId}
+          onOpen={({ request, task: on }) =>
+            dispatch({
+              type: 'open-task',
+              taskId: on.id,
+              factoryId: on.factoryId,
+              requestId: request.id,
+            })
+          }
+        >
+          {opened}
+        </Inbox>
       )
     }
-    const { screen } = navigation
+    if (opened) return opened
     switch (screen.kind) {
-      case 'inbox':
-        return <Inbox />
       case 'all-tasks':
         return (
           <TaskList
@@ -292,9 +323,15 @@ export function App() {
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
           inboxCount={inboxCount}
-          badges={Object.fromEntries(
-            [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
-          )}
+          badges={{
+            ...waiting,
+            ...Object.fromEntries(
+              [...factoriesStoppingWork(banners)].map((id) => [
+                id,
+                { ...waiting[id], stopsWork: true },
+              ]),
+            ),
+          }}
           settingsProblem={settingsStopsWork(banners)}
           footer={slots === undefined ? {} : { runs: runsLine(slots) }}
           runsOpen={runsOpen}
