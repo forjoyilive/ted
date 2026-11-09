@@ -362,6 +362,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           factories={factories}
           factoryId={screen.factoryId}
           showAnswered={screen.answered === true}
+          anyTasks={tasks.length > 0}
           selected={navigation.requestId}
           onOpen={({ request, task: on }) =>
             dispatch({
@@ -373,6 +374,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           }
           onFilter={(factoryId) => openInbox({ factoryId })}
           onShowAnswered={(show) => openInbox({ answered: show })}
+          onNewTask={() => openNewTask()}
         >
           {opened}
         </Inbox>

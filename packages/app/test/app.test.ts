@@ -928,7 +928,7 @@ describe('New Task dialog', () => {
     await dialog(window).getByRole('button', { name: 'Close' }).click()
     await dialog(window).waitFor({ state: 'detached' })
 
-    await window.getByRole('main').getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('main').getByRole('button', { name: 'New Task' }).first().click()
     await dialog(window).waitFor()
   })
 
@@ -2781,7 +2781,7 @@ describe('Board', () => {
     expect(await board.getByRole('region', { name: 'Work' }).getByText('Gate').count()).toBe(0)
     await board.getByRole('heading', { name: /widgets\s*\/\s*Board/ }).waitFor()
     await board.getByRole('button', { name: 'Filter' }).waitFor()
-    await board.getByRole('button', { name: 'Plan' }).waitFor()
+    await board.getByRole('button', { name: 'Plan' }).first().waitFor()
   })
 
   test('dragging Backlog → Intake starts a Task, Queued → Backlog un-starts it, other drops are refused', async () => {
@@ -3263,5 +3263,80 @@ describe('Factory row menu', () => {
     await api.getByRole('button', { name: 'Undo' }).click()
     await api.getByText('Removed when you save').waitFor({ state: 'detached' })
     await api.getByRole('button', { name: 'More for acme/api' }).waitFor()
+  })
+})
+
+describe('Empty states', () => {
+  test('an empty Inbox offers New Task until a Factory has a Task, then Show answered', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.getByText('Nothing waiting on you', { exact: true }).waitFor()
+
+    await inbox.getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('dialog', { name: 'New Task' }).getByLabel('Close').click()
+
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    await inbox.getByRole('button', { name: 'Show answered' }).click()
+    expect(await inbox.getByRole('switch', { name: 'Answered' }).getAttribute('aria-checked')).toBe(
+      'true',
+    )
+    await inbox.getByText('Nothing answered in the last 30 days', { exact: true }).waitFor()
+  })
+
+  test('an Inbox filtered to one Factory names it and offers Show all Factories', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+
+    await inbox.getByRole('button', { name: 'notebook 0', exact: true }).click()
+    await inbox.getByText('Nothing waiting in notebook', { exact: true }).waitFor()
+    await inbox.getByRole('button', { name: 'Show all Factories' }).click()
+
+    expect(
+      await inbox.getByRole('button', { name: 'All 0', exact: true }).getAttribute('aria-pressed'),
+    ).toBe('true')
+    await inbox.getByText('Nothing waiting on you', { exact: true }).waitFor()
+  })
+
+  test('a Board with no Tasks keeps its columns and offers New Task and Plan', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const empty = window.getByRole('region', { name: 'No Tasks yet' })
+    await empty.waitFor()
+    await window.getByRole('region', { name: 'Backlog' }).waitFor()
+
+    await empty.getByRole('button', { name: 'New Task' }).click()
+    await window.getByRole('dialog', { name: 'New Task' }).getByLabel('Close').click()
+    await empty.getByRole('button', { name: 'Plan' }).click()
+
+    expect(
+      await sidebar(window)
+        .getByRole('button', { name: 'Plans', exact: true })
+        .getAttribute('aria-current'),
+    ).toBe('page')
+  })
+
+  test('Board filters that match nothing offer Clear filters', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    const main = window.getByRole('main')
+    await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+
+    await main.getByRole('button', { name: 'Filter' }).click()
+    await main.getByRole('menuitem', { name: 'Priority' }).hover()
+    await main.getByRole('menuitemcheckbox', { name: /Urgent/ }).click()
+    await window.keyboard.press('Escape')
+    const empty = main.getByRole('region', { name: 'No Tasks match these filters' })
+    await empty.getByRole('button', { name: 'Clear filters' }).click()
+
+    await main.getByRole('region', { name: 'Backlog' }).getByText('Offline editing').waitFor()
+    await empty.waitFor({ state: 'detached' })
   })
 })

@@ -18,11 +18,27 @@
   white-space: nowrap;
 }
 
+.boardArea {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.emptyOverlay {
+  position: absolute;
+  top: 30%;
+  left: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+}
+
 .board {
   display: flex;
   flex: 1;
   align-items: stretch;
   gap: 12px;
+  min-width: 0;
   min-height: 0;
   padding: 16px 20px;
   overflow: auto;
