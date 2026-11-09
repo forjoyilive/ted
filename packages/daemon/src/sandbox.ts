@@ -202,7 +202,9 @@ async function plainFolder(
     current = path.join(current, part)
     let found = await lstat(current).catch(() => undefined)
     if (!found && create && i === parts.length - 1) {
-      await mkdir(current, { mode: 0o700 })
+      await mkdir(current, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EEXIST') throw error
+      })
       found = await lstat(current)
     }
     if (!found?.isDirectory() || found.isSymbolicLink()) {

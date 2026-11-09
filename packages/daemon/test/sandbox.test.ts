@@ -171,6 +171,17 @@ describe('the folders a sandbox opens', () => {
     await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(/isn’t a plain folder/)
   })
 
+  test('two starts at once both make it past the new Task cache', async () => {
+    const sandbox = createSandbox({
+      tedHome,
+      env: () => process.env,
+      platform: 'linux',
+      program: '/usr/bin/true',
+    })
+    const both = await Promise.all([1, 2].map(() => sandbox.wrap(['/bin/sh', '-c'], scope())))
+    expect(both).toHaveLength(2)
+  })
+
   test('a folder outside TED_HOME is refused', async () => {
     const sandbox = createSandbox({
       tedHome,
