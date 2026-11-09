@@ -53,6 +53,7 @@ import {
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
+import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -547,6 +548,7 @@ export function TaskDetails({
   const editable = !task.archived
   const blocks = tasks.filter((t) => t.blockedBy.includes(task.id))
   const clarifyOver = clarifyIsOver(task.stage)
+  const factory = factories.find((f) => f.id === task.factoryId)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
@@ -597,14 +599,11 @@ export function TaskDetails({
             </>
           )}
         </dd>
-        {task.repos.length > 1 && (
+        {factory && showsRepos(factory) && (
           <>
             <dt>Repos</dt>
             <dd>
-              {task.repos
-                .filter((r) => !r.removed)
-                .map((r) => r.name)
-                .join(', ')}
+              <ReposField key={task.id} task={task} factory={factory} />
             </dd>
           </>
         )}

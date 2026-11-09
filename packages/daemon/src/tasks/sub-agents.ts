@@ -53,7 +53,8 @@ export interface SubAgentDeps {
   reviewerFor(task: StoredTask): Promise<ReviewerChoice>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
   permissionsFor(task: StoredTask): Promise<PermissionMode>
-  clonePathFor(task: StoredTask): string
+  clonePathFor(repo: TaskRepo): string
+  runFolder(task: StoredTask): Promise<string | undefined>
   worktreesDir: string
   pump(): void
   inBackground(what: string, work: () => Promise<void>): void
@@ -154,7 +155,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   }
 
   async function addOwnWorktree(task: StoredTask, repo: TaskRepo, name: string): Promise<string> {
-    const clone = deps.clonePathFor(task)
+    const clone = deps.clonePathFor(repo)
     const base = `${task.branch ?? `ted/${task.displayId.toLowerCase()}`}-${slug(name)}`
     let branch = base
     for (let n = 2; await git.branchExists(clone, branch); n++) branch = `${base}-${n}`
@@ -178,7 +179,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       drop(request.id)
       return
     }
-    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : repo.worktree
+    const shared = (await deps.runFolder(task)) ?? repo.worktree
+    const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
     const prompt =
       store.reviewerOf(request.id)?.purpose === 'loop-check'
         ? await tedSubAgentPrompt(request.prompt)
@@ -186,8 +188,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {
-      if (cwd !== repo.worktree) {
-        await git.removeWorktree(deps.clonePathFor(task), cwd).catch(() => undefined)
+      if (cwd !== shared) {
+        await git.removeWorktree(deps.clonePathFor(repo), cwd).catch(() => undefined)
       }
       return
     }
@@ -516,10 +518,10 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       for (const request of store.subAgentRequests(taskId)) drop(request.id)
     },
     ownWorktrees(task) {
-      const shared = new Set(task.repos.map((r) => r.worktree))
+      const own = path.join(deps.worktreesDir, task.displayId, 'sub-agents') + path.sep
       return store
         .taskRunList(task.id)
-        .filter((r) => r.parentRunId !== undefined && !shared.has(r.cwd))
+        .filter((r) => r.parentRunId !== undefined && r.cwd.startsWith(own))
         .map((r) => r.cwd)
     },
     close() {

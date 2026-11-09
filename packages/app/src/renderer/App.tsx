@@ -44,6 +44,7 @@ import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { Board } from './views/Board.tsx'
 import { editTaskEvent } from './views/EditTaskDialog.tsx'
+import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
@@ -402,6 +403,21 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               settings={settings}
               onOpenTask={openTaskByRef}
               onPlan={openPlans}
+            />
+          )
+        }
+        if (screen.view === 'settings' && factory) {
+          return (
+            <FactorySettings
+              key={factory.id}
+              factory={factory}
+              banners={view.banners}
+              onOpenFactory={(factoryId) =>
+                dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
+              }
+              onOpenGitHubSettings={() =>
+                dispatch({ type: 'open-settings', section: 'integrations' })
+              }
             />
           )
         }

@@ -164,6 +164,7 @@ export interface Task {
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]
+  chosenRepos: string[]
   createdBy: CreatedBy
   createdAt: string
   updatedAt: string
@@ -173,6 +174,33 @@ export interface Task {
 export interface MoveTaskRequest {
   after?: string
   before?: string
+}
+
+export type SetTaskReposRequest =
+  | { set: string[]; confirm?: boolean }
+  | { add: string[] }
+  | { remove: string[]; confirm?: boolean }
+
+export interface RepoToConfirm {
+  name: string
+  commits: number
+}
+
+export interface TaskReposResult {
+  task: Task
+  confirm?: RepoToConfirm[]
+  repos: string[]
+  added: string[]
+  removed: string[]
+}
+
+export interface RepoSetupReport {
+  name: string
+  worktree?: string
+  state: 'none' | 'running' | WorktreeCommandOutcome
+  command?: string
+  exitCode?: number
+  output: string
 }
 
 export interface SetPriorityRequest {

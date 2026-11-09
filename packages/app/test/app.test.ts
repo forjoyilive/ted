@@ -1111,8 +1111,15 @@ describe('App Settings', () => {
 
     await nav.getByRole('button', { name: /widgets/ }).click()
 
-    await window.getByRole('heading', { name: 'widgets · Factory settings' }).waitFor()
+    await window.getByRole('heading', { name: /^widgets\s*\/\s*Settings$/, level: 1 }).waitFor()
     expect(await settingsNav(window).count()).toBe(0)
+    const card = window.getByRole('article', { name: 'acme/widgets' })
+    await card.getByText('Can’t be removed or moved').waitFor()
+    await card.getByRole('textbox', { name: /^Setup command/ }).fill('npm ci')
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+    await card.getByText('Edited').waitFor()
+    await window.getByRole('button', { name: 'Discard' }).click()
+    await window.getByText(/unsaved change/).waitFor({ state: 'detached' })
   })
 
   test('the terminal font size saves on this machine and applies at once', async () => {
@@ -2867,6 +2874,63 @@ describe('Board', () => {
 
     await backlog.getByRole('button', { name: 'Start NB-1' }).click()
     await board.getByRole('region', { name: 'Intake' }).locator('[data-task="NB-1"]').waitFor()
+  })
+})
+
+describe('multi-repo Tasks', () => {
+  test('the Repos field shows in a multi-repo Factory and changes the Task’s repos', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    const widgets = path.join(home, 'origin', 'acme', 'widgets.git')
+    await run('git', [
+      'clone',
+      '--bare',
+      '-q',
+      widgets,
+      path.join(home, 'origin', 'acme', 'api.git'),
+    ])
+    await githubReady(['acme/widgets', 'acme/api'], {
+      'repos/acme/widgets/contents/.ted?ref=main': { body: [] },
+    })
+    const window = await launchApp()
+    const client = await daemonClient()
+    const factory = await client.createFactory({
+      name: 'Widgets',
+      key: 'WD',
+      repos: [
+        { source: { remote: 'acme/widgets' }, name: 'widgets' },
+        { source: { remote: 'acme/api' }, name: 'api' },
+      ],
+      showTutorial: false,
+    })
+    await waitFor(
+      async () => (await client.listFactories()).find((f) => f.id === factory.id)?.cloned === true,
+    )
+    const task = await client.createTask({ title: 'Offline notes', factory: 'WD' })
+    await openAllTasks(window)
+    await taskRow(window, task.displayId).click()
+    const repos = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('list', { name: 'Repos' })
+    await repos.waitFor()
+    expect(await repos.getByLabel('widgets').isChecked()).toBe(true)
+    expect(await repos.getByLabel('api').isChecked()).toBe(false)
+
+    await repos.getByLabel('api').click()
+    await waitFor(() => repos.getByLabel('api').isChecked())
+    const updated = (await client.listTasks()).find((t) => t.id === task.id)
+    expect(updated?.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
+  })
+
+  test('the Repos field is hidden in a single-repo Factory', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Fix the login redirect')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Clarify depth').waitFor()
+    expect(await details.getByText('Repos', { exact: true }).count()).toBe(0)
   })
 })
 

@@ -59,10 +59,12 @@ export async function taskLeadPrompt(
   stage: AgentStageId,
   attachmentFile?: (attachment: Attachment) => string,
   setupReport?: string,
+  repos?: PromptRepos,
 ): Promise<string> {
   return [
     ...(setupReport !== undefined ? [setupReport] : []),
     await preambleText(),
+    ...(repos && repos.factory.length > 1 ? [reposText(repos)] : []),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
@@ -87,6 +89,28 @@ export async function taskLeadPrompt(
             .join('\n')}`,
         ]
       : []),
+  ].join('\n\n')
+}
+
+export interface PromptRepos {
+  factory: { name: string; repo: string; primary: boolean }[]
+  task: { name: string; worktree?: string }[]
+  folder: string
+}
+
+function reposText({ factory, task, folder }: PromptRepos): string {
+  const listed = factory.map(
+    (r) => `- ${r.name}: ${r.repo}${r.primary ? ' (the primary repo, holding `.ted/`)' : ''}`,
+  )
+  const chosen = task.map((r) =>
+    r.worktree === undefined ? `- ${r.name}` : `- ${r.name}: ${r.worktree}`,
+  )
+  return [
+    '# Repos',
+    `This Factory has several repos, so you work in the Task folder, ${folder}. Each of this Task’s repos has its own worktree there, in a subfolder named after the repo, all on the same branch. Commit in each repo’s own worktree.`,
+    `The Factory’s repos:\n${listed.join('\n')}`,
+    `This Task’s repos now:\n${chosen.join('\n')}`,
+    'To change which repos the Task touches: `ted task repos set <name> …` names them all; `ted task repos add <name>` adds one, makes its worktree, runs its setup and prints the output; `ted task repos remove <name>` removes one and its worktree. A repo with an open pull request can’t be removed. If a repo’s worktree has commits, TED refuses until you add `--yes`; ask the human first.',
   ].join('\n\n')
 }
 
