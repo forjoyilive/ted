@@ -12,7 +12,6 @@ import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import { useBanners, useFactories, useSettings, useSlots, useTasks } from './data.ts'
-import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
   currentFactoryId,
@@ -24,6 +23,7 @@ import {
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
+import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { Inbox, Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
@@ -47,7 +47,7 @@ function sectionsStoppingWork(banners: readonly Banner[]) {
   return stopping
 }
 
-const stubTitles = { search: 'Search', 'add-factory': 'Add Factory' }
+const stubTitles = { search: 'Search' }
 
 function isTyping(target: EventTarget | null): boolean {
   return (
@@ -67,6 +67,8 @@ export function App() {
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const openNewTask = () => setNewTaskOpen(true)
+  const [addFactoryOpen, setAddFactoryOpen] = useState(false)
+  const dialogOpen = newTaskOpen || addFactoryOpen
   const inboxCount = 0
 
   useEffect(() => {
@@ -79,7 +81,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (newTaskOpen) return
+      if (dialogOpen) return
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault()
         dispatch({ type: 'open-settings' })
@@ -89,7 +91,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [settingsOpen, newTaskOpen])
+  }, [settingsOpen, dialogOpen])
   const banners = useBanners()
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
@@ -106,7 +108,7 @@ export function App() {
   )
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (newTaskOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
+      if (dialogOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
       if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
       if (task?.stage !== 'backlog') return
       event.preventDefault()
@@ -114,11 +116,11 @@ export function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [newTaskOpen, settingsOpen, runsOpen, task])
+  }, [dialogOpen, settingsOpen, runsOpen, task])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (newTaskOpen || settingsOpen || event.altKey || event.shiftKey) return
+      if (dialogOpen || settingsOpen || event.altKey || event.shiftKey) return
       const command = event.metaKey || event.ctrlKey
       const newTask = command
         ? event.key.toLowerCase() === 'n'
@@ -129,7 +131,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [newTaskOpen, settingsOpen])
+  }, [dialogOpen, settingsOpen])
   const openTaskByRef = (ref: string) => {
     const found = tasks.find((t) => t.displayId === ref || t.id === ref)
     if (found) openTask(found)
@@ -137,7 +139,11 @@ export function App() {
 
   async function act(banner: Banner) {
     const place = banner.action?.opens
-    if (!place) {
+    if (banner.action?.choose === 'folder') {
+      const folder = await ted.chooseFolder(banner.action.label)
+      if (folder === undefined) return
+      await ted.actOnBanner(banner.id, { folder }).catch((error: unknown) => console.error(error))
+    } else if (!place) {
       await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
     } else if (place.kind === 'settings') {
       const section = settingsSectionIds.find((id) => id === place.section)
@@ -202,6 +208,7 @@ export function App() {
       case 'factory': {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
+        const factory = factories.find((f) => f.id === screen.factoryId)
         const view = {
           title: name,
           capLine: factoryCapLine(slots, screen.factoryId),
@@ -211,7 +218,9 @@ export function App() {
           onNewTask: openNewTask,
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        if (screen.view === 'board') return <Board {...view} onOpenTask={openTaskByRef} />
+        if (screen.view === 'board') {
+          return <Board {...view} onOpenTask={openTaskByRef} factory={factory} />
+        }
         if (screen.view === 'list') return <TaskList {...view} />
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
@@ -256,6 +265,7 @@ export function App() {
         onOpenRuns={() => setRunsOpen((open) => !open)}
         dispatch={dispatch}
         onNewTask={openNewTask}
+        onAddFactory={() => setAddFactoryOpen(true)}
       />
       {runsOpen && slots && (
         <WorkingRunsPopover
@@ -269,10 +279,30 @@ export function App() {
         />
       )}
       <main className={styles.main}>
-        <FactoryBanners />
         {bannerStack('Problems', appWideBanners(banners))}
         <div className={styles.panes}>{main()}</div>
       </main>
+      {addFactoryOpen && (
+        <AddFactoryDialog
+          factories={factories}
+          onClose={() => setAddFactoryOpen(false)}
+          onAdded={(added) => {
+            setAddFactoryOpen(false)
+            dispatch({
+              type: 'open',
+              screen: { kind: 'factory', factoryId: added.id, view: 'board' },
+            })
+          }}
+          onOpenFactory={(factoryId) => {
+            setAddFactoryOpen(false)
+            dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
+          }}
+          onOpenGitHubSettings={() => {
+            setAddFactoryOpen(false)
+            dispatch({ type: 'open-settings', section: 'integrations' })
+          }}
+        />
+      )}
       {newTaskOpen && (
         <NewTaskDialog
           factories={factories}

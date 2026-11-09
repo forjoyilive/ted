@@ -6,13 +6,14 @@ import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
+import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
-import { createTasks } from './tasks/tasks.ts'
+import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
@@ -89,11 +90,26 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         reposDir: paths.repos,
       })
-      banners.onAction('clone-failed', async ({ factoryId }) => {
+      let started: Tasks | undefined
+      const factories = createFactories({
+        store,
+        banners,
+        gh: integrations.gh,
+        workflows,
+        reposDir: paths.repos,
+        emit,
+        login: () =>
+          integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
+        onCloned: () => started?.wake(),
+      })
+      banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
-        if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+        if (!factory) return
+        if (factory.clonedAt === undefined) await factories.retry(factory.id)
+        else await ensureClone({ banners, reposDir: paths.repos }, factory)
       })
       for (const factory of store.listFactories()) {
+        if (factory.clonedAt === undefined) continue
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       const tasks = createTasks({
@@ -106,16 +122,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         agents,
         attachmentFile: (attachment) => attachments.file(attachment),
         logsDir: paths.logs,
+        isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })
+      started = tasks
+      factories.start()
       return {
         runs,
         tasks,
         banners,
         workflows,
         integrations,
+        factories,
         async close() {
           integrations.close()
+          await factories.close()
           await tasks.close()
           await runs.close()
         },

@@ -14,6 +14,7 @@ export type DaemonEvent =
   | { type: 'comment-posted'; comment: Comment }
   | { type: 'run-updated'; run: Run }
   | { type: 'factory-added'; factory: Factory }
+  | { type: 'factory-updated'; factory: Factory }
   | { type: 'settings-changed'; settings: MachineSettings }
   | { type: 'banner-raised'; banner: Banner }
   | { type: 'banner-updated'; banner: Banner }

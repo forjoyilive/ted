@@ -8,6 +8,7 @@ export {
 export {
   type Banner,
   type BannerAction,
+  type BannerActionInput,
   type BannerPlace,
   type BannerRef,
   type BannerSeverity,
@@ -43,7 +44,28 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
-export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type AddFactoryRequest,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
+  type Factory,
+  type FactoryRepo,
+  keyProblem,
+  type LocalFolder,
+  type NewFactoryRepo,
+  type RepoCheck,
+  type RepoCloneState,
+  type RepoFix,
+  type RepoProblem,
+  type RepoProblemKind,
+  type RepoSetup,
+  type RepoSource,
+  repoNamePattern,
+  type SetLocalFolderRequest,
+  suggestFactoryName,
+  suggestKey,
+  suggestRepoName,
+} from './factory.ts'
 export {
   type FixCommand,
   type GitHealth,

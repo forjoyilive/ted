@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -27,6 +27,7 @@ const run = promisify(execFile)
 
 let home: string
 let app: ElectronApplication | undefined
+let extraEnv: Record<string, string> = {}
 
 beforeAll(async () => {
   await build({ configFile: path.join(appDir, 'vite.config.ts'), logLevel: 'warn' })
@@ -34,6 +35,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-app-'))
+  extraEnv = {}
 })
 
 afterEach(async () => {
@@ -54,6 +56,7 @@ const env = () => ({
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
   TED_HIDDEN_WINDOW: '1',
+  ...extraEnv,
 })
 
 async function launchApp(): Promise<Page> {
@@ -284,18 +287,26 @@ describe('TED app', () => {
     await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
   })
 
-  test('a missing local folder raises a Factory banner with Locate', async () => {
+  test('a missing local folder raises a Factory banner whose Locate picks a new folder', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const folder = path.join(home, 'local')
+    const moved = path.join(home, 'moved')
     await mkdir(folder)
     await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
     await rm(folder, { recursive: true })
+    await mkdir(moved)
 
     const window = await launchApp()
+    await pickFolderWith(moved)
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
 
-    const banner = window.getByRole('alert')
-    await banner.getByText('Local folder for widgets not found').waitFor()
-    await banner.getByRole('button', { name: 'Locate' }).waitFor()
+    const banners = window.getByRole('region', { name: 'widgets problems' })
+    await banners.getByText('Local folder for widgets not found').waitFor()
+    await banners.getByRole('button', { name: 'Locate' }).click()
+
+    await window.getByText('Local folder for widgets not found').waitFor({ state: 'detached' })
+    const [factory] = await (await daemonClient()).listFactories()
+    expect(factory?.localFolder).toEqual({ path: moved, found: true })
   })
 
   test('quitting with nothing running ends the app and TED’s background process', async () => {
@@ -809,6 +820,112 @@ describe('App Settings', () => {
   })
 })
 
+describe('Add Factory', () => {
+  const dialog = (window: Page) => window.getByRole('dialog')
+
+  async function openForm(window: Page) {
+    await sidebar(window).getByRole('button', { name: 'Add Factory' }).click()
+    await dialog(window).waitFor()
+  }
+
+  test('adding from owner/repo checks access, clones, and opens the new Board', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByRole('heading', { name: 'Add your first Factory' }).waitFor()
+    expect(await form.getByLabel('Show the tutorial').isChecked()).toBe(true)
+
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Can push and open pull requests').waitFor()
+    expect(await form.getByLabel('Name', { exact: true }).first().inputValue()).toBe('widgets')
+    expect(await form.getByLabel('Key').inputValue()).toBe('WD')
+    await form.getByText('TED clones the repo, then starts the setup Task WD-1.').waitFor()
+
+    await form.getByRole('button', { name: 'Add Factory' }).click()
+    await dialog(window).waitFor({ state: 'detached' })
+    await sidebar(window).getByRole('button', { name: 'Widgets' }).waitFor()
+    await window.getByRole('region', { name: 'Setting up Widgets' }).waitFor({ state: 'detached' })
+    const [factory] = await (await daemonClient()).listFactories()
+    expect(factory).toMatchObject({ key: 'WD', cloned: true, showTutorial: true })
+  })
+
+  test('access problems and a taken key show their messages and keep Add Factory disabled', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByRole('heading', { name: 'Add Factory' }).waitFor()
+
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/nope')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Repository not found, or your GitHub account can’t see it.').waitFor()
+    await form.getByRole('button', { name: 'Check again' }).waitFor()
+    await form.getByRole('button', { name: 'GitHub settings' }).waitFor()
+
+    await form.getByRole('button', { name: 'Clear the primary repo' }).click()
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText(/is the primary repo of Factory widgets\./).waitFor()
+    await form.getByRole('button', { name: 'Open widgets' }).waitFor()
+
+    await form.getByLabel('Key').fill('NB')
+    await form.getByText('NB is already the key of widgets.').waitFor()
+    await form.getByText('Fix the 1 repo problem and the key to continue.').waitFor()
+    expect(await form.getByRole('button', { name: 'Add Factory' }).isDisabled()).toBe(true)
+  })
+
+  test('Choose folder reads the folder’s GitHub remote', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const folder = path.join(home, 'code', 'widgets')
+    await run('git', ['clone', path.join(home, 'origin', 'acme', 'widgets.git'), folder])
+    await run('git', ['remote', 'set-url', 'origin', 'git@github.com:acme/widgets.git'], {
+      cwd: folder,
+    })
+    const window = await launchApp()
+    await pickFolderWith(folder)
+    await openForm(window)
+    const form = dialog(window)
+
+    await form.getByRole('button', { name: 'Choose folder…' }).click()
+    await form.getByText('acme/widgets').waitFor()
+    await form.getByText('from a folder').waitFor()
+    await form.getByText('Can push and open pull requests').waitFor()
+  })
+
+  test('a failed clone shows a red row and the banner; Retry recovers', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const origin = path.join(home, 'origin', 'acme', 'widgets.git')
+    await rename(origin, `${origin}.hidden`)
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Can push and open pull requests').waitFor()
+    await form.getByRole('button', { name: 'Add Factory' }).click()
+
+    const panel = window.getByRole('region', { name: 'Setting up Widgets' })
+    await panel.getByText(/Clone failed:/).waitFor()
+    const banners = window.getByRole('region', { name: 'Widgets problems' })
+    await banners
+      .getByText('Couldn’t clone acme/widgets · Widgets can’t start Tasks until it’s cloned')
+      .waitFor()
+    await sidebar(window).getByRole('img', { name: 'A problem stops work' }).waitFor()
+
+    await rename(`${origin}.hidden`, origin)
+    await banners.getByRole('button', { name: 'Retry' }).click()
+    await panel.waitFor({ state: 'detached' })
+    await banners.getByText(/Couldn’t clone/).waitFor({ state: 'detached' })
+  })
+})
+
 describe('banners', () => {
   const noChecks = 'No Checks set up · Validate relies on the agent alone'
 
@@ -1077,6 +1194,31 @@ describe('running in the background', () => {
     expect(isAlive(electronPid)).toBe(true)
   })
 })
+
+async function pickFolderWith(folder: string): Promise<void> {
+  await app?.evaluate(({ dialog }, chosen) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [chosen] })) as never
+  }, folder)
+}
+
+async function githubReady(repos: string[], extra: Record<string, unknown> = {}): Promise<void> {
+  const paths: Record<string, unknown> = {}
+  for (const repo of repos) {
+    paths[`repos/${repo}`] = {
+      body: { full_name: repo, default_branch: 'main', permissions: { push: true } },
+    }
+    paths[`repos/${repo}/commits?per_page=1`] = { body: [] }
+  }
+  const state = path.join(home, 'gh.json')
+  await writeFile(state, JSON.stringify({ paths: { ...paths, ...extra } }))
+  extraEnv = {
+    ...extraEnv,
+    TED_STUB_GH: state,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: `url.file://${path.join(home, 'origin')}/.insteadOf`,
+    GIT_CONFIG_VALUE_0: 'https://github.com/',
+  }
+}
 
 async function channelsOf(pid: number): Promise<string[]> {
   const dir = `/proc/${pid}/fd`
