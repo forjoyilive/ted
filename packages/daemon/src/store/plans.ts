@@ -21,6 +21,16 @@ export interface PlanCheckout {
   worktree: string
 }
 
+export type PlanTaskGone = 'archived' | 'deleted'
+
+export interface PlanTaskLink {
+  taskId: string
+  displayId: string
+  title: string
+  sizeCheckId: string
+  gone?: PlanTaskGone
+}
+
 export interface StoredPlan {
   id: string
   factoryId: string
@@ -37,6 +47,7 @@ export interface StoredPlan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  fromTask?: PlanTaskLink
 }
 
 export interface PlanTaskRecord {
@@ -61,8 +72,12 @@ export interface PlanStore {
   list(): StoredPlan[]
   get(id: string): StoredPlan | undefined
   start(
-    input: Pick<StoredPlan, 'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort'>,
+    input: Pick<
+      StoredPlan,
+      'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask'
+    >,
   ): StoredPlan
+  detachTask(id: string, reason: PlanTaskGone): void
   rename(id: string, title: string): void
   delete(id: string): void
   began(id: string, checkout: PlanCheckout[]): void
@@ -83,11 +98,13 @@ export function createPlanStore({
   commit,
   emit,
   changed,
+  taskChanged,
 }: {
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
   emit: (event: DaemonEvent) => void
   changed: () => void
+  taskChanged: (taskId: string) => void
 }): PlanStore {
   const toPlan = (row: typeof plans.Type): StoredPlan => ({
     id: row.id,
@@ -105,6 +122,15 @@ export function createPlanStore({
     createdAt: row.createdAt,
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.fromTaskId !== null && {
+      fromTask: {
+        taskId: row.fromTaskId,
+        displayId: row.fromTaskDisplayId ?? '',
+        title: row.fromTaskTitle ?? '',
+        sizeCheckId: row.sizeCheckId ?? '',
+        ...(row.fromTaskGone !== null && { gone: row.fromTaskGone as PlanTaskGone }),
+      },
+    }),
   })
 
   const toRequest = (row: typeof planRequests.Type): PlanRequest => ({
@@ -132,6 +158,8 @@ export function createPlanStore({
   const updated = (planId: string) => {
     emit({ type: 'plan-updated', planId })
     changed()
+    const linked = get(planId)?.fromTask
+    if (linked && !linked.gone) taskChanged(linked.taskId)
   }
   const now = () => new Date().toISOString()
   const planEvent = (id: string, change: (at: string) => unknown) => {
@@ -143,21 +171,40 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, ...input }) {
+    start({ model, effort, fromTask, ...input }) {
       const id = randomUUID()
+      const at = now()
       commit(
         events.planStarted({
           ...input,
           id,
           model: model ?? null,
           effort: effort ?? null,
-          at: now(),
+          at,
         }),
+        ...(fromTask
+          ? [
+              events.planStartedFromTask({
+                id,
+                taskId: fromTask.taskId,
+                displayId: fromTask.displayId,
+                taskTitle: fromTask.title,
+                sizeCheckId: fromTask.sizeCheckId,
+                at,
+              }),
+            ]
+          : []),
       )
       updated(id)
       const started = get(id)
       if (!started) throw new Error(`no plan ${id}`)
       return started
+    },
+    detachTask(id, reason) {
+      const plan = get(id)
+      if (!plan?.fromTask || plan.fromTask.gone) return
+      const { taskId } = plan.fromTask
+      planEvent(id, (at) => events.planTaskDetached({ id, taskId, reason, at }))
     },
     rename: (id, title) => planEvent(id, (at) => events.planRenamed({ id, title, at })),
     delete(id) {

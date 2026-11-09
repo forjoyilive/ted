@@ -2448,7 +2448,7 @@ describe('Inbox and Gates', () => {
       .getByRole('region', { name: 'A plan needs to settle' })
       .getByText('How conflicts are resolved')
       .waitFor()
-    expect(await ask.getByRole('button', { name: 'Plan in chat' }).isDisabled()).toBe(true)
+    expect(await ask.getByRole('button', { name: 'Plan in chat' }).isEnabled()).toBe(true)
     await ask.getByRole('button', { name: 'Split it' }).click()
 
     const row = inbox.getByRole('button').filter({ hasText: 'Offline editing for notes' })

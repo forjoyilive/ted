@@ -448,7 +448,14 @@ export interface RoundAnswerInput {
 export type CommentAnswer =
   | { kind: 'approved'; at: string; text?: string; created?: ProposalCreated }
   | { kind: 'changes-requested'; at: string; text: string }
-  | { kind: 'answered'; at: string; choice?: string; text?: string; answers?: RoundAnswer[] }
+  | {
+      kind: 'answered'
+      at: string
+      choice?: string
+      text?: string
+      answers?: RoundAnswer[]
+      planId?: string
+    }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
   | { kind: 'withdrawn'; at: string; runStopped: true }
@@ -535,6 +542,7 @@ export interface ThreadEvent {
   judgments?: Judgment[]
   validate?: 'passed' | 'sent-back'
   changes?: ChatDiff
+  planId?: string
 }
 
 export interface Judgment {
