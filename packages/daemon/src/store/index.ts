@@ -1074,6 +1074,7 @@ export async function openStore({
             ...(row.linearDescription !== null && { description: row.linearDescription }),
           },
         }),
+      ...(row.sentryShortId !== null && { sentry: { shortId: row.sentryShortId } }),
     }
   }
 
@@ -1999,6 +2000,9 @@ export async function openStore({
                 linearDescription: source.linear?.description ?? null,
                 at,
               }),
+              ...(source.sentry
+                ? [events.taskSourceSentrySet({ taskId: id, shortId: source.sentry.shortId, at })]
+                : []),
             ]
           : []),
         ...(forcedGates.length > 0

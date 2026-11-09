@@ -668,6 +668,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const factory = text('factory')
   const source = sourceUrl(text('source'))
   const followUp = text('followUp')?.trim() || undefined
+  const sentryId = sentryShortId(request.sentryId, source)
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
   const lead = request.lead === undefined ? undefined : taskLead(request.lead, 'lead')
@@ -690,8 +691,18 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(attached.length > 0 && { attachments: attached }),
     ...(source !== undefined && { source }),
     ...(followUp !== undefined && { followUp }),
+    ...(sentryId !== undefined && { sentryId }),
     ...(request.start !== undefined && { start: request.start }),
   }
+}
+
+function sentryShortId(value: unknown, source: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || !/^[A-Z0-9][A-Z0-9_-]{0,62}-[A-Z0-9]{1,12}$/i.test(value)) {
+    throw new HttpError(400, 'sentryId must be a Sentry short ID, such as NOTEBOOK-1A')
+  }
+  if (source === undefined) throw new HttpError(400, 'sentryId needs a source')
+  return value.toUpperCase()
 }
 
 function sourceUrl(text: string | undefined): string | undefined {

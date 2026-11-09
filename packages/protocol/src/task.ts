@@ -154,6 +154,7 @@ export interface TaskSource {
     branchName?: string
     description?: string
   }
+  sentry?: { shortId: string }
 }
 
 export interface Task {
@@ -346,6 +347,7 @@ export interface CreateTaskRequest {
   blockedBy?: string[]
   attachments?: AttachmentRef[]
   source?: string
+  sentryId?: string
   followUp?: string
   start?: boolean
 }

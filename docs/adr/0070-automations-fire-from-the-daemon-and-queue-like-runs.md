@@ -22,6 +22,8 @@ Spec 12 (and 2.3, 3.1, 3.5, 7.4): an Automation is a schedule in a Factory that 
 
 **Duplicates.** `sourceKey` in `tasks/sources.ts` matches Linear URLs by workspace and identifier and other URLs by host and path (no query, no trailing slash). For every caller but the app, a source tracked in the same Factory by an open Task is refused with “Already tracked as NB-51 · Stage”, by a Task archived without merging is refused, and by a Done Task is refused with its merge date and commit. `--follow-up <id>` creates a Follow-up of a Done Task (the `followUpOf` link KRI-134 added, which starts the Task without Backlog) sharing its source, refused while another Task with that source is open.
 
+**Sentry short IDs.** `ted task create --sentry-id <SHORT-ID>` (with `--source`) stores the Sentry issue’s short ID with the Task’s source as `v1.TaskSourceSentrySet`, committed with the Task, and a Follow-up shares it. TED, not the agent, writes the pull request body, so it adds `Fixes <SHORT-ID>` there itself.
+
 ## Considered Options
 
 - **Cron library from npm.** None handles cron and RRULE in a named zone without large dependencies; the shared module is small and the app needs it for the form.

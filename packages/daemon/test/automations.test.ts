@@ -181,12 +181,16 @@ describe('Automations', () => {
     const automation = await create(client, { on: true })
     const id = automation.id
     const changes: [string, string, unknown?][] = [
-      ['POST', '/automations', {
-        name: 'Mine',
-        factory: 'NB',
-        prompt: 'x',
-        schedule: { kind: 'daily', at: '09:00' },
-      }],
+      [
+        'POST',
+        '/automations',
+        {
+          name: 'Mine',
+          factory: 'NB',
+          prompt: 'x',
+          schedule: { kind: 'daily', at: '09:00' },
+        },
+      ],
       ['PATCH', `/automations/${id}`, { name: 'Renamed' }],
       ['POST', `/automations/${id}/enable`],
       ['POST', `/automations/${id}/disable`],

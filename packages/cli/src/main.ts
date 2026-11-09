@@ -98,11 +98,12 @@ const usage = `Usage:
   ted run send <id> "<text>"                 Send a sub-agent a follow-up (reads stdin if no text)
   ted run stop <id>                          Stop a sub-agent
   ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]
-                [--follow-up <id>] "<title>"
+                [--sentry-id <SHORT-ID>] [--follow-up <id>] "<title>"
                                              Create a Task (--start starts it); a Linear URL
                                              as the source fills it in from Linear. TED refuses
                                              a source it already tracks; --follow-up revisits
-                                             a Done Task
+                                             a Done Task. --sentry-id puts Fixes <SHORT-ID> in
+                                             the pull request
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task propose --file <file> [--supersedes <request-id>]
@@ -165,6 +166,7 @@ function parse() {
         round: { type: 'string' },
         settle: { type: 'string', multiple: true },
         source: { type: 'string' },
+        'sentry-id': { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
         stop: { type: 'boolean' },
@@ -523,6 +525,7 @@ try {
     const title = rest.join(' ')
     const { factory, source, start, description } = options
     const followUp = options['follow-up']
+    const sentryId = options['sentry-id']
     const task = await withDaemon(home, async (client) => {
       if (source !== undefined && parseLinearUrl(source)) {
         const lookup = await client.lookupLinear(source)
@@ -538,6 +541,7 @@ try {
         ...(title !== '' && { title }),
         ...(factory !== undefined && { factory }),
         ...(source !== undefined && { source }),
+        ...(sentryId !== undefined && { sentryId }),
         ...(description !== undefined && { description }),
         ...(followUp !== undefined && { followUp }),
         ...(start !== undefined && { start }),

@@ -260,6 +260,7 @@ export interface CreateTaskInput
   > {
   title?: string
   source?: string
+  sentryId?: string
   followUp?: string
   factory?: string
   blockedBy?: string[]
@@ -1114,6 +1115,7 @@ export function createTasks(options: {
       title: task.title,
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
+      ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
     }
   }
 
@@ -5389,6 +5391,7 @@ export function createTasks(options: {
         start: startNow,
         lead,
         source: sourceUrl,
+        sentryId,
         followUp,
         ...fields
       },
@@ -5442,7 +5445,12 @@ export function createTasks(options: {
         ...(fields.description !== undefined && { description: fields.description.trim() }),
         title: name,
         ...(fields.priority === undefined && issue && { priority: issue.priority }),
-        ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
+        ...(sourceUrl !== undefined && {
+          source: {
+            ...taskSource(sourceUrl, issue),
+            ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
+          },
+        }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
         startRequested: startNow === true && !held,

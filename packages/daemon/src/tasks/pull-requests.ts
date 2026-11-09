@@ -19,6 +19,7 @@ export interface PullRequestTask {
   title: string
   goal?: string
   sourceUrl?: string
+  fixes?: string
 }
 
 export interface PullRequests {
@@ -221,7 +222,8 @@ export function pullRequestBody(task: PullRequestTask, others: string[]): string
     ? `Opened by TED for ${task.displayId} (${task.sourceUrl}).`
     : `Opened by TED for ${task.displayId}.`
   const linked = others.length > 0 ? [`Part of the same Task: ${others.join(', ')}`] : []
-  return [goal, '---', from, ...linked].join('\n\n')
+  const fixes = task.fixes === undefined ? [] : [`Fixes ${task.fixes}`]
+  return [goal, '---', from, ...linked, ...fixes].join('\n\n')
 }
 
 export function parsePullRequestUrl(out: string): { number: number; url: string } | undefined {
