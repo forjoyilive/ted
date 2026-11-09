@@ -26,7 +26,9 @@ import {
   downloadUrl,
   linearKeyPage,
   type MachineSettings,
+  type MoveTaskRequest,
   noActivity,
+  type Priority,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
@@ -74,6 +76,8 @@ import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
 import { fileLog, handleUncaught, ignoreBrokenPipes, watchParent } from './uncaught.ts'
 
+const backupName = /^(pre-update|daily|before-restore)-\d{8}(-\d{6})?(-\d+)?$/
+
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
@@ -90,6 +94,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  moveTask: (client, taskId, request) =>
+    client.moveTask(String(taskId), request as MoveTaskRequest),
+  setPriority: (client, taskId, priority) =>
+    client.setPriority(String(taskId), String(priority) as Priority),
+  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
   unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),
@@ -145,6 +154,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     const home = homedir()
     const shown = folder.startsWith(`${home}${path.sep}`) ? `~${folder.slice(home.length)}` : folder
     return { path: `${shown}${path.sep}`, platform: process.platform }
+  },
+  getStorage: (client) => client.getStorage(),
+  removeUnusedClones: (client) => client.removeUnusedClones(),
+  showBackupInFolder: async (_, name) => {
+    const backup = String(name)
+    if (!backupName.test(backup)) throw new Error('no such backup')
+    shell.showItemInFolder(path.join(tedPaths(tedHome()).backups, backup))
   },
   showTedFolder: async () => {
     const error = await shell.openPath(tedHome())

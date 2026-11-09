@@ -54,6 +54,7 @@ describe('machine settings in the store', () => {
       showTrayIcon: true,
       startAtLogin: true,
       stayAwake: true,
+      listViews: {},
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true })
     first.updateSettings({ profilePicture: picture })

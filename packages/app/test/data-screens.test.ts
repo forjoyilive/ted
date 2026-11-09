@@ -109,7 +109,7 @@ describe('data screens', () => {
 
     await sidebar(window).waitFor()
     await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
-    await window.getByRole('button').filter({ hasText: 'Fix login' }).waitFor()
+    await window.getByRole('row').filter({ hasText: 'Fix login' }).waitFor()
   })
 
   test('a failed rebuild shows “TED couldn’t update its data” with where it stopped', async () => {
@@ -126,7 +126,7 @@ describe('data screens', () => {
     const window = await launchApp()
 
     await window.getByRole('heading', { name: 'TED couldn’t update its data' }).waitFor()
-    await window.getByText('Rebuild stopped at event 2 of 2').waitFor()
+    await window.getByText('Rebuild stopped at event 4 of 4').waitFor()
     await window
       .getByText(
         /^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}, when TED 0\.0\.1 last ran\.$/,

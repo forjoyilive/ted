@@ -22,7 +22,10 @@ import type {
   LinearStatus,
   LogText,
   MachineSettings,
+  MoveTaskRequest,
+  Priority,
   Profile,
+  RemoveClonesResult,
   RepoCheck,
   RestoreBackupResult,
   Run,
@@ -30,6 +33,7 @@ import type {
   RunFixResult,
   RunSlots,
   StageEntry,
+  StorageSummary,
   Task,
   TaskDefaults,
   TaskLead,
@@ -73,6 +77,11 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  moveTask: (taskId: string, request: MoveTaskRequest) =>
+    window.ted.request('moveTask', taskId, request) as Promise<Task>,
+  setPriority: (taskId: string, priority: Priority) =>
+    window.ted.request('setPriority', taskId, priority) as Promise<Task>,
+  archiveTask: (taskId: string) => window.ted.request('archiveTask', taskId) as Promise<Task>,
   blockTask: (taskId: string, by: string) =>
     window.ted.request('blockTask', taskId, by) as Promise<Task>,
   unblockTask: (taskId: string, by: string) =>
@@ -115,6 +124,10 @@ export const ted = {
   copyReport: () => window.ted.request('copyReport') as Promise<void>,
   tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
+  getStorage: () => window.ted.request('getStorage') as Promise<StorageSummary>,
+  removeUnusedClones: () => window.ted.request('removeUnusedClones') as Promise<RemoveClonesResult>,
+  showBackupInFolder: (name: string) =>
+    window.ted.request('showBackupInFolder', name) as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string, input?: BannerActionInput) =>

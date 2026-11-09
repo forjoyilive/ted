@@ -103,6 +103,20 @@ export {
   parseLinearUrl,
   type SaveLinearKeyRequest,
 } from './linear.ts'
+export {
+  type ArchivedFilter,
+  allTasksScope,
+  archivedFilters,
+  type ListColumn,
+  type ListFilters,
+  type ListGroup,
+  type ListSort,
+  type ListView,
+  listColumns,
+  listGroups,
+  listSorts,
+  type StatusFilter,
+} from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
@@ -128,6 +142,18 @@ export {
 } from './settings.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
+  diskFullHold,
+  diskLimits,
+  formatBytes,
+  type RemoveClonesResult,
+  type StorageCategory,
+  type StorageCategoryId,
+  type StorageSummary,
+  type StoredBackup,
+  storageCategories,
+  type WorktreeUse,
+} from './storage.ts'
+export {
   type AgentStageId,
   type AnswerRequest,
   type Attachment,
@@ -140,13 +166,16 @@ export {
   type CommentAuthor,
   type CommentKind,
   type CopySkip,
+  type CreatedBy,
   type CreateTaskRequest,
   clarifyDepths,
   commentKinds,
+  createdByKinds,
   type Effort,
   efforts,
   type GitHubWait,
   type InboxItem,
+  type MoveTaskRequest,
   type Outcome,
   type OutcomeResult,
   type PostCommentRequest,
@@ -154,19 +183,24 @@ export {
   priorities,
   type ReportOutcomeRequest,
   type SetActivityRequest,
+  type SetPriorityRequest,
   type SetTaskLeadRequest,
   type StageId,
   type Task,
+  type TaskArchive,
   type TaskBrief,
   type TaskDefaults,
+  type TaskEnding,
   type TaskLead,
   type TaskMarker,
   type TaskRepo,
   type TaskRun,
   type TaskSource,
   type TaskStatus,
+  type TaskStatusKind,
   type TrackStage,
   type TrackState,
+  taskStatusKinds,
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'

@@ -99,7 +99,7 @@ async function openAllTasks(window: Page): Promise<void> {
   await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
 }
 
-const taskRow = (window: Page, text: string) => window.getByRole('button').filter({ hasText: text })
+const taskRow = (window: Page, text: string) => window.getByRole('row').filter({ hasText: text })
 
 async function daemonClient(): Promise<DaemonClient> {
   const info = await readDaemonInfo(home)
@@ -155,7 +155,7 @@ describe('TED app', () => {
   test('a Task created from the CLI appears in the window within a second', async () => {
     const window = await launchApp()
     await openAllTasks(window)
-    await window.getByText('No Tasks yet.').waitFor()
+    await window.getByText('No Tasks yet', { exact: true }).waitFor()
 
     await ted('task', 'create', 'Fix login')
 
@@ -1178,6 +1178,24 @@ describe('Working Runs', () => {
     await window.getByRole('region', { name: 'widgets' }).getByText('1 of 1 working').waitFor()
   })
 
+  test('a nearly full disk shows a warning whose Open Storage shows what uses the space', async () => {
+    const free = path.join(home, 'free-bytes')
+    await writeFile(free, String(8.2e9))
+    const window = await launchApp({ TED_FREE_BYTES_FILE: free })
+    await window.getByText('Disk almost full · 8.2 GB free').waitFor()
+
+    await window.getByRole('button', { name: 'Open Storage' }).click()
+
+    const page = window.getByRole('main', { name: 'Storage' })
+    await page.getByText(/used under .* · 8\.2 GB free/).waitFor()
+    await page.getByRole('group', { name: 'Space used' }).getByText('Store').waitFor()
+    await page.getByRole('group', { name: 'Clean up' }).getByText('None to remove').waitFor()
+    await page
+      .getByRole('region', { name: 'Backups' })
+      .getByText(/^Daily · /)
+      .waitFor()
+  })
+
   test('Settings · Limits changes the limit and shows what is working now', async () => {
     const window = await twoTasksOneSlot()
     await ted('task', 'start', 'NB-1')
@@ -1650,3 +1668,169 @@ describe('Inbox and Gates', () => {
       .waitFor()
   })
 })
+
+describe('List and All Tasks', () => {
+  const forever = () => JSON.stringify({ steps: [{ waitFor: path.join(home, 'never') }] })
+
+  async function twoFactories(): Promise<void> {
+    for (const [name, key] of [
+      ['notebook', 'NB'],
+      ['site', 'MS'],
+    ] as const) {
+      const parent = path.join(home, 'origins', name)
+      const made = await makeOriginRepo(parent)
+      const origin = path.join(path.dirname(made), `${name}.git`)
+      await rename(made, origin)
+      await ted('dev', 'factory', 'add', origin, '--key', key)
+    }
+  }
+
+  const rowIds = (window: Page) =>
+    window
+      .getByRole('main')
+      .locator('tbody tr[data-task]')
+      .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-task')))
+
+  test('grouping, sort, columns and filters change the List and are remembered per scope', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    const client = await daemonClient()
+    await client.createTask({ factory: 'NB', priority: 'low', title: 'Export notes' })
+    await client.createTask({ factory: 'NB', priority: 'high', title: 'Sync notes' })
+    await client.createTask({ factory: 'MS', title: 'Pricing page' })
+    await openAllTasks(window)
+    const main = window.getByRole('main')
+    await main.getByRole('button', { name: 'notebook' }).waitFor()
+    await main.getByRole('button', { name: 'site' }).waitFor()
+    expect(await rowIds(window)).toEqual(['NB-2', 'NB-1', 'MS-1'])
+    await main.getByRole('columnheader', { name: 'Factory' }).waitFor()
+
+    await main.getByRole('button', { name: 'Display' }).click()
+    await main.getByRole('menuitem', { name: /^Manual/ }).hover()
+    await main.getByRole('menuitemradio', { name: 'Title' }).click()
+    await main.getByRole('menuitem', { name: 'Factory' }).hover()
+    await main.getByRole('menuitemradio', { name: 'None' }).click()
+    await main.getByRole('menuitemcheckbox', { name: 'Created by' }).click()
+    await window.keyboard.press('Escape')
+    await main.getByRole('columnheader', { name: 'Created by' }).waitFor()
+    expect(await rowIds(window)).toEqual(['NB-1', 'MS-1', 'NB-2'])
+
+    await main.getByRole('button', { name: 'Filter' }).click()
+    await main.getByRole('menuitem', { name: 'Priority' }).hover()
+    await main.getByRole('menuitemcheckbox', { name: /High/ }).click()
+    await window.keyboard.press('Escape')
+    await main.getByText('Priority is High').waitFor()
+    expect(await rowIds(window)).toEqual(['NB-2'])
+
+    await sidebar(window).getByRole('button', { name: 'notebook' }).click()
+    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
+    await main.getByRole('button', { name: 'Backlog' }).waitFor()
+    expect(await rowIds(window)).toEqual(['NB-2', 'NB-1'])
+
+    await window.keyboard.press('/')
+    await window.keyboard.type('export')
+    expect(await rowIds(window)).toEqual(['NB-1'])
+
+    const views = (await client.getSettings()).listViews
+    expect(views.all).toMatchObject({
+      sort: 'title',
+      group: 'none',
+      filters: { priorities: ['high'] },
+    })
+    expect(views.all?.columns).toContain('created-by')
+    await app?.close()
+    const again = await launchApp()
+    await openAllTasks(again)
+    await again.getByRole('main').getByText('Priority is High').waitFor()
+  })
+
+  test('Open in List shows the machine-wide queue, and dragging there reorders it', async () => {
+    await twoFactories()
+    await ted('task', 'create', '--factory', 'NB', forever())
+    await ted('task', 'create', '--factory', 'NB', 'Notebook covers')
+    await ted('task', 'create', '--factory', 'MS', 'Blog post template')
+    const window = await launchApp()
+    const client = await daemonClient()
+    await client.updateSettings({ maxWorkingRuns: 1 })
+    for (const id of ['NB-1', 'NB-2', 'MS-1']) await ted('task', 'start', id)
+
+    await sidebar(window)
+      .getByRole('button', { name: /1 queued|2 queued/ })
+      .click()
+    await window.getByRole('button', { name: 'Open in List →' }).click()
+    const main = window.getByRole('main')
+    await main.getByText('machine-wide queue, in start order').waitFor()
+    await main.getByRole('columnheader', { name: 'Queue' }).waitFor()
+    await main.locator('tr[data-task="MS-1"]').getByText('2nd', { exact: true }).waitFor()
+    expect(await rowIds(window)).toEqual(['NB-2', 'MS-1'])
+
+    await main
+      .locator('tr[data-task="MS-1"]')
+      .dragTo(main.locator('tr[data-task="NB-2"]'), { targetPosition: { x: 400, y: 4 } })
+
+    await main.locator('tr[data-task="MS-1"]').getByText('1st', { exact: true }).waitFor()
+    expect((await client.getSlots()).queue.map((q) => q.displayId)).toEqual(['MS-1', 'NB-2'])
+
+    await main.getByRole('button', { name: 'Clear Status is Queued' }).click()
+    await main.getByText('machine-wide queue, in start order').waitFor({ state: 'detached' })
+    expect(await main.getByRole('columnheader', { name: 'Queue' }).count()).toBe(0)
+  })
+
+  test('multi-select starts, sets Priority on and archives Tasks of different Factories', async () => {
+    await twoFactories()
+    await ted('task', 'create', '--factory', 'NB', 'Export notes')
+    await ted('task', 'create', '--factory', 'MS', 'Pricing page')
+    await ted('task', 'create', '--factory', 'MS', 'Case studies')
+    const window = await launchApp()
+    const client = await daemonClient()
+    await client.updateSettings({ maxWorkingRuns: 1 })
+    await ted('task', 'start', 'MS-2')
+    await openAllTasks(window)
+    const main = window.getByRole('main')
+
+    await taskRow(window, 'NB-1').click({ modifiers: ['Meta'] })
+    await taskRow(window, 'MS-1').click({ modifiers: ['Meta'] })
+    const bar = main.getByRole('toolbar', { name: 'Selected Tasks' })
+    await bar.getByText('2 selected').waitFor()
+
+    await bar.getByRole('button', { name: 'Priority' }).click()
+    await bar.getByRole('menuitem', { name: 'Urgent' }).click()
+    await waitFor(async () => {
+      const tasks = await client.listTasks()
+      return ['NB-1', 'MS-1'].every(
+        (id) => tasks.find((t) => t.displayId === id)?.priority === 'urgent',
+      )
+    })
+
+    await bar.getByRole('button', { name: 'Start' }).click()
+    await waitFor(async () =>
+      (await client.listTasks())
+        .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
+        .every((t) => t.stage !== 'backlog'),
+    )
+
+    await bar.getByRole('button', { name: 'Archive' }).click()
+    await bar.getByRole('button', { name: 'Archive 2 Tasks' }).click()
+    await waitFor(async () =>
+      (await client.listTasks())
+        .filter((t) => ['NB-1', 'MS-1'].includes(t.displayId))
+        .every((t) => t.archived !== undefined),
+    )
+    expect(await rowIds(window)).toEqual(['MS-2'])
+
+    await main.getByRole('button', { name: 'Filter' }).click()
+    await main.getByRole('menuitemradio', { name: 'Only' }).click()
+    await window.keyboard.press('Escape')
+    await main.getByRole('columnheader', { name: 'Archived' }).waitFor()
+    expect((await rowIds(window)).sort()).toEqual(['MS-1', 'NB-1'])
+    await main.locator('tr[data-task="NB-1"]').getByText('Archived', { exact: true }).waitFor()
+  })
+})
+
+async function waitFor(check: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 10_000
+  while (!(await check())) {
+    if (Date.now() > deadline) throw new Error('condition never held')
+    await sleep(100)
+  }
+}

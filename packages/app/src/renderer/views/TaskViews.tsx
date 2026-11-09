@@ -1,31 +1,16 @@
-import type { Factory, RepoSetup, StageId, Task } from '@ted/protocol'
+import type { Factory, RepoSetup, Task } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { stageName, stageOrder } from '../list-view.ts'
 import { ted } from '../ted.ts'
 import setupStyles from './SetupPanel.module.css'
 import styles from './views.module.css'
 
-const stageRank: Record<StageId, number> = {
-  backlog: 0,
-  intake: 1,
-  clarify: 2,
-  design: 3,
-  work: 4,
-  validate: 5,
-  review: 6,
-  merge: 7,
-  done: 8,
-}
-
-export const stageOrder = (Object.keys(stageRank) as StageId[]).sort(
-  (a, b) => stageRank[a] - stageRank[b],
-)
-
-export const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
+export { stageName, stageOrder }
 
 export function factoryName(factories: readonly Factory[], factoryId: string): string {
   return factories.find((f) => f.id === factoryId)?.name ?? 'No Factory'
@@ -60,53 +45,6 @@ function ViewHeader({
         New Task
       </Button>
     </header>
-  )
-}
-
-export function TaskList({
-  title,
-  tasks,
-  factories,
-  onOpen,
-  onNewTask,
-  banners,
-  capLine,
-}: TaskViewProps) {
-  return (
-    <section className={styles.pane} aria-label={title}>
-      <ViewHeader title={title} capLine={capLine} onNewTask={onNewTask} />
-      {banners}
-      <div className={styles.body}>
-        {tasks.length === 0 ? (
-          <p className={styles.empty}>No Tasks yet.</p>
-        ) : (
-          <>
-            <div className={`${styles.taskRow} ${styles.columnHeads}`} aria-hidden>
-              <span />
-              <span>ID</span>
-              <span>Title</span>
-              <span>Factory</span>
-              <span>Stage</span>
-            </div>
-            <ul className={styles.rows}>
-              {tasks.map((task) => (
-                <li key={task.id}>
-                  <button type="button" className={styles.taskRow} onClick={() => onOpen(task)}>
-                    <PriorityIcon priority={task.priority} />
-                    <span className={styles.id}>{task.displayId}</span>
-                    <span className={styles.cell}>{task.title}</span>
-                    <span className={`${styles.cell} ${styles.meta}`}>
-                      {factoryName(factories, task.factoryId)}
-                    </span>
-                    <span className={`${styles.cell} ${styles.meta}`}>{stageName(task.stage)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
-    </section>
   )
 }
 
