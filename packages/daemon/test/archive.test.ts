@@ -240,6 +240,10 @@ describe('blocking others', () => {
     expect((await client.call('POST', `/tasks/${waiting.id}/start`)).body).toMatchObject({
       stage: 'backlog',
     })
+
+    const removed = await client.call('DELETE', `/tasks/${waiting.id}/blockers/${blocker.id}`)
+    expect(removed.status).toBe(200)
+    expect((await getTask(client, waiting.id)).blockedBy).toEqual([])
   })
 
   test('deleting unblocks them by default', async () => {

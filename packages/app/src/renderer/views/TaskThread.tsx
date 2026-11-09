@@ -572,6 +572,7 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
     return () => window.removeEventListener(pickBlockerEvent, onPick)
   }, [task.id])
   const blockers = task.blockedBy.flatMap((id) => tasks.filter((t) => t.id === id))
+  const gone = task.blockedBy.filter((id) => !tasks.some((t) => t.id === id))
   const change = (request: Promise<Task>) => {
     setError(undefined)
     request.catch((failure: unknown) => setError(readableError(failure)))
@@ -586,6 +587,18 @@ function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] })
         onAdd={(id) => change(ted.blockTask(task.id, id))}
         onRemove={(id) => change(ted.unblockTask(task.id, id))}
       />
+      {gone.map((id) => (
+        <p key={id} className={styles.deletedBlocker}>
+          A deleted Task
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => change(ted.unblockTask(task.id, id))}
+          >
+            Remove
+          </button>
+        </p>
+      ))}
       {error !== undefined && (
         <p className={styles.fieldError} role="alert">
           {error}

@@ -535,3 +535,11 @@
 .runState[data-state='waiting'] {
   color: var(--status-waiting-fg);
 }
+
+.deletedBlocker {
+  display: flex;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}

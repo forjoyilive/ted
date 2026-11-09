@@ -1568,12 +1568,16 @@ export function createTasks(options: {
     }
     await clearingAway.get(task.id)?.catch(() => undefined)
     await pullRequestQueue.get(task.id)
-    const midFlow = task.stage !== 'backlog' && task.stage !== 'done'
+    const current = find(task.id)
+    if (!current.archived || deleting.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} isn’t archived`)
+    }
+    const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
     store.unarchiveTask(task.id, {
       queue: midFlow,
       waitForBlockers: midFlow && unmergedBlockers(task.id).length > 0,
     })
-    if (midFlow && task.repos.some((r) => r.pullRequest?.state === 'closed')) {
+    if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
       pullRequestWork(task.id, 'reopen')
     }
     await pump()
@@ -1594,6 +1598,7 @@ export function createTasks(options: {
       const last = find(task.id)
       const runIds = store.taskRunList(task.id).map((r) => r.id)
       store.deleteTask(task.id)
+      await store.persisted()
       await removeFiles(last, runIds)
     } finally {
       deleting.delete(task.id)
@@ -2485,11 +2490,15 @@ export function createTasks(options: {
 
     unblock(ref, caller, by) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
-      const blocker = by === undefined ? undefined : find(by)
-      if (blocker && !store.blockers(task.id).some((l) => l.blockerId === blocker.id)) {
+      const links = store.blockers(task.id)
+      const deleted = links.find(
+        (l) => l.ended === 'deleted' && (l.blockerId === by || l.displayId === by),
+      )
+      const blocker = by === undefined || deleted ? undefined : find(by)
+      if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
         throw new RequestError(404, `${task.displayId} isn’t blocked by ${blocker.displayId}`)
       }
-      removeBlockers(task.id, caller, blocker?.id)
+      removeBlockers(task.id, caller, deleted?.blockerId ?? blocker?.id)
       return publicTask(task.id)
     },
 
