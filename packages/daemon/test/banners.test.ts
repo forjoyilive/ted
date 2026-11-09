@@ -315,6 +315,22 @@ describe('banners over the daemon API', () => {
     subscription.close()
   })
 
+  test('two Tasks starting at once after the clone is lost clone it once and both start', async () => {
+    const ted = await start()
+    const factory = (await ted.addFactory({ repo: origin, key: 'NB' })) as Factory
+    await ted.createTask({ title: 'One', factory: 'NB' })
+    await ted.createTask({ title: 'Two', factory: 'NB' })
+    await rm(path.join(tedPaths(home).repos, ...factory.repo.split('/')), {
+      recursive: true,
+      force: true,
+    })
+
+    const started = await Promise.all([ted.startTask('NB-1'), ted.startTask('NB-2')])
+
+    expect(started.map((t) => t.stage)).toEqual(['intake', 'intake'])
+    expect((await ted.listBanners()).some((b) => b.problem === 'clone-failed')).toBe(false)
+  })
+
   test('a client dismisses a warning but not a stops-work banner', async () => {
     const ted = await start()
     const factory = (await ted.addFactory({ repo: origin, key: 'NB' })) as Factory

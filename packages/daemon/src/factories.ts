@@ -45,12 +45,26 @@ export async function addFactory(
   return publicFactory(factory)
 }
 
-export async function ensureClone(
-  { banners, reposDir }: { banners: Banners; reposDir: string },
+const recovering = new Map<string, Promise<string>>()
+
+export function ensureClone(
+  deps: { banners: Banners; reposDir: string },
   factory: StoredFactory,
 ): Promise<string> {
+  const clone = clonePath(deps.reposDir, factory)
+  const running = recovering.get(clone)
+  if (running) return running
+  const recovery = recoverClone(deps, factory, clone).finally(() => recovering.delete(clone))
+  recovering.set(clone, recovery)
+  return recovery
+}
+
+async function recoverClone(
+  { banners }: { banners: Banners },
+  factory: StoredFactory,
+  clone: string,
+): Promise<string> {
   const ref = { problem: 'clone-failed', factoryId: factory.id }
-  const clone = clonePath(reposDir, factory)
   if (!(await exists(clone))) {
     try {
       await mkdir(path.dirname(clone), { recursive: true })
