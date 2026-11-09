@@ -144,7 +144,22 @@ export const comments = State.SQLite.table({
     choices: State.SQLite.text({ nullable: true }),
     gate: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
+    deliveredRunId: State.SQLite.text({ nullable: true }),
+    deliveredAt: State.SQLite.text({ nullable: true }),
+    readAt: State.SQLite.text({ nullable: true }),
+    answerHeld: State.SQLite.boolean({ default: false }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskLog = State.SQLite.table({
+  name: 'taskLog',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    data: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -715,6 +730,30 @@ export const events = {
     name: 'v1.RunProblemFound',
     schema: Schema.Struct({ runId: Schema.String, problem: Schema.String, at: Schema.String }),
   }),
+  commentsDelivered: Events.synced({
+    name: 'v1.CommentsDelivered',
+    schema: Schema.Struct({
+      ids: Schema.Array(Schema.String),
+      runId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  commentsRead: Events.synced({
+    name: 'v1.CommentsRead',
+    schema: Schema.Struct({ ids: Schema.Array(Schema.String), at: Schema.String }),
+  }),
+  commentAnswerHeld: Events.synced({
+    name: 'v1.CommentAnswerHeld',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  commentAnswersDelivered: Events.synced({
+    name: 'v1.CommentAnswersDelivered',
+    schema: Schema.Struct({
+      ids: Schema.Array(Schema.String),
+      runId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   tedCommentPosted: Events.synced({
     name: 'v1.TedCommentPosted',
     schema: Schema.Struct({
@@ -727,184 +766,286 @@ export const events = {
   }),
 }
 
+type Logged = { taskId: string | null; at: string; data?: Record<string, unknown> }
+type Args = Record<string, unknown>
+
+const str = (value: unknown) => (typeof value === 'string' ? value : null)
+
+const task = (args: Args, data?: Record<string, unknown>): Logged => ({
+  taskId: str(args.taskId),
+  at: String(args.at),
+  ...(data && { data }),
+})
+
+const runStarted = (args: Args): Logged => ({
+  taskId: str(args.taskId),
+  at: String(args.startedAt),
+  data: {
+    runId: args.id,
+    agent: args.agent,
+    model: args.model ?? null,
+    effort: args.effort ?? null,
+  },
+})
+
+const taskLogEntries: Record<string, (args: Args) => Logged> = {
+  'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
+  'v2.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
+  'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
+  'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
+  'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
+  'v1.TaskWaitingForBlockers': (args) => task(args),
+  'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
+  'v1.TaskMovedToBacklog': (args) => task(args),
+  'v1.TaskArchived': (args) => task(args),
+  'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v1.TaskSentBack': (args) =>
+    task(args, { from: args.from, to: args.to, findings: args.findings }),
+  'v2.RunStarted': runStarted,
+  'v3.RunStarted': runStarted,
+  'v1.TaskLeadSet': (args) =>
+    task(args, { agent: args.agent, model: args.model, effort: args.effort }),
+  'v1.TaskWorktreeCreated': (args) =>
+    task(args, { name: args.name, copied: args.copied, skipped: args.skipped }),
+  'v1.TaskWorktreeSetupStarted': (args) => task(args, { name: args.name, command: args.command }),
+  'v1.TaskWorktreeSetupFinished': (args) =>
+    task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
+  'v1.TaskWorktreeRemoved': (args) =>
+    task(args, {
+      name: args.name,
+      teardownCommand: args.teardownCommand,
+      teardownOutcome: args.teardownOutcome,
+    }),
+  'v1.TaskRunHeld': (args) => task(args, { agent: args.agent }),
+  'v1.TaskRunReleased': (args) => task(args),
+}
+
+function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
+  return Object.fromEntries(
+    Object.entries(handlers).map(([name, handler]) => {
+      const entry = taskLogEntries[name]
+      if (!entry) return [name, handler]
+      const call = handler as (args: Args, context: MaterializerContext) => unknown
+      return [
+        name,
+        (args: Args, context: MaterializerContext) => {
+          const result = call(args, context)
+          const logged = entry(args)
+          if (logged.taskId === null) return result
+          const { global, client } = context.event.seqNum
+          return [
+            ...(Array.isArray(result) ? result : [result]),
+            taskLog
+              .insert({
+                id: `${global}.${client}`,
+                taskId: logged.taskId,
+                name,
+                data: JSON.stringify(logged.data ?? {}),
+                at: logged.at,
+              })
+              .onConflict('id', 'replace'),
+          ]
+        },
+      ]
+    }),
+  ) as T
+}
+
+interface MaterializerContext {
+  event: { seqNum: { global: number; client: number } }
+}
+
 const materializers = counted(
-  State.SQLite.materializers(events, {
-    'v1.FactoryAdded': (factory) => [
-      factories.insert({ ...factory, clonedAt: factory.createdAt }),
-      factoryRepos.insert({
-        id: `${factory.id}:0`,
-        factoryId: factory.id,
-        position: 0,
-        repo: factory.repo,
-        name: factory.repo.split('/').at(-1) ?? factory.repo,
-        cloneUrl: factory.cloneUrl,
-      }),
-    ],
-    'v2.FactoryAdded': ({ repos, ...factory }) => [
-      factories.insert({
-        ...factory,
-        repo: repos[0]?.repo ?? '',
-        cloneUrl: repos[0]?.cloneUrl ?? '',
-        clonedAt: null,
-      }),
-      ...repos.map((repo, position) =>
+  withTaskLog(
+    State.SQLite.materializers(events, {
+      'v1.FactoryAdded': (factory) => [
+        factories.insert({ ...factory, clonedAt: factory.createdAt }),
         factoryRepos.insert({
-          ...repo,
-          id: `${factory.id}:${position}`,
+          id: `${factory.id}:0`,
           factoryId: factory.id,
-          position,
+          position: 0,
+          repo: factory.repo,
+          name: factory.repo.split('/').at(-1) ?? factory.repo,
+          cloneUrl: factory.cloneUrl,
         }),
-      ),
-    ],
-    'v1.FactoryCloned': ({ factoryId, at }) =>
-      factories.update({ clonedAt: at }).where({ id: factoryId }),
-    'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
-    'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
-    'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
-      taskBlockers
-        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
-        .onConflict('id', 'ignore'),
-    'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
-      taskBlockers
-        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
-        .onConflict('id', 'replace'),
-    'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
-      taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
-    'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
-      tasks.update({ startRequested }).where({ id: taskId }),
-    'v1.TaskWaitingForBlockers': ({ taskId }) => [
-      taskQueue.delete().where({ taskId }),
-      tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
-    ],
-    'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
-      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
-      tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
-    ],
-    'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
-      taskAttachments
-        .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
-        .onConflict('id', 'ignore'),
-    'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
-    'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
-      tasks.update({ stage, branch, worktree }).where({ id: taskId }),
-    'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
-    'v1.TaskQueued': ({ taskId, stage, rank, at }) => [
-      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
-      tasks.update({ stage }).where({ id: taskId }),
-    ],
-    'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
-    'v1.TaskMovedToBacklog': ({ taskId }) => [
-      taskQueue.delete().where({ taskId }),
-      tasks.update({ stage: 'backlog' }).where({ id: taskId }),
-    ],
-    'v1.TaskRanked': ({ taskId, rank }) => [
-      tasks.update({ rank }).where({ id: taskId }),
-      taskQueue.update({ rank }).where({ taskId }),
-    ],
-    'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
-      tasks.update({ priority, changedAt: at }).where({ id: taskId }),
-    'v1.TaskArchived': ({ taskId, at }) => [
-      taskQueue.delete().where({ taskId }),
-      tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
-    ],
-    'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
-    'v2.CommentPosted': ({ choices, ...comment }) =>
-      comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
-    'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
-    'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
-    'v1.TaskSentBack': ({ from, to, ...row }) =>
-      sendBacks.insert({ ...row, fromStage: from, toStage: to }),
-    'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
-    'v1.RunStarted': (run) =>
-      runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
-    'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
-    'v3.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
-    'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
-      runs
-        .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
-        .where({ id: runId }),
-    'v1.RunProblemFound': ({ runId, problem }) =>
-      runs.update({ problem, state: 'waiting' }).where({ id: runId }),
-    'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
-      tasks
-        .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
-        .where({ id: taskId }),
-    'v1.TedCommentPosted': (comment) =>
-      comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
-    'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
-      runs.update({ readOffset: toOffset }).where({ id: runId }),
-      ...entries.map(({ offset, line }) =>
-        conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
-      ),
-    ],
-    'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
-    'v1.RunSessionIdentified': ({ runId, sessionId }) =>
-      runs.update({ sessionId }).where({ id: runId }),
-    'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
-    'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
-    'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
-      tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
-    'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
-      taskRepos
-        .insert({
-          ...row,
-          id: `${taskId}:${name}`,
-          taskId,
-          name,
-          copied: JSON.stringify(copied),
-          skipped: JSON.stringify(skipped),
-          createdAt: at,
-        })
-        .onConflict('id', 'replace'),
-    'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
-      taskRepos
-        .update({
-          setupCommand: command,
-          setupTimeoutMs: timeoutMs,
-          setupEnv: env,
-          setupState: 'running',
-          setupExitCode: null,
-        })
-        .where({ id: `${taskId}:${name}` }),
-    'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
-      taskRepos
-        .update({ setupState: outcome, setupExitCode: exitCode })
-        .where({ id: `${taskId}:${name}` }),
-    'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
-      taskRepos
-        .update({ teardownCommand, teardownOutcome, removedAt: at })
-        .where({ id: `${taskId}:${name}` }),
-      tasks.update({ worktree: null }).where({ id: taskId }),
-    ],
-    'v1.LocalFolderSet': ({ repo, path, at }) =>
-      localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
-    'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
-      workflowLayers
-        .insert({ layer, files, version, acceptedAt: at })
-        .onConflict('layer', 'replace'),
-    'v1.AppearanceChanged': ({ appearance }) =>
-      machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
-    'v1.MachineSettingsChanged': ({ changes }) =>
-      Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
-        machineSettingValues
-          .insert({ name, value: JSON.stringify(value) })
-          .onConflict('name', 'replace'),
-      ),
-    'v1.BannerRaised': ({ at, ...banner }) => [
-      banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
-      banners
-        .update({ severity: banner.severity, text: banner.text, action: banner.action })
-        .where({ id: banner.id }),
-    ],
-    'v1.BannerDismissed': ({ id, until }) =>
-      banners.update({ dismissedUntil: until }).where({ id }),
-    'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
-    'v1.AgentPaused': ({ agent, reason, at }) =>
-      agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
-    'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
-    'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
-    'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
-  }),
+      ],
+      'v2.FactoryAdded': ({ repos, ...factory }) => [
+        factories.insert({
+          ...factory,
+          repo: repos[0]?.repo ?? '',
+          cloneUrl: repos[0]?.cloneUrl ?? '',
+          clonedAt: null,
+        }),
+        ...repos.map((repo, position) =>
+          factoryRepos.insert({
+            ...repo,
+            id: `${factory.id}:${position}`,
+            factoryId: factory.id,
+            position,
+          }),
+        ),
+      ],
+      'v1.FactoryCloned': ({ factoryId, at }) =>
+        factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+      'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+      'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+        taskBlockers
+          .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
+          .onConflict('id', 'ignore'),
+      'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
+        taskBlockers
+          .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
+          .onConflict('id', 'replace'),
+      'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
+        taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+      'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
+        tasks.update({ startRequested }).where({ id: taskId }),
+      'v1.TaskWaitingForBlockers': ({ taskId }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
+      ],
+      'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+      ],
+      'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
+        taskAttachments
+          .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
+      'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
+      'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
+        tasks.update({ stage, branch, worktree }).where({ id: taskId }),
+      'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
+      'v1.TaskQueued': ({ taskId, stage, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks.update({ stage }).where({ id: taskId }),
+      ],
+      'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
+      'v1.TaskMovedToBacklog': ({ taskId }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ stage: 'backlog' }).where({ id: taskId }),
+      ],
+      'v1.TaskRanked': ({ taskId, rank }) => [
+        tasks.update({ rank }).where({ id: taskId }),
+        taskQueue.update({ rank }).where({ taskId }),
+      ],
+      'v1.TaskPriorityChanged': ({ taskId, priority, at }) =>
+        tasks.update({ priority, changedAt: at }).where({ id: taskId }),
+      'v1.TaskArchived': ({ taskId, at }) => [
+        taskQueue.delete().where({ taskId }),
+        tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
+      ],
+      'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
+      'v2.CommentPosted': ({ choices, ...comment }) =>
+        comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+      'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+      'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
+      'v1.TaskSentBack': ({ from, to, ...row }) =>
+        sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+      'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
+      'v1.RunStarted': (run) =>
+        runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
+      'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+      'v3.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
+      'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>
+        runs
+          .update({ model, effort, usesDefaultModel, problem: null, state: 'idle' })
+          .where({ id: runId }),
+      'v1.RunProblemFound': ({ runId, problem }) =>
+        runs.update({ problem, state: 'waiting' }).where({ id: runId }),
+      'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
+        tasks
+          .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
+          .where({ id: taskId }),
+      'v1.TedCommentPosted': (comment) =>
+        comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
+      'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
+        runs.update({ readOffset: toOffset }).where({ id: runId }),
+        ...entries.map(({ offset, line }) =>
+          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
+        ),
+      ],
+      'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+      'v1.RunSessionIdentified': ({ runId, sessionId }) =>
+        runs.update({ sessionId }).where({ id: runId }),
+      'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+      'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+      'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
+        tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
+      'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
+        taskRepos
+          .insert({
+            ...row,
+            id: `${taskId}:${name}`,
+            taskId,
+            name,
+            copied: JSON.stringify(copied),
+            skipped: JSON.stringify(skipped),
+            createdAt: at,
+          })
+          .onConflict('id', 'replace'),
+      'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
+        taskRepos
+          .update({
+            setupCommand: command,
+            setupTimeoutMs: timeoutMs,
+            setupEnv: env,
+            setupState: 'running',
+            setupExitCode: null,
+          })
+          .where({ id: `${taskId}:${name}` }),
+      'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
+        taskRepos
+          .update({ setupState: outcome, setupExitCode: exitCode })
+          .where({ id: `${taskId}:${name}` }),
+      'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
+        taskRepos
+          .update({ teardownCommand, teardownOutcome, removedAt: at })
+          .where({ id: `${taskId}:${name}` }),
+        tasks.update({ worktree: null }).where({ id: taskId }),
+      ],
+      'v1.LocalFolderSet': ({ repo, path, at }) =>
+        localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
+      'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
+        workflowLayers
+          .insert({ layer, files, version, acceptedAt: at })
+          .onConflict('layer', 'replace'),
+      'v1.AppearanceChanged': ({ appearance }) =>
+        machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
+      'v1.MachineSettingsChanged': ({ changes }) =>
+        Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
+          machineSettingValues
+            .insert({ name, value: JSON.stringify(value) })
+            .onConflict('name', 'replace'),
+        ),
+      'v1.BannerRaised': ({ at, ...banner }) => [
+        banners
+          .insert({ ...banner, raisedAt: at, dismissedUntil: null })
+          .onConflict('id', 'ignore'),
+        banners
+          .update({ severity: banner.severity, text: banner.text, action: banner.action })
+          .where({ id: banner.id }),
+      ],
+      'v1.BannerDismissed': ({ id, until }) =>
+        banners.update({ dismissedUntil: until }).where({ id }),
+      'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
+      'v1.AgentPaused': ({ agent, reason, at }) =>
+        agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
+      'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
+      'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+      'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
+      'v1.CommentsDelivered': ({ ids, runId, at }) =>
+        ids.map((id) => comments.update({ deliveredRunId: runId, deliveredAt: at }).where({ id })),
+      'v1.CommentsRead': ({ ids, at }) =>
+        ids.map((id) => comments.update({ readAt: at }).where({ id })),
+      'v1.CommentAnswerHeld': ({ id }) => comments.update({ answerHeld: true }).where({ id }),
+      'v1.CommentAnswersDelivered': ({ ids }) =>
+        ids.map((id) => comments.update({ answerHeld: false }).where({ id })),
+    }),
+  ),
 )
 
 const state = State.SQLite.makeState({
@@ -919,6 +1060,7 @@ const state = State.SQLite.makeState({
     runs,
     conversationEntries,
     comments,
+    taskLog,
     taskBriefs,
     sendBacks,
     sendBackResets,

@@ -357,8 +357,18 @@ const routes: Route[] = [
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       const choices = choiceList(body?.choices)
-      return [201, tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
+      return [201, await tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/read$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, { read: tasks.markRead(ref) }],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/events$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.threadEvents(ref)],
   },
   {
     method: 'GET',

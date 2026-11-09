@@ -47,6 +47,7 @@ import { Effect } from 'effect'
 import { isDiskFullError } from '../disk.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
+  commentBox,
   type TaskFacts,
   taskActivity,
   taskMarkers,
@@ -75,6 +76,7 @@ import {
   taskAttachments,
   taskBlockers,
   taskBriefs,
+  taskLog,
   taskQueue,
   taskRepos,
   taskSources,
@@ -199,6 +201,13 @@ export interface NewComment {
   gate?: NonNullable<Comment['gate']>
 }
 
+export interface LoggedEvent {
+  id: string
+  name: string
+  data: Record<string, unknown>
+  at: string
+}
+
 export interface HeldRun {
   taskId: string
   agent: AgentKind
@@ -265,6 +274,12 @@ export interface TedStore {
   listComments(taskId: string): Comment[]
   getComment(id: string): Comment | undefined
   answerComment(id: string, answer: CommentAnswer): Comment
+  commentsDelivered(ids: readonly string[], runId: string): void
+  commentsRead(ids: readonly string[]): void
+  holdAnswer(id: string): void
+  heldAnswers(taskId: string): Comment[]
+  answersDelivered(ids: readonly string[], runId: string): void
+  taskLog(taskId: string): LoggedEvent[]
   listOpenRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
   latestBrief(taskId: string): TaskBrief | undefined
@@ -533,9 +548,12 @@ export async function openStore({
       (held && paused[held.agent as AgentKind]) ??
       live.map((r) => paused[r.agent as AgentKind]).find((reason) => reason !== undefined) ??
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
+    const leadLive =
+      lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
       stage,
+      ...(leadLive && { leadLive }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).length,
@@ -593,6 +611,7 @@ export async function openStore({
       markers: taskMarkers(facts, status),
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
+      commentBox: commentBox(facts, status),
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
         .map((r) => {
@@ -646,6 +665,10 @@ export async function openStore({
     choices,
     gate,
     answer,
+    deliveredRunId,
+    deliveredAt,
+    readAt,
+    answerHeld: _,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -659,6 +682,9 @@ export async function openStore({
     ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
+    ...(deliveredRunId !== null &&
+      deliveredAt !== null && { delivered: { runId: deliveredRunId, at: deliveredAt } }),
+    ...(readAt !== null && { readAt }),
   })
 
   const openRequestRows = (taskId?: string) =>
@@ -1161,6 +1187,37 @@ export async function openStore({
       updatedTask(comment.taskId)
       return comment
     },
+    commentsDelivered(ids, runId) {
+      if (ids.length === 0) return
+      store.commit(events.commentsDelivered({ ids, runId, at: new Date().toISOString() }))
+      for (const id of ids) emitComment(id)
+    },
+    commentsRead(ids) {
+      if (ids.length === 0) return
+      store.commit(events.commentsRead({ ids, at: new Date().toISOString() }))
+      for (const id of ids) emitComment(id)
+    },
+    holdAnswer(id) {
+      store.commit(events.commentAnswerHeld({ id, at: new Date().toISOString() }))
+    },
+    heldAnswers: (taskId) =>
+      store
+        .query(queryDb(comments.where({ taskId, answerHeld: true }).orderBy('createdAt', 'asc')))
+        .map(toComment),
+    answersDelivered(ids, runId) {
+      if (ids.length === 0) return
+      store.commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
+    },
+    taskLog: (taskId) =>
+      store
+        .query(queryDb(taskLog.where({ taskId })))
+        .map(({ id, name, data, at }) => ({
+          id,
+          name,
+          data: JSON.parse(data) as Record<string, unknown>,
+          at,
+        }))
+        .sort((a, b) => sequence(a.id) - sequence(b.id)),
     listOpenRequests: () => openRequestRows().map(toComment),
     writeBrief({ taskId, text, runId }) {
       const row = taskRow(taskId)
@@ -1428,6 +1485,11 @@ export async function openStore({
     },
     close: () => store.shutdownPromise(),
   }
+}
+
+function sequence(id: string): number {
+  const [global = 0, client = 0] = id.split('.').map(Number)
+  return global * 1_000_000 + client
 }
 
 function describeOpenError(error: unknown): string {

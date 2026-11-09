@@ -95,6 +95,8 @@ export interface TrackStage {
   state: TrackState
 }
 
+export type CommentBox = 'live' | 'paused' | 'no-run' | 'stopped' | 'failed' | 'done'
+
 export interface TaskRun {
   id: string
   agent: AgentKind
@@ -134,6 +136,7 @@ export interface Task {
   markers: TaskMarker[]
   activity?: string
   track: TrackStage[]
+  commentBox: CommentBox
   runs: TaskRun[]
   repos: TaskRepo[]
   createdBy: CreatedBy
@@ -226,6 +229,19 @@ export interface Comment {
   choices?: string[]
   gate?: { approveLabel: string; caption?: string }
   answer?: CommentAnswer
+  delivered?: { runId: string; at: string }
+  readAt?: string
+}
+
+export type ThreadEventTone = 'edit' | 'done' | 'run' | 'failure' | 'quiet' | 'request'
+
+export interface ThreadEvent {
+  id: string
+  taskId: string
+  at: string
+  tone: ThreadEventTone
+  text: string
+  findings?: string
 }
 
 export interface InboxItem {

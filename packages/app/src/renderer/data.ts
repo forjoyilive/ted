@@ -11,6 +11,7 @@ import type {
   StageEntry,
   StageId,
   Task,
+  ThreadEvent,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { nextReturn } from './banners.ts'
@@ -124,6 +125,42 @@ export function useComments(taskId: string): Comment[] {
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+export function useThreadEvents(taskId: string): ThreadEvent[] {
+  const [events, setEvents] = useState<ThreadEvent[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let latest = 0
+    setEvents([])
+    const load = () => {
+      const call = ++latest
+      void ted.listThreadEvents(taskId).then(
+        (loaded) => {
+          if (call === latest) setEvents(loaded)
+        },
+        () => undefined,
+      )
+    }
+    const unsubscribe = ted.onEvent((event) => {
+      if (
+        (event.type === 'task-updated' && event.task.id === taskId) ||
+        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+          event.comment.taskId === taskId)
+      ) {
+        load()
+      }
+    })
+    load()
+    return () => {
+      latest = -1
+      unsubscribe()
+    }
+  }, [taskId, epoch])
+
+  return events
 }
 
 const inboxEvents = new Set<TedEvent['type']>([

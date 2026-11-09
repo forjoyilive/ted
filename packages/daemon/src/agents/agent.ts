@@ -44,6 +44,7 @@ export interface Agent {
   }): AgentLaunch
   message(text: string): string
   stateFrom(line: string): RunState | undefined
+  acceptedTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined
   problemFrom(line: string): RunProblem | undefined
   tokensFrom(line: string): TokenCount | undefined

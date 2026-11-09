@@ -64,6 +64,7 @@ interface CodexLine {
     status?: { type?: unknown; activeFlags?: unknown }
     error?: { message?: unknown; codexErrorInfo?: unknown }
     turn?: { error?: unknown }
+    item?: { type?: unknown; content?: unknown }
     tokenUsage?: { total?: { inputTokens?: unknown; outputTokens?: unknown } }
   }
 }
@@ -114,6 +115,18 @@ export function codexAgent(binary: string): Agent {
         return flags.length > 0 ? 'waiting' : 'working'
       }
       return stateByMethod[message.method]
+    },
+    acceptedTextFrom(line) {
+      const message = parse(line)
+      if (message?.method !== 'item/started' && message?.method !== 'item/completed') {
+        return undefined
+      }
+      const item = message.params?.item
+      if (item?.type !== 'userMessage' || !Array.isArray(item.content)) return undefined
+      const texts = (item.content as { type?: unknown; text?: unknown }[]).flatMap((part) =>
+        part?.type === 'text' && typeof part.text === 'string' ? [part.text] : [],
+      )
+      return texts.length > 0 ? texts.join('\n') : undefined
     },
     sessionIdFrom(line) {
       const message = parse(line)

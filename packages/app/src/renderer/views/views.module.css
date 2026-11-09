@@ -459,3 +459,8 @@
   padding: 14px 22px 18px;
   border-top: 1px solid var(--border-subtle);
 }
+
+.deliveryNote {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
