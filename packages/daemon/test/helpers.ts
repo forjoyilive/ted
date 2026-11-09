@@ -22,7 +22,7 @@ const execFileAsync = promisify(execFile)
 
 export async function makeTempHome(): Promise<{ home: string; cleanup: () => Promise<void> }> {
   const home = await mkdtemp(path.join(tmpdir(), 'ted-home-'))
-  return { home, cleanup: () => rm(home, { recursive: true, force: true }) }
+  return { home, cleanup: () => removeHome(home) }
 }
 
 export interface RawResponse {

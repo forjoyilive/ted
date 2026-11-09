@@ -159,6 +159,7 @@ async function runStep(step: Step): Promise<void> {
       if (interrupted) break
       const child = spawn('sh', ['-c', command], { stdio: ['pipe', 'ignore', 'ignore'] })
       gate = child
+      child.stdin.on('error', () => {})
       child.stdin.end(JSON.stringify({ hook_event_name: 'PostToolUse', tool_name: step.tool }))
       await once(child, 'exit')
     }
