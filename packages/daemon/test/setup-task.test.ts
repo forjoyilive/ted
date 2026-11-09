@@ -180,6 +180,20 @@ describe('creating the setup Task', () => {
     expect((await banners(client)).some((b) => b.problem === 'setup-unfinished')).toBe(false)
   })
 
+  test('an empty repo, whose Workflow TED can’t read yet, still gets its setup Task started', async () => {
+    const bare = path.join(scratch, 'acme', 'widgets.git')
+    await rm(bare, { recursive: true, force: true })
+    await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', bare])
+    const client = await start()
+    await addWidgets(client)
+    const setup = await setupTask(client)
+    const started = await waitUntil(async () => {
+      const now = await getTask(client, setup.id)
+      return now.stage !== 'backlog' ? now : undefined
+    }, 'the setup Task to start')
+    expect(started.stage).not.toBe('backlog')
+  })
+
   test('New setup Task is refused while one is open, and the banner offers one when none is', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
     const client = await start()
@@ -398,12 +412,12 @@ describe('the proposal', () => {
       ),
     })
     await client.ok('POST', `/tasks/${task.id}/start`)
-    await waitUntil(async () => {
+    const said = await waitUntil(async () => {
       const t = await getTask(client, task.id)
-      return t.stage === 'design' && t.runs[0]?.state === 'idle'
+      if (t.stage !== 'design' || t.runs[0]?.state !== 'idle') return undefined
+      const text = JSON.stringify((await client.getRun(t.leadRunId ?? '')).conversation)
+      return text.includes('# Design') && text.includes('tutorial Comments') ? text : undefined
     }, 'Design to finish its turn')
-    const run = await client.getRun((await getTask(client, task.id)).leadRunId ?? '')
-    const said = JSON.stringify(run.conversation)
     expect(said).toContain('only a setup Task proposes TED settings')
     expect(said).toContain('only a setup Task’s Task Lead posts tutorial Comments')
   }, 30_000)

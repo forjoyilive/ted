@@ -35,6 +35,7 @@ export async function readGitLayer(
   repo: string,
   ref: string,
 ): Promise<{ files: LayerFiles; version: string } | undefined> {
+  if (!(await git.hasCommits(repo))) return undefined
   const version = await git.revParse(repo, ref)
   const paths = await git.listFiles(repo, version, '.ted')
   const wanted = paths.filter(

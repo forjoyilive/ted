@@ -4420,9 +4420,9 @@ export function createTasks(options: {
         return undefined
       },
     )
-    const hasSettings = resolution?.layers.some(
-      (l) => l.layer === 'factory' && l.status !== 'absent',
-    )
+    const hasSettings = resolution
+      ? resolution.layers.some((l) => l.layer === 'factory' && l.status !== 'absent')
+      : factoryHasSettings(factory.id)
     const task = await store.createTask({
       title: `Set up ${factory.name}`,
       description: hasSettings ? laterSetupDescription : firstSetupDescription,
@@ -4433,7 +4433,7 @@ export function createTasks(options: {
       setup: true,
     })
     reportSetup(factory.id)
-    if (!resolution || (hasSettings && !byHand)) return task
+    if (hasSettings && !byHand) return task
     return start(task.id)
   }
 

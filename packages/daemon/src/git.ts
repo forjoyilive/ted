@@ -171,6 +171,10 @@ export async function revParse(repo: string, ref: string): Promise<string> {
   return git(repo, 'rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`)
 }
 
+export async function hasCommits(repo: string): Promise<boolean> {
+  return (await git(repo, 'rev-list', '-n', '1', '--all')).trim() !== ''
+}
+
 export async function listFiles(repo: string, commit: string, dir: string): Promise<string[]> {
   const out = await git(repo, 'ls-tree', '-r', '--name-only', '-z', commit, '--', dir)
   return out.split('\0').filter((p) => p !== '')
