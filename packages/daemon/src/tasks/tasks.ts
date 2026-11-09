@@ -1434,7 +1434,7 @@ export function createTasks(options: {
             ),
             ...(note !== undefined ? [note] : []),
           ]
-        : [continueMessage]),
+        : [continueMessage, ...editedSince(current)]),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -1469,6 +1469,19 @@ export function createTasks(options: {
     return first && first.text !== current.description
       ? { ...edited, original: first.text }
       : edited
+  }
+
+  function editedSince(task: StoredTask): string[] {
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (!run) return []
+    const edited = store
+      .taskLog(task.id)
+      .some((e) => e.name === 'v1.TaskEdited' && e.at >= run.startedAt)
+    if (!edited) return []
+    const current = find(task.id)
+    return [
+      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+    ]
   }
 
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
@@ -2821,7 +2834,7 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: revivedMessage(reason),
+        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
