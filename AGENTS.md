@@ -20,6 +20,10 @@ Used by `/wayfinder`.
 - **Resolve**: post the answer as a comment, move the ticket to Done, then add a line (linked title + one-line gist) to the map’s Decisions so far.
 - **Out of scope**: move the ticket to Canceled and add a line to the map’s Out of scope section.
 
+## Code review before merge
+
+Every code change gets a review before it merges to `main`, usually from Codex (`/codex-review`). Fix or answer each confirmed finding before merging.
+
 ## Designs: Figma
 
 - File: https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=0-1 (file key `SLTyztzQXHFdz4sk3TcePk`)
