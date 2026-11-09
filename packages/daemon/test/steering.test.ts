@@ -241,9 +241,11 @@ describe('Steering a working Run', () => {
     const now = await client.ok<RunMessage>('POST', `/runs/${runId}/messages/${queued.id}/send-now`)
     expect(now).toMatchObject({ id: queued.id })
     await said(client, runId, 'sent now')
-    expect(humans(await chatOf(client, runId))).toEqual([
-      expect.objectContaining({ id: queued.id, sent: true }),
-    ])
+    const chat = await chatOf(client, runId)
+    expect(humans(chat)).toEqual([expect.objectContaining({ id: queued.id, sent: true })])
+    const kinds = chat.items.map((i) => i.kind)
+    expect(kinds.indexOf('interrupted')).toBeGreaterThan(-1)
+    expect(kinds.indexOf('interrupted')).toBeLessThan(kinds.indexOf('human'))
   })
 
   test('Codex: ↵ queues and goes in with turn/steer at the next tool item', async () => {

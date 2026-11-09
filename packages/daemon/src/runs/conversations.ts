@@ -71,13 +71,18 @@ function titleOf(text: string): string {
   return first.replace(/^#+\s*/, '').slice(0, 120)
 }
 
-function mergeByTime(items: ChatItem[], extra: readonly (ChatItem & { at: string })[]): ChatItem[] {
+function mergeByTime(
+  items: ChatItem[],
+  extra: readonly (ChatItem & { at: string })[],
+  timeOf: (item: ChatItem) => string | undefined = (item) => ('at' in item ? item.at : undefined),
+): ChatItem[] {
   const merged = [...items]
   for (const item of extra) {
     const at = Date.parse(item.at)
     const after = merged.findLastIndex((other) => {
       if (other.kind === 'human' && other.queued === true) return false
-      const when = 'at' in other && other.at !== undefined ? Date.parse(other.at) : undefined
+      const time = timeOf(other)
+      const when = time !== undefined ? Date.parse(time) : undefined
       return when === undefined || when <= at
     })
     merged.splice(after + 1, 0, item)
@@ -128,6 +133,7 @@ export function chatItems(input: {
       at: run.startedAt,
     })
   }
+  const deliveredAt = new Map<ChatItem, string>()
   const unmatched = messages.filter((m) => m.queued !== true)
   const waiting = messages.filter((m) => m.queued === true)
   let promptSeen = run.prompt === ''
@@ -140,13 +146,15 @@ export function chatItems(input: {
       const index = unmatched.findIndex((m) => m.text.trim() === entry.text.trim())
       const message = index === -1 ? undefined : unmatched.splice(index, 1)[0]
       if (message) {
-        items.push({
+        const item: ChatItem = {
           kind: 'human',
           id: message.id,
           text: message.text,
           at: message.at,
           sent: true,
-        })
+        }
+        items.push(item)
+        if (entry.at !== undefined) deliveredAt.set(item, entry.at)
       } else {
         items.push({
           kind: 'ted',
@@ -192,6 +200,7 @@ export function chatItems(input: {
   const merged = mergeByTime(
     items,
     interrupts.map((i) => ({ kind: 'interrupted', id: i.id, at: i.at })),
+    (item) => deliveredAt.get(item) ?? ('at' in item ? item.at : undefined),
   )
   for (const message of waiting) {
     merged.push({
