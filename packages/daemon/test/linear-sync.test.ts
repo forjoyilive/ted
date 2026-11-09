@@ -8,7 +8,7 @@ import {
   startStubLinear,
   stubLinearStates,
 } from './fixtures/stub-linear.ts'
-import { waitUntil } from './helpers.ts'
+import { api, tokenFor, waitUntil } from './helpers.ts'
 import {
   approve,
   type Client,
@@ -203,6 +203,33 @@ describe('Linear → TED', () => {
     expect(moves()).toEqual([])
   })
 
+  test('an issue with the same identifier in another workspace leaves its Task alone', async () => {
+    const client = await startWithLinear()
+    const ours = await client.ok<Task>('POST', '/tasks', {
+      title: 'Offline notes',
+      factory: 'NB',
+      source: url,
+    })
+    const theirs = await client.ok<Task>('POST', '/tasks', {
+      title: 'Elsewhere',
+      factory: 'NB',
+      source: 'https://linear.app/elsewhere/issue/NOTE-1/other',
+    })
+    await seenAfterNow()
+
+    issue().state = 'Canceled'
+    await waitUntil(
+      async () => (await getTask(client, ours.id)).archived !== undefined,
+      'our Task to be archived',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    expect((await getTask(client, theirs.id)).archived).toBeUndefined()
+    expect(await lines(client, theirs)).not.toContain(
+      'TED archived this Task · NOTE-1 was marked Canceled in Linear',
+    )
+  })
+
   test('a Task with a live Run asks the human once; Keep going keeps it, Archive archives it', async () => {
     const client = await startWithLinear()
     const task = await client.ok<Task>('POST', '/tasks', {
@@ -284,5 +311,73 @@ describe('Linear → TED', () => {
       'the question to be withdrawn',
     )
     expect((await getTask(client, task.id)).archived).toBeUndefined()
+  })
+})
+
+describe('Tasks an Automation made', () => {
+  let clock = Date.parse('2026-11-09T08:55:00Z')
+
+  async function fromAutomation(): Promise<{ client: Client; task: Task }> {
+    clock = Date.parse('2026-11-09T08:55:00Z')
+    const client = await startWithLinear({
+      daemon: { automations: { now: () => clock, checkEveryMs: 50 } },
+    })
+    await client.ok('POST', '/automations', {
+      name: 'Linear intake',
+      factory: 'NB',
+      timeZone: 'Europe/London',
+      schedule: { kind: 'daily', at: '09:00' },
+      prompt: JSON.stringify({
+        steps: [
+          { run: ['ted', 'task', 'create', '--source', url, waiting(ctx.scratch)] },
+          { endTurn: true },
+        ],
+      }),
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    const task = await waitUntil(
+      async () => (await client.ok<Task[]>('GET', '/tasks')).at(0),
+      'the Automation to create a Task',
+      20_000,
+    )
+    expect(task).toMatchObject({ createdBy: 'automation', linearSync: 'ask' })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
+    return { client, task }
+  }
+
+  test('outside the allowed teams, TED writes nothing and acts on nothing until the human lets it', async () => {
+    const { client, task } = await fromAutomation()
+    await seenAfterNow()
+    expect(moves()).toEqual([])
+
+    issue().state = 'Canceled'
+    await seenAfterNow()
+    expect((await getTask(client, task.id)).archived).toBeUndefined()
+    expect(
+      (await client.ok<InboxItem[]>('GET', '/inbox')).filter((i) => i.task.id === task.id),
+    ).toEqual([])
+    issue().state = 'Todo'
+    await seenAfterNow()
+    expect(moves()).toEqual([])
+    expect(asked('TedLinkPullRequest')).toEqual([])
+    const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
+    expect(
+      (await withFileToken.call('POST', `/tasks/${task.id}/linear-sync`)).status,
+    ).toBeGreaterThanOrEqual(400)
+
+    const allowed = await client.ok<Task>('POST', `/tasks/${task.id}/linear-sync`)
+
+    expect(allowed.linearSync).toBe('on')
+    await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
+    expect(await lines(client, task)).toContain('You let TED sync this Task with NOTE-1 in Linear')
+  })
+
+  test('in a team the human allowed for the Factory, TED syncs at once', async () => {
+    const { client, task } = await fromAutomation()
+    await client.ok('PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['note'] } })
+
+    await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
+    expect((await getTask(client, task.id)).linearSync).toBe('on')
   })
 })

@@ -1,12 +1,20 @@
-import type { LinearStatus } from '@ted/protocol'
+import type { Factory, LinearStatus, MachineSettings } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { Help } from '../components/Help.tsx'
+import { useFactories } from '../data.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, Switch } from './controls.tsx'
 import styles from './linear.module.css'
 import settingsStyles from './settings.module.css'
 
-export function LinearGroup({ sync }: { sync: boolean }) {
+export function LinearGroup({
+  sync,
+  teams,
+}: {
+  sync: boolean
+  teams: MachineSettings['linearSyncTeams']
+}) {
+  const factories = useFactories()
   const [status, setStatus] = useState<LinearStatus>()
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState<string>()
@@ -141,7 +149,59 @@ export function LinearGroup({ sync }: { sync: boolean }) {
           />
         </SettingRow>
       )}
+      {stored &&
+        sync &&
+        factories.map((factory) => <TeamsRow key={factory.id} factory={factory} teams={teams} />)}
     </SettingsGroup>
+  )
+}
+
+function TeamsRow({
+  factory,
+  teams,
+}: {
+  factory: Factory
+  teams: MachineSettings['linearSyncTeams']
+}) {
+  const saved = (teams[factory.id] ?? []).join(', ')
+  const [draft, setDraft] = useState(saved)
+  const [problem, setProblem] = useState<string>()
+  const fieldId = useId()
+  useEffect(() => setDraft(saved), [saved])
+
+  function save() {
+    const list = draft
+      .split(/[\s,]+/)
+      .map((t) => t.trim().toUpperCase())
+      .filter((t) => t !== '')
+    if (list.join(', ') === saved) return
+    setProblem(undefined)
+    ted
+      .updateSettings({ linearSyncTeams: { ...teams, [factory.id]: list } })
+      .catch((error: unknown) => setProblem(message(error)))
+  }
+
+  return (
+    <SettingRow
+      title={`Linear teams for Automations in ${factory.name}`}
+      labelFor={fieldId}
+      help="TED syncs a Task an Automation made only when its issue is in one of these Linear teams. For any other, open the Task’s menu and choose Sync with Linear."
+      detail={problem}
+    >
+      <input
+        id={fieldId}
+        className={styles.teams}
+        spellCheck={false}
+        autoComplete="off"
+        placeholder="None"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={save}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') save()
+        }}
+      />
+    </SettingRow>
   )
 }
 

@@ -319,6 +319,7 @@ export interface Tasks {
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
+  allowLinearSync(ref: string): Task
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   unarchive(ref: string): Promise<Task>
@@ -5780,6 +5781,15 @@ export function createTasks(options: {
 
     descriptions(ref) {
       return store.descriptionVersions(find(ref).id)
+    },
+
+    allowLinearSync(ref) {
+      const task = live(ref)
+      const link = task.source && parseLinearUrl(task.source.url)
+      if (!link) throw new RequestError(400, `${task.displayId} doesn’t come from a Linear issue`)
+      if (task.linearSync === 'on') return publicTask(task.id)
+      store.linearSyncAllowed(task.id, link.identifier)
+      return publicTask(task.id)
     },
 
     archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {

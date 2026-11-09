@@ -324,6 +324,9 @@ export function threadEvents(
           add(entry, 'quiet', `Moved ${text(data.identifier)} to ${text(data.state)} in Linear`)
         }
         break
+      case 'v1.LinearSyncAllowed':
+        add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
+        break
       case 'v1.LinearPullRequestsLinked': {
         const count = Array.isArray(data.urls) ? data.urls.length : 0
         add(

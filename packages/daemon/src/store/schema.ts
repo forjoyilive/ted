@@ -1032,6 +1032,7 @@ export const events = {
       identifier: Schema.String,
       stateType: Schema.String,
       state: Schema.String,
+      team: Schema.String,
       at: Schema.String,
     }),
   }),
@@ -1044,6 +1045,10 @@ export const events = {
       state: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
+  }),
+  linearSyncAllowed: Events.synced({
+    name: 'v1.LinearSyncAllowed',
+    schema: Schema.Struct({ taskId: Schema.String, identifier: Schema.String, at: Schema.String }),
   }),
   linearPullRequestsLinked: Events.synced({
     name: 'v1.LinearPullRequestsLinked',
@@ -2260,7 +2265,13 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v3.TaskArchived': (args) =>
     task(args, { closing: args.closing, branches: args.branches, why: args.why }),
   'v1.LinearIssueSeen': (args) =>
-    task(args, { identifier: args.identifier, stateType: args.stateType, state: args.state }),
+    task(args, {
+      identifier: args.identifier,
+      stateType: args.stateType,
+      state: args.state,
+      team: args.team,
+    }),
+  'v1.LinearSyncAllowed': (args) => task(args, { identifier: args.identifier }),
   'v1.LinearIssueMoved': (args) =>
     task(args, { identifier: args.identifier, step: args.step, state: args.state }),
   'v1.LinearPullRequestsLinked': (args) =>
@@ -2460,6 +2471,7 @@ const materializers = counted(
       ],
       'v1.GitHubActivitySent': () => [],
       'v1.LinearIssueSeen': () => [],
+      'v1.LinearSyncAllowed': () => [],
       'v1.LinearIssueMoved': () => [],
       'v1.LinearPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],

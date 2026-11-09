@@ -32,6 +32,7 @@ import {
   type ConversationEntry,
   type ConversationTab,
   type CopySkip,
+  type CreatedBy,
   type DaemonEvent,
   type DescriptionVersion,
   type DesignReview,
@@ -50,6 +51,7 @@ import {
   type Priority,
   type Proposal,
   type PullRequestPreview,
+  parseLinearUrl,
   type Round,
   type Run,
   type RunEnding,
@@ -146,12 +148,14 @@ export type LinearStep = (typeof linearSteps)[number]
 export interface LinearSeen {
   stateType: string
   state: string
+  team: string
 }
 
 export interface LinearSyncRecord {
   seen?: LinearSeen
   step?: LinearStep
   linked: Set<string>
+  allowed: boolean
 }
 
 export interface GitHubNoticeRecord {
@@ -486,6 +490,7 @@ export interface TedStore {
   ): void
   linearPullRequestsLinked(taskId: string, identifier: string, urls: readonly string[]): void
   linearSync(taskId: string): LinearSyncRecord
+  linearSyncAllowed(taskId: string, identifier: string): Task
   worktreeCreated(
     taskId: string,
     repo: {
@@ -1286,6 +1291,18 @@ export async function openStore({
             ),
           }
         : undefined
+    const createdBy: CreatedBy = setup
+      ? 'setup'
+      : followUpOf !== null
+        ? 'follow-up'
+        : splitFrom !== null
+          ? 'split'
+          : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+            ? 'automation'
+            : planLink
+              ? 'planning'
+              : 'human'
+    const linearSync = linearSyncOf(row, source, createdBy)
     return {
       ...row,
       priority: row.priority as Priority,
@@ -1346,17 +1363,8 @@ export async function openStore({
           }
         }),
       ...(setup && { setup: true as const }),
-      createdBy: setup
-        ? 'setup'
-        : followUpOf !== null
-          ? 'follow-up'
-          : splitFrom !== null
-            ? 'split'
-            : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
-              ? 'automation'
-              : planLink
-                ? 'planning'
-                : 'human',
+      createdBy,
+      ...(linearSync !== undefined && { linearSync }),
       ...(planLink && {
         fromPlan: {
           id: planLink.planId,
@@ -1852,6 +1860,46 @@ export async function openStore({
     for (const { taskId } of store.query(queryDb(taskBlockers.where({ blockerId })))) {
       if (taskRow(taskId)) updatedTask(taskId)
     }
+  }
+
+  const linearRecord = (taskId: string): LinearSyncRecord => {
+    const record: LinearSyncRecord = { linked: new Set(), allowed: false }
+    const rows = store
+      .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
+      .filter((row) => row.name.startsWith('v1.Linear'))
+    for (const row of rows) {
+      const data = JSON.parse(row.data) as Record<string, unknown>
+      if (row.name === 'v1.LinearIssueSeen') {
+        record.seen = {
+          stateType: String(data.stateType),
+          state: String(data.state),
+          team: String(data.team),
+        }
+      } else if (row.name === 'v1.LinearSyncAllowed') {
+        record.allowed = true
+      } else if (row.name === 'v1.LinearIssueMoved') {
+        const step = linearSteps.find((s) => s === data.step)
+        const before = record.step === undefined ? -1 : linearSteps.indexOf(record.step)
+        if (step && linearSteps.indexOf(step) > before) record.step = step
+      } else if (row.name === 'v1.LinearPullRequestsLinked' && Array.isArray(data.urls)) {
+        for (const url of data.urls) record.linked.add(String(url))
+      }
+    }
+    return record
+  }
+
+  const linearSyncOf = (
+    row: { id: string; factoryId: string },
+    source: TaskSource | undefined,
+    createdBy: CreatedBy,
+  ): 'on' | 'ask' | undefined => {
+    if (!source || !parseLinearUrl(source.url)) return undefined
+    const byAutomation = store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+    if (!byAutomation && (createdBy === 'human' || createdBy === 'follow-up')) return 'on'
+    const record = linearRecord(row.id)
+    if (record.allowed) return 'on'
+    const teams = settings().linearSyncTeams[row.factoryId] ?? []
+    return record.seen !== undefined && teams.includes(record.seen.team) ? 'on' : 'ask'
   }
 
   const settings = (): MachineSettings => {
@@ -2643,16 +2691,22 @@ export async function openStore({
       }
       return seen
     },
-    linearIssueSeen(taskId, identifier, { stateType, state }) {
+    linearIssueSeen(taskId, identifier, { stateType, state, team }) {
       commit(
         events.linearIssueSeen({
           taskId,
           identifier,
           stateType,
           state,
+          team,
           at: new Date().toISOString(),
         }),
       )
+      updatedTask(taskId)
+    },
+    linearSyncAllowed(taskId, identifier) {
+      commit(events.linearSyncAllowed({ taskId, identifier, at: new Date().toISOString() }))
+      return updatedTask(taskId)
     },
     linearIssueMoved(taskId, identifier, step, state) {
       commit(
@@ -2677,27 +2731,7 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
-    linearSync(taskId) {
-      const record: LinearSyncRecord = { linked: new Set() }
-      const rows = store
-        .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
-        .filter((row) => row.name.startsWith('v1.Linear'))
-      for (const row of rows) {
-        const data = JSON.parse(row.data) as Record<string, unknown>
-        if (row.name === 'v1.LinearIssueSeen') {
-          record.seen = { stateType: String(data.stateType), state: String(data.state) }
-        } else if (row.name === 'v1.LinearIssueMoved') {
-          const step = linearSteps.find((s) => s === data.step)
-          const before = record.step === undefined ? -1 : linearSteps.indexOf(record.step)
-          if (step && linearSteps.indexOf(step) > before) {
-            record.step = step
-          }
-        } else if (row.name === 'v1.LinearPullRequestsLinked' && Array.isArray(data.urls)) {
-          for (const url of data.urls) record.linked.add(String(url))
-        }
-      }
-      return record
-    },
+    linearSync: linearRecord,
     worktreeCreated(taskId, repo) {
       commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))
       updatedTask(taskId)

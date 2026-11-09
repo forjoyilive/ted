@@ -171,6 +171,7 @@ export interface Task {
   blockedBy: string[]
   attachments: Attachment[]
   source?: TaskSource
+  linearSync?: 'on' | 'ask'
   stage: StageId
   branch?: string
   leadRunId?: string
