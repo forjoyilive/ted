@@ -24,6 +24,7 @@ import { nodeEntry } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
+import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
 import {
   type AppHostRecord,
@@ -275,7 +276,15 @@ export function createApps(options: AppsOptions): Apps {
     throw new RequestError(503, 'TED couldn’t find a free port')
   }
 
-  async function allocate(
+  function allocate(
+    taskId: string,
+    task: AppTask,
+    recheck?: { repo: string; app: AppDeclaration },
+  ): Promise<Record<string, number>> {
+    return serial(`ports:${taskId}`, () => allocateNow(taskId, task, recheck))
+  }
+
+  async function allocateNow(
     taskId: string,
     task: AppTask,
     recheck?: { repo: string; app: AppDeclaration },
@@ -406,7 +415,7 @@ export function createApps(options: AppsOptions): Apps {
     const values = { ...vars, PORT: String(port) }
     const ownEnv = Object.fromEntries(
       Object.entries(app.env)
-        .filter(([name]) => name.toUpperCase() !== 'PORT' && !name.toUpperCase().startsWith('TED_'))
+        .filter(([name]) => name.toUpperCase() !== 'PORT' && !isReservedEnvName(name))
         .map(([name, value]) => [name, interpolate(value, values)]),
     )
     const env = worktreeCommandEnv(
@@ -725,7 +734,7 @@ async function readTail(file: string, bytes: number): Promise<Buffer> {
 function safeDirs(dir: string): string[] {
   try {
     return readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory() && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(e.name))
+      .filter((e) => e.isDirectory() && /^[A-Za-z0-9_][A-Za-z0-9._-]*$/.test(e.name))
       .map((e) => e.name)
   } catch {
     return []
