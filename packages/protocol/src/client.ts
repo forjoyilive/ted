@@ -45,12 +45,7 @@ import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
 
-let sharedAgent: Agent | undefined
-
-function agent(): Agent {
-  sharedAgent ??= new Agent({ keepAlive: false })
-  return sharedAgent
-}
+const agent = new Agent({ keepAlive: false })
 
 export class DaemonRequestError extends Error {
   readonly status: number
@@ -428,7 +423,7 @@ export class DaemonClient {
         port,
         path: route,
         method,
-        agent: agent(),
+        agent,
         headers: {
           authorization: `Bearer ${this.#token}`,
           ...(payload !== undefined && !raw && { 'content-type': 'application/json' }),
