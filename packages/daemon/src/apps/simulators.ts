@@ -13,6 +13,7 @@ import type {
   SimulatorAsk,
   SimulatorSlots,
 } from '@ted/protocol'
+import { identity } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -281,7 +282,7 @@ export function createSimulators(options: {
 
   async function createDevice(app: SimulatorApp): Promise<DeviceRecord> {
     const listed = await listDevices()
-    const name = `TED ${app.displayId} ${app.name}`
+    const name = `${identity().name} ${app.displayId} ${app.name}`
     const source = listed
       .filter((d) => d.name === app.device && d.isAvailable && d.state !== 'Booted')
       .sort((a, b) => b.runtime.localeCompare(a.runtime, undefined, { numeric: true }))[0]

@@ -218,7 +218,7 @@ describe('iOS simulator Apps', () => {
       state: 'running',
       simulator: { device: 'iPhone 17', booted: true },
     })
-    const clone = (await stubDevices()).find((d) => d.name === 'TED NB-1 iPhone')
+    const clone = (await stubDevices()).find((d) => d.name === 'TED Dev NB-1 iPhone')
     expect(clone?.state).toBe('Booted')
     expect((await stubCalls()).some((c) => c[0] === 'simctl' && c[1] === 'clone')).toBe(true)
     expect(
@@ -257,7 +257,7 @@ describe('iOS simulator Apps', () => {
       name: 'iPhone',
     })
     expect(again.simulator?.booted).toBe(true)
-    expect((await stubDevices()).filter((d) => d.name === 'TED NB-1 iPhone')).toHaveLength(1)
+    expect((await stubDevices()).filter((d) => d.name === 'TED Dev NB-1 iPhone')).toHaveLength(1)
 
     await client.ok('POST', `/tasks/${task.id}/archive`)
     await waitUntil(
@@ -448,7 +448,7 @@ describe('iOS simulator Apps', () => {
       'GET',
       `/attachments/${notes[1]?.attachments?.[0]?.hash}/${encodeURIComponent('iPhone recording.mov')}`,
     )
-    expect(Buffer.from(bytes.data, 'base64').toString()).toBe('MOV of TED NB-1 iPhone finished')
+    expect(Buffer.from(bytes.data, 'base64').toString()).toBe('MOV of TED Dev NB-1 iPhone finished')
   })
 
   test('missing Xcode raises a stops-work Factory banner', async () => {
