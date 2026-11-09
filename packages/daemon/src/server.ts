@@ -100,6 +100,23 @@ const dataRoutes: Route<BaseOptions>[] = [
       return [200, await data.restore({ name, stopRuns })]
     },
   },
+  {
+    method: 'POST',
+    path: /^\/shutdown$/,
+    async handle({ res }, { data, onShutdown }) {
+      if (data.status().state === 'ready') await (await data.services()).runs.stopAll()
+      res.once('finish', () => setImmediate(onShutdown))
+      return [200, {}]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/app\/open$/,
+    async handle(_, { appStreams }) {
+      for (const stream of appStreams) send(stream, { type: 'open-requested' })
+      return [200, { opened: appStreams.size > 0 }]
+    },
+  },
 ]
 
 const routes: Route[] = [
@@ -234,23 +251,6 @@ const routes: Route[] = [
     method: 'GET',
     path: /^\/activity$/,
     handle: async (_, { store }) => [200, store.activity()],
-  },
-  {
-    method: 'POST',
-    path: /^\/shutdown$/,
-    async handle({ res }, { runs, onShutdown }) {
-      await runs.stopAll()
-      res.once('finish', () => setImmediate(onShutdown))
-      return [200, {}]
-    },
-  },
-  {
-    method: 'POST',
-    path: /^\/app\/open$/,
-    async handle(_, { appStreams }) {
-      for (const stream of appStreams) send(stream, { type: 'open-requested' })
-      return [200, { opened: appStreams.size > 0 }]
-    },
   },
   {
     method: 'GET',

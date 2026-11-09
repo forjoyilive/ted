@@ -175,6 +175,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       return run
     },
     async restart(runId, flags) {
+      refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (!run || run.state === 'finished' || !following.has(runId)) {
         throw new Error(`Run ${runId} isn't live`)
