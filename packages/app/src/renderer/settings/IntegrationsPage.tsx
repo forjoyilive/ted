@@ -12,6 +12,7 @@ import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { ted } from '../ted.ts'
 import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
 import styles from './integrations.module.css'
+import { LinearGroup } from './LinearGroup.tsx'
 import settingsStyles from './settings.module.css'
 
 const inTerminal = /Mac/.test(navigator.platform) ? 'in Terminal' : 'in your terminal'
@@ -128,6 +129,7 @@ export function IntegrationsPage() {
           />
         )}
       </SettingsGroup>
+      <LinearGroup />
     </SettingsPage>
   )
 }

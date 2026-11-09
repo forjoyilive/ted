@@ -8,6 +8,7 @@ import type {
   CommentAnswer,
   DaemonEvent,
   InboxItem,
+  LinearIssue,
   OutcomeResult,
   ReportOutcomeRequest,
   Run,
@@ -18,9 +19,10 @@ import type {
   TaskDefaults,
   TaskLead,
   TaskRepo,
+  TaskSource,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, priorities } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -28,6 +30,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
+import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type {
@@ -60,8 +63,9 @@ import {
 export type Caller = { kind: 'daemon' } | { kind: 'run'; runId: string }
 
 export interface CreateTaskInput
-  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy'> {
+  extends Omit<NewTask, 'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source'> {
   title?: string
+  source?: string
   factory?: string
   blockedBy?: string[]
   attachments?: Attachment[]
@@ -104,6 +108,7 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
+  linear?: Pick<Linear, 'issueFor'>
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
 }): Tasks {
@@ -490,8 +495,24 @@ export function createTasks(options: {
     return factory
   }
 
+  async function linearIssue(url: string): Promise<LinearIssue | undefined> {
+    const link = parseLinearUrl(url)
+    if (!link || !options.linear) return undefined
+    const lookup = await options.linear.issueFor(link).catch((error: unknown) => {
+      console.error(
+        redactSecrets(`fetching ${link.identifier} from Linear failed: ${String(error)}`),
+      )
+      return undefined
+    })
+    return lookup?.state === 'found' ? lookup.issue : undefined
+  }
+
   async function branchFor(clone: string, task: Task): Promise<string> {
-    const base = ['ted/', task.displayId.toLowerCase(), slug(task.title)].join('')
+    const suggested = task.source?.linear?.branchName
+    const base =
+      suggested !== undefined && (await git.isValidBranchName(clone, suggested))
+        ? suggested
+        : ['ted/', task.displayId.toLowerCase(), slug(task.title)].join('')
     for (let n = 1; ; n++) {
       const branch = n === 1 ? base : `${base}-${n}`
       if (!(await git.branchExists(clone, branch))) return branch
@@ -1078,8 +1099,18 @@ export function createTasks(options: {
   }
 
   return {
-    async create({ title, factory: key, blockedBy = [], start: startNow, lead, ...fields }) {
-      const name = title?.trim() || firstLine(fields.description ?? '')
+    async create({
+      title,
+      factory: key,
+      blockedBy = [],
+      start: startNow,
+      lead,
+      source: sourceUrl,
+      ...fields
+    }) {
+      const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
+      const name =
+        title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
       const factory =
@@ -1096,6 +1127,8 @@ export function createTasks(options: {
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
         title: name,
+        ...(fields.priority === undefined && issue && { priority: issue.priority }),
+        ...(sourceUrl !== undefined && { source: taskSource(sourceUrl, issue) }),
         lead: lead ?? leadFrom(resolution?.workflow.settings),
         blockedBy: blockers,
         startRequested: startNow === true,
@@ -1546,6 +1579,20 @@ function setupFailure(command: string, result: CommandResult, output: string): s
     `# Setup failed\n\nTED ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`,
     `\`\`\`\n${output.trimEnd()}\n\`\`\``,
   ].join('\n\n')
+}
+
+function taskSource(url: string, issue: LinearIssue | undefined): TaskSource {
+  if (!issue) return { url }
+  const { identifier, title, branchName, description } = issue
+  return {
+    url,
+    linear: {
+      identifier,
+      title,
+      ...(branchName !== undefined && { branchName }),
+      ...(description !== undefined && { description }),
+    },
+  }
 }
 
 function slug(title: string): string {

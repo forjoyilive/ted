@@ -12,6 +12,8 @@ import { createAgentHealth } from './health/agent-health.ts'
 import { createEnvironment } from './health/environment.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
+import { type Keyring, loadKeyring } from './linear/keyring.ts'
+import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
@@ -32,6 +34,7 @@ export interface DaemonOptions {
   healthIntervalMs?: number
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
+  linear?: { apiUrl?: string; keyring?: Keyring }
   onShutdown?: () => void
   commandLine?: CommandLineOptions
 }
@@ -54,6 +57,11 @@ export interface RunningDaemon {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
+  const linear = createLinear({
+    keyring: options.linear?.keyring ?? (await loadKeyring()),
+    keyFile: paths.linearKeyFile,
+    ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
+  })
   const lock = acquireLock(paths.daemonLock)
   const idle = options.idleExit && startIdleTimer(options.idleExit)
   const runTokens = await loadRunTokens(paths.runTokenKey).catch((error: unknown) => {
@@ -148,6 +156,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         agents,
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
+        linear,
         logsDir: paths.logs,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
@@ -188,6 +197,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     agents,
     runTokens,
     attachments,
+    linear,
     reposDir: paths.repos,
     appStreams: new Set(),
     onShutdown: options.onShutdown ?? (() => undefined),

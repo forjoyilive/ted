@@ -251,6 +251,10 @@
   color: var(--text-on-accent);
 }
 
+.danger:not(:disabled) {
+  color: var(--status-destructive);
+}
+
 .select {
   box-sizing: border-box;
   padding: 4px 8px;

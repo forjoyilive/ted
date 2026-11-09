@@ -74,6 +74,16 @@ export interface TaskRun {
   paused?: string
 }
 
+export interface TaskSource {
+  url: string
+  linear?: {
+    identifier: string
+    title: string
+    branchName?: string
+    description?: string
+  }
+}
+
 export interface Task {
   id: string
   factoryId: string
@@ -86,6 +96,7 @@ export interface Task {
   lead?: TaskLead
   blockedBy: string[]
   attachments: Attachment[]
+  source?: TaskSource
   stage: StageId
   branch?: string
   leadRunId?: string
@@ -132,6 +143,7 @@ export interface CreateTaskRequest {
   lead?: TaskLead
   blockedBy?: string[]
   attachments?: Pick<Attachment, 'hash' | 'name' | 'mediaType'>[]
+  source?: string
   start?: boolean
 }
 

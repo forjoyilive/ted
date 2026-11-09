@@ -85,6 +85,19 @@ export const taskAttachments = State.SQLite.table({
   },
 })
 
+export const taskSources = State.SQLite.table({
+  name: 'taskSources',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    url: State.SQLite.text(),
+    linearIdentifier: State.SQLite.text({ nullable: true }),
+    linearTitle: State.SQLite.text({ nullable: true }),
+    linearBranchName: State.SQLite.text({ nullable: true }),
+    linearDescription: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const runs = State.SQLite.table({
   name: 'runs',
   columns: {
@@ -396,6 +409,18 @@ export const events = {
       name: Schema.String,
       size: Schema.Number,
       mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskSourceSet: Events.synced({
+    name: 'v1.TaskSourceSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      url: Schema.String,
+      linearIdentifier: Schema.NullOr(Schema.String),
+      linearTitle: Schema.NullOr(Schema.String),
+      linearBranchName: Schema.NullOr(Schema.String),
+      linearDescription: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -744,6 +769,7 @@ const materializers = counted(
       taskAttachments
         .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
         .onConflict('id', 'ignore'),
+    'v1.TaskSourceSet': (source) => taskSources.insert(source).onConflict('taskId', 'replace'),
     'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
       tasks.update({ stage, branch, worktree }).where({ id: taskId }),
     'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
@@ -864,6 +890,7 @@ const state = State.SQLite.makeState({
     taskQueue,
     taskBlockers,
     taskAttachments,
+    taskSources,
     runs,
     conversationEntries,
     comments,

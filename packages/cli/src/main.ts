@@ -18,6 +18,7 @@ import {
   type IntegrationsHealth,
   isShowing,
   minGhVersion,
+  parseLinearUrl,
   type RunWithConversation,
   readDaemonInfo,
   type TaskLead,
@@ -43,8 +44,9 @@ const usage = `Usage:
                                              without --file)
   ted brief show                             Show the latest Task brief
   ted status [--task <id>] "<text>"          Set the Task's activity line
-  ted task create [--factory <key>] [--start] "<title>"
-                                             Create a Task (--start starts it)
+  ted task create [--factory <key>] [--start] [--source <url>] "<title>"
+                                             Create a Task (--start starts it); a Linear URL
+                                             as the source fills it in from Linear
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task block [<id>] --by <id>            Make a Task wait until another Task merges
@@ -85,6 +87,7 @@ function parse() {
         findings: { type: 'string' },
         key: { type: 'string' },
         'local-folder': { type: 'string' },
+        source: { type: 'string' },
         by: { type: 'string' },
         start: { type: 'boolean' },
         skip: { type: 'boolean' },
@@ -191,18 +194,32 @@ try {
     const ref = taskRef()
     const brief = await withDaemon(home, (client) => client.getBrief(ref))
     process.stdout.write(printable(brief.text))
-  } else if (group === 'task' && command === 'create' && rest.length > 0) {
+  } else if (
+    group === 'task' &&
+    command === 'create' &&
+    (rest.length > 0 || options.source !== undefined)
+  ) {
     const title = rest.join(' ')
-    const factory = options.factory
-    const start = options.start
-    const task = await withDaemon(home, (client) =>
-      client.createTask({
-        title,
+    const { factory, source, start } = options
+    const task = await withDaemon(home, async (client) => {
+      if (source !== undefined && parseLinearUrl(source)) {
+        const lookup = await client.lookupLinear(source)
+        if (lookup.state === 'no-key') {
+          console.error(
+            'No Linear API key, so the Task was created with the link only. Add one in Settings → Integrations.',
+          )
+        } else if (lookup.state === 'failed') {
+          console.error(printable(lookup.error))
+        }
+      }
+      return client.createTask({
+        ...(title !== '' && { title }),
         ...(factory !== undefined && { factory }),
+        ...(source !== undefined && { source }),
         ...(start !== undefined && { start }),
-      }),
-    )
-    console.log(`Created ${task.displayId}  ${task.title}`)
+      })
+    })
+    console.log(`Created ${task.displayId}  ${printable(task.title)}`)
   } else if (group === 'task' && command === 'list' && rest.length === 0) {
     const tasks = await withDaemon(home, (client) => client.listTasks())
     console.log(

@@ -23,6 +23,7 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  linearKeyPage,
   type MachineSettings,
   noActivity,
   type RestoreBackupRequest,
@@ -160,6 +161,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
   runFix: (client, request) => client.runFix(request as RunFixRequest),
+  getLinear: (client) => client.getLinear(),
+  saveLinearKey: (client, key, inFile) =>
+    client.saveLinearKey({ key: String(key), inFile: inFile === true }),
+  testLinear: (client) => client.testLinear(),
+  removeLinearKey: (client) => client.removeLinearKey(),
+  lookupLinear: (client, url) => client.lookupLinear(String(url)),
+  openLinearKeyPage: () => shell.openExternal(linearKeyPage),
 }
 
 const pictureSize = 256

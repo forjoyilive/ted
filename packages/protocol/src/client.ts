@@ -19,6 +19,7 @@ import type {
 } from './factory.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
+import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
 import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
@@ -229,6 +230,26 @@ export class DaemonClient {
 
   runFix(input: RunFixRequest): Promise<RunFixResult> {
     return this.#request('POST', '/integrations/fix', input)
+  }
+
+  getLinear(): Promise<LinearStatus> {
+    return this.#request('GET', '/integrations/linear')
+  }
+
+  saveLinearKey(input: SaveLinearKeyRequest): Promise<LinearStatus> {
+    return this.#request('PUT', '/integrations/linear/key', input)
+  }
+
+  testLinear(): Promise<LinearStatus> {
+    return this.#request('POST', '/integrations/linear/test')
+  }
+
+  removeLinearKey(): Promise<LinearStatus> {
+    return this.#request('DELETE', '/integrations/linear/key')
+  }
+
+  lookupLinear(url: string): Promise<LinearLookup> {
+    return this.#request('POST', '/integrations/linear/lookup', { url })
   }
 
   getActivity(): Promise<Activity> {

@@ -21,5 +21,7 @@ export function tedPaths(home: string) {
     backups: path.join(home, 'backups'),
     attachments: path.join(home, 'attachments'),
     tmp: path.join(home, 'tmp'),
+    secrets: path.join(home, 'secrets'),
+    linearKeyFile: path.join(home, 'secrets', 'linear-api-key'),
   }
 }
