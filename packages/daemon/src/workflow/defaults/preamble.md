@@ -14,6 +14,7 @@ The Stage instructions use plain words. Do them with these `ted` commands, which
 - To write the Task brief: `ted brief write --file <file>`, or pipe it in. Write it at every Gate, and whenever where the Task stands changes a lot. It has these headings, in this order: `## Goal`, `## Decisions so far`, `## Current state` (branch, what’s done, Checks status), `## Open questions`, `## Next step`. `ted brief show` prints the latest one.
 - If another Task must merge before this one can go on: `ted task block --by <id>`, write the Task brief, and end your turn. TED stops your Run and starts a fresh one from the brief when that Task merges. `ted task unblock --by <id>` removes a blocker.
 - To check a change to TED’s settings in `.ted/` before you commit it: `ted workflow check`.
+- To run the Factory’s Checks (its tests, type checks and linters) before you hand off Work: `ted checks`, or `ted checks --name <Check>` for one. They run one after another and stop at the first failure; the results come back to you. When the Task enters Validate, TED runs them itself first and sends the Task back to Work if one fails.
 - To see every command: `ted help`.
 
 `ted` is already on your `PATH`. Work only inside the current folder, which is this Task’s own worktree on its own branch. Commit your work there, but don’t push; TED handles branches and pull requests.

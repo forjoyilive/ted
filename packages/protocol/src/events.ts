@@ -1,5 +1,6 @@
 import type { Activity } from './activity.ts'
 import type { Banner } from './banner.ts'
+import type { CheckRun, SendBack } from './checks.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
 import type { AgentHealth } from './health.ts'
@@ -14,6 +15,8 @@ export type DaemonEvent =
   | { type: 'task-updated'; task: Task }
   | { type: 'comment-posted'; comment: Comment }
   | { type: 'comment-updated'; comment: Comment }
+  | { type: 'check-run-updated'; checkRun: CheckRun }
+  | { type: 'sent-back'; sendBack: SendBack }
   | { type: 'run-updated'; run: Run }
   | { type: 'factory-added'; factory: Factory }
   | { type: 'factory-updated'; factory: Factory }

@@ -276,6 +276,60 @@ describe('TED app', () => {
     ).toBeNull()
   })
 
+  test('Validate’s ✓ row shows each Check’s state, the Blocking findings box, and opens the output', async () => {
+    const parent = path.join(home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    const flag = path.join(home, 'failed-once')
+    await commitToOrigin(parent, {
+      '.gitignore': 'stub-*\n',
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, validate]',
+        'stages:',
+        '  validate:',
+        '    checks:',
+        '      - { name: Typecheck, run: "echo typed" }',
+        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; echo 'SearchPanel hangs'; exit 1; fi" }`,
+        '      - { name: Lint, run: "echo linted" }',
+        '',
+      ].join('\n'),
+    })
+    const advance = { run: ['ted', 'outcome', 'advance'] }
+    const steps = JSON.stringify({
+      steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await ted('task', 'start', 'NB-1')
+
+    const sentBack = thread.getByRole('listitem').filter({
+      hasText: 'Validate sent this back to Work (round 1 of 5)',
+    })
+    await sentBack.waitFor({ timeout: 40_000 })
+    const row = sentBack.getByRole('list', { name: 'Checks' })
+    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
+    await row.getByRole('button', { name: '✗ Tests' }).waitFor()
+    await row.getByRole('listitem').filter({ hasText: 'Lint · not run' }).waitFor()
+    await sentBack
+      .getByRole('region', { name: 'Blocking findings' })
+      .getByText(/The Check “Tests”/)
+      .waitFor()
+    await thread.getByText('Checks passed at Validate').waitFor({ timeout: 40_000 })
+
+    await row.getByRole('button', { name: '✗ Tests' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Tests output' })
+    await dialog.getByText('SearchPanel hangs').waitFor()
+    await dialog.getByRole('tab', { name: 'Typecheck' }).click()
+    await window.getByRole('dialog', { name: 'Typecheck output' }).getByText('typed').waitFor()
+    await window.getByRole('button', { name: 'Close' }).click()
+    await dialog.waitFor({ state: 'detached' })
+  }, 90_000)
+
   test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await ted('dev', 'factory', 'add', origin, '--key', 'NB')

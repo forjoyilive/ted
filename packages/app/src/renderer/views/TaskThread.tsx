@@ -1,16 +1,18 @@
-import type { AgentStageId, Comment, Factory, Task } from '@ted/protocol'
+import type { AgentStageId, CheckRun, Comment, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { AnsweredCard, OpenRequestLine, RequestCard } from '../components/RequestCard.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
-import { useComments, useStageEntries } from '../data.ts'
+import { useCheckRuns, useComments, useSendBacks, useStageEntries } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { CheckEventLine, checkEvents } from './CheckEvents.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -55,11 +57,25 @@ export function TaskThread({
   onOpenTask: (ref: string) => void
 }) {
   const comments = useComments(task.id)
+  const checkRuns = useCheckRuns(task.id)
+  const sendBacks = useSendBacks(task.id)
+  const [output, setOutput] = useState<{ checkRun: CheckRun; position: number }>()
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
   const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
   const stage = filter?.taskId === task.id ? filter.stage : undefined
-  const shown = inStage(comments, entries, stage)
+  const shown = inStage(
+    [
+      ...comments.map((comment) => ({
+        kind: 'comment' as const,
+        comment,
+        createdAt: comment.createdAt,
+      })),
+      ...checkEvents(checkRuns, sendBacks),
+    ].sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    entries,
+    stage,
+  )
   const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
   const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
   const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
@@ -113,7 +129,17 @@ export function TaskThread({
         </p>
       )}
       <ol className={styles.thread}>
-        {shown.map((comment) => {
+        {shown.map((item) => {
+          if (item.kind !== 'comment') {
+            return (
+              <CheckEventLine
+                key={item.id}
+                event={item}
+                onOpenOutput={(checkRun, position) => setOutput({ checkRun, position })}
+              />
+            )
+          }
+          const { comment } = item
           if (comment.kind === 'note') {
             return <NoteRow key={comment.id} task={task} comment={comment} />
           }
@@ -139,6 +165,13 @@ export function TaskThread({
         <div className={styles.pinned}>
           <RequestCard key={pinned.id} request={pinned} task={task} />
         </div>
+      )}
+      {output && (
+        <CheckOutputDialog
+          checkRun={checkRuns.find((r) => r.id === output.checkRun.id) ?? output.checkRun}
+          position={output.position}
+          onClose={() => setOutput(undefined)}
+        />
       )}
     </section>
   )

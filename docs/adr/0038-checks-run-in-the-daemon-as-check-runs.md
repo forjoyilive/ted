@@ -1,0 +1,11 @@
+# Checks run in the daemon as Check runs, not Runs
+
+When a Task enters Validate, or an agent runs `ted checks`, the daemon runs the Factory’s Checks itself through one runner, `runChecks` in `packages/daemon/src/tasks/checks.ts`. Each set of results is a **Check run** in the store (`v1.ChecksStarted`, `v1.CheckStarted`, `v1.CheckFinished`, `v1.ChecksFinished`), with one row per Check. A Check run is not a Run: it has no agent and never takes a working slot, but the Task shows Working with “Running Checks · Tests (2 of 3)” while one is unfinished.
+
+The runner runs Checks one after another from the repo root in the Task’s worktree, through `$SHELL -lc`, with stdin closed, the repo’s `worktree.env`, `CI=1` and `TED_TASK`, and no `TED_APP_*` names. It reuses the setup runner’s process-group kill and timeout. The first failure or timeout stops it; later Checks become “not run”. A repo whose diff against the merge-base is empty, with untracked files counted, has its Checks skipped. When the Task’s changes touch `.ted/`, the runner adds the built-in TED settings Check, which validates the worktree’s `.ted/` in the daemon instead of shelling out to `ted`.
+
+A failed Validate Check run sends the Task back to Work through the same send-back path as `ted outcome back`, so it counts toward Validate’s `max_back`. `v2.TaskSentBack` adds the round, the limit and the Check run to the send-back, so the thread can say “round 2 of 5” and show the Blocking findings box beside the ✓ row. The Findings hold the last 200 lines of the failing Check’s output, passed through `redactSecrets`, and the path to the full log under `logs/checks/<Task>/<Check run>/`.
+
+While a Task’s Checks run, `ted outcome` is refused, so the Task Lead can’t move the Task past them. A daemon that stops mid-run leaves the Check run unfinished; on start it marks it interrupted and, if the Task is still in Validate, runs the Checks again from the start. `ted checks` starts a Check run and polls it, so a long Check never holds an HTTP request open.
+
+The thread draws Check runs and send-backs from `GET /tasks/:id/check-runs` and `GET /tasks/:id/send-backs` and the `check-run-updated` and `sent-back` events. The Merge rebase rerun (KRI-130) calls the same runner.

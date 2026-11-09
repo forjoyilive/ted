@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
@@ -40,6 +41,8 @@ const usage = `Usage:
                                              Send the Task back to an earlier Stage
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
+  ted checks [--name <Check>]                Run the Factory's Checks now, one after another,
+                                             stopping at the first failure
   ted brief write [--file <file>]            Write a new version of the Task brief (reads stdin
                                              without --file)
   ted brief show                             Show the latest Task brief
@@ -82,6 +85,7 @@ function parse() {
         'default-model': { type: 'boolean' },
         effort: { type: 'string' },
         model: { type: 'string' },
+        name: { type: 'string' },
         factory: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
@@ -181,6 +185,19 @@ try {
       }),
     )
     console.log(result.message)
+  } else if (group === 'checks' && command === undefined) {
+    const ref = taskRef()
+    const name = options.name
+    const { checkRun, report } = await withDaemon(home, async (client) => {
+      const started = await client.runChecks(ref, name === undefined ? {} : { name })
+      for (;;) {
+        const current = await client.getCheckRun(started.id)
+        if (current.checkRun.finishedAt !== undefined) return current
+        await sleep(500)
+      }
+    })
+    console.log(printable(report ?? ''))
+    if (checkRun.outcome !== 'passed') process.exitCode = 1
   } else if (group === 'brief' && command === 'write' && rest.length === 0) {
     const ref = taskRef()
     const text =

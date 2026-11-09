@@ -1,0 +1,73 @@
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.check {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.glyph {
+  display: inline-block;
+  min-width: 10px;
+  margin-right: 5px;
+}
+
+.passed {
+  color: var(--text-primary);
+}
+
+.failed {
+  color: var(--status-failed-fg);
+}
+
+.running {
+  color: var(--status-working-fg);
+}
+
+.quiet {
+  color: var(--text-tertiary);
+}
+
+.detail {
+  white-space: pre;
+}
+
+.open,
+.output {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.open:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.output {
+  color: var(--accent-link);
+}
+
+.output:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.open:focus-visible,
+.output:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

@@ -1,5 +1,6 @@
 import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
@@ -105,6 +106,26 @@ export class DaemonClient {
 
   listStageEntries(ref: string): Promise<StageEntry[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
+  }
+
+  runChecks(ref: string, request: RunChecksRequest = {}): Promise<CheckRun> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/checks`, request)
+  }
+
+  getCheckRun(id: string): Promise<CheckRunReport> {
+    return this.#request('GET', `/check-runs/${encodeURIComponent(id)}`)
+  }
+
+  listCheckRuns(ref: string): Promise<CheckRun[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/check-runs`)
+  }
+
+  checkOutput(id: string, index: number): Promise<CheckOutput> {
+    return this.#request('GET', `/check-runs/${encodeURIComponent(id)}/checks/${index}/output`)
+  }
+
+  listSendBacks(ref: string): Promise<SendBack[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/send-backs`)
   }
 
   postComment(ref: string, comment: string | PostCommentRequest): Promise<Comment> {

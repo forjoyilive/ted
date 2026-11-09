@@ -2,12 +2,14 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   Banner,
+  CheckRun,
   Comment,
   DataStatus,
   Factory,
   InboxItem,
   MachineSettings,
   RunSlots,
+  SendBack,
   StageEntry,
   StageId,
   Task,
@@ -124,6 +126,28 @@ export function useComments(taskId: string): Comment[] {
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+export function useCheckRuns(taskId: string): CheckRun[] {
+  const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
+  const pick = useCallback(
+    (event: TedEvent) =>
+      event.type === 'check-run-updated' && event.checkRun.taskId === taskId
+        ? event.checkRun
+        : undefined,
+    [taskId],
+  )
+  return useLive(load, pick, (a, b) => a.startedAt.localeCompare(b.startedAt))
+}
+
+export function useSendBacks(taskId: string): SendBack[] {
+  const load = useCallback(() => ted.listSendBacks(taskId), [taskId])
+  const pick = useCallback(
+    (event: TedEvent) =>
+      event.type === 'sent-back' && event.sendBack.taskId === taskId ? event.sendBack : undefined,
+    [taskId],
+  )
+  return useLive(load, pick, (a, b) => a.at.localeCompare(b.at))
 }
 
 const inboxEvents = new Set<TedEvent['type']>([

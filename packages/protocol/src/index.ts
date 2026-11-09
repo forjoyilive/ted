@@ -20,6 +20,19 @@ export {
   type RaiseBanner,
 } from './banner.ts'
 export {
+  type CheckOutput,
+  type CheckResult,
+  type CheckRun,
+  type CheckRunOutcome,
+  type CheckRunReport,
+  type CheckRunTrigger,
+  type CheckState,
+  checkFailed,
+  checkLabel,
+  type RunChecksRequest,
+  type SendBack,
+} from './checks.ts'
+export {
   DaemonClient,
   DaemonRequestError,
   DaemonUnreachableError,
