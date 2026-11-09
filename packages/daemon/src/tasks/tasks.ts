@@ -3797,14 +3797,17 @@ export function createTasks(options: {
         `a Follow-up shares ${original.displayId}’s source, ${original.source.url}`,
       )
     }
-    if (url !== undefined) {
+    const refuseOpen = () => {
+      if (url === undefined) return
       const clash = sourceClash(store.listTasks(), original.factoryId, url)
       if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
     }
+    refuseOpen()
     const lead =
       original.lead ??
       leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
     const text = input.description?.trim() ?? ''
+    refuseOpen()
     const task = await store.createTask({
       title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
       description: text,
@@ -4426,10 +4429,12 @@ export function createTasks(options: {
           ...(automation && { automation: automation.link }),
         })
       }
-      if (sourceUrl !== undefined && factory && caller.kind !== 'app') {
+      const refuseTracked = () => {
+        if (sourceUrl === undefined || !factory || caller.kind === 'app') return
         const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
         if (clash) throw new RequestError(409, clashMessage(clash))
       }
+      refuseTracked()
       const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
       const name =
         title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
@@ -4442,6 +4447,7 @@ export function createTasks(options: {
             return undefined
           })
         : undefined
+      refuseTracked()
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),

@@ -45,10 +45,31 @@ export const automationUsage = `  ted automation list                        Lis
   ted automation enable <id> / disable <id>  Turn an Automation on or off
   ted automation run <id>                    Run an Automation now
   ted automation delete <id>                 Delete an Automation and its history
-                Every automation command takes --factory <key>; inside a Run only list, show
-                and history work.`
+                Every automation command takes --factory <key>. Inside a Run only list, show
+                and history work; from a terminal, create, edit, enable, run and delete are
+                refused, because only the TED app may schedule agent Runs.`
+
+const appOnly = 'only the TED app can do this'
 
 export async function automationCommand(
+  home: string,
+  command: string | undefined,
+  rest: string[],
+  options: AutomationOptions,
+): Promise<void> {
+  try {
+    await automationAction(home, command, rest, options)
+  } catch (error) {
+    if (error instanceof Error && error.message === appOnly) {
+      throw new Error(
+        'Create, change, run or delete Automations in the TED app. From a terminal, ted automation can list, show, history and disable.',
+      )
+    }
+    throw error
+  }
+}
+
+async function automationAction(
   home: string,
   command: string | undefined,
   rest: string[],

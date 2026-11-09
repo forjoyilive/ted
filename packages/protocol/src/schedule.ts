@@ -47,6 +47,7 @@ interface Rule {
   eitherDay: boolean
   times: readonly number[]
   interval?: DayIndex
+  step?: { every: number; unitMinutes: number; from: number }
   until?: number
 }
 
@@ -244,16 +245,22 @@ function rruleRule(text: string): Rule {
     ? rruleNumbers(parts.get('BYHOUR') ?? '', 0, 23, 'BYHOUR')
     : undefined
   let times: number[]
+  let step: Rule['step']
+  const anchor = dtstart ?? 0
   if (freq === 'MINUTELY') {
-    times = allTimes(interval)
+    times = allTimes(1)
     if (byHour) times = times.filter((t) => byHour.includes(Math.floor(t / 60)))
     if (byMinute) times = times.filter((t) => byMinute.includes(t % 60))
+    if (interval > 1) step = { every: interval, unitMinutes: 1, from: anchor }
   } else if (freq === 'HOURLY') {
     const hours = Array.from({ length: 24 }, (_, h) => h).filter(
-      (h) => h % interval === 0 && (byHour === undefined || byHour.includes(h)),
+      (h) => byHour === undefined || byHour.includes(h),
     )
     const minutes = byMinute ?? [startMinutes % 60]
     times = hours.flatMap((h) => minutes.map((m) => h * 60 + m))
+    if (interval > 1) {
+      step = { every: interval, unitMinutes: 60, from: anchor - (anchor % (60 * minuteMs)) }
+    }
   } else {
     const hours = byHour ?? [Math.floor(startMinutes / 60)]
     const minutes = byMinute ?? [startMinutes % 60]
@@ -286,6 +293,7 @@ function rruleRule(text: string): Rule {
     ...(monthDays && { monthDays: new Set(monthDays) }),
     ...(weekDays.size > 0 && { weekDays }),
     ...(nthWeekDays.length > 0 && { nthWeekDays }),
+    ...(step && { step }),
   }
   if (freq === 'WEEKLY' && !rule.weekDays && !rule.nthWeekDays) {
     rule.weekDays = new Set([new Date(startDay).getUTCDay()])
@@ -415,6 +423,11 @@ function onInterval({ unit, every, from }: DayIndex, dayStart: number): boolean 
   return index >= 0 && index % every === 0
 }
 
+function onStep({ every, unitMinutes, from }: NonNullable<Rule['step']>, wall: number): boolean {
+  const index = Math.floor((wall - from) / (unitMinutes * minuteMs))
+  return index >= 0 && index % every === 0
+}
+
 function firings(rule: Rule, timeZone: string, after: number, count: number): number[] {
   const found: number[] = []
   const wall = wallClock(after, timeZone)
@@ -423,6 +436,7 @@ function firings(rule: Rule, timeZone: string, after: number, count: number): nu
     const dayStart = firstDay + i * dayMs
     if (!dayMatches(rule, dayStart)) continue
     for (const minutes of rule.times) {
+      if (rule.step && !onStep(rule.step, dayStart + minutes * minuteMs)) continue
       const at = instantOf(dayStart + minutes * minuteMs, timeZone)
       if (rule.until !== undefined && dayStart + minutes * minuteMs > rule.until) return found
       if (at > after && !found.includes(at)) found.push(at)
@@ -563,7 +577,9 @@ export function describeSchedule(schedule: AutomationSchedule, timeZone: string)
 }
 
 function describeRule(rule: Rule, timeZone: string): string | undefined {
-  const times = timesInWords(rule.times)
+  const times = rule.step
+    ? `Every ${rule.step.every} ${rule.step.unitMinutes === 60 ? 'hours' : 'minutes'}`
+    : timesInWords(rule.times)
   if (times === undefined) return undefined
   const repeating = times.startsWith('Every')
   const days: string[] = []

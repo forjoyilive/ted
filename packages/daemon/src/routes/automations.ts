@@ -57,7 +57,6 @@ export const automationRoutes: Route[] = [
     method: 'POST',
     path: path(`/automations`),
     runToken: true,
-    fileToken: true,
     async handle({ req, caller }, { automations }) {
       const input = createInput(await readJson(req))
       return [201, await automations.create(input, caller)]
@@ -76,7 +75,6 @@ export const automationRoutes: Route[] = [
     method: 'PATCH',
     path: path(`/automations/${ref}${factoryQuery}`),
     runToken: true,
-    fileToken: true,
     async handle({ req, caller, params: [id = '', factory = ''] }, { automations }) {
       const input = editInput(await readJson(req))
       return [200, await automations.edit(id, input, caller, factory || undefined)]
@@ -87,7 +85,7 @@ export const automationRoutes: Route[] = [
       method: 'POST',
       path: path(`/automations/${ref}/${action}${factoryQuery}`),
       runToken: true,
-      fileToken: true,
+      ...(action === 'disable' && { fileToken: true as const }),
       handle: async ({ caller, params: [id = '', factory = ''] }, { automations }) => [
         200,
         await automations.setOn(id, action === 'enable', caller, factory || undefined),
@@ -98,7 +96,6 @@ export const automationRoutes: Route[] = [
     method: 'POST',
     path: path(`/automations/${ref}/run${factoryQuery}`),
     runToken: true,
-    fileToken: true,
     handle: async ({ caller, params: [id = '', factory = ''] }, { automations }) => [
       201,
       await automations.runNow(id, caller, factory || undefined),
@@ -108,7 +105,6 @@ export const automationRoutes: Route[] = [
     method: 'DELETE',
     path: path(`/automations/${ref}${factoryQuery}`),
     runToken: true,
-    fileToken: true,
     async handle({ caller, params: [id = '', factory = ''] }, { automations }) {
       await automations.delete(id, caller, factory || undefined)
       return [200, { deleted: true }]
@@ -118,7 +114,6 @@ export const automationRoutes: Route[] = [
     method: 'POST',
     path: path(`/automation-runs/${ref}/retry`),
     runToken: true,
-    fileToken: true,
     handle: async ({ caller, params: [id = ''] }, { automations }) => [
       201,
       await automations.retry(id, caller),

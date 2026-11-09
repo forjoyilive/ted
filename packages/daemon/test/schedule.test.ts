@@ -64,6 +64,23 @@ describe('schedules', () => {
     ])
   })
 
+  test('RRULE hour and minute intervals count from DTSTART', () => {
+    const hourly = scheduleFromExpression('DTSTART:20261109T090000Z\nRRULE:FREQ=HOURLY;INTERVAL=2')
+    expect(iso(nextFirings(hourly, 'UTC', at('2026-11-09T09:00:00Z'), 3))).toEqual([
+      '2026-11-09T11:00:00.000Z',
+      '2026-11-09T13:00:00.000Z',
+      '2026-11-09T15:00:00.000Z',
+    ])
+    const minutely = scheduleFromExpression(
+      'DTSTART:20261109T090500Z RRULE:FREQ=MINUTELY;INTERVAL=20',
+    )
+    expect(iso(nextFirings(minutely, 'UTC', at('2026-11-09T09:06:00Z'), 2))).toEqual([
+      '2026-11-09T09:25:00.000Z',
+      '2026-11-09T09:45:00.000Z',
+    ])
+    expect(describeSchedule(hourly, 'UTC')).toBe('Every 2 hours')
+  })
+
   test('cron with both day fields fires on either', () => {
     const schedule = scheduleFromExpression('0 6 1 * MON')
     expect(iso(nextFirings(schedule, 'UTC', at('2026-11-28T00:00:00Z'), 3))).toEqual([
