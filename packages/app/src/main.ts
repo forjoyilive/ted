@@ -38,6 +38,7 @@ import {
   type RestoreBackupRequest,
   type RunFixRequest,
   type SaveSettingsRequest,
+  type Task,
   tedHome,
   tedPaths,
   tedVersion,
@@ -63,6 +64,7 @@ import {
   type MenuCommand,
   type MenuEntry,
   type MenuState,
+  mergedNotice,
   type Platform,
   problemNotice,
   quitAnswer,
@@ -152,6 +154,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     })
   },
   unarchiveTask: (client, taskId) => client.unarchiveTask(String(taskId)),
+  followUpTask: (client, taskId, comment) =>
+    client.followUpTask(String(taskId), typeof comment === 'string' ? comment : undefined),
+  archiveDone: (client, factoryId) => client.archiveDone(String(factoryId)),
   deleteTask: (client, taskId, options) => {
     const blocked = blockedChoices.find(
       (c) => c === (options as { blocked?: unknown } | undefined)?.blocked,
@@ -412,6 +417,7 @@ function forward(event: DaemonEvent): void {
     state = { ...state, banners: state.banners.filter((b) => b.id !== event.id) }
   }
   if (event.type === 'banner-raised') notifyProblem(event.banner)
+  if (event.type === 'task-updated') notifyMerged(event.task)
   if (event.type === 'open-requested') showWindow()
   else sendToRenderer(event)
   refresh()
@@ -420,6 +426,18 @@ function forward(event: DaemonEvent): void {
 function notifyProblem(banner: Banner): void {
   const notice = problemNotice(banner)
   if (!notice || hiddenWindow || !Notification.isSupported()) return
+  const shown = new Notification({ title: notice.title, body: notice.body })
+  shown.on('click', () => run(notice.opens))
+  shown.show()
+}
+
+const mergedNotified = new Set<string>()
+
+function notifyMerged(task: Task): void {
+  const notice = mergedNotice(task, Date.now())
+  if (!notice || mergedNotified.has(task.id)) return
+  mergedNotified.add(task.id)
+  if (!settings.notifyTaskMerged || hiddenWindow || !Notification.isSupported()) return
   const shown = new Notification({ title: notice.title, body: notice.body })
   shown.on('click', () => run(notice.opens))
   shown.show()
