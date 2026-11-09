@@ -1,3 +1,4 @@
+import type { Activity } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
@@ -16,3 +17,5 @@ export type DaemonEvent =
   | { type: 'banner-updated'; banner: Banner }
   | { type: 'banner-cleared'; id: string }
   | { type: 'data-status'; status: DataStatus }
+  | { type: 'activity-changed'; activity: Activity }
+  | { type: 'open-requested' }

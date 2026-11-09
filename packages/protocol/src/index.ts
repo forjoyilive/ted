@@ -1,4 +1,11 @@
 export {
+  type Activity,
+  noActivity,
+  type OpenAppResult,
+  type RunCounts,
+  workRunning,
+} from './activity.ts'
+export {
   type Banner,
   type BannerAction,
   type BannerPlace,
@@ -54,6 +61,8 @@ export {
   defaultMachineSettings,
   type MachineSettings,
   type Profile,
+  type QuitChoice,
+  quitChoices,
   terminalFontSizes,
 } from './settings.ts'
 export {

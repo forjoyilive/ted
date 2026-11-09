@@ -5,11 +5,12 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
+import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import { killRunHosts, makeOriginRepo, stubCodexPath } from '../../daemon/test/helpers.ts'
 
 const stubClaudePath = fileURLToPath(
@@ -352,6 +353,48 @@ describe('ted dev factory and ted task start', () => {
   test('comment, status and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
     await expect(ted(['status', 'Reading'])).rejects.toMatchObject({ code: 2 })
+  })
+})
+
+describe('ted open', () => {
+  test('asks the open app to show its window', async () => {
+    await ted(['task', 'list'])
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const seen: unknown[] = []
+    const app = await new DaemonClient(info).subscribe((event) => seen.push(event), { app: true })
+
+    const { stdout } = await ted(['open'])
+
+    expect(stdout.trim()).toBe('Opened TED')
+    await expect.poll(() => seen).toContainEqual({ type: 'open-requested' })
+    app.close()
+  })
+
+  test('inside a Run, ted open is refused like every route closed to Runs', async () => {
+    await ted(['task', 'list'])
+    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
+
+    await expect(
+      run(process.execPath, [cliPath, 'open'], {
+        env: { ...process.env, TED_HOME: home, TED_RUN_TOKEN: runToken },
+      }),
+    ).rejects.toMatchObject({ code: 1, stderr: 'ted: Not allowed from inside a Run\n' })
+  })
+
+  test('says so and fails when the app isn’t open', async () => {
+    await ted(['task', 'list'])
+
+    await expect(ted(['open'])).rejects.toMatchObject({
+      code: 1,
+      stderr: 'ted: TED isn’t open. Open it from your app launcher.\n',
+    })
+  })
+
+  test('doesn’t start TED’s background process just to open the app', async () => {
+    await expect(ted(['open'])).rejects.toMatchObject({ code: 1 })
+
+    expect(await readDaemonInfo(home)).toBeUndefined()
   })
 })
 

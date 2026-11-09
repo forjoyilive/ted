@@ -10,11 +10,13 @@ import {
   appearances,
   type CreateTaskRequest,
   clarifyDepths,
+  type DaemonEvent,
   type Effort,
   efforts,
   type MachineSettings,
   type PostCommentRequest,
   priorities,
+  quitChoices,
   type ReportOutcomeRequest,
   type RestoreBackupRequest,
   type SetActivityRequest,
@@ -45,6 +47,8 @@ export interface BaseOptions {
   runTokens: RunTokens
   attachments: Attachments
   reposDir: string
+  appStreams: Set<http.ServerResponse>
+  onShutdown: () => void
   home: string
 }
 
@@ -70,9 +74,9 @@ const maxActivityLength = 200
 const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'GET',
-    path: /^\/events$/,
-    async handle({ req, res }, options) {
-      streamEvents(req, res, options)
+    path: /^\/events(\?app=1)?$/,
+    async handle({ req, res, params: [app] }, options) {
+      streamEvents(req, res, options, app === '?app=1')
       return undefined
     },
   },
@@ -224,6 +228,28 @@ const routes: Route[] = [
     path: /^\/settings$/,
     async handle({ req }, { store }) {
       return [200, store.updateSettings(settingsChanges(await readJson(req)))]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/activity$/,
+    handle: async (_, { store }) => [200, store.activity()],
+  },
+  {
+    method: 'POST',
+    path: /^\/shutdown$/,
+    async handle({ res }, { runs, onShutdown }) {
+      await runs.stopAll()
+      res.once('finish', () => setImmediate(onShutdown))
+      return [200, {}]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/app\/open$/,
+    async handle(_, { appStreams }) {
+      for (const stream of appStreams) send(stream, { type: 'open-requested' })
+      return [200, { opened: appStreams.size > 0 }]
     },
   },
   {
@@ -380,25 +406,35 @@ function find<O>(
     if (caller.kind === 'run' && !route.runToken) {
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
-    return { route, params: found.slice(1).map(decodeParam) }
+    return {
+      route,
+      params: found.slice(1).map((param) => (param === undefined ? '' : decodeParam(param))),
+    }
   }
   return undefined
+}
+
+function send(res: http.ServerResponse, event: DaemonEvent): void {
+  res.write(`data: ${JSON.stringify(event)}\n\n`)
 }
 
 function streamEvents(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  { data, idle, keepaliveMs }: BaseOptions,
+  { data, idle, keepaliveMs, appStreams }: BaseOptions,
+  app: boolean,
 ): void {
   res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
   res.write('event: ready\ndata: {}\n\n')
-  const unsubscribe = data.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  const unsubscribe = data.subscribe((event) => send(res, event))
+  if (app) appStreams.add(res)
   // Node's fetch fails a response body that sends nothing for 300 seconds.
   const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
   const release = idle?.hold()
   req.on('close', () => {
     clearInterval(keepalive)
     unsubscribe()
+    appStreams.delete(res)
     release?.()
   })
 }
@@ -584,6 +620,15 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   developerMode(value) {
     if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
+    return value
+  },
+  quitWithWorkRunning(value) {
+    const choice = quitChoices.find((c) => c === value)
+    if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
+    return choice
+  },
+  showTrayIcon(value) {
+    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
     return value
   },
 }

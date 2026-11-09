@@ -8,6 +8,8 @@ import {
   type AgentKind,
   agentKinds,
   type Banner,
+  DaemonClient,
+  DaemonUnreachableError,
   type Effort,
   efforts,
   type Factory,
@@ -23,6 +25,7 @@ const usage = `Usage:
   ted help                                   Show this list of commands
   ted status                                 Show whether TED is running and every active problem
   ted doctor                                 Run health checks and show every active problem
+  ted open                                   Bring the open TED app to the front
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
   ted status [--task <id>] "<text>"          Set the Task's activity line
@@ -99,6 +102,8 @@ try {
     await status()
   } else if (group === 'doctor' && command === undefined) {
     await doctor()
+  } else if (group === 'open' && command === undefined) {
+    await openApp()
   } else if (group === 'comment') {
     const ref = taskRef()
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
@@ -271,6 +276,23 @@ async function problems(): Promise<{ pid: number | undefined; banners: string[];
     banners: formatBanners(banners, factories),
     stops: banners.some((b) => b.severity === 'stops-work'),
   }
+}
+
+async function openApp(): Promise<void> {
+  const info = await readDaemonInfo(home)
+  const token = process.env.TED_RUN_TOKEN || info?.token
+  const result = await (info ? new DaemonClient(info, token).openApp() : undefined)?.catch(
+    (error: unknown) => {
+      if (error instanceof DaemonUnreachableError) return undefined
+      throw error
+    },
+  )
+  if (!result?.opened) {
+    console.error('ted: TED isn’t open. Open it from your app launcher.')
+    process.exitCode = 1
+    return
+  }
+  console.log('Opened TED')
 }
 
 async function status(): Promise<void> {

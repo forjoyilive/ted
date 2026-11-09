@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
 import {
+  type Activity,
   type AgentKind,
   type AgentStageId,
   type Appearance,
@@ -179,6 +181,7 @@ export interface TedStore {
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
   settings(): MachineSettings
+  activity(): Activity
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -423,6 +426,26 @@ export async function openStore({
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...pick(values, Object.keys(defaultMachineSettings)),
     }
+  }
+
+  const activity = (): Activity => {
+    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    return {
+      waitingOnYou: active.filter((run) => run.state === 'waiting').length,
+      runs: {
+        working: active.filter((run) => run.state === 'working').length,
+        active: active.length,
+        queued: 0,
+      },
+      automationsOn: 0,
+    }
+  }
+  let lastActivity = activity()
+  const noteActivity = () => {
+    const next = activity()
+    if (isDeepStrictEqual(next, lastActivity)) return
+    lastActivity = next
+    emit({ type: 'activity-changed', activity: next })
   }
 
   const toBanner = (row: typeof banners.Type): Banner => ({
@@ -670,6 +693,7 @@ export async function openStore({
       })
       emit({ type: 'run-updated', run })
       if (taskId !== undefined) updatedTask(taskId)
+      noteActivity()
       return run
     },
     recordRunOutput(runId, { toOffset, entries, state, sessionId, problem }) {
@@ -696,6 +720,7 @@ export async function openStore({
         const taskId = taskIdOfRun(runId)
         if (taskId !== undefined) updatedTask(taskId)
       }
+      if (stateChanged) noteActivity()
     },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
       store.commit(
@@ -712,6 +737,7 @@ export async function openStore({
       const run = toRun(row)
       emit({ type: 'run-updated', run })
       const taskId = taskIdOfRun(runId)
+      noteActivity()
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
@@ -726,6 +752,7 @@ export async function openStore({
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
+    activity,
     updateSettings(changes) {
       const current = settings()
       const changed = Object.fromEntries(
