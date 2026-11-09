@@ -15,6 +15,7 @@ import {
   type Comment,
   type ConversationEntry,
   type DaemonEvent,
+  defaultMachineSettings,
   type Effort,
   type Factory,
   type LayerKind,
@@ -38,6 +39,7 @@ import {
   events,
   factories,
   machineSettings,
+  machineSettingValues,
   runs,
   schema,
   stageEntries,
@@ -149,9 +151,11 @@ export interface TedStore {
   close(): Promise<void>
 }
 
-export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
+function pick(values: Record<string, unknown>, names: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => names.includes(name)))
+}
 
-const defaultSettings: MachineSettings = { appearance: 'system' }
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
   const store = await createStorePromise({
@@ -203,9 +207,16 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     const live = all.filter((r) => r.state !== 'finished')
     const entries = entryRows(row.id)
     const blockedBy = blockersOf(row.id)
+    const waitingOn = blockedBy.flatMap((id) => {
+      const blocker = taskRow(id)
+      return blocker && blocker.stage !== 'done'
+        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
+        : []
+    })
     const facts: TaskFacts = {
       stage,
       runs: live.map((r) => r.state as RunState),
+      ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
     }
     const status = taskStatus(facts)
@@ -309,8 +320,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   }
 
   const settings = (): MachineSettings => {
-    const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
-    return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
+    const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
+    const values = Object.fromEntries(
+      store
+        .query(queryDb(machineSettingValues.select()))
+        .map(({ name, value }) => [name, JSON.parse(value) as unknown]),
+    )
+    return {
+      ...defaultMachineSettings,
+      ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...pick(values, Object.keys(defaultMachineSettings)),
+    }
   }
 
   const toBanner = (row: typeof banners.Type): Banner => ({
@@ -404,7 +424,15 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (stage === 'done') {
+        for (const { taskId: waiting } of store.query(
+          queryDb(taskBlockers.where({ blockerId: taskId })),
+        )) {
+          updatedTask(waiting)
+        }
+      }
+      return task
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -554,9 +582,21 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line }) => ({ offset, line })),
     settings,
-    updateSettings({ appearance }) {
-      if (appearance !== undefined && appearance !== settings().appearance) {
-        store.commit(events.appearanceChanged({ appearance, at: new Date().toISOString() }))
+    updateSettings(changes) {
+      const current = settings()
+      const changed = Object.fromEntries(
+        Object.entries(changes).filter(
+          ([name, value]) =>
+            value !== undefined && current[name as keyof MachineSettings] !== value,
+        ),
+      )
+      if (Object.keys(changed).length > 0) {
+        store.commit(
+          events.machineSettingsChanged({
+            changes: JSON.stringify(changed),
+            at: new Date().toISOString(),
+          }),
+        )
         emit({ type: 'settings-changed', settings: settings() })
       }
       return settings()

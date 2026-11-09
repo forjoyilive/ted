@@ -108,6 +108,14 @@ export const machineSettings = State.SQLite.table({
   },
 })
 
+export const machineSettingValues = State.SQLite.table({
+  name: 'machineSettingValues',
+  columns: {
+    name: State.SQLite.text({ primaryKey: true }),
+    value: State.SQLite.text(),
+  },
+})
+
 export const stageEntries = State.SQLite.table({
   name: 'stageEntries',
   columns: {
@@ -296,6 +304,10 @@ export const events = {
     name: 'v1.AppearanceChanged',
     schema: Schema.Struct({ appearance: Schema.String, at: Schema.String }),
   }),
+  machineSettingsChanged: Events.synced({
+    name: 'v1.MachineSettingsChanged',
+    schema: Schema.Struct({ changes: Schema.String, at: Schema.String }),
+  }),
   bannerRaised: Events.synced({
     name: 'v1.BannerRaised',
     schema: Schema.Struct({
@@ -410,6 +422,12 @@ const materializers = State.SQLite.materializers(events, {
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
   'v1.AppearanceChanged': ({ appearance }) =>
     machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
+  'v1.MachineSettingsChanged': ({ changes }) =>
+    Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
+      machineSettingValues
+        .insert({ name, value: JSON.stringify(value) })
+        .onConflict('name', 'replace'),
+    ),
   'v1.BannerRaised': ({ at, ...banner }) => [
     banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
     banners
@@ -432,6 +450,7 @@ const state = State.SQLite.makeState({
     stageEntries,
     workflowLayers,
     machineSettings,
+    machineSettingValues,
     banners,
   },
   materializers,

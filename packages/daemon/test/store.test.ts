@@ -166,6 +166,28 @@ describe('TedStore', () => {
     }
   })
 
+  test('a Task waiting on an unmerged blocker says so, and updates when the blocker is done', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const blocker = await store.createTask({ title: 'First' })
+      const task = await store.createTask({ title: 'Second', blockedBy: [blocker.id] })
+
+      expect(task.markers).toEqual([{ kind: 'blocked-by', by: 'DEV-1' }])
+      expect(task.activity).toBe('Starts when DEV-1 merges')
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+      const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
+      store.changeStage(blocker.id, 'done', entry)
+
+      const freed = store.getTask(task.id)
+      expect(freed?.markers).toEqual([])
+      expect(freed?.activity).toBe('Not started')
+      expect(seen.map((e) => e.type === 'task-updated' && e.task.id)).toEqual([blocker.id, task.id])
+    } finally {
+      await store.close()
+    }
+  })
+
   test('the agent’s activity line lasts until the Task changes Stage', async () => {
     const store = await openStore({ directory: dir })
     try {

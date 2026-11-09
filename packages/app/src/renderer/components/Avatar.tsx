@@ -17,12 +17,28 @@ export function initialsOf(name: string): string {
   return (first.charAt(0) + last.charAt(0)).toUpperCase()
 }
 
-export function PersonAvatar({ name, photo }: { name: string; photo?: string }) {
+export function PersonAvatar({
+  name,
+  photo,
+  size = 22,
+}: {
+  name: string
+  photo?: string | undefined
+  size?: number
+}) {
+  const box = { width: size, height: size, borderRadius: size / 2 }
   if (photo !== undefined) {
-    return <img className={styles.photo} src={photo} alt={name} width={22} height={22} />
+    return (
+      <img className={styles.photo} src={photo} alt={name} width={size} height={size} style={box} />
+    )
   }
   return (
-    <span className={styles.initials} role="img" aria-label={name}>
+    <span
+      className={styles.initials}
+      role="img"
+      aria-label={name}
+      style={{ ...box, fontSize: Math.round(size * 0.4) }}
+    >
       {initialsOf(name)}
     </span>
   )

@@ -1,10 +1,22 @@
+export const settingsSectionIds = [
+  'general',
+  'notifications',
+  'agents',
+  'limits',
+  'integrations',
+  'library',
+  'storage',
+  'developer',
+] as const
+
+export type SettingsSectionId = (typeof settingsSectionIds)[number]
+
 export type FactoryView = 'board' | 'list' | 'plans' | 'automations' | 'settings'
 
 export type Screen =
   | { kind: 'inbox' }
   | { kind: 'all-tasks' }
   | { kind: 'factory'; factoryId: string; view: FactoryView }
-  | { kind: 'settings' }
   | { kind: 'search' }
   | { kind: 'add-factory' }
 
@@ -13,6 +25,8 @@ export interface Navigation {
   taskId?: string
   lastFactoryId?: string
   lastViews: Readonly<Record<string, FactoryView>>
+  settings?: { section: SettingsSectionId }
+  lastSettingsSection: SettingsSectionId
 }
 
 export type NavigationAction =
@@ -20,13 +34,19 @@ export type NavigationAction =
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string }
   | { type: 'close-task' }
+  | { type: 'open-settings'; section?: SettingsSectionId }
+  | { type: 'close-settings' }
 
-export const initialNavigation: Navigation = { screen: { kind: 'inbox' }, lastViews: {} }
+export const initialNavigation: Navigation = {
+  screen: { kind: 'inbox' },
+  lastViews: {},
+  lastSettingsSection: 'general',
+}
 
 export function navigate(state: Navigation, action: NavigationAction): Navigation {
   switch (action.type) {
     case 'open': {
-      const { taskId: _, ...rest } = state
+      const { taskId: _, settings: __, ...rest } = state
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
       const { factoryId, view } = action.screen
       return {
@@ -51,6 +71,14 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       }
     case 'close-task': {
       const { taskId: _, ...rest } = state
+      return rest
+    }
+    case 'open-settings': {
+      const section = action.section ?? state.settings?.section ?? state.lastSettingsSection
+      return { ...state, settings: { section }, lastSettingsSection: section }
+    }
+    case 'close-settings': {
+      const { settings: _, ...rest } = state
       return rest
     }
   }

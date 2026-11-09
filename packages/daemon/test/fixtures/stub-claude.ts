@@ -10,7 +10,7 @@ type Step =
   | { lines: number; everyMs: number; pad?: number }
   | { waitFor: string }
   | { run: string[] }
-  | { endTurn: true }
+  | { endTurn: true; usage?: Record<string, number> }
   | { exit: number }
   | { everyMessage: Step[] }
 
@@ -62,7 +62,12 @@ async function runStep(step: Step): Promise<void> {
     say(JSON.stringify({ code: result.status, stdout: result.stdout, stderr: result.stderr }))
   } else if ('endTurn' in step) {
     hook('Stop')
-    emit({ type: 'result', subtype: 'success', stop_reason: 'end_turn' })
+    emit({
+      type: 'result',
+      subtype: 'success',
+      stop_reason: 'end_turn',
+      ...(step.usage && { usage: step.usage }),
+    })
   } else if ('exit' in step) process.stdout.write('', () => process.exit(step.exit))
 }
 
