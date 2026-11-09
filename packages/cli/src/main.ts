@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util'
+import { withDaemon } from '@ted/daemon/launch'
 import { tedHome } from '@ted/protocol'
-import { withDaemon } from './connect.ts'
 
 const usage = `Usage:
   ted task create "<title>"   Create a Task

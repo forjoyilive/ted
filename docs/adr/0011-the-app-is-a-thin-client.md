@@ -1,0 +1,20 @@
+# The Electron app is a thin client, and only its main process talks to the daemon
+
+The app’s main process holds the app’s only `DaemonClient`. The renderer runs with `sandbox: true`, `contextIsolation: true` and `nodeIntegration: false`, so it has no `require`, no `process`, no filesystem and no token. It reaches the daemon only through the preload bridge, `window.ted`, which has two functions: `request(name, ...args)`, which main answers from a fixed list of allowed requests, and `onEvent(listener)`, which receives the daemon’s events (ADR 0012). The renderer couldn’t call the daemon directly anyway: the loopback guard refuses any request with an `Origin` header (ADR 0009).
+
+The preload is a fixed, generic forwarder in plain JavaScript (`preload.cjs`, checked by `// @ts-check`), so it doesn’t grow as features arrive. A new feature adds a name to main’s list of allowed requests and a typed function to the renderer’s `ted.ts`. Electron loads sandboxed preloads with its own loader, which doesn’t strip TypeScript types, so the preload can’t be a `.ts` file without a build step.
+
+Vite builds the renderer, which needs a bundler anyway for TSX and npm imports. This is the exception to ADR 0008: code that runs in Chromium either gets a build step (the renderer) or stays plain JavaScript (the preload). The main process and the daemon still run as `.ts` directly.
+
+The app starts the daemon through the same `withDaemon` as the `ted` CLI, in `@ted/daemon/launch`. It spawns `process.execPath` with `ELECTRON_RUN_AS_NODE=1`: under the app that is the Electron binary running as Node, as the spec requires (§2.1), and under the CLI it is plain Node, which ignores the variable. If a daemon is already running, the app connects to it.
+
+## Considered Options
+
+- **A TypeScript preload built by Vite as a second target.** Typed, but adds a second build config for a file that never changes. Rejected.
+- **A preload with one typed function per daemon call.** Grows with every feature, in plain JavaScript. Rejected in favour of the generic forwarder.
+- **`sandbox: false` so the preload can load `.ts`.** Gives the preload full Node access. Rejected.
+
+## Consequences
+
+- Until KRI-116 adds background mode, closing the window quits the app, and the app starts the daemon with `--exit-when-idle` like `ted` does. The app’s open event stream keeps it alive; it exits a minute after the app closes. KRI-116 changes this.
+- Running the app needs a `vite build` of the renderer first. `pnpm app` does both.

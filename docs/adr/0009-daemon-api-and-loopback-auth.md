@@ -12,7 +12,7 @@ The lock is an exclusive SQLite transaction on `daemon-lock.db`, opened with Nod
 
 ## Consequences
 
-- `node:sqlite` is still experimental in Node 24, so the daemon logs an `ExperimentalWarning` and the API may change. The Node inside Electron must include it (checked in KRI-83).
+- `node:sqlite` is still experimental in Node 24, so the daemon logs an `ExperimentalWarning` and the API may change. The Node inside Electron must include it; Electron 45.2.3, with Node 24.22.2, does (checked in KRI-83).
 
 - New routes get the guard by default; nothing has to remember to add it.
 - A daemon that `ted` starts runs with `--exit-when-idle` and exits after a minute without a request. Later work that keeps the daemon busy, such as Runs and enabled Automations, has to report itself to the idle timer.

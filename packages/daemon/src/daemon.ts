@@ -10,6 +10,7 @@ export interface DaemonOptions {
   home: string
   version: string
   idleExit?: { afterMs: number; onIdle: () => void }
+  keepaliveMs?: number
 }
 
 export interface RunningDaemon {
@@ -31,7 +32,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     version: options.version,
     token,
     store,
-    ...(idle && { onRequest: idle.reset }),
+    keepaliveMs: options.keepaliveMs ?? 30_000,
+    ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }
   const tmp = `${paths.daemonInfo}.${process.pid}.tmp`
@@ -43,7 +45,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     async stop() {
       idle?.cancel()
       await rm(paths.daemonInfo, { force: true })
-      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve())
+        server.closeAllConnections()
+      })
       await store.close()
       lock.release()
     },

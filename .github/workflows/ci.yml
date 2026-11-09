@@ -18,4 +18,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      - run: pnpm --filter @ted/app exec install-electron
+      # Ubuntu runners block Chromium's OS sandbox; the renderer's own sandbox stays on.
+      - run: xvfb-run -a pnpm test
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'

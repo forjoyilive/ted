@@ -2,13 +2,15 @@ import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { CreateTaskRequest } from '@ted/protocol'
+import type { IdleTimer } from './idle.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface ServerOptions {
   version: string
   token: string
   store: TedStore
-  onRequest?: () => void
+  idle?: IdleTimer
+  keepaliveMs: number
 }
 
 const maxBodyBytes = 1024 * 1024
@@ -25,7 +27,7 @@ export async function listen(
   options: ServerOptions,
 ): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
-    options.onRequest?.()
+    options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
       console.error(error)
@@ -42,7 +44,7 @@ export async function listen(
 async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  { version, token, store }: ServerOptions,
+  { version, token, store, idle, keepaliveMs }: ServerOptions,
 ): Promise<void> {
   if (!isLoopbackHost(req.headers.host)) throw new HttpError(403, 'host not allowed')
   if (req.headers.origin !== undefined) throw new HttpError(403, 'browser requests not allowed')
@@ -53,6 +55,7 @@ async function handle(
   if (!hasToken(req.headers.authorization, token))
     throw new HttpError(401, 'missing or wrong token')
 
+  if (route === 'GET /events') return streamEvents(req, res, store, idle, keepaliveMs)
   if (route === 'GET /tasks') return sendJson(res, 200, store.listTasks())
   if (route === 'POST /tasks') {
     const body = (await readJson(req)) as Partial<CreateTaskRequest> | null
@@ -61,6 +64,26 @@ async function handle(
     return sendJson(res, 201, await store.createTask({ title }))
   }
   throw new HttpError(404, 'not found')
+}
+
+function streamEvents(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  store: TedStore,
+  idle: IdleTimer | undefined,
+  keepaliveMs: number,
+): void {
+  res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' })
+  res.write('event: ready\ndata: {}\n\n')
+  const unsubscribe = store.subscribe((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  // Node's fetch fails a response body that sends nothing for 300 seconds.
+  const keepalive = setInterval(() => res.write(': keepalive\n\n'), keepaliveMs)
+  const release = idle?.hold()
+  req.on('close', () => {
+    clearInterval(keepalive)
+    unsubscribe()
+    release?.()
+  })
 }
 
 function isLoopbackHost(host: string | undefined): boolean {

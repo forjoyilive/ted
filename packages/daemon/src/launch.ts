@@ -38,11 +38,12 @@ async function startDaemon(home: string): Promise<void> {
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
   await mkdir(paths.logs, { recursive: true })
   const log = await open(paths.daemonLog, 'a')
-  const daemonMain = fileURLToPath(import.meta.resolve('@ted/daemon/main'))
+  const daemonMain = fileURLToPath(new URL('./main.ts', import.meta.url))
+  // Under Electron, process.execPath is the Electron binary; plain Node ignores the variable.
   const child = spawn(process.execPath, [daemonMain, '--exit-when-idle'], {
     detached: true,
     stdio: ['ignore', log.fd, log.fd],
-    env: { ...process.env, TED_HOME: home },
+    env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1' },
   })
   child.unref()
   await log.close()

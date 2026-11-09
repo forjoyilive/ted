@@ -2,7 +2,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { makeTempHome, rawRequest } from './helpers.ts'
 
@@ -64,4 +64,20 @@ test('a daemon started without --exit-when-idle keeps running', async () => {
   await sleep(800)
 
   expect(child.exitCode).toBeNull()
+})
+
+test('an open event stream keeps a daemon started with --exit-when-idle running', async () => {
+  child = startDaemonProcess(['--exit-when-idle'], 300)
+  const exited = once(child, 'exit')
+  await waitForPort()
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('no daemon.json')
+  const subscription = await new DaemonClient(info).subscribe(() => {})
+
+  await sleep(900)
+  expect(child.exitCode).toBeNull()
+
+  subscription.close()
+  const [code] = await exited
+  expect(code).toBe(0)
 })

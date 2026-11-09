@@ -44,17 +44,19 @@ describe('daemon HTTP API', () => {
     expect(second.token).not.toBe(first.token)
   })
 
-  test('refuses /tasks without the token or with a wrong one', async () => {
+  test('refuses /tasks and /events without the token or with a wrong one', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
 
-    const none = await rawRequest(daemon.port, { path: '/tasks' })
-    const wrong = await rawRequest(daemon.port, {
-      path: '/tasks',
-      headers: { authorization: `Bearer ${'0'.repeat(64)}` },
-    })
+    for (const route of ['/tasks', '/events']) {
+      const none = await rawRequest(daemon.port, { path: route })
+      const wrong = await rawRequest(daemon.port, {
+        path: route,
+        headers: { authorization: `Bearer ${'0'.repeat(64)}` },
+      })
 
-    expect(none.status).toBe(401)
-    expect(wrong.status).toBe(401)
+      expect(none.status, route).toBe(401)
+      expect(wrong.status, route).toBe(401)
+    }
   })
 
   test.each([
@@ -65,7 +67,7 @@ describe('daemon HTTP API', () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const token = await tokenFor(home)
 
-    for (const route of ['/healthz', '/tasks']) {
+    for (const route of ['/healthz', '/tasks', '/events']) {
       const res = await rawRequest(daemon.port, {
         path: route,
         headers: { authorization: `Bearer ${token}`, ...headers },

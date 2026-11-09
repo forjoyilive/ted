@@ -1,4 +1,5 @@
 import type { DaemonInfo } from './daemon-info.ts'
+import type { DaemonEvent } from './events.ts'
 import type { CreateTaskRequest, Task } from './task.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -9,6 +10,10 @@ export class DaemonRequestError extends Error {
     super(message)
     this.status = status
   }
+}
+
+export interface Subscription {
+  close(): void
 }
 
 export class DaemonClient {
@@ -26,24 +31,80 @@ export class DaemonClient {
     return this.#request('POST', '/tasks', input)
   }
 
+  async subscribe(onEvent: (event: DaemonEvent) => void): Promise<Subscription> {
+    const controller = new AbortController()
+    const res = await this.#fetch('GET', '/events', undefined, controller.signal)
+    if (!res.ok || !res.body) throw await requestError(res)
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+
+    const ready = Promise.withResolvers<void>()
+    void (async () => {
+      let buffer = ''
+      for (;;) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer = dispatch(buffer + value, onEvent, ready.resolve)
+      }
+      ready.reject(new DaemonUnreachableError('the daemon closed the event stream'))
+    })().catch(ready.reject)
+    await ready.promise
+
+    return { close: () => controller.abort() }
+  }
+
   async #request<T>(method: string, route: string, body?: unknown): Promise<T> {
-    let res: Response
+    const res = await this.#fetch(method, route, body)
+    if (!res.ok) throw await requestError(res)
+    return (await res.json()) as T
+  }
+
+  async #fetch(
+    method: string,
+    route: string,
+    body?: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     try {
-      res = await fetch(`http://127.0.0.1:${this.#info.port}${route}`, {
+      return await fetch(`http://127.0.0.1:${this.#info.port}${route}`, {
         method,
         headers: {
           authorization: `Bearer ${this.#info.token}`,
           ...(body !== undefined && { 'content-type': 'application/json' }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),
+        ...(signal && { signal }),
       })
     } catch (error) {
       throw new DaemonUnreachableError(`can't reach TED's daemon on port ${this.#info.port}`, {
         cause: error,
       })
     }
-    const payload = (await res.json()) as T & { error?: string }
-    if (!res.ok) throw new DaemonRequestError(res.status, payload.error ?? `HTTP ${res.status}`)
-    return payload
   }
+}
+
+async function requestError(res: Response): Promise<DaemonRequestError> {
+  const payload = (await res.json().catch(() => ({}))) as { error?: string }
+  return new DaemonRequestError(res.status, payload.error ?? `HTTP ${res.status}`)
+}
+
+function dispatch(
+  buffer: string,
+  onEvent: (event: DaemonEvent) => void,
+  onReady: () => void,
+): string {
+  const messages = buffer.split('\n\n')
+  const rest = messages.pop() ?? ''
+  for (const message of messages) {
+    const lines = message.split('\n')
+    if (lines.includes('event: ready')) {
+      onReady()
+      continue
+    }
+    const data = lines
+      .filter((line) => line.startsWith('data: '))
+      .map((line) => line.slice('data: '.length))
+      .join('\n')
+    if (data !== '') onEvent(JSON.parse(data) as DaemonEvent)
+  }
+  return rest
 }
