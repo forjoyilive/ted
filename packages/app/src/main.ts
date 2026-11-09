@@ -25,7 +25,9 @@ import {
   downloadUrl,
   linearKeyPage,
   type MachineSettings,
+  type MoveTaskRequest,
   noActivity,
+  type Priority,
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
@@ -90,6 +92,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  moveTask: (client, taskId, request) =>
+    client.moveTask(String(taskId), request as MoveTaskRequest),
+  setPriority: (client, taskId, priority) =>
+    client.setPriority(String(taskId), String(priority) as Priority),
+  archiveTask: (client, taskId) => client.archiveTask(String(taskId)),
   blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
   unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),

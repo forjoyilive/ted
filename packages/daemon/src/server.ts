@@ -11,16 +11,23 @@ import {
   agentKinds,
   agentStageIds,
   appearances,
+  archivedFilters,
   type BannerActionInput,
   type BlockTaskRequest,
   type CheckRepoRequest,
   type CreateFactoryRequest,
   type CreateTaskRequest,
   clarifyDepths,
+  createdByKinds,
   type DaemonEvent,
   type Effort,
   efforts,
   integrationFixes,
+  type ListFilters,
+  type ListView,
+  listColumns,
+  listGroups,
+  listSorts,
   type MachineSettings,
   type NewFactoryRepo,
   type PostCommentRequest,
@@ -33,7 +40,9 @@ import {
   type SetActivityRequest,
   type SetLocalFolderRequest,
   type StartDevRunRequest,
+  type StatusFilter,
   type TaskLead,
+  taskStatusKinds,
   terminalFontSizes,
   type WriteBriefRequest,
   workingRunLimits,
@@ -187,6 +196,43 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/move$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Record<string, unknown> | null
+      const side = (name: 'after' | 'before') => {
+        const value = body?.[name]
+        if (value === undefined || value === null) return undefined
+        if (typeof value !== 'string') throw new HttpError(400, `${name} must be a Task ID`)
+        return value
+      }
+      const after = side('after')
+      const before = side('before')
+      return [
+        200,
+        tasks.move(ref, {
+          ...(after !== undefined && { after }),
+          ...(before !== undefined && { before }),
+        }),
+      ]
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/priority$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Record<string, unknown> | null
+      const priority = priorities.find((p) => p === body?.priority)
+      if (!priority) throw new HttpError(400, `priority must be ${priorities.join(', ')}`)
+      return [200, tasks.setPriority(ref, priority)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/archive$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.archive(ref)],
   },
   {
     method: 'POST',
@@ -909,7 +955,76 @@ function isControl(char: string): boolean {
 const maxPictureBytes = 512 * 1024
 const pictureUrl = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/
 
+const stageIds = ['backlog', ...agentStageIds, 'done'] as const
+const statusFilters: readonly StatusFilter[] = [...taskStatusKinds, 'none']
+
+function oneOfList<T extends string>(name: string, value: unknown, allowed: readonly T[]): T[] {
+  if (!Array.isArray(value)) throw new HttpError(400, `${name} must be a list`)
+  return value.map((item) => {
+    const found = allowed.find((a) => a === item)
+    if (!found) throw new HttpError(400, `${name} must list only ${allowed.join(', ')}`)
+    return found
+  })
+}
+
+function listFilters(value: unknown): ListFilters {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'filters must be an object')
+  }
+  const given = value as Record<string, unknown>
+  const filters: ListFilters = {}
+  for (const [name, item] of Object.entries(given)) {
+    if (name === 'factories') {
+      if (!Array.isArray(item) || item.some((f) => typeof f !== 'string')) {
+        throw new HttpError(400, 'factories must list Factory IDs')
+      }
+      filters.factories = item as string[]
+    } else if (name === 'stages') filters.stages = oneOfList(name, item, stageIds)
+    else if (name === 'statuses') filters.statuses = oneOfList(name, item, statusFilters)
+    else if (name === 'priorities') filters.priorities = oneOfList(name, item, priorities)
+    else if (name === 'createdBy') filters.createdBy = oneOfList(name, item, createdByKinds)
+    else if (name === 'needsPlanning') {
+      if (typeof item !== 'boolean') throw new HttpError(400, 'needsPlanning must be true or false')
+      filters.needsPlanning = item
+    } else if (name === 'archived') {
+      const archived = archivedFilters.find((a) => a === item)
+      if (!archived) throw new HttpError(400, `archived must be ${archivedFilters.join(', ')}`)
+      filters.archived = archived
+    } else throw new HttpError(400, `unknown filter ${name}`)
+  }
+  return filters
+}
+
+function listView(value: unknown): ListView {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'a List view must be an object')
+  }
+  const view = value as Record<string, unknown>
+  const sort = listSorts.find((s) => s === view.sort)
+  if (!sort) throw new HttpError(400, `sort must be ${listSorts.join(', ')}`)
+  const group = listGroups.find((g) => g === view.group)
+  if (!group) throw new HttpError(400, `group must be ${listGroups.join(', ')}`)
+  const columns = oneOfList('columns', view.columns, listColumns)
+  return {
+    sort,
+    group,
+    columns: columns.includes('title') ? columns : ['title', ...columns],
+    filters: listFilters(view.filters ?? {}),
+  }
+}
+
 const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  listViews(value) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new HttpError(400, 'listViews must be an object of List views by scope')
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([scope, view]) => [
+        scope,
+        listView(view),
+      ]),
+    )
+  },
   appearance(value) {
     const appearance = appearances.find((a) => a === value)
     if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)

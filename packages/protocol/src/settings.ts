@@ -1,3 +1,5 @@
+import type { ListView } from './list-view.ts'
+
 export const appearances = ['system', 'light', 'dark'] as const
 
 export type Appearance = (typeof appearances)[number]
@@ -20,6 +22,7 @@ export interface MachineSettings {
   showTrayIcon: boolean
   startAtLogin: boolean
   stayAwake: boolean
+  listViews: Readonly<Record<string, ListView>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -32,6 +35,7 @@ export const defaultMachineSettings: MachineSettings = {
   showTrayIcon: true,
   startAtLogin: true,
   stayAwake: true,
+  listViews: {},
 }
 
 export interface Profile {
