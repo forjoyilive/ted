@@ -4,6 +4,13 @@ import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
 
+const depthNames: Record<Task['clarifyDepth'], string> = {
+  auto: 'Auto',
+  none: 'None',
+  few: 'Few',
+  grilling: 'Grilling',
+}
+
 export function stageTitle(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1)
 }
@@ -27,6 +34,11 @@ export async function taskLeadPrompt(
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
     ...(task.description !== '' ? [task.description] : []),
+    ...(task.clarifyDepth !== 'auto'
+      ? [
+          `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
+        ]
+      : []),
     ...(attachmentFile && task.attachments.length > 0
       ? [
           `Attached files:\n${task.attachments

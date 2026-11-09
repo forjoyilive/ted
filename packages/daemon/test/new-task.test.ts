@@ -149,7 +149,7 @@ describe('creating a Task from the New Task dialog', () => {
     expect(now.leadRunId).toBeDefined()
   })
 
-  test('the Task Lead gets the description and the paths of the attachments', async () => {
+  test('the Task Lead gets the description, the chosen Clarify depth and the attachment paths', async () => {
     const { client } = await withFactory()
     const shot = await client.uploadAttachment(
       { name: 'cafe.png', mediaType: 'image/png' },
@@ -161,6 +161,7 @@ describe('creating a Task from the New Task dialog', () => {
       title: 'Search ignores accents',
       description: `Typing cafe should find Café.\n${steps({ endTurn: true })}`,
       attachments: [shot],
+      clarifyDepth: 'few',
       start: true,
     })
 
@@ -172,6 +173,7 @@ describe('creating a Task from the New Task dialog', () => {
     const content = (JSON.parse(first.line) as { message: { content: string } }).message.content
     expect(content).toContain('Typing cafe should find Café.')
     expect(content).toContain(path.join(home, 'attachments', `${shot.hash}.png`))
+    expect(content).toContain('Clarify depth: Few.')
   })
 
   test('the Task Lead runs the agent the dialog chose', async () => {
