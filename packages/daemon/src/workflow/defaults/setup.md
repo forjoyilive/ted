@@ -55,4 +55,4 @@ Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted
 
 ## Validate
 
-TED runs the Checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the TED settings Check. Start each proposed App from this branch and confirm it becomes ready the way the proposal says.
+TED runs the Checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the TED settings Check, then starts the approved Apps from this branch and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.

@@ -5,13 +5,23 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { Banner, CheckRun, Comment, Factory, InboxItem, RunSlots, Task } from '@ted/protocol'
+import type {
+  Banner,
+  CheckRun,
+  Comment,
+  Factory,
+  InboxItem,
+  RunSlots,
+  Task,
+  TaskApp,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { resolveWorkflow, setupWorkflow } from '../src/workflow/resolve.ts'
 import {
   api,
   commitToOrigin,
+  killAppHosts,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -21,6 +31,7 @@ import {
 
 const execFileAsync = promisify(execFile)
 const stubGh = fileURLToPath(new URL('./fixtures/stub-gh.ts', import.meta.url))
+const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
 
 let home: string
 let cleanup: () => Promise<void>
@@ -53,6 +64,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
+  await killAppHosts(home)
   await killRunHosts(home)
   process.env = { ...savedEnv }
   await cleanup()
@@ -319,6 +331,15 @@ describe('the proposal', () => {
         '    checks:',
         '      - { name: Unit, run: "true" }',
         `      - { name: Sneaky, run: "touch ${path.join(scratch, 'sneaky')}" }`,
+        'repos:',
+        '  - name: widgets',
+        '    apps:',
+        '      - name: Web',
+        '        kind: command',
+        `        run: "'${process.execPath}' '${stubApp}'"`,
+        '      - name: Sneaky App',
+        '        kind: command',
+        `        run: "touch ${path.join(scratch, 'sneaky-app')}"`,
         '',
       ].join('\n'),
     )
@@ -372,6 +393,12 @@ describe('the proposal', () => {
     }, 'the Validate Checks')
     expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'TED settings'])
     expect(existsSync(path.join(scratch, 'sneaky'))).toBe(false)
+    const web = await waitUntil(async () => {
+      const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)
+      return apps.find((a) => a.name === 'Web' && a.state === 'running') && apps
+    }, 'TED to start the proposed App')
+    expect(web.map((a) => a.name)).toEqual(['Web'])
+    expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
     await answer('review')
 
     const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)

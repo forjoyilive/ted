@@ -82,6 +82,7 @@ import {
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
+import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
@@ -104,6 +105,7 @@ import type {
   StoredTask,
   TedStore,
 } from '../store/index.ts'
+import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { type CheckSettings, checkLayer, type WorkflowSettings } from '../workflow/check.ts'
 import { readGitLayer } from '../workflow/layers.ts'
@@ -520,6 +522,7 @@ export function createTasks(options: {
       (await resolveWorkflow(factory, { fetch: false })).workflow,
       factory,
     )
+    const setupApps = task.setup ? await approvedSetupApps(task) : undefined
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
@@ -529,7 +532,7 @@ export function createTasks(options: {
           name: repo.name,
           worktree: repo.worktree,
           env: store.recordedSetup(task.id, repo.name)?.env ?? entry?.env ?? {},
-          apps: entry?.apps ?? [],
+          apps: setupApps ? (setupApps.get(repo.name) ?? []) : (entry?.apps ?? []),
         }
       }),
     }
@@ -915,27 +918,68 @@ export function createTasks(options: {
   const checkLog = (task: Task, checkRunId: string, position: number) =>
     path.join(checkDir(task, checkRunId), `${position + 1}.log`)
 
-  async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
+  async function approvedSetup(task: StoredTask) {
     const factory = factoryOf(task)
     const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
-    if (!primary) return []
+    if (!primary) return undefined
     const found = await readGitLayer(primary.worktree, 'HEAD').catch(() => undefined)
-    if (!found) return []
+    if (!found) return undefined
     const layer = checkLayer({ kind: 'factory', files: found.files, primaryRepo: factory.repo })
-    if (!layer.valid) return []
+    if (!layer.valid) return undefined
     const proposal = store
       .listComments(task.id)
       .findLast(
         (c) => c.gate && c.stage === 'design' && c.answer?.kind === 'approved' && c.design?.setup,
       )?.design?.setup
+    return proposal && { primary, settings: layer.settings, proposal }
+  }
+
+  async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
+    const approved = await approvedSetup(task)
+    if (!approved) return []
+    const { primary, settings, proposal } = approved
     const key = (name: string, command: string, repo: string | undefined) =>
       [name, command, repo ?? primary.name].join('\0')
-    const approved = new Set(
-      (proposal?.checks ?? []).filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
+    const passed = new Set(
+      proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
     )
-    return (layer.settings.stages.validate?.checks ?? []).filter((c) =>
-      approved.has(key(c.name, c.run, c.repo)),
+    return (settings.stages.validate?.checks ?? []).filter((c) =>
+      passed.has(key(c.name, c.run, c.repo)),
     )
+  }
+
+  async function approvedSetupApps(task: StoredTask): Promise<Map<string, AppDeclaration[]>> {
+    const approved = await approvedSetup(task)
+    if (!approved) return new Map()
+    const { primary, settings, proposal } = approved
+    const passed = (repo: string, name: string) =>
+      proposal.apps.some((a) => a.passed && a.name === name && (a.repo ?? primary.name) === repo)
+    const repos = settings.repos ?? []
+    return new Map(
+      task.repos
+        .filter((r) => !r.removed)
+        .map((r) => {
+          const listed = r === primary ? repos[0] : repos.slice(1).find((s) => s.name === r.name)
+          const apps = appDeclarations(listed?.apps).filter((a) => passed(r.name, a.name))
+          return [r.name, apps] as const
+        }),
+    )
+  }
+
+  async function startSetupApps(task: StoredTask): Promise<string | undefined> {
+    const lines: string[] = []
+    for (const [repo, declared] of await approvedSetupApps(task)) {
+      for (const app of declared) {
+        const started = await apps.start(task.id, { name: app.name, repo }, 'task-lead').then(
+          (shown) => `- ${app.name}: ${shown.state}${shown.url ? ` at ${shown.url}` : ''}`,
+          (error: unknown) => `- ${app.name}: didn’t start: ${messageOf(error)}`,
+        )
+        lines.push(started)
+      }
+    }
+    return lines.length === 0
+      ? undefined
+      : `# Apps\n\nTED started the approved Apps from this branch:\n\n${lines.join('\n')}`
   }
 
   async function beginChecks(
@@ -1037,8 +1081,13 @@ export function createTasks(options: {
       const { workflow } = resolution
       const instructions = message ?? nextStageMessage(workflow, 'validate')
       const started = await beginChecks(task, resolution, 'validate')
+      const withApps = async (text: string) => {
+        const current = find(taskId)
+        const apps = current.setup ? await startSetupApps(current) : undefined
+        return apps === undefined ? text : `${text}\n\n${apps}`
+      }
       if (!started) {
-        await deliver(task, instructions)
+        await deliver(task, await withApps(instructions))
         return
       }
       const result = await started.done
@@ -1048,7 +1097,9 @@ export function createTasks(options: {
       if (result.outcome === 'passed') {
         await deliver(
           current,
-          `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
+          await withApps(
+            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`,
+          ),
         )
         return
       }
