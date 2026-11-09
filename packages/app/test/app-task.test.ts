@@ -124,7 +124,7 @@ describe('TED app', () => {
   test('Validate’s ✓ row shows each Check’s state, the Blocking findings box, and opens the output', async () => {
     const parent = path.join(ctx.home, 'origin')
     const origin = await makeOriginRepo(parent)
-    const flag = path.join(ctx.home, 'failed-once')
+    const flag = 'stub-failed-once'
     await commitToOrigin(parent, {
       '.gitignore': 'stub-*\n',
       '.ted/workflow.yaml': [
