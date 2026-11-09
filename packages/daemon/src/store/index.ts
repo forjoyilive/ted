@@ -5,36 +5,52 @@ import { createStorePromise, queryDb } from '@livestore/livestore'
 import {
   type Activity,
   type AgentKind,
+  type AgentStageId,
   type Appearance,
+  type Attachment,
+  agentStageIds,
   type Banner,
   type BannerAction,
   type BannerSeverity,
   bannerOrder,
+  type ClarifyDepth,
   type Comment,
   type ConversationEntry,
+  type CopySkip,
   type DaemonEvent,
-  defaultSettings,
+  defaultMachineSettings,
+  type Effort,
   type Factory,
   type LayerKind,
   type LayerUse,
   type MachineSettings,
+  type Priority,
   type Run,
   type RunState,
   type StageEntry,
   type StageId,
   type Task,
+  type TaskLead,
+  type TaskRepo,
+  type TrackStage,
+  type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import {
   banners,
   comments,
   conversationEntries,
   events,
   factories,
+  localFolders,
   machineSettings,
+  machineSettingValues,
   runs,
   schema,
-  settingValues,
   stageEntries,
+  taskAttachments,
+  taskBlockers,
+  taskRepos,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -54,9 +70,42 @@ export interface StoredFactory extends Factory {
 
 export interface StoredTask extends Task {
   worktree?: string
+  startRequested: boolean
 }
 
-export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
+export interface NewTask {
+  title: string
+  factoryId?: string
+  description?: string
+  priority?: Priority
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+  startRequested?: boolean
+  blockedBy?: string[]
+  attachments?: Attachment[]
+}
+
+export interface PlannedStage {
+  stage: AgentStageId
+  enabled: boolean
+}
+
+export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
+  order: PlannedStage[]
+}
+
+export interface NewWorktree {
+  name: string
+  repo: string
+  copied: string[]
+  skipped: CopySkip[]
+}
+
+export interface RecordedSetup {
+  command: string
+  timeoutMs: number
+  env: Record<string, string>
+}
 
 export interface AcceptedLayer {
   files: Record<string, string | null>
@@ -68,7 +117,7 @@ export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
-  createTask(input: { title: string; factoryId?: string }): Promise<Task>
+  createTask(input: NewTask): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   startTask(input: {
@@ -77,11 +126,27 @@ export interface TedStore {
     branch: string
     worktree: string
     entry: NewStageEntry
+    repo: NewWorktree
   }): Task
+  worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
+  recordedSetup(taskId: string, name: string): RecordedSetup | undefined
+  worktreeSetupFinished(
+    taskId: string,
+    name: string,
+    result: { outcome: WorktreeCommandOutcome; exitCode?: number },
+  ): void
+  worktreeRemoved(
+    taskId: string,
+    name: string,
+    teardown?: { command: string; outcome: WorktreeCommandOutcome },
+  ): void
+  setLocalFolder(repo: string, path: string): void
+  localFolder(repo: string): string | undefined
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -109,6 +174,10 @@ export interface TedStore {
   close(): Promise<void>
 }
 
+function pick(values: Record<string, unknown>, names: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(values).filter(([name]) => names.includes(name)))
+}
+
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export async function openStore({ directory }: { directory: string }): Promise<TedStore> {
@@ -129,22 +198,114 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       ? placeholderFactory.key
       : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
 
-  const leadRunId = (taskId: string) =>
-    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
+  const taskRuns = (taskId: string) =>
+    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
-  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
-    const lead = leadRunId(row.id)
+  const toTaskRepo = (row: typeof taskRepos.Type): TaskRepo => ({
+    name: row.name,
+    repo: row.repo,
+    branch: row.branch,
+    worktree: row.worktree,
+    copied: JSON.parse(row.copied) as string[],
+    skipped: JSON.parse(row.skipped) as CopySkip[],
+    ...(row.setupCommand !== null &&
+      row.setupState !== null && {
+        setup: {
+          command: row.setupCommand,
+          state: row.setupState as NonNullable<TaskRepo['setup']>['state'],
+          ...(row.setupExitCode !== null && { exitCode: row.setupExitCode }),
+        },
+      }),
+    ...(row.removedAt !== null && {
+      removed: {
+        at: row.removedAt,
+        ...(row.teardownCommand !== null &&
+          row.teardownOutcome !== null && {
+            teardown: {
+              command: row.teardownCommand,
+              outcome: row.teardownOutcome as WorktreeCommandOutcome,
+            },
+          }),
+      },
+    }),
+  })
+
+  const reposOf = (taskId: string) =>
+    store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
+
+  const blockersOf = (taskId: string) =>
+    store
+      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+      .map((row) => row.blockerId)
+
+  const attachmentsOf = (taskId: string): Attachment[] =>
+    store
+      .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
+  const entryRows = (taskId: string) =>
+    store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+
+  const toTask = ({
+    branch,
+    worktree,
+    activity,
+    activityEntries,
+    leadAgent,
+    leadModel,
+    leadEffort,
+    ...row
+  }: typeof tasks.Type): StoredTask => {
+    const stage = row.stage as StageId
+    const all = taskRuns(row.id)
+    const lead = all.at(0)
+    const live = all.filter((r) => r.state !== 'finished')
+    const entries = entryRows(row.id)
+    const blockedBy = blockersOf(row.id)
+    const waitingOn = blockedBy.flatMap((id) => {
+      const blocker = taskRow(id)
+      return blocker && blocker.stage !== 'done'
+        ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
+        : []
+    })
+    const facts: TaskFacts = {
+      stage,
+      runs: live.map((r) => r.state as RunState),
+      ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
+      ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
+    }
+    const status = taskStatus(facts)
+    const shown = taskActivity(facts)
     return {
       ...row,
-      stage: row.stage as StageId,
+      priority: row.priority as Priority,
+      clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(leadAgent !== null && {
+        lead: {
+          agent: leadAgent as AgentKind,
+          ...(leadModel !== null && { model: leadModel }),
+          ...(leadEffort !== null && { effort: leadEffort as Effort }),
+        },
+      }),
+      blockedBy,
+      repos: reposOf(row.id),
+      attachments: attachmentsOf(row.id),
+      stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
-      ...(lead !== undefined && { leadRunId: lead }),
+      ...(lead !== undefined && { leadRunId: lead.id }),
+      ...(status !== undefined && { status }),
+      markers: taskMarkers(facts, status),
+      ...(shown !== undefined && { activity: shown }),
+      track: track(stage, entries),
+      runs: live
+        .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
+        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
     }
   }
 
-  const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
+  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
   const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
     ...row,
@@ -161,13 +322,14 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEntered({
+    events.taskStageEnteredV2({
       id: randomUUID(),
       taskId,
       stage,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
+      order: JSON.stringify(entry.order),
       at,
     })
 
@@ -185,6 +347,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
+  const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
@@ -200,14 +363,16 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   }
 
   const settings = (): MachineSettings => {
-    const row = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
+    const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
     const values = Object.fromEntries(
-      store.query(queryDb(settingValues)).map(({ name, value }) => [name, JSON.parse(value)]),
-    ) as Partial<MachineSettings>
+      store
+        .query(queryDb(machineSettingValues.select()))
+        .map(({ name, value }) => [name, JSON.parse(value) as unknown]),
+    )
     return {
-      ...defaultSettings,
-      ...values,
-      appearance: (row?.appearance as Appearance | undefined) ?? defaultSettings.appearance,
+      ...defaultMachineSettings,
+      ...(legacy && { appearance: legacy.appearance as Appearance }),
+      ...pick(values, Object.keys(defaultMachineSettings)),
     }
   }
 
@@ -262,18 +427,44 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
-    async createTask({ title, factoryId = placeholderFactory.id }) {
+    async createTask({
+      title,
+      factoryId = placeholderFactory.id,
+      description = '',
+      priority = 'none',
+      clarifyDepth = 'auto',
+      lead,
+      startRequested = false,
+      blockedBy = [],
+      attachments = [],
+    }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
-      const row = {
-        id: randomUUID(),
-        factoryId,
-        number,
-        title,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.taskCreated(row))
-      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
+      const id = randomUUID()
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskCreatedV2({
+          id,
+          factoryId,
+          number,
+          title,
+          description,
+          priority,
+          clarifyDepth,
+          leadAgent: lead?.agent ?? null,
+          leadModel: lead?.model ?? null,
+          leadEffort: lead?.effort ?? null,
+          startRequested,
+          createdAt: at,
+        }),
+        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...attachments.map((attachment) =>
+          events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+        ),
+      )
+      const row = taskRow(id)
+      if (!row) throw new Error(`no Task ${id}`)
+      const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
       return task
     },
@@ -282,21 +473,81 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       const row = taskRow(ref)
       return row ? toTask(row) : listTasks().find((t) => t.displayId === ref)
     },
-    startTask({ taskId, stage, branch, worktree, entry }) {
+    startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()
       store.commit(
         events.taskStarted({ taskId, stage, branch, worktree, at }),
+        events.taskWorktreeCreated({ taskId, ...repo, branch, worktree, at }),
         stageEntered(taskId, stage, entry, at),
       )
       return updatedTask(taskId)
     },
+    worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
+      store.commit(
+        events.taskWorktreeSetupStarted({
+          taskId,
+          name,
+          command,
+          timeoutMs,
+          env: JSON.stringify(env),
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    recordedSetup(taskId, name) {
+      const row = store.query(queryDb(taskRepos.where({ id: `${taskId}:${name}` }))).at(0)
+      if (!row?.setupCommand || row.setupTimeoutMs === null || row.setupEnv === null)
+        return undefined
+      return {
+        command: row.setupCommand,
+        timeoutMs: row.setupTimeoutMs,
+        env: JSON.parse(row.setupEnv) as Record<string, string>,
+      }
+    },
+    worktreeSetupFinished(taskId, name, { outcome, exitCode }) {
+      store.commit(
+        events.taskWorktreeSetupFinished({
+          taskId,
+          name,
+          outcome,
+          exitCode: exitCode ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    worktreeRemoved(taskId, name, teardown) {
+      store.commit(
+        events.taskWorktreeRemoved({
+          taskId,
+          name,
+          teardownCommand: teardown?.command ?? null,
+          teardownOutcome: teardown?.outcome ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    setLocalFolder(repo, path) {
+      store.commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
       store.commit(
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
       )
-      return updatedTask(taskId)
+      const task = updatedTask(taskId)
+      if (stage === 'done') {
+        for (const { taskId: waiting } of store.query(
+          queryDb(taskBlockers.where({ blockerId: taskId })),
+        )) {
+          updatedTask(waiting)
+        }
+      }
+      return task
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -319,6 +570,18 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           acceptedAt: row.acceptedAt,
         }
       )
+    },
+    setActivity(taskId, text, runId) {
+      store.commit(
+        events.taskActivitySet({
+          taskId,
+          text,
+          runId: runId ?? null,
+          stageEntries: entryRows(taskId).length,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
     },
     postComment({ taskId, body, authorRunId }) {
       const row = {
@@ -348,6 +611,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         startedAt: new Date().toISOString(),
       }
       store.commit(events.runStartedV2(row))
+      if (taskId !== undefined) updatedTask(taskId)
       noteActivity()
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
@@ -363,6 +627,8 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),
       )
+      const taskId = taskIdOfRun(runId)
+      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
       if (state && state !== current.state) noteActivity()
     },
     getRun(id) {
@@ -377,21 +643,21 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         .map(({ offset, line }) => ({ offset, line })),
     settings,
     activity,
-    updateSettings({ appearance, ...others }) {
+    updateSettings(changes) {
       const current = settings()
-      const at = new Date().toISOString()
-      const changed = [
-        ...(appearance !== undefined && appearance !== current.appearance
-          ? [events.appearanceChanged({ appearance, at })]
-          : []),
-        ...Object.entries(others)
-          .filter(([name, value]) => current[name as keyof MachineSettings] !== value)
-          .map(([name, value]) =>
-            events.settingChanged({ name, value: JSON.stringify(value), at }),
-          ),
-      ]
-      if (changed.length > 0) {
-        store.commit(...changed)
+      const changed = Object.fromEntries(
+        Object.entries(changes).filter(
+          ([name, value]) =>
+            value !== undefined && current[name as keyof MachineSettings] !== value,
+        ),
+      )
+      if (Object.keys(changed).length > 0) {
+        store.commit(
+          events.machineSettingsChanged({
+            changes: JSON.stringify(changed),
+            at: new Date().toISOString(),
+          }),
+        )
         emit({ type: 'settings-changed', settings: settings() })
       }
       return settings()
@@ -438,4 +704,28 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
     close: () => store.shutdownPromise(),
   }
+}
+
+function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
+  const saved = entries.findLast((e) => e.order !== null)?.order
+  const plan: PlannedStage[] = saved
+    ? (JSON.parse(saved) as PlannedStage[])
+    : agentStageIds.map((id) => ({ stage: id, enabled: true }))
+  const order: StageId[] = plan.map((p) => p.stage)
+  const entered = new Set(entries.map((e) => e.stage))
+  const inOrder = order.includes(stage)
+  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
+  return plan.map(({ stage: id, enabled }) => {
+    if (id === stage) return { stage: id, state: 'current' }
+    if (!enabled) return { stage: id, state: 'skipped' }
+    if (stage === 'backlog') return { stage: id, state: 'future' }
+    if (stage === 'done' || rank(id) < rank(stage)) {
+      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
+    }
+    return { stage: id, state: 'future' }
+  })
+}
+
+function builtInRank(id: StageId): number {
+  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
 }

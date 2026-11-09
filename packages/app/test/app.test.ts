@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { DaemonClient, defaultSettings, readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { build } from 'vite'
 import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
@@ -60,6 +60,18 @@ async function launchApp(): Promise<Page> {
 }
 
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
+const settingsNav = (window: Page) => window.getByRole('navigation', { name: 'Settings' })
+
+async function openSettings(window: Page): Promise<void> {
+  await sidebar(window)
+    .getByRole('button', { name: /^Settings/ })
+    .last()
+    .click()
+  await settingsNav(window).waitFor()
+}
+
+const onePixelPng =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
 
 async function openAllTasks(window: Page): Promise<void> {
   await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
@@ -152,6 +164,90 @@ describe('TED app', () => {
     await window.getByRole('region', { name: 'Task thread' }).getByText('Halfway there').waitFor()
     await writeFile(path.join(home, 'go'), '')
     await details.getByText('Done', { exact: true }).waitFor()
+  })
+
+  test('the thread header shows the status, the live activity line and the Stage track', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const go = (n: number) => path.join(home, `go-${n}`)
+    const steps = JSON.stringify({
+      steps: [
+        { run: ['ted', 'comment', 'Read the brief'] },
+        { run: ['ted', 'status', 'Running Checks · Tests (2 of 3)'] },
+        { waitFor: go(1) },
+        { hook: 'PermissionRequest' },
+        { waitFor: go(2) },
+        { run: ['ted', 'outcome', 'advance'] },
+        { run: ['ted', 'comment', 'Asking the questions'] },
+        { endTurn: true },
+      ],
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', steps)
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const header = thread.locator('header')
+    await header.getByText('· Not started').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await header.getByText('Working', { exact: true }).waitFor()
+    await header.getByText('· Running Checks · Tests (2 of 3)').waitFor()
+    await header.getByRole('img', { name: 'Claude Code, working' }).waitFor()
+    await writeFile(go(1), '')
+    await header.getByText('Waiting on you', { exact: true }).waitFor()
+    await writeFile(go(2), '')
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    await header.getByText('Clarify', { exact: true }).waitFor()
+    expect(await header.getByText('· Running Checks').count()).toBe(0)
+
+    const intake = header.getByRole('button', { name: 'Intake, done' })
+    await intake.click()
+    expect(await intake.getAttribute('aria-pressed')).toBe('true')
+    await thread.getByText('Asking the questions', { exact: true }).waitFor({ state: 'detached' })
+    await thread.getByText('Read the brief', { exact: true }).waitFor()
+    await header.getByRole('button', { name: 'Clarify, now' }).click()
+    await thread.getByText('Read the brief', { exact: true }).waitFor({ state: 'detached' })
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    await header.getByRole('button', { name: 'Clarify, now' }).click()
+    await thread.getByText('Read the brief', { exact: true }).waitFor()
+    await thread.getByText('Asking the questions', { exact: true }).waitFor()
+    expect(
+      await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
+    ).toBeNull()
+  })
+
+  test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const code = window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+    await code.getByText('No worktree yet').waitFor()
+
+    await ted('task', 'start', 'NB-1')
+
+    await code.getByText(/^ted\/nb-1/).waitFor()
+    await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
+  })
+
+  test('a missing local folder raises a Factory banner with Locate', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const folder = path.join(home, 'local')
+    await mkdir(folder)
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
+    await rm(folder, { recursive: true })
+
+    const window = await launchApp()
+
+    const banner = window.getByRole('alert')
+    await banner.getByText('Local folder for widgets not found').waitFor()
+    await banner.getByRole('button', { name: 'Locate' }).waitFor()
   })
 
   test('quitting with nothing running ends the app and TED’s background process', async () => {
@@ -276,18 +372,12 @@ describe('TED app frame', () => {
 
   test('the Appearance setting switches the theme at once, from the app or the daemon', async () => {
     const window = await launchApp()
-    await sidebar(window)
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
+    await openSettings(window)
     const appearance = window.getByRole('radiogroup', { name: 'Appearance' })
 
     await appearance.getByText('Dark').click()
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(darkApp)
-    expect(await (await daemonClient()).getSettings()).toEqual({
-      ...defaultSettings,
-      appearance: 'dark',
-    })
+    expect((await (await daemonClient()).getSettings()).appearance).toBe('dark')
 
     await (await daemonClient()).updateSettings({ appearance: 'light' })
     await expect.poll(() => background(window), { timeout: 5_000 }).toBe(lightApp)
@@ -332,6 +422,342 @@ describe('TED app frame', () => {
     })
     expect(loaded).toEqual(['Geist Variable loaded', 'Geist Mono Variable loaded'])
     expect(violations).toEqual([])
+  })
+})
+
+describe('New Task dialog', () => {
+  async function withFactory(): Promise<Page> {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    return window
+  }
+
+  const dialog = (window: Page) => window.getByRole('dialog', { name: 'New Task' })
+
+  const tasks = async () => (await daemonClient()).listTasks()
+
+  const isFocused = (window: Page) =>
+    dialog(window)
+      .getByLabel('Description')
+      .evaluate((el) => el === document.activeElement)
+
+  test('⌘N and C open it with the current Factory selected and the description focused', async () => {
+    const window = await withFactory()
+
+    await window.keyboard.press('Meta+N')
+
+    const open = dialog(window)
+    await open.waitFor()
+    const [factory] = await (await daemonClient()).listFactories()
+    expect(await open.getByLabel('Factory').inputValue()).toBe(factory?.id)
+    expect(await isFocused(window)).toBe(true)
+    await window.keyboard.press('Escape')
+    await open.waitFor({ state: 'detached' })
+
+    await window.keyboard.press('c')
+    await open.waitFor()
+    expect(await open.getByLabel('Description').inputValue()).toBe('')
+  })
+
+  test('the sidebar + and the View header open it too', async () => {
+    const window = await withFactory()
+
+    await sidebar(window).getByRole('button', { name: 'New Task' }).click()
+    await dialog(window).waitFor()
+    await dialog(window).getByRole('button', { name: 'Close' }).click()
+    await dialog(window).waitFor({ state: 'detached' })
+
+    await window.getByRole('main').getByRole('button', { name: 'New Task' }).click()
+    await dialog(window).waitFor()
+  })
+
+  test('Start now unchecked puts the Task in Backlog, titled from the description’s first line', async () => {
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+
+    await open.getByLabel('Description').fill('Search ignores accents\nTyping cafe finds Café.')
+    await open.getByLabel('Priority').selectOption('high')
+    await open.getByLabel('Start now').uncheck()
+    await open.getByText('Waits in Backlog until you start it').waitFor()
+    await window.keyboard.press('Meta+Enter')
+
+    await open.waitFor({ state: 'detached' })
+    await window
+      .getByRole('region', { name: 'Backlog' })
+      .getByText('Search ignores accents')
+      .waitFor()
+    expect(await tasks()).toMatchObject([
+      {
+        title: 'Search ignores accents',
+        description: 'Search ignores accents\nTyping cafe finds Café.',
+        priority: 'high',
+        stage: 'backlog',
+      },
+    ])
+  })
+
+  test('Start now checked starts the Task at Intake', async () => {
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+    await open.getByText('Unchecked puts it in Backlog').waitFor()
+
+    await open.getByLabel('Title').fill('Starts now')
+    await open.getByLabel('Description').fill(JSON.stringify({ steps: [{ endTurn: true }] }))
+    await open.getByRole('button', { name: 'Create', exact: true }).click()
+
+    await window.getByRole('region', { name: 'Intake' }).getByText('Starts now').waitFor()
+  })
+
+  test('Create more keeps the dialog open and clears it', async () => {
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+
+    await open.getByLabel('Title').fill('First')
+    await open.getByLabel('Description').fill('One')
+    await open.getByLabel('Start now').uncheck()
+    await open.getByRole('button', { name: 'Create more' }).click()
+
+    await expect.poll(async () => (await tasks()).map((t) => t.title)).toEqual(['First'])
+    expect(await open.isVisible()).toBe(true)
+    await expect.poll(() => open.getByLabel('Title').inputValue()).toBe('')
+    expect(await open.getByLabel('Description').inputValue()).toBe('')
+    expect(await isFocused(window)).toBe(true)
+  })
+
+  test('attachments dropped or picked are stored and shown on the Task', async () => {
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+
+    const dropped = await window.evaluateHandle(() => {
+      const data = new DataTransfer()
+      data.items.add(new File(['hello'], 'notes.txt', { type: 'text/plain' }))
+      return data
+    })
+    await open
+      .getByRole('button', { name: /Drop files here/ })
+      .dispatchEvent('drop', { dataTransfer: dropped })
+    await open.getByText('notes.txt').waitFor()
+    await open.getByLabel('Attach files').setInputFiles({
+      name: 'cafe.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from('png'),
+    })
+    await open.getByText('cafe.png').waitFor()
+    await open.getByLabel('Description').fill('With files')
+    await open.getByLabel('Start now').uncheck()
+    await open.getByRole('button', { name: 'Create', exact: true }).click()
+
+    await window.getByRole('main').getByText('With files').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('notes.txt').waitFor()
+    await details.getByText('cafe.png').waitFor()
+    expect((await tasks())[0]?.attachments.map((a) => a.name)).toEqual(['notes.txt', 'cafe.png'])
+  })
+
+  test('a blocker from any Factory is stored and the footer says the Task waits for it', async () => {
+    await ted('task', 'create', 'Crash when search is empty')
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+
+    await open.getByRole('button', { name: 'Add blocker' }).click()
+    await open.getByLabel('Find a Task').fill('crash')
+    await open.getByRole('option', { name: /DEV-1/ }).click()
+    await open.getByText('Waits as Blocked until DEV-1 merges').waitFor()
+    await open.getByLabel('Description').fill('After the crash fix')
+    await open.getByRole('button', { name: 'Create', exact: true }).click()
+
+    await open.waitFor({ state: 'detached' })
+    const [blocker, task] = await tasks()
+    expect(task).toMatchObject({ stage: 'backlog', blockedBy: [blocker?.id] })
+  })
+
+  test('More shows Clarify depth and the Task Lead from the Factory, and keeps changes', async () => {
+    const window = await withFactory()
+    await window.keyboard.press('Meta+N')
+    const open = dialog(window)
+    const more = open.getByRole('button', { name: /^More/ })
+    await open.getByText('Clarify depth Auto · Task Lead Claude').waitFor()
+    expect(await more.getAttribute('aria-expanded')).toBe('false')
+
+    await more.click()
+    await open.getByRole('radiogroup', { name: 'Clarify depth' }).getByText('Grill').click()
+    await open.getByLabel('Agent').selectOption('codex')
+    await open.getByLabel('Effort').selectOption('high')
+    await more.click()
+    await open.getByText('Clarify depth Grill · Task Lead Codex · high').waitFor()
+    await open.getByLabel('Description').fill('Deep one')
+    await open.getByLabel('Start now').uncheck()
+    await open.getByRole('button', { name: 'Create', exact: true }).click()
+
+    await open.waitFor({ state: 'detached' })
+    expect((await tasks())[0]).toMatchObject({
+      clarifyDepth: 'grilling',
+      lead: { agent: 'codex', effort: 'high' },
+    })
+  })
+})
+
+describe('App Settings', () => {
+  test('⌘, opens Settings over the whole window; Esc and ← Back return to where the human was', async () => {
+    const window = await launchApp()
+    await openAllTasks(window)
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+
+    await window.keyboard.press(process.platform === 'darwin' ? 'Meta+,' : 'Control+,')
+
+    await settingsNav(window).waitFor()
+    await window.getByRole('heading', { name: 'General', level: 1 }).waitFor()
+    expect(await sidebar(window).count()).toBe(0)
+
+    await window.keyboard.press('Escape')
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+    expect(await settingsNav(window).count()).toBe(0)
+
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: /Back/ }).click()
+    await window.getByRole('heading', { name: 'All Tasks' }).waitFor()
+  })
+
+  test('Settings lists the eight sections, then each Factory, which leaves for its settings page', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    await openSettings(window)
+    const nav = settingsNav(window)
+
+    const sections = [
+      'General',
+      'Notifications',
+      'Agents',
+      'Limits',
+      'Integrations',
+      'Library',
+      'Storage',
+      'Developer',
+    ]
+    for (const section of sections) {
+      await nav.getByRole('button', { name: section, exact: true }).click()
+      await window.getByRole('heading', { name: section, level: 1 }).waitFor()
+      expect(
+        await nav.getByRole('button', { name: section, exact: true }).getAttribute('aria-current'),
+      ).toBe('page')
+    }
+
+    await nav.getByRole('button', { name: /widgets/ }).click()
+
+    await window.getByRole('heading', { name: 'widgets · Factory settings' }).waitFor()
+    expect(await settingsNav(window).count()).toBe(0)
+  })
+
+  test('the terminal font size saves on this machine and applies at once', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+
+    await window.getByRole('combobox', { name: 'Terminal font size' }).selectOption('16')
+
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue('--terminal-font-size'),
+        ),
+      )
+      .toBe('16px')
+    expect((await (await daemonClient()).getSettings()).terminalFontSize).toBe(16)
+  })
+
+  test('the profile picture can be changed and removed; initials show without one', async () => {
+    const picture = path.join(home, 'me.png')
+    await writeFile(picture, Buffer.from(onePixelPng, 'base64'))
+    const window = await launchApp()
+    await app?.evaluate(({ dialog }, file) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
+    }, picture)
+    await openSettings(window)
+    const profile = window.getByRole('group', { name: 'Profile' })
+    await profile.getByRole('img').and(profile.locator('span')).waitFor()
+
+    await profile.getByRole('button', { name: 'Change…' }).click()
+
+    await profile.locator('img').waitFor()
+    await expect
+      .poll(async () => (await (await daemonClient()).getSettings()).profilePicture)
+      .toMatch(/^data:image\/png;base64,/)
+
+    await profile.getByRole('button', { name: 'Remove' }).click()
+
+    await profile.locator('img').waitFor({ state: 'detached' })
+    expect((await (await daemonClient()).getSettings()).profilePicture).toBeNull()
+  })
+
+  test('Developer mode shows Diagnostics and the log viewer; off, they’re hidden', async () => {
+    const window = await launchApp()
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+    const diagnostics = window.getByRole('region', { name: 'Diagnostics' })
+    const logs = window.getByRole('region', { name: 'Logs' })
+    expect(await diagnostics.count()).toBe(0)
+    expect(await logs.count()).toBe(0)
+
+    await window.getByRole('switch', { name: 'Developer mode' }).click()
+
+    await diagnostics.waitFor()
+    await logs.waitFor()
+    expect((await (await daemonClient()).getSettings()).developerMode).toBe(true)
+    await logs.getByText(/TED daemon .* listening/).waitFor()
+
+    await window.getByRole('switch', { name: 'Developer mode' }).click()
+    await diagnostics.waitFor({ state: 'detached' })
+    expect(await logs.count()).toBe(0)
+  })
+
+  test('the log viewer shows a Run’s raw output, and Diagnostics lists the Run', async () => {
+    const window = await launchApp()
+    const client = await daemonClient()
+    await client.updateSettings({ developerMode: true })
+    const run = await client.startDevRun({
+      prompt: JSON.stringify({ steps: [{ say: 'from the stub' }, { endTurn: true }] }),
+      cwd: home,
+    })
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+
+    await window
+      .getByRole('region', { name: 'Diagnostics' })
+      .getByRole('cell', { name: run.id.slice(0, 8), exact: true })
+      .waitFor()
+    const logs = window.getByRole('region', { name: 'Logs' })
+    await logs.getByRole('combobox', { name: 'Log' }).selectOption(run.id)
+    await logs.getByText(/from the stub/).waitFor()
+  })
+
+  test('Copy report puts the report on the clipboard, and Show in Finder opens TED’s folder', async () => {
+    const window = await launchApp()
+    await app?.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { opened })
+      shell.openPath = async (folder: string) => {
+        opened.push(folder)
+        return ''
+      }
+    })
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Developer', exact: true }).click()
+
+    await window.getByRole('button', { name: 'Copy report' }).click()
+    await window.getByText('Report copied.').waitFor()
+    expect(await app?.evaluate(({ clipboard }) => clipboard.readText())).toMatch(/^TED \S+\n/)
+
+    await window.getByRole('button', { name: /^Show in / }).click()
+    await expect
+      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .toEqual([home])
   })
 })
 

@@ -1,6 +1,9 @@
 import type { Factory, StageId, Task } from '@ted/protocol'
 import type { ReactNode } from 'react'
+import { Button } from '../components/Button.tsx'
+import { PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import styles from './views.module.css'
 
 const stageRank: Record<StageId, number> = {
@@ -30,15 +33,27 @@ interface TaskViewProps {
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpen: (task: Task) => void
+  onNewTask: () => void
   banners?: ReactNode
 }
 
-export function TaskList({ title, tasks, factories, onOpen, banners }: TaskViewProps) {
+function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void }) {
+  return (
+    <header className={styles.header}>
+      <h1 className={styles.title}>{title}</h1>
+      <span className={styles.headerSpacer} />
+      <Button size="small" variant="quiet" onClick={onNewTask}>
+        <PlusIcon />
+        New Task
+      </Button>
+    </header>
+  )
+}
+
+export function TaskList({ title, tasks, factories, onOpen, onNewTask, banners }: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{title}</h1>
-      </header>
+      <ViewHeader title={title} onNewTask={onNewTask} />
       {banners}
       <div className={styles.body}>
         {tasks.length === 0 ? (
@@ -56,7 +71,7 @@ export function TaskList({ title, tasks, factories, onOpen, banners }: TaskViewP
               {tasks.map((task) => (
                 <li key={task.id}>
                   <button type="button" className={styles.taskRow} onClick={() => onOpen(task)}>
-                    <PriorityIcon priority="none" />
+                    <PriorityIcon priority={task.priority} />
                     <span className={styles.id}>{task.displayId}</span>
                     <span className={styles.cell}>{task.title}</span>
                     <span className={`${styles.cell} ${styles.meta}`}>
@@ -74,7 +89,14 @@ export function TaskList({ title, tasks, factories, onOpen, banners }: TaskViewP
   )
 }
 
-export function Board({ title, tasks, onOpen, banners }: TaskViewProps) {
+export function Board({
+  title,
+  tasks,
+  onOpen,
+  onOpenTask,
+  onNewTask,
+  banners,
+}: TaskViewProps & { onOpenTask: (ref: string) => void }) {
   const stages: string[] = [
     ...stageOrder,
     ...new Set(tasks.map((t) => t.stage).filter((s) => !stageOrder.includes(s))),
@@ -82,9 +104,7 @@ export function Board({ title, tasks, onOpen, banners }: TaskViewProps) {
 
   return (
     <section className={styles.pane} aria-label={title}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{title}</h1>
-      </header>
+      <ViewHeader title={title} onNewTask={onNewTask} />
       {banners}
       <div className={styles.board}>
         {stages.map((stage) => {
@@ -96,18 +116,22 @@ export function Board({ title, tasks, onOpen, banners }: TaskViewProps) {
                 <span className={styles.columnCount}>{inStage.length}</span>
               </h2>
               {inStage.map((task) => (
-                <button
-                  key={task.id}
-                  type="button"
-                  className={styles.card}
-                  onClick={() => onOpen(task)}
-                >
+                <div key={task.id} className={styles.card}>
                   <span className={styles.cardId}>
-                    <PriorityIcon priority="none" />
+                    <PriorityIcon priority={task.priority} />
                     {task.displayId}
+                    <span className={styles.cardRuns}>
+                      <RunIcons runs={task.runs} stacked />
+                    </span>
                   </span>
-                  <span className={styles.cardTitle}>{task.title}</span>
-                </button>
+                  <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
+                    {task.title}
+                  </button>
+                  <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+                  {task.activity !== undefined && (
+                    <span className={styles.cardActivity}>{task.activity}</span>
+                  )}
+                </div>
               ))}
             </section>
           )

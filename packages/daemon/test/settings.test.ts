@@ -4,7 +4,7 @@ import path from 'node:path'
 import {
   DaemonClient,
   type DaemonEvent,
-  defaultSettings,
+  defaultMachineSettings,
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
@@ -13,6 +13,9 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { makeTempHome, rawRequest, tokenFor } from './helpers.ts'
+
+const picture =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
 
 describe('machine settings in the store', () => {
   let dir: string
@@ -27,15 +30,59 @@ describe('machine settings in the store', () => {
 
   test('Appearance starts as System and keeps its value across a reopen', async () => {
     const first = await openStore({ directory: dir })
-    expect(first.settings()).toEqual({ ...defaultSettings, appearance: 'system' })
+    expect(first.settings().appearance).toBe('system')
     first.updateSettings({ appearance: 'dark' })
     await first.close()
 
     const second = await openStore({ directory: dir })
     try {
-      expect(second.settings()).toEqual({ ...defaultSettings, appearance: 'dark' })
+      expect(second.settings().appearance).toBe('dark')
     } finally {
       await second.close()
+    }
+  })
+
+  test('machine settings start at their defaults and keep every change across a reopen', async () => {
+    const first = await openStore({ directory: dir })
+    expect(first.settings()).toEqual({
+      appearance: 'system',
+      terminalFontSize: 13,
+      profilePicture: null,
+      developerMode: false,
+      quitWithWorkRunning: 'ask',
+      showTrayIcon: true,
+    })
+    first.updateSettings({ terminalFontSize: 16, developerMode: true })
+    first.updateSettings({ profilePicture: picture })
+    first.updateSettings({ appearance: 'light' })
+    await first.close()
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.settings()).toMatchObject({
+        appearance: 'light',
+        terminalFontSize: 16,
+        profilePicture: picture,
+        developerMode: true,
+      })
+      second.updateSettings({ profilePicture: null })
+      expect(second.settings().profilePicture).toBeNull()
+    } finally {
+      await second.close()
+    }
+  })
+
+  test('a change to the current value emits nothing', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const seen: DaemonEvent[] = []
+      store.subscribe((event) => seen.push(event))
+
+      store.updateSettings({ appearance: 'system', developerMode: false })
+
+      expect(seen).toEqual([])
+    } finally {
+      await store.close()
     }
   })
 
@@ -48,7 +95,7 @@ describe('machine settings in the store', () => {
       store.updateSettings({ appearance: 'light' })
 
       expect(seen).toEqual([
-        { type: 'settings-changed', settings: { ...defaultSettings, appearance: 'light' } },
+        { type: 'settings-changed', settings: { ...defaultMachineSettings, appearance: 'light' } },
       ])
     } finally {
       await store.close()
@@ -104,22 +151,29 @@ describe('settings and Factories over the daemon API', () => {
     const seen: DaemonEvent[] = []
     const subscription = await ted.subscribe((event) => seen.push(event))
 
-    expect(await ted.getSettings()).toEqual({ ...defaultSettings, appearance: 'system' })
-    expect(await ted.updateSettings({ appearance: 'dark' })).toEqual({
-      ...defaultSettings,
-      appearance: 'dark',
-    })
-    expect(await ted.getSettings()).toEqual({ ...defaultSettings, appearance: 'dark' })
+    const dark = { ...defaultMachineSettings, appearance: 'dark' }
+    expect(await ted.getSettings()).toEqual(defaultMachineSettings)
+    expect(await ted.updateSettings({ appearance: 'dark' })).toEqual(dark)
+    expect(await ted.getSettings()).toEqual(dark)
 
-    await expect
-      .poll(() => seen)
-      .toEqual([{ type: 'settings-changed', settings: { ...defaultSettings, appearance: 'dark' } }])
+    await expect.poll(() => seen).toEqual([{ type: 'settings-changed', settings: dark }])
     subscription.close()
   })
 
   test.each([
     ['an unknown Appearance', { appearance: 'sepia' }],
     ['an unknown setting', { fontSize: 20 }],
+    ['a terminal font size below 10', { terminalFontSize: 9 }],
+    ['a terminal font size above 20', { terminalFontSize: 21 }],
+    ['a fractional terminal font size', { terminalFontSize: 12.5 }],
+    ['Developer mode that is not true or false', { developerMode: 'yes' }],
+    ['a profile picture that is not an image', { profilePicture: 'data:text/html;base64,PGI+' }],
+    ['a profile picture that is a link', { profilePicture: 'https://example.com/me.png' }],
+    [
+      'a profile picture over 512 KB',
+      { profilePicture: `data:image/png;base64,${'A'.repeat(600_000)}` },
+    ],
+    ['one bad setting among good ones', { developerMode: true, terminalFontSize: 30 }],
     ['no settings', {}],
     ['a body that is not an object', ['dark']],
   ])('refuses %s', async (_, body) => {
@@ -134,10 +188,30 @@ describe('settings and Factories over the daemon API', () => {
     })
 
     expect(res.status).toBe(400)
-    expect(await (await client()).getSettings()).toEqual({
-      ...defaultSettings,
+    expect(await (await client()).getSettings()).toEqual(defaultMachineSettings)
+  })
+
+  test('a client changes the terminal font size, Developer mode and profile picture', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+
+    await ted.updateSettings({ terminalFontSize: 20, developerMode: true, profilePicture: picture })
+    expect(await ted.getSettings()).toMatchObject({
       appearance: 'system',
+      terminalFontSize: 20,
+      profilePicture: picture,
+      developerMode: true,
     })
+    await ted.updateSettings({ terminalFontSize: 10, profilePicture: null })
+    expect(await ted.getSettings()).toMatchObject({ terminalFontSize: 10, profilePicture: null })
+  })
+
+  test('the profile gives a name for the human’s initials', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+
+    const { name } = await (await client()).getProfile()
+
+    expect(name.trim()).not.toBe('')
   })
 
   test('lists Factories without their clone URL', async () => {
@@ -161,5 +235,6 @@ describe('settings and Factories over the daemon API', () => {
     expect((await asRun('GET', '/settings')).status).toBe(403)
     expect((await asRun('PATCH', '/settings', { appearance: 'dark' })).status).toBe(403)
     expect((await asRun('GET', '/factories')).status).toBe(403)
+    expect((await asRun('GET', '/profile')).status).toBe(403)
   })
 })

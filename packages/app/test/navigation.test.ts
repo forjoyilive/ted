@@ -87,4 +87,39 @@ describe('navigation', () => {
 
     expect(state.taskId).toBeUndefined()
   })
+
+  test('Settings opens over where the human was, on General the first time', () => {
+    const before = after(
+      { type: 'open-factory', factoryId: 'nb' },
+      { type: 'open-task', taskId: 't1', factoryId: 'nb' },
+    )
+
+    const settings = navigate(before, { type: 'open-settings' })
+
+    expect(settings.settings).toEqual({ section: 'general' })
+    expect(navigate(settings, { type: 'close-settings' })).toEqual(before)
+  })
+
+  test('Settings reopens on the last section the human looked at', () => {
+    const state = after(
+      { type: 'open-settings' },
+      { type: 'open-settings', section: 'developer' },
+      { type: 'close-settings' },
+      { type: 'open-settings' },
+    )
+
+    expect(state.settings).toEqual({ section: 'developer' })
+  })
+
+  test('a Factory row in Settings leaves Settings for that Factory’s settings page', () => {
+    const state = after(
+      { type: 'open', screen: { kind: 'all-tasks' } },
+      { type: 'open-settings' },
+      { type: 'open', screen: { kind: 'factory', factoryId: 'ms', view: 'settings' } },
+    )
+
+    expect(state.settings).toBeUndefined()
+    expect(state.screen).toEqual({ kind: 'factory', factoryId: 'ms', view: 'settings' })
+    expect(currentFactoryId(state, tasks)).toBe('ms')
+  })
 })

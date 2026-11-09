@@ -20,10 +20,42 @@ export const tasks = State.SQLite.table({
     factoryId: State.SQLite.text(),
     number: State.SQLite.integer(),
     title: State.SQLite.text(),
+    description: State.SQLite.text({ default: '' }),
+    priority: State.SQLite.text({ default: 'none' }),
+    clarifyDepth: State.SQLite.text({ default: 'auto' }),
+    leadAgent: State.SQLite.text({ nullable: true }),
+    leadModel: State.SQLite.text({ nullable: true }),
+    leadEffort: State.SQLite.text({ nullable: true }),
+    startRequested: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
+    activity: State.SQLite.text({ nullable: true }),
+    activityEntries: State.SQLite.integer({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskBlockers = State.SQLite.table({
+  name: 'taskBlockers',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    blockerId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const taskAttachments = State.SQLite.table({
+  name: 'taskAttachments',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -72,8 +104,8 @@ export const machineSettings = State.SQLite.table({
   },
 })
 
-export const settingValues = State.SQLite.table({
-  name: 'settingValues',
+export const machineSettingValues = State.SQLite.table({
+  name: 'machineSettingValues',
   columns: {
     name: State.SQLite.text({ primaryKey: true }),
     value: State.SQLite.text(),
@@ -89,6 +121,7 @@ export const stageEntries = State.SQLite.table({
     stageFileLayer: State.SQLite.text({ nullable: true }),
     stageFilePath: State.SQLite.text({ nullable: true }),
     layers: State.SQLite.text(),
+    order: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -116,6 +149,48 @@ export const banners = State.SQLite.table({
     dismissedUntil: State.SQLite.text({ nullable: true }),
   },
 })
+
+export const taskRepos = State.SQLite.table({
+  name: 'taskRepos',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    branch: State.SQLite.text(),
+    worktree: State.SQLite.text(),
+    copied: State.SQLite.text(),
+    skipped: State.SQLite.text(),
+    setupCommand: State.SQLite.text({ nullable: true }),
+    setupTimeoutMs: State.SQLite.integer({ nullable: true }),
+    setupEnv: State.SQLite.text({ nullable: true }),
+    setupState: State.SQLite.text({ nullable: true }),
+    setupExitCode: State.SQLite.integer({ nullable: true }),
+    teardownCommand: State.SQLite.text({ nullable: true }),
+    teardownOutcome: State.SQLite.text({ nullable: true }),
+    removedAt: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
+export const localFolders = State.SQLite.table({
+  name: 'localFolders',
+  columns: {
+    repo: State.SQLite.text({ primaryKey: true }),
+    path: State.SQLite.text(),
+    setAt: State.SQLite.text(),
+  },
+})
+
+const stageEnteredFields = {
+  id: Schema.String,
+  taskId: Schema.String,
+  stage: Schema.String,
+  stageFileLayer: Schema.NullOr(Schema.String),
+  stageFilePath: Schema.NullOr(Schema.String),
+  layers: Schema.String,
+  at: Schema.String,
+}
 
 const runStartedFields = {
   id: Schema.String,
@@ -147,6 +222,38 @@ export const events = {
       number: Schema.Number,
       title: Schema.String,
       createdAt: Schema.String,
+    }),
+  }),
+  taskCreatedV2: Events.synced({
+    name: 'v2.TaskCreated',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      number: Schema.Number,
+      title: Schema.String,
+      description: Schema.String,
+      priority: Schema.String,
+      clarifyDepth: Schema.String,
+      leadAgent: Schema.NullOr(Schema.String),
+      leadModel: Schema.NullOr(Schema.String),
+      leadEffort: Schema.NullOr(Schema.String),
+      startRequested: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  taskBlockerAdded: Events.synced({
+    name: 'v1.TaskBlockerAdded',
+    schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
+  }),
+  taskAttachmentAdded: Events.synced({
+    name: 'v1.TaskAttachmentAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
     }),
   }),
   taskStarted: Events.synced({
@@ -192,13 +299,19 @@ export const events = {
   }),
   taskStageEntered: Events.synced({
     name: 'v1.TaskStageEntered',
+    schema: Schema.Struct(stageEnteredFields),
+  }),
+  taskStageEnteredV2: Events.synced({
+    name: 'v2.TaskStageEntered',
+    schema: Schema.Struct({ ...stageEnteredFields, order: Schema.String }),
+  }),
+  taskActivitySet: Events.synced({
+    name: 'v1.TaskActivitySet',
     schema: Schema.Struct({
-      id: Schema.String,
       taskId: Schema.String,
-      stage: Schema.String,
-      stageFileLayer: Schema.NullOr(Schema.String),
-      stageFilePath: Schema.NullOr(Schema.String),
-      layers: Schema.String,
+      text: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      stageEntries: Schema.Number,
       at: Schema.String,
     }),
   }),
@@ -211,6 +324,54 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskWorktreeCreated: Events.synced({
+    name: 'v1.TaskWorktreeCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      repo: Schema.String,
+      branch: Schema.String,
+      worktree: Schema.String,
+      copied: Schema.Array(Schema.String),
+      skipped: Schema.Array(Schema.Struct({ path: Schema.String, reason: Schema.String })),
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeSetupStarted: Events.synced({
+    name: 'v1.TaskWorktreeSetupStarted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      command: Schema.String,
+      timeoutMs: Schema.Number,
+      env: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeSetupFinished: Events.synced({
+    name: 'v1.TaskWorktreeSetupFinished',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      outcome: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
+  }),
+  taskWorktreeRemoved: Events.synced({
+    name: 'v1.TaskWorktreeRemoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      teardownCommand: Schema.NullOr(Schema.String),
+      teardownOutcome: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  localFolderSet: Events.synced({
+    name: 'v1.LocalFolderSet',
+    schema: Schema.Struct({ repo: Schema.String, path: Schema.String, at: Schema.String }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -219,9 +380,9 @@ export const events = {
     name: 'v1.AppearanceChanged',
     schema: Schema.Struct({ appearance: Schema.String, at: Schema.String }),
   }),
-  settingChanged: Events.synced({
-    name: 'v1.SettingChanged',
-    schema: Schema.Struct({ name: Schema.String, value: Schema.String, at: Schema.String }),
+  machineSettingsChanged: Events.synced({
+    name: 'v1.MachineSettingsChanged',
+    schema: Schema.Struct({ changes: Schema.String, at: Schema.String }),
   }),
   bannerRaised: Events.synced({
     name: 'v1.BannerRaised',
@@ -252,6 +413,15 @@ export const events = {
 const materializers = State.SQLite.materializers(events, {
   'v1.FactoryAdded': (factory) => factories.insert(factory),
   'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+  'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+  'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+    taskBlockers
+      .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
+      .onConflict('id', 'ignore'),
+  'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
+    taskAttachments
+      .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+      .onConflict('id', 'ignore'),
   'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
     tasks.update({ stage, branch, worktree }).where({ id: taskId }),
   'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
@@ -268,12 +438,53 @@ const materializers = State.SQLite.materializers(events, {
   'v1.RunSessionIdentified': ({ runId, sessionId }) =>
     runs.update({ sessionId }).where({ id: runId }),
   'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
+    tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
+  'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
+    taskRepos
+      .insert({
+        ...row,
+        id: `${taskId}:${name}`,
+        taskId,
+        name,
+        copied: JSON.stringify(copied),
+        skipped: JSON.stringify(skipped),
+        createdAt: at,
+      })
+      .onConflict('id', 'replace'),
+  'v1.TaskWorktreeSetupStarted': ({ taskId, name, command, timeoutMs, env }) =>
+    taskRepos
+      .update({
+        setupCommand: command,
+        setupTimeoutMs: timeoutMs,
+        setupEnv: env,
+        setupState: 'running',
+        setupExitCode: null,
+      })
+      .where({ id: `${taskId}:${name}` }),
+  'v1.TaskWorktreeSetupFinished': ({ taskId, name, outcome, exitCode }) =>
+    taskRepos
+      .update({ setupState: outcome, setupExitCode: exitCode })
+      .where({ id: `${taskId}:${name}` }),
+  'v1.TaskWorktreeRemoved': ({ taskId, name, teardownCommand, teardownOutcome, at }) => [
+    taskRepos
+      .update({ teardownCommand, teardownOutcome, removedAt: at })
+      .where({ id: `${taskId}:${name}` }),
+    tasks.update({ worktree: null }).where({ id: taskId }),
+  ],
+  'v1.LocalFolderSet': ({ repo, path, at }) =>
+    localFolders.insert({ repo, path, setAt: at }).onConflict('repo', 'replace'),
   'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
     workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
   'v1.AppearanceChanged': ({ appearance }) =>
     machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
-  'v1.SettingChanged': ({ name, value }) =>
-    settingValues.insert({ name, value }).onConflict('name', 'replace'),
+  'v1.MachineSettingsChanged': ({ changes }) =>
+    Object.entries(JSON.parse(changes) as Record<string, unknown>).map(([name, value]) =>
+      machineSettingValues
+        .insert({ name, value: JSON.stringify(value) })
+        .onConflict('name', 'replace'),
+    ),
   'v1.BannerRaised': ({ at, ...banner }) => [
     banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
     banners
@@ -288,13 +499,17 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     tasks,
+    taskBlockers,
+    taskAttachments,
     runs,
     conversationEntries,
     comments,
     stageEntries,
     workflowLayers,
+    taskRepos,
+    localFolders,
     machineSettings,
-    settingValues,
+    machineSettingValues,
     banners,
   },
   materializers,

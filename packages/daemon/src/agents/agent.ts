@@ -10,6 +10,12 @@ export interface AgentLaunch {
   sessionId?: string
 }
 
+export interface TokenCount {
+  input: number
+  output: number
+  total: boolean
+}
+
 export interface Agent {
   kind: AgentKind
   binary: string
@@ -22,4 +28,5 @@ export interface Agent {
   message(text: string): string
   stateFrom(line: string): RunState | undefined
   sessionIdFrom(line: string): string | undefined
+  tokensFrom(line: string): TokenCount | undefined
 }

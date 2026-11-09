@@ -18,5 +18,5 @@ On Linux, a process spawned from Electron’s main process inherits every descri
 
 ## Consequences
 
-- The app starts the daemon with `--exit-when-idle` like `ted` does; the app’s open event stream keeps it alive. Since KRI-116, closing the window keeps the app running and quitting ends the daemon (ADR 0022).
+- The app starts the daemon with `--exit-when-idle` like `ted` does; the app’s open event stream keeps it alive. Since KRI-116, closing the window keeps the app running and quitting ends the daemon (ADR 0026).
 - Running the app needs a `vite build` of the renderer first. `pnpm app` does both.

@@ -1,8 +1,15 @@
 import { readFile } from 'node:fs/promises'
-import type { AgentStageId, Task } from '@ted/protocol'
+import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
+
+const depthNames: Record<Task['clarifyDepth'], string> = {
+  auto: 'Auto',
+  none: 'None',
+  few: 'Few',
+  grilling: 'Grilling',
+}
 
 export function stageTitle(id: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1)
@@ -18,13 +25,29 @@ export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
+  attachmentFile?: (attachment: Attachment) => string,
+  setupReport?: string,
 ): Promise<string> {
   const preamble = await readFile(new URL('preamble.md', defaults), 'utf8')
   return [
+    ...(setupReport !== undefined ? [setupReport] : []),
     preamble.trim(),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
+    ...(task.description !== '' ? [task.description] : []),
+    ...(task.clarifyDepth !== 'auto'
+      ? [
+          `Clarify depth: ${depthNames[task.clarifyDepth]}. The human chose it; use it at Clarify instead of picking one.`,
+        ]
+      : []),
+    ...(attachmentFile && task.attachments.length > 0
+      ? [
+          `Attached files:\n${task.attachments
+            .map((a) => `- ${a.name}: ${attachmentFile(a)}`)
+            .join('\n')}`,
+        ]
+      : []),
   ].join('\n\n')
 }
 

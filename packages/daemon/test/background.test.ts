@@ -104,8 +104,7 @@ describe('quitting', () => {
 
   test('the quit setting and the tray setting have defaults and keep their values', async () => {
     const { ted } = await start()
-    expect(await ted.getSettings()).toEqual({
-      appearance: 'system',
+    expect(await ted.getSettings()).toMatchObject({
       quitWithWorkRunning: 'ask',
       showTrayIcon: true,
     })
@@ -114,8 +113,7 @@ describe('quitting', () => {
     await daemon?.stop()
     const again = await start()
 
-    expect(await again.ted.getSettings()).toEqual({
-      appearance: 'system',
+    expect(await again.ted.getSettings()).toMatchObject({
       quitWithWorkRunning: 'keep-running',
       showTrayIcon: false,
     })

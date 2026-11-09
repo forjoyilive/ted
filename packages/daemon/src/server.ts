@@ -2,28 +2,39 @@ import { timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import path from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import {
   type AddFactoryRequest,
   type AgentKind,
   agentKinds,
   appearances,
   type CreateTaskRequest,
+  clarifyDepths,
   type DaemonEvent,
+  efforts,
   type MachineSettings,
   type PostCommentRequest,
+  priorities,
   quitChoices,
   type ReportOutcomeRequest,
+  type SetActivityRequest,
+  type SetLocalFolderRequest,
   type StartDevRunRequest,
+  terminalFontSizes,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
+import type { Attachments } from './attachments.ts'
 import type { Banners } from './banners.ts'
+import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
-import { addFactory } from './factories.ts'
+import { addFactory, listFactories, setLocalFolder } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
+import { readProfile } from './profile.ts'
+import { redactSecrets } from './redact.ts'
 import type { RunTokens } from './run-token.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
-import type { Caller, Tasks } from './tasks/tasks.ts'
+import type { Caller, CreateTaskInput, Tasks } from './tasks/tasks.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface ServerOptions {
@@ -36,11 +47,13 @@ export interface ServerOptions {
   agents: Agents
   runTokens: RunTokens
   tasks: Tasks
+  attachments: Attachments
   banners: Banners
   workflows: Workflows
   reposDir: string
   appStreams: Set<http.ServerResponse>
   onShutdown: () => void
+  home: string
 }
 
 interface RequestContext {
@@ -58,6 +71,7 @@ interface Route {
 }
 
 const maxBodyBytes = 1024 * 1024
+const maxActivityLength = 200
 
 const routes: Route[] = [
   {
@@ -77,13 +91,14 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks$/,
-    async handle({ req }, { tasks }) {
-      const body = (await readJson(req)) as Partial<CreateTaskRequest> | null
-      const title = typeof body?.title === 'string' ? body.title.trim() : ''
-      if (title === '') throw new HttpError(400, 'title is required')
-      const factory = typeof body?.factory === 'string' ? body.factory : undefined
-      return [201, await tasks.create({ title, ...(factory !== undefined && { factory }) })]
+    async handle({ req }, { tasks, attachments }) {
+      return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/attachments$/,
+    handle: async ({ req }, { attachments }) => [201, await attachments.save(req)],
   },
   {
     method: 'POST',
@@ -109,6 +124,28 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/setup-log$/,
+    async handle({ params: [ref = '', name = ''] }, { tasks }) {
+      return [200, { text: await tasks.setupLog(ref, name) }]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/factories$/,
+    handle: async (_, { store }) => [200, await listFactories(store)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/local-folder$/,
+    async handle({ req, params: [key = ''] }, { store }) {
+      const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
+      const folder = typeof body?.path === 'string' ? body.path : ''
+      if (folder === '') throw new HttpError(400, 'path is required')
+      return [200, await setLocalFolder(store, key, folder)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,
@@ -117,6 +154,20 @@ const routes: Route[] = [
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
       return [201, tasks.comment(ref, caller, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/activity$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<SetActivityRequest> | null
+      const text = typeof body?.text === 'string' ? oneLine(body.text) : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      if ([...text].length > maxActivityLength) {
+        throw new HttpError(400, `the activity line is limited to ${maxActivityLength} characters`)
+      }
+      return [200, tasks.setActivity(ref, caller, text)]
     },
   },
   {
@@ -131,11 +182,8 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
-    path: /^\/factories$/,
-    handle: async (_, { store }) => [
-      200,
-      store.listFactories().map(({ cloneUrl: _, ...factory }) => factory),
-    ],
+    path: /^\/factories\/([^/]+)\/task-defaults$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.defaults(id)],
   },
   {
     method: 'GET',
@@ -173,6 +221,34 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/diagnostics$/,
+    handle: async (_, options) => [200, await collectDiagnostics(options)],
+  },
+  {
+    method: 'GET',
+    path: /^\/diagnostics\/report$/,
+    handle: async (_, options) => [200, { text: await report(options) }],
+  },
+  {
+    method: 'GET',
+    path: /^\/logs\/daemon$/,
+    handle: async (_, { home }) => [200, await readDaemonLog(home)],
+  },
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/raw$/,
+    async handle({ params: [id = ''] }, { store, home }) {
+      if (!store.getRun(id)) throw new HttpError(404, 'no such Run')
+      return [200, await readRunOutput(home, id)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/profile$/,
+    handle: async () => [200, await readProfile()],
+  },
+  {
+    method: 'GET',
     path: /^\/banners$/,
     handle: async (_, { banners }) => [200, banners.list()],
   },
@@ -197,7 +273,14 @@ const routes: Route[] = [
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
-      return [201, await addFactory({ store, reposDir, workflows }, { repo, key })]
+      const localFolder = typeof body?.localFolder === 'string' ? body.localFolder : undefined
+      return [
+        201,
+        await addFactory(
+          { store, reposDir, workflows },
+          { repo, key, ...(localFolder !== undefined && { localFolder }) },
+        ),
+      ]
     },
   },
   {
@@ -234,7 +317,9 @@ export async function listen(
     options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
-      console.error(error)
+      console.error(
+        redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+      )
       sendJson(res, 500, { error: 'internal error' })
     })
   })
@@ -327,35 +412,153 @@ function equalSecrets(given: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-const settingParsers: {
-  [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K]
-} = {
-  appearance: (value) => oneOf(appearances, value, 'appearance'),
-  quitWithWorkRunning: (value) => oneOf(quitChoices, value, 'quitWithWorkRunning'),
-  showTrayIcon(value) {
-    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
-    return value
-  },
-}
-
-function oneOf<T extends string>(choices: readonly T[], value: unknown, name: string): T {
-  const choice = choices.find((c) => c === value)
-  if (choice === undefined) throw new HttpError(400, `${name} must be ${choices.join(', ')}`)
-  return choice
-}
-
 function settingsChanges(body: unknown): Partial<MachineSettings> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new HttpError(400, 'settings must be an object')
   }
   const entries = Object.entries(body)
   if (entries.length === 0) throw new HttpError(400, 'no settings to change')
-  const changes: Record<string, unknown> = {}
+  const changes: Partial<MachineSettings> = {}
   for (const [name, value] of entries) {
     if (!Object.hasOwn(settingParsers, name)) throw new HttpError(400, `unknown setting ${name}`)
-    changes[name] = settingParsers[name as keyof MachineSettings](value)
+    Object.assign(changes, { [name]: settingParsers[name as keyof MachineSettings](value) })
   }
-  return changes as Partial<MachineSettings>
+  return changes
+}
+
+async function createTaskInput(body: unknown, attachments: Attachments): Promise<CreateTaskInput> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'a Task must be an object')
+  }
+  const request = body as Record<keyof CreateTaskRequest, unknown>
+  const text = (name: 'title' | 'description' | 'factory') => {
+    const value = request[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
+    return value
+  }
+  const oneOf = <T extends string>(name: string, value: unknown, allowed: readonly T[]) => {
+    if (value === undefined) return undefined
+    const found = allowed.find((a) => a === value)
+    if (!found) throw new HttpError(400, `${name} must be ${allowed.join(', ')}`)
+    return found
+  }
+  const list = (name: string, value: unknown) => {
+    if (value === undefined) return undefined
+    if (!Array.isArray(value)) throw new HttpError(400, `${name} must be a list`)
+    return value as unknown[]
+  }
+
+  const title = text('title')
+  const description = text('description')
+  const factory = text('factory')
+  const priority = oneOf('priority', request.priority, priorities)
+  const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
+  const lead = taskLead(request.lead)
+  const blockedBy = list('blockedBy', request.blockedBy)?.map((ref) => {
+    if (typeof ref !== 'string') throw new HttpError(400, 'blockedBy must list Task IDs')
+    return ref
+  })
+  const attached = await Promise.all(
+    (list('attachments', request.attachments) ?? []).map((item) => {
+      const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
+      if (typeof hash !== 'string' || typeof name !== 'string') {
+        throw new HttpError(400, 'an attachment needs a hash and a name')
+      }
+      return attachments.find({
+        hash,
+        name,
+        mediaType: typeof mediaType === 'string' ? mediaType : '',
+      })
+    }),
+  )
+  if (request.start !== undefined && typeof request.start !== 'boolean') {
+    throw new HttpError(400, 'start must be true or false')
+  }
+  return {
+    ...(title !== undefined && { title }),
+    ...(description !== undefined && { description }),
+    ...(factory !== undefined && { factory }),
+    ...(priority !== undefined && { priority }),
+    ...(clarifyDepth !== undefined && { clarifyDepth }),
+    ...(lead !== undefined && { lead }),
+    ...(blockedBy !== undefined && { blockedBy }),
+    ...(attached.length > 0 && { attachments: attached }),
+    ...(request.start !== undefined && { start: request.start }),
+  }
+
+  function taskLead(value: unknown) {
+    if (value === undefined) return undefined
+    if (typeof value !== 'object' || value === null) {
+      throw new HttpError(400, 'lead must be an object')
+    }
+    const { agent, model, effort } = value as Record<string, unknown>
+    const kind = oneOf('lead.agent', agent, agentKinds)
+    if (kind === undefined) throw new HttpError(400, 'lead.agent is required')
+    if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
+      throw new HttpError(400, 'lead.model must be text')
+    }
+    const level = oneOf('lead.effort', effort, efforts)
+    return {
+      agent: kind,
+      ...(typeof model === 'string' && { model: model.trim() }),
+      ...(level !== undefined && { effort: level }),
+    }
+  }
+}
+
+function oneLine(text: string): string {
+  return [...stripVTControlCharacters(text)]
+    .map((c) => (isControl(c) ? ' ' : c))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function isControl(char: string): boolean {
+  const code = char.codePointAt(0) ?? 0
+  return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
+}
+
+const maxPictureBytes = 512 * 1024
+const pictureUrl = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/
+
+const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  appearance(value) {
+    const appearance = appearances.find((a) => a === value)
+    if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
+    return appearance
+  },
+  terminalFontSize(value) {
+    const { min, max } = terminalFontSizes
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `terminalFontSize must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  profilePicture(value) {
+    if (value === null) return null
+    if (typeof value !== 'string' || value.length > maxPictureBytes || !pictureUrl.test(value)) {
+      throw new HttpError(
+        400,
+        'profilePicture must be a PNG or JPEG data URL under 512 KB, or null',
+      )
+    }
+    return value
+  },
+  developerMode(value) {
+    if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
+    return value
+  },
+  quitWithWorkRunning(value) {
+    const choice = quitChoices.find((c) => c === value)
+    if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
+    return choice
+  },
+  showTrayIcon(value) {
+    if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
+    return value
+  },
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

@@ -25,12 +25,14 @@ const usage = `Usage:
   ted open                                   Bring the open TED app to the front
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
+  ted status [--task <id>] "<text>"          Set the Task's activity line
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
-  ted dev factory add <owner/repo | git URL> --key <key>
+  ted dev factory add <owner/repo | git URL> --key <key> [--local-folder <dir>]
                                              Add a one-repo Factory (development only)
+  ted dev factory local-folder <key> <dir>   Set the folder new worktrees copy files from
   ted dev run start [--agent claude|codex] [--cwd <dir>] "<prompt>"
                                              Start a Run (development only)
   ted dev run show <run-id>                  Show a Run's state and Conversation
@@ -49,6 +51,7 @@ function parse() {
         cwd: { type: 'string' },
         factory: { type: 'string' },
         key: { type: 'string' },
+        'local-folder': { type: 'string' },
         task: { type: 'string' },
       },
     })
@@ -94,6 +97,11 @@ try {
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
     await withDaemon(home, (client) => client.postComment(ref, body))
     console.log('Posted')
+  } else if (group === 'status' && command !== undefined) {
+    const ref = taskRef()
+    const text = [command, ...rest].join(' ')
+    await withDaemon(home, (client) => client.setActivity(ref, text))
+    console.log('Activity line set')
   } else if (group === 'outcome' && command === 'advance' && rest.length === 0) {
     const ref = taskRef()
     const task = await withDaemon(home, (client) => client.reportOutcome(ref, 'advance'))
@@ -122,8 +130,22 @@ try {
     const repo = rest[1] ?? ''
     const key = options.key
     if (key === undefined) throw new UsageError('give the Factory key with --key')
-    const factory = await withDaemon(home, (client) => client.addFactory({ repo, key }))
+    const folder = options['local-folder']
+    const localFolder = folder === undefined ? undefined : path.resolve(folder)
+    const factory = await withDaemon(home, (client) =>
+      client.addFactory({ repo, key, ...(localFolder !== undefined && { localFolder }) }),
+    )
     console.log(`Added Factory ${factory.key}  ${factory.repo}`)
+  } else if (
+    group === 'dev' &&
+    command === 'factory' &&
+    rest[0] === 'local-folder' &&
+    rest.length === 3
+  ) {
+    const key = rest[1] ?? ''
+    const folder = path.resolve(rest[2] ?? '')
+    const factory = await withDaemon(home, (client) => client.setLocalFolder(key, folder))
+    console.log(`${factory.key} copies files from ${factory.localFolder?.path ?? folder}`)
   } else if (group === 'dev' && command === 'run' && rest[0] === 'start' && rest.length > 1) {
     const cwd = path.resolve(options.cwd ?? process.cwd())
     const prompt = rest.slice(1).join(' ')

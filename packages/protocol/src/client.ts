@@ -1,11 +1,12 @@
 import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
+import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type { AddFactoryRequest, Factory } from './factory.ts'
 import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
-import type { MachineSettings } from './settings.ts'
-import type { Comment, CreateTaskRequest, Outcome, Task } from './task.ts'
+import type { MachineSettings, Profile } from './settings.ts'
+import type { Attachment, Comment, CreateTaskRequest, Outcome, Task, TaskDefaults } from './task.ts'
 import type { StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -55,6 +56,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
   }
 
+  setActivity(ref: string, text: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/activity`, { text })
+  }
+
   reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
   }
@@ -63,12 +68,60 @@ export class DaemonClient {
     return this.#request('GET', '/factories')
   }
 
+  taskDefaults(factoryId: string): Promise<TaskDefaults> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-defaults`)
+  }
+
+  async uploadAttachment(
+    file: { name: string; mediaType: string },
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<Attachment> {
+    const res = await this.#fetch('POST', '/attachments', bytes, undefined, {
+      'content-type': file.mediaType || 'application/octet-stream',
+      'x-ted-name': encodeURIComponent(file.name),
+    })
+    if (!res.ok) throw await requestError(res)
+    return (await res.json()) as Attachment
+  }
+
+  setLocalFolder(key: string, path: string): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(key)}/local-folder`, { path })
+  }
+
+  async setupLog(ref: string, repo: string): Promise<string> {
+    const { text } = await this.#request<{ text: string }>(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup-log`,
+    )
+    return text
+  }
+
   getSettings(): Promise<MachineSettings> {
     return this.#request('GET', '/settings')
   }
 
   updateSettings(changes: Partial<MachineSettings>): Promise<MachineSettings> {
     return this.#request('PATCH', '/settings', changes)
+  }
+
+  getProfile(): Promise<Profile> {
+    return this.#request('GET', '/profile')
+  }
+
+  getDiagnostics(): Promise<Diagnostics> {
+    return this.#request('GET', '/diagnostics')
+  }
+
+  getReport(): Promise<{ text: string }> {
+    return this.#request('GET', '/diagnostics/report')
+  }
+
+  readDaemonLog(): Promise<LogText> {
+    return this.#request('GET', '/logs/daemon')
+  }
+
+  readRunOutput(id: string): Promise<LogText> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}/raw`)
   }
 
   listBanners(): Promise<Banner[]> {
@@ -143,15 +196,20 @@ export class DaemonClient {
     route: string,
     body?: unknown,
     signal?: AbortSignal,
+    rawHeaders?: Record<string, string>,
   ): Promise<Response> {
+    const raw = body instanceof Uint8Array
     try {
       return await fetch(`http://127.0.0.1:${this.#info.port}${route}`, {
         method,
         headers: {
           authorization: `Bearer ${this.#token}`,
-          ...(body !== undefined && { 'content-type': 'application/json' }),
+          ...(body !== undefined && !raw && { 'content-type': 'application/json' }),
+          ...rawHeaders,
         },
-        ...(body !== undefined && { body: JSON.stringify(body) }),
+        ...(body !== undefined && {
+          body: raw ? (body as Uint8Array<ArrayBuffer>) : JSON.stringify(body),
+        }),
         ...(signal && { signal }),
       })
     } catch (error) {
