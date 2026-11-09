@@ -69,6 +69,7 @@ import {
   type TaskRepo,
   type TaskSource,
   type TrackStage,
+  type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
@@ -693,6 +694,7 @@ export interface TedStore {
   closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
   activity(): Activity
+  waiting(): WaitingRequest[]
   setShellsRunning(count: number): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
@@ -758,9 +760,12 @@ export async function openStore({
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
+  let noteWaiting = () => {}
+  let shutDown = false
   const commit = ((...args: unknown[]) => {
     try {
       const result = (store.commit as (...a: unknown[]) => unknown)(...args)
+      noteWaiting()
       if (writeFailing) {
         writeFailing = false
         tellWriters()
@@ -1847,15 +1852,7 @@ export async function openStore({
     const liveAutomations = store
       .query(queryDb(automations.select()))
       .filter((a) => factoryIds.has(a.factoryId))
-    const liveIds = new Set(liveAutomations.map((a) => a.id))
     return {
-      waitingOnYou:
-        active.filter((run) => run.state === 'waiting').length +
-        store
-          .query(queryDb(automationComments.where({ kind: 'question', answer: null })))
-          .filter((c) => liveIds.has(c.automationId)).length +
-        store.query(queryDb(planRequests.where({ answer: null }))).filter((r) => r.kind !== 'note')
-          .length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
@@ -1867,6 +1864,99 @@ export async function openStore({
       shellsRunning,
     }
   }
+  const waiting = (): WaitingRequest[] => {
+    const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
+    const liveTasks = new Map(
+      store
+        .query(allTasks)
+        .filter((t) => t.archivedAt === null)
+        .map((t) => [t.id, t]),
+    )
+    const fromTasks = openRequestRows().flatMap((row): WaitingRequest[] => {
+      const task = liveTasks.get(row.taskId)
+      if (!task) return []
+      return [
+        {
+          source: 'task',
+          id: row.id,
+          factoryId: task.factoryId,
+          createdAt: row.createdAt,
+          headline: headlineOf(row.title, row.body),
+          kind: row.kind as CommentKind,
+          failed: row.failedRunId !== null,
+          taskId: task.id,
+          displayId: `${factoryKey(task.factoryId)}-${task.number}`,
+          taskTitle: task.title,
+        },
+      ]
+    })
+    const liveAutomations = new Map(
+      store
+        .query(queryDb(automations.select()))
+        .filter((a) => factoryIds.has(a.factoryId))
+        .map((a) => [a.id, a]),
+    )
+    const fromAutomations = store
+      .query(queryDb(automationComments.where({ kind: 'question', answer: null })))
+      .flatMap((row): WaitingRequest[] => {
+        const automation = liveAutomations.get(row.automationId)
+        if (!automation) return []
+        return [
+          {
+            source: 'automation',
+            id: row.id,
+            factoryId: automation.factoryId,
+            createdAt: row.createdAt,
+            headline: headlineOf(null, row.body),
+            automationId: automation.id,
+            automationName: automation.name,
+          },
+        ]
+      })
+    const livePlans = new Map(
+      store
+        .query(queryDb(plans.select()))
+        .filter((p) => factoryIds.has(p.factoryId))
+        .map((p) => [p.id, p]),
+    )
+    const fromPlans = store
+      .query(queryDb(planRequests.where({ answer: null })))
+      .flatMap((row): WaitingRequest[] => {
+        const plan = livePlans.get(row.planId)
+        if (!plan || row.kind === 'note') return []
+        return [
+          {
+            source: 'plan',
+            id: row.id,
+            factoryId: plan.factoryId,
+            createdAt: row.createdAt,
+            headline: headlineOf(row.title, row.body),
+            kind: row.kind as CommentKind,
+            planId: plan.id,
+            planTitle: plan.title,
+          },
+        ]
+      })
+    return [...fromTasks, ...fromAutomations, ...fromPlans].sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt),
+    )
+  }
+  let lastWaiting: WaitingRequest[] | undefined
+  let waitingNoted = false
+  noteWaiting = () => {
+    if (waitingNoted) return
+    waitingNoted = true
+    queueMicrotask(() => {
+      waitingNoted = false
+      if (shutDown) return
+      const next = waiting()
+      if (lastWaiting !== undefined && isDeepStrictEqual(next, lastWaiting)) return
+      lastWaiting = next
+      emit({ type: 'inbox-changed', waiting: next })
+    })
+  }
+  lastWaiting = waiting()
+
   let lastActivity = activity()
   const noteActivity = () => {
     const next = activity()
@@ -3399,6 +3489,7 @@ export async function openStore({
     },
     settings,
     activity,
+    waiting,
     setShellsRunning(count) {
       shellsRunning = count
       noteActivity()
@@ -3530,7 +3621,10 @@ export async function openStore({
       writeListeners.add(listener)
       return () => writeListeners.delete(listener)
     },
-    close: () => store.shutdownPromise(),
+    close: () => {
+      shutDown = true
+      return store.shutdownPromise()
+    },
   }
 }
 
@@ -3608,4 +3702,14 @@ function publicPermission(json: string): NonNullable<Comment['permission']> {
     ...(details !== undefined && { details }),
     ...(repo !== undefined && { repo }),
   }
+}
+
+function headlineOf(title: string | null, body: string): string {
+  if (title !== null && title.trim() !== '') return title.trim()
+  return (
+    body
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line !== '') ?? ''
+  )
 }

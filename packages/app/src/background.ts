@@ -3,10 +3,12 @@ import {
   type Banner,
   type BannerSeverity,
   bannerOrder,
+  type CommentKind,
   isShowing,
   type QuitChoice,
   type RunCounts,
   type Task,
+  type WaitingRequest,
   workRunning,
 } from '@ted/protocol'
 
@@ -47,6 +49,7 @@ export type MenuEntry =
 
 export interface MenuState {
   activity: Activity
+  waiting: number
   banners: readonly Banner[]
   updateReady?: string
 }
@@ -92,12 +95,12 @@ const newTask = () => item('New Task…', { kind: 'new-task' }, 'CmdOrCtrl+N')
 const settings = () => item('Settings…', { kind: 'settings' }, 'CmdOrCtrl+,')
 const quit = () => item('Quit TED completely', { kind: 'quit' }, 'CmdOrCtrl+Q')
 
-function statusLines({ activity, banners, updateReady }: MenuState, now: Date): MenuEntry[][] {
+function statusLines(
+  { activity, waiting, banners, updateReady }: MenuState,
+  now: Date,
+): MenuEntry[][] {
   return [
-    [
-      item(waitingLabel(activity.waitingOnYou), { kind: 'open-inbox' }),
-      item(runsLabel(activity.runs)),
-    ],
+    [item(waitingLabel(waiting), { kind: 'open-inbox' }), item(runsLabel(activity.runs))],
     appWideProblems(banners, now).map((b) => ({
       type: 'item',
       label: b.text,
@@ -155,16 +158,20 @@ export function appMenu(platform: Platform, state: MenuState, now: Date = new Da
   ]
 }
 
-export function trayLabel(activity: Activity): string {
-  return activity.waitingOnYou > 0 ? String(activity.waitingOnYou) : ''
+export function trayLabel(waiting: number): string {
+  return waiting > 0 ? String(waiting) : ''
 }
 
 export function trayWarning(banners: readonly Banner[], now: Date = new Date()): boolean {
   return appWideProblems(banners, now).length > 0
 }
 
-export function windowTitle(platform: Platform, waitingOnYou: number): string {
-  return platform === 'linux' && waitingOnYou > 0 ? `TED (${waitingOnYou})` : 'TED'
+export function windowTitle(platform: Platform, waiting: number): string {
+  return platform === 'linux' && waiting > 0 ? `TED (${waiting})` : 'TED'
+}
+
+export function dockBadge(waiting: number): string {
+  return waiting > 0 ? String(waiting) : ''
 }
 
 export type QuitPlan = 'ask' | 'keep-running' | 'stop'
@@ -270,4 +277,41 @@ export function mergedNotice(task: Task, now: number): ProblemNotice | undefined
         : task.title,
     opens: { kind: 'open-task', taskId: task.id, factoryId: task.factoryId },
   }
+}
+
+const kindLabels: Record<CommentKind, string> = {
+  note: 'Note',
+  question: 'Question',
+  round: 'Clarify round',
+  review: 'Design review',
+  signoff: 'Sign-off',
+  permission: 'Permission',
+  proposal: 'Proposal',
+}
+
+export function inboxNotice(request: WaitingRequest): ProblemNotice {
+  if (request.source === 'task') {
+    const label = request.failed ? 'FAILED' : kindLabels[request.kind]
+    return {
+      title: `${request.displayId} ${request.taskTitle}`,
+      body: `${label}: ${request.headline}`,
+      opens: { kind: 'open-task', taskId: request.taskId, factoryId: request.factoryId },
+    }
+  }
+  if (request.source === 'automation') {
+    return {
+      title: request.automationName,
+      body: `Question: ${request.headline}`,
+      opens: { kind: 'open-inbox' },
+    }
+  }
+  return {
+    title: request.planTitle,
+    body: `${kindLabels[request.kind]}: ${request.headline}`,
+    opens: { kind: 'open-inbox' },
+  }
+}
+
+export function foldedNotice(count: number): ProblemNotice {
+  return { title: 'TED', body: `${count} new items in your Inbox`, opens: { kind: 'open-inbox' } }
 }

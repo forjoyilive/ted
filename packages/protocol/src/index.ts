@@ -504,6 +504,7 @@ export {
 } from './task.ts'
 export type { UpdateWork } from './update.ts'
 export { tedVersion } from './version.ts'
+export type { WaitingRequest } from './waiting.ts'
 export type {
   BoardStage,
   FactoryBoard,

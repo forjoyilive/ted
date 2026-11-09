@@ -53,7 +53,6 @@ async function start() {
 }
 
 const idle = {
-  waitingOnYou: 0,
   runs: { working: 0, active: 0, queued: 0 },
   automationsOn: 0,
   factoriesSettingUp: 0,
@@ -82,7 +81,7 @@ describe('activity', () => {
 
     await expect
       .poll(() => ted.getActivity())
-      .toEqual({ ...idle, waitingOnYou: 1, runs: { working: 0, active: 1, queued: 0 } })
+      .toEqual({ ...idle, runs: { working: 0, active: 1, queued: 0 } })
     await writeFile(gate('1'), '')
     await expect
       .poll(() => ted.getActivity())

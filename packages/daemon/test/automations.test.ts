@@ -11,6 +11,7 @@ import type {
   RunSlots,
   RunWithConversation,
   Task,
+  WaitingRequest,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -278,7 +279,14 @@ describe('Automations', () => {
       body: 'Create NB tasks?',
       choices: ['Yes', 'No'],
     })
-    expect((await client.ok<Activity>('GET', '/activity')).waitingOnYou).toBeGreaterThanOrEqual(1)
+    expect(await client.ok<WaitingRequest[]>('GET', '/inbox/waiting')).toEqual([
+      expect.objectContaining({
+        source: 'automation',
+        id: question?.id,
+        automationId: asking.id,
+        headline: 'Create NB tasks?',
+      }),
+    ])
 
     clock = Date.parse('2026-11-09T09:15:05Z')
     const busyRows = await waitForHistory(client, busy.id, (rows) => rows.length === 2, 'a skip')

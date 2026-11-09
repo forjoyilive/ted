@@ -502,6 +502,11 @@ export const taskRoutes: Route[] = [
     handle: async (_, { tasks }) => [200, tasks.answered()],
   },
   {
+    method: 'GET',
+    path: /^\/inbox\/waiting$/,
+    handle: async (_, { store }) => [200, store.waiting()],
+  },
+  {
     method: 'POST',
     path: /^\/comments\/([^/]+)\/talk$/,
     handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.talkThrough(id)],
