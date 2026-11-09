@@ -352,3 +352,13 @@ describe('event lines', () => {
     ])
   })
 })
+
+describe('event lines for Task changes', () => {
+  test('archiving a Task adds an event line', async () => {
+    const client = await startTed()
+    const task = await create(client, 'Old idea')
+    await client.ok('POST', `/tasks/${task.id}/archive`)
+    const texts = (await threadEvents(client, task)).map((e) => e.text)
+    expect(texts).toEqual(['You created this Task', 'You archived this Task'])
+  })
+})

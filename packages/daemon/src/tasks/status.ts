@@ -23,8 +23,8 @@ export interface TaskFacts {
   github?: GitHubWait
   needsPlanning?: boolean
   agentActivity?: string
-  leadLive?: boolean
   archived?: boolean
+  leadLive?: boolean
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
@@ -47,14 +47,6 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   return undefined
 }
 
-export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): CommentBox {
-  if (facts.stage === 'done') return 'done'
-  if (status?.kind === 'failed') return 'failed'
-  if (status?.kind === 'stopped') return 'stopped'
-  if (status?.kind === 'paused') return 'paused'
-  return facts.leadLive ? 'live' : 'no-run'
-}
-
 export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
   if (facts.stage === 'done' || facts.archived) return []
   const has: Record<TaskStatusKind, boolean> = {
@@ -70,6 +62,14 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
     'waiting-for-github': facts.github !== undefined,
   }
   return (Object.keys(has) as TaskStatusKind[]).filter((kind) => has[kind])
+}
+
+export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): CommentBox {
+  if (facts.stage === 'done') return 'done'
+  if (status?.kind === 'failed') return 'failed'
+  if (status?.kind === 'stopped') return 'stopped'
+  if (status?.kind === 'paused') return 'paused'
+  return facts.leadLive ? 'live' : 'no-run'
 }
 
 export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): TaskMarker[] {

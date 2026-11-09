@@ -848,6 +848,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
   'v1.TaskMovedToBacklog': (args) => task(args),
+  'v1.TaskArchived': (args) => task(args),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
