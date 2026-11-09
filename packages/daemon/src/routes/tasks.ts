@@ -309,6 +309,19 @@ export const taskRoutes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/changes$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.changes(ref)],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/changes\/([^/?]+)\/diffs(?:\?.*)?$/,
+    async handle({ req, params: [ref = '', name = ''] }, { tasks }) {
+      const file = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? undefined
+      return [200, await tasks.fileDiffs(ref, name, file)]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,

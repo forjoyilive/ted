@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import type { DiffHunk } from '@ted/protocol'
 import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -195,27 +196,7 @@ export async function removeWorktree(repo: string, worktree: string): Promise<vo
 const noHooks = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=']
 
 export async function changedFiles(worktree: string, base: string): Promise<string[]> {
-  const mergeBase = await git(worktree, ...noHooks, 'merge-base', 'HEAD', base)
-  const changed = await git(
-    worktree,
-    ...noHooks,
-    'diff',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--name-only',
-    '-z',
-    mergeBase,
-    '--',
-  )
-  const untracked = await git(
-    worktree,
-    ...noHooks,
-    'ls-files',
-    '--others',
-    '--exclude-standard',
-    '-z',
-  )
-  return [...new Set([...changed.split('\0'), ...untracked.split('\0')])].filter((p) => p !== '')
+  return (await workingChanges(worktree, base)).files.map((f) => f.path)
 }
 
 export async function commitAt(worktree: string, at: string): Promise<string | undefined> {
@@ -449,20 +430,174 @@ export async function changesBetween(
       input.to,
       '--',
     ])
-    return out
-      .split('\0')
-      .filter((entry) => entry !== '')
-      .map((entry) => {
-        const [added = '', removed = '', ...rest] = entry.split('\t')
-        return {
-          path: rest.join('\t'),
-          added: Number.parseInt(added, 10) || 0,
-          removed: Number.parseInt(removed, 10) || 0,
-        }
-      })
+    return parseNumstat(out).map(({ path, added, removed }) => ({ path, added, removed }))
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
+}
+
+function parseNumstat(out: string): (FileChange & { binary: boolean })[] {
+  return out
+    .split('\0')
+    .filter((entry) => entry !== '')
+    .map((entry) => {
+      const [added = '', removed = '', ...rest] = entry.split('\t')
+      return {
+        path: rest.join('\t'),
+        added: Number.parseInt(added, 10) || 0,
+        removed: Number.parseInt(removed, 10) || 0,
+        binary: added === '-' && removed === '-',
+      }
+    })
+}
+
+export interface WorkingFile {
+  path: string
+  added: number
+  removed: number
+  uncommitted: boolean
+  binary?: true
+}
+
+export interface WorkingDiff extends WorkingFile {
+  hunks: DiffHunk[]
+  truncated?: true
+}
+
+export interface WorkingChanges {
+  head: string
+  mergeBase: string
+  files: WorkingFile[]
+  diffs: WorkingDiff[]
+}
+
+const maxDiffRows = 3_000
+const maxDiffFiles = 200
+
+const readOnly = [
+  '-c',
+  'core.fsmonitor=false',
+  '-c',
+  'core.hooksPath=/dev/null',
+  '-c',
+  'core.untrackedCache=false',
+  '-c',
+  'diff.external=',
+  '--literal-pathspecs',
+]
+
+const diffFlags = ['--no-ext-diff', '--no-textconv', '--no-renames', '--no-color']
+
+export async function workingChanges(
+  worktree: string,
+  base: string,
+  options: { diffs?: readonly string[] | 'all' } = {},
+): Promise<WorkingChanges> {
+  const head = await headCommit(worktree)
+  const baseTip = await revParse(worktree, base)
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv(
+    {},
+    {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_DIR: gitDir,
+      GIT_INDEX_FILE: path.join(scratch, 'index'),
+    },
+  )
+  const run = async (args: string[], work?: string): Promise<string> => {
+    try {
+      const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
+        cwd: work ?? scratch,
+        env: work === undefined ? env : { ...env, GIT_WORK_TREE: work },
+        maxBuffer: 64 * 1024 * 1024,
+      })
+      return stdout
+    } catch (error) {
+      const stderr = (error as { stderr?: string }).stderr?.trim()
+      throw new GitError(redactSecrets(`git ${args[0]} failed${stderr ? `: ${stderr}` : ''}`))
+    }
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await run(['read-tree', head])
+    await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
+    const tree = (await run(['write-tree'])).trim()
+    const mergeBase = (await run(['merge-base', head, baseTip])).trim()
+    const uncommitted = new Set(
+      (await run(['diff', ...diffFlags, '--name-only', '-z', head, tree, '--']))
+        .split('\0')
+        .filter((p) => p !== ''),
+    )
+    const files: WorkingFile[] = parseNumstat(
+      await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, tree, '--']),
+    ).map((file) => ({
+      path: file.path,
+      added: file.added,
+      removed: file.removed,
+      uncommitted: uncommitted.has(file.path),
+      ...(file.binary && { binary: true as const }),
+    }))
+    const diffs: WorkingDiff[] = []
+    const wanted = options.diffs === 'all' ? files.map((f) => f.path) : (options.diffs ?? [])
+    for (const [i, name] of wanted.entries()) {
+      const file = files.find((f) => f.path === name)
+      if (!file) continue
+      if (file.binary || i >= maxDiffFiles) {
+        diffs.push({ ...file, hunks: [], ...(!file.binary && { truncated: true as const }) })
+        continue
+      }
+      const patch = await run([
+        'diff',
+        ...diffFlags,
+        '-U3',
+        mergeBase,
+        tree,
+        '--',
+        file.path,
+      ]).catch(() => undefined)
+      diffs.push(
+        patch === undefined
+          ? { ...file, hunks: [], truncated: true }
+          : { ...file, ...parsePatch(patch) },
+      )
+    }
+    return { head, mergeBase, files, diffs }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true } {
+  const hunks: DiffHunk[] = []
+  let current: DiffHunk | undefined
+  let old = 0
+  let next = 0
+  let rows = 0
+  for (const line of patch.split('\n')) {
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
+    if (header) {
+      current = { header: line, rows: [] }
+      hunks.push(current)
+      old = Number(header[1])
+      next = Number(header[2])
+      continue
+    }
+    if (!current) continue
+    const mark = line[0]
+    if (mark !== ' ' && mark !== '-' && mark !== '+') continue
+    if (rows >= maxDiffRows) return { hunks, truncated: true }
+    const text = line.slice(1)
+    if (mark === ' ') current.rows.push({ kind: 'context', text, old: old++, new: next++ })
+    else if (mark === '-') current.rows.push({ kind: 'removed', text, old: old++ })
+    else current.rows.push({ kind: 'added', text, new: next++ })
+    rows++
+  }
+  return { hunks }
 }
 
 export async function headCommit(worktree: string): Promise<string> {

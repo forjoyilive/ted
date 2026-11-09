@@ -186,6 +186,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
+  fileDiffs: (client, taskId, repo, file) =>
+    client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {

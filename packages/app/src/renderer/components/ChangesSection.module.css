@@ -1,0 +1,174 @@
+.section {
+  margin-top: 20px;
+  font-size: var(--text-13);
+}
+
+.headingRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 6px;
+}
+
+.heading {
+  margin: 0;
+  color: var(--text-caption);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+}
+
+.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.link:focus-visible,
+.file:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.empty {
+  margin: 0;
+  color: var(--text-tertiary);
+}
+
+.error {
+  margin: 0 0 4px;
+  color: var(--status-failed-fg);
+}
+
+.repos {
+  display: grid;
+  gap: 10px;
+}
+
+.repoRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--text-caption);
+}
+
+.repoName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  width: calc(100% + 12px);
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover,
+.current {
+  background: var(--surface-selected);
+}
+
+.name {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.counts {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}
+
+.added {
+  color: var(--diff-added-count);
+}
+
+.removed {
+  color: var(--diff-removed-count);
+}
+
+.binary {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12);
+}
+
+.drafts {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--status-waiting-bg);
+  color: var(--status-waiting-fg);
+  font-size: var(--text-11);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  flex-shrink: 0;
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.uncommitted {
+  background: var(--status-waiting-fg);
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

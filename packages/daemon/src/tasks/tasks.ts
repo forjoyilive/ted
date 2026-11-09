@@ -21,6 +21,7 @@ import type {
   EditTaskRequest,
   Effort,
   FactoryBoard,
+  FileDiff,
   FollowUpRequest,
   GitHubWait,
   InboxItem,
@@ -45,6 +46,7 @@ import type {
   SubAgentWait,
   Task,
   TaskBrief,
+  TaskChanges,
   TaskDefaults,
   TaskLead,
   TaskRepo,
@@ -90,6 +92,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { fileDiffs, taskChanges } from './changes.ts'
 import {
   type CheckRunnerResult,
   failureFindings,
@@ -230,6 +233,8 @@ export interface Tasks {
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  changes(ref: string): Promise<TaskChanges>
+  fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
   setRepos(ref: string, caller: Caller, request: SetTaskReposRequest): Promise<TaskReposResult>
   repoSetup(ref: string, repo: string, caller: Caller): Promise<RepoSetupReport>
   runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
@@ -5184,6 +5189,18 @@ export function createTasks(options: {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
+    },
+
+    async changes(ref) {
+      const task = find(ref)
+      return taskChanges(task.id, await pullRequestTargets(task))
+    },
+
+    async fileDiffs(ref, name, file) {
+      const task = find(ref)
+      const target = (await pullRequestTargets(task)).find((t) => t.name === name)
+      if (!target) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
+      return fileDiffs(target, file)
     },
 
     async runChecks(ref, caller, only) {

@@ -21,6 +21,7 @@ import type {
   SchedulePreview,
 } from './automation.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { FileDiff, TaskChanges } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
@@ -432,6 +433,18 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/setup`,
+    )
+  }
+
+  taskChanges(ref: string): Promise<TaskChanges> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/changes`)
+  }
+
+  fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]> {
+    const query = path === undefined ? '' : `?${new URLSearchParams({ path })}`
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/changes/${encodeURIComponent(repo)}/diffs${query}`,
     )
   }
 

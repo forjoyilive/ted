@@ -1,0 +1,81 @@
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+  line-height: var(--leading-relaxed);
+}
+
+.numberColumn {
+  width: 44px;
+}
+
+.markColumn {
+  width: 18px;
+}
+
+.table td {
+  padding: 0;
+  vertical-align: top;
+}
+
+.hunk td {
+  padding: 2px 16px;
+  background: var(--diff-hunk);
+  color: var(--text-tertiary);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.number {
+  padding-right: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+.mark {
+  color: var(--text-muted);
+  text-align: center;
+  user-select: none;
+}
+
+.text {
+  padding-right: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.context .text {
+  color: var(--text-primary);
+}
+
+.added {
+  background: var(--diff-added-line);
+}
+
+.added .mark {
+  color: var(--diff-added-count);
+}
+
+.removed {
+  background: var(--diff-removed-line);
+}
+
+.removed .mark {
+  color: var(--diff-removed-count);
+}
+
+.extra td {
+  padding: 8px 16px 8px 106px;
+}
+
+.note {
+  margin: 0;
+  padding: 12px 16px;
+  color: var(--text-tertiary);
+  font-size: var(--text-13);
+}
