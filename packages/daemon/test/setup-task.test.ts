@@ -270,9 +270,11 @@ describe('the proposal', () => {
         {
           name: 'Web',
           kind: 'web',
+          run: `'${process.execPath}' '${stubApp}'`,
           ready: 'ready in 9s at localhost:5174',
           passed: true,
         },
+        { name: 'Changed', kind: 'command', run: 'true', ready: 'exits at once', passed: true },
       ],
       files: [
         { path: '.ted/notes.md', about: 'Factory notes' },
@@ -340,6 +342,9 @@ describe('the proposal', () => {
         '      - name: Sneaky App',
         '        kind: command',
         `        run: "touch ${path.join(scratch, 'sneaky-app')}"`,
+        '      - name: Changed',
+        '        kind: command',
+        `        run: "touch ${path.join(scratch, 'changed-app')}"`,
         '',
       ].join('\n'),
     )
@@ -377,7 +382,10 @@ describe('the proposal', () => {
             { name: 'Unit', command: 'true', passed: true, durationMs: 1200 },
             { name: 'End-to-end', passed: false, reason: 'Fails on main: needs the API running' },
           ],
-          apps: [{ name: 'Web', kind: 'web', passed: true }],
+          apps: [
+            { name: 'Web', kind: 'web', run: `'${process.execPath}' '${stubApp}'`, passed: true },
+            { name: 'Changed', run: 'true' },
+          ],
           files: [
             { path: '.ted/notes.md' },
             { path: '.ted/workflow.yaml' },
@@ -399,6 +407,7 @@ describe('the proposal', () => {
     }, 'TED to start the proposed App')
     expect(web.map((a) => a.name)).toEqual(['Web'])
     expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
+    expect(existsSync(path.join(scratch, 'changed-app'))).toBe(false)
     await answer('review')
 
     const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)

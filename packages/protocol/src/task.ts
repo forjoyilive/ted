@@ -564,6 +564,7 @@ export interface SetupAppTried {
   name: string
   repo?: string
   kind: string
+  run?: string
   ready: string
   passed: boolean
   reason?: string

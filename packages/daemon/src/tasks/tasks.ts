@@ -957,9 +957,13 @@ export function createTasks(options: {
     const approved = await approvedSetup(task)
     if (!approved) return new Map()
     const { primary, settings, proposal } = approved
-    const passed = (names: readonly string[], name: string) =>
+    const passed = (names: readonly string[], app: AppDeclaration) =>
       proposal.apps.some(
-        (a) => a.passed && a.name === name && names.includes(a.repo ?? primary.name),
+        (a) =>
+          a.passed &&
+          a.name === app.name &&
+          a.run === app.run &&
+          names.includes(a.repo ?? primary.name),
       )
     const remoteRepo = (remote: string | undefined) =>
       remote === undefined ? undefined : githubRepoOf(remote)
@@ -976,7 +980,7 @@ export function createTasks(options: {
                   return repo !== undefined && sameRepo(repo, r.repo)
                 })
           const names = [r.name, ...(listed?.name !== undefined ? [listed.name] : [])]
-          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a.name))
+          const apps = appDeclarations(listed?.apps).filter((a) => passed(names, a))
           return [r.name, apps] as const
         }),
     )

@@ -3384,6 +3384,7 @@ describe('setup Tasks', () => {
               name: 'Web',
               repo: 'widgets',
               kind: 'web',
+              run: 'npm run dev',
               ready: 'ready in 9s at localhost:5174',
               passed: true,
             },
@@ -3456,10 +3457,9 @@ describe('setup Tasks', () => {
       '✓Unit testsnpm testwidgets1m 52s',
       '✕End-to-endnpm run test:e2ewidgetsFails on main: needs the API running · left off',
     ])
-    await card
-      .getByRole('region', { name: 'Apps · started on main' })
-      .getByText('web · ready in 9s at localhost:5174')
-      .waitFor()
+    const apps = card.getByRole('region', { name: 'Apps · started on main' })
+    await apps.getByText('web · ready in 9s at localhost:5174').waitFor()
+    await apps.getByText('npm run dev', { exact: true }).waitFor()
     const written = card.getByRole('region', { name: 'Files it will write' })
     expect(await written.getByRole('listitem').count()).toBe(3)
     await card

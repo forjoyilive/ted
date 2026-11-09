@@ -35,7 +35,7 @@ Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests
          { "name": "End-to-end", "command": "npm run test:e2e", "repo": "notebook-app", "passed": false, "durationMs": 40000, "reason": "Fails on main: needs the API running" }
        ],
        "apps": [
-         { "name": "Web", "repo": "notebook-app", "kind": "web", "ready": "ready in 9s at localhost:5174", "passed": true }
+         { "name": "Web", "repo": "notebook-app", "kind": "web", "run": "npm run dev -- --port ${PORT}", "ready": "ready in 9s at localhost:5174", "passed": true }
        ],
        "files": [
          { "path": ".ted/notes.md", "about": "Factory notes: product, repos, running locally, conventions" },
@@ -47,7 +47,7 @@ Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests
    }
    ```
 
-   `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as TED’s default. `checks` and `apps` list everything you tried, with the results you saw. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at TED’s defaults.
+   `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as TED’s default. `checks` and `apps` list everything you tried, with the results you saw; give each App the exact `run` command you will write in `.ted/workflow.yaml`. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at TED’s defaults.
 
 ## Work
 
@@ -55,4 +55,4 @@ Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted
 
 ## Validate
 
-TED runs the Checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the TED settings Check, then starts the approved Apps from this branch and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.
+TED runs the Checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the TED settings Check, then starts the Apps from this branch whose name, repo and `run` match the approved proposal and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.

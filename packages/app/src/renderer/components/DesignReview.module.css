@@ -353,7 +353,7 @@
 }
 
 .appRow {
-  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) 1fr;
+  grid-template-columns: 14px minmax(90px, 140px) minmax(0, 160px) minmax(0, 120px) 1fr;
 }
 
 .fileRow {

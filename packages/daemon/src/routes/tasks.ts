@@ -1154,6 +1154,7 @@ function setupProposal(value: unknown): SetupProposal {
       name,
       ...(repo !== undefined && { repo }),
       kind: needed(app.kind, `${name}’s kind`, 40),
+      run: needed(app.run, `${name}’s run command`, 300),
       ready: needed(app.ready, `how ${name} became ready`, 200),
       passed,
       ...(reason !== undefined && { reason }),
