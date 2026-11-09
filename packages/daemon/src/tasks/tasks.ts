@@ -113,6 +113,7 @@ import {
 } from './failures.ts'
 import {
   activityMessage,
+  checkList,
   failedChecks,
   freshRunReason,
   type GitHubNotice,
@@ -121,6 +122,7 @@ import {
   logTail,
   noticesFor,
   previewOf,
+  trustedCheck,
   unseen,
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
@@ -1031,7 +1033,9 @@ export function createTasks(options: {
     const tails = new Map<string, string>()
     const gh = options.gh
     if (!gh) return tails
-    for (const check of failedChecks(pr).slice(0, 5)) {
+    for (const check of failedChecks(pr)
+      .filter((c) => trustedCheck(pr, c))
+      .slice(0, 5)) {
       const logPath = jobLogPath(repo, check)
       if (logPath === undefined) continue
       try {
@@ -1357,16 +1361,14 @@ export function createTasks(options: {
     })
     if (!stuck) return
     const { target, pr } = stuck
-    const pending = relevantChecks(pr)
-      .filter((c) => c.state === 'pending')
-      .map((c) => c.name)
+    const pending = relevantChecks(pr).filter((c) => c.state === 'pending')
     const requiredPending = pr.checks.some((c) => c.required && c.state === 'pending')
     const where = `${target.repo}#${target.number}`
     const minutes = (ms: number) => `${Math.round(ms / 60_000)} minutes`
     const what =
       pr.checks.length === 0
         ? `No CI check has appeared on ${where} ${minutes(answeredAt === '' ? ciStuckMs.noChecks : ciStuckMs.pending)} after ${answeredAt === '' ? 'TED pushed' : 'you said to keep waiting'}.`
-        : `${pending.join(', ')} ${pending.length === 1 ? 'is' : 'are'} still queued or pending on ${where} after ${minutes(ciStuckMs.pending)}.`
+        : `${checkList(pr, pending)} ${pending.length === 1 ? 'is' : 'are'} still queued or pending on ${where} after ${minutes(ciStuckMs.pending)}.`
     store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -1768,7 +1770,10 @@ export function createTasks(options: {
         case 'ci-failed':
           return mergeSendBack(
             taskId,
-            `CI failed on ${target.repo}#${target.number} at Merge: ${step.checks.join(', ')}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
+            `CI failed on ${target.repo}#${target.number} at Merge: ${checkList(
+              pr,
+              relevantChecks(pr).filter((c) => c.state === 'failed'),
+            )}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
           )
         case 'wait':
           if (

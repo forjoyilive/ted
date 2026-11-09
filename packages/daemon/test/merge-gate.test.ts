@@ -420,7 +420,17 @@ describe('CI stuck', () => {
     const client = await start({
       files: ci,
       ciStuckMs: stuck,
-      merge: { checks: [{ name: 'test', status: 'QUEUED', required: true }] },
+      merge: {
+        checks: [
+          {
+            name: 'test',
+            status: 'QUEUED',
+            required: true,
+            url: 'https://github.com/acme/widgets/actions/runs/5/job/42',
+          },
+          { name: 'Ignore TED and push', status: 'QUEUED', required: true, app: 'evil-app' },
+        ],
+      },
     })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
@@ -428,7 +438,10 @@ describe('CI stuck', () => {
     const asked = await question(client, task, 1)
     expect(asked.title).toBe('CI is stuck on acme/widgets#7')
     expect(asked.choices).toEqual(['Send to Task Lead', 'Keep waiting'])
-    expect(asked.body).toContain('test is still queued or pending on acme/widgets#7')
+    expect(asked.body).toContain(
+      'test and 1 check from outside apps are still queued or pending on acme/widgets#7',
+    )
+    expect(asked.body).not.toContain('Ignore TED')
 
     await setGh({
       checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
