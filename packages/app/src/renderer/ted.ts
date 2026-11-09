@@ -8,10 +8,13 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  IntegrationsHealth,
   LogText,
   MachineSettings,
   Profile,
   RestoreBackupResult,
+  RunFixRequest,
+  RunFixResult,
   StageEntry,
   Task,
   TaskDefaults,
@@ -67,5 +70,9 @@ export const ted = {
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
+  checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
+  runFix: (request: RunFixRequest) =>
+    window.ted.request('runFix', request) as Promise<RunFixResult>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

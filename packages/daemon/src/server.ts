@@ -11,11 +11,13 @@ import {
   type CreateTaskRequest,
   clarifyDepths,
   efforts,
+  integrationFixes,
   type MachineSettings,
   type PostCommentRequest,
   priorities,
   type ReportOutcomeRequest,
   type RestoreBackupRequest,
+  type RunFixRequest,
   type SetActivityRequest,
   type SetLocalFolderRequest,
   type StartDevRunRequest,
@@ -256,6 +258,32 @@ const routes: Route[] = [
     async handle({ params: [id = ''] }, { banners }) {
       await banners.act(id)
       return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/integrations$/,
+    async handle(_, { integrations }) {
+      return [200, integrations.current() ?? (await integrations.check())]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/check$/,
+    handle: async (_, { integrations }) => [200, await integrations.check({ fresh: true })],
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/fix$/,
+    async handle({ req }, { integrations }) {
+      const body = (await readJson(req)) as Partial<RunFixRequest> | null
+      const fix = integrationFixes.find((f) => f === body?.fix)
+      if (fix === undefined) throw new HttpError(400, `fix must be ${integrationFixes.join(', ')}`)
+      const host = body?.host
+      if (host !== undefined && typeof host !== 'string') {
+        throw new HttpError(400, 'host must be text')
+      }
+      return [200, await integrations.fix({ fix, ...(host !== undefined && { host }) })]
     },
   },
   {

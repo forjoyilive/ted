@@ -8,6 +8,7 @@ import {
   downloadUrl,
   type MachineSettings,
   type RestoreBackupRequest,
+  type RunFixRequest,
   tedHome,
 } from '@ted/protocol'
 import {
@@ -84,6 +85,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
   actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  getIntegrations: (client) => client.getIntegrations(),
+  checkIntegrations: (client) => client.checkIntegrations(),
+  runFix: (client, request) => client.runFix(request as RunFixRequest),
 }
 
 const pictureSize = 256
