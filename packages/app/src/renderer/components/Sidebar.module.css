@@ -218,6 +218,28 @@
   font-weight: var(--weight-medium);
 }
 
+.failedButton {
+  align-self: flex-start;
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--status-failed-fg);
+  font: inherit;
+  font-weight: var(--weight-medium);
+  text-align: left;
+}
+
+.failedButton:hover {
+  background: var(--surface-hover);
+}
+
+.failedButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 0;
+}
+
 .simulators {
   color: var(--text-muted);
 }

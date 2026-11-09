@@ -351,3 +351,25 @@
   background: var(--status-waiting-bg);
   color: var(--status-waiting-fg);
 }
+
+.failedCard {
+  border-color: var(--status-failed-fg);
+}
+
+.failedKind {
+  color: var(--status-failed-fg);
+}
+
+.openRun {
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-size: var(--text-13);
+}
+
+.openRun:hover {
+  text-decoration: underline;
+}

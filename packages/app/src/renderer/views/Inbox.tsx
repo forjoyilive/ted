@@ -2,7 +2,7 @@ import type { Factory, InboxItem } from '@ted/protocol'
 import type { ReactNode } from 'react'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { age, headline, kindLabels, useNow } from '../requests.ts'
+import { age, headline, requestLabel, useNow } from '../requests.ts'
 import styles from './Inbox.module.css'
 import { factoryName, stageName } from './TaskViews.tsx'
 import views from './views.module.css'
@@ -53,7 +53,13 @@ export function Inbox({
                   >
                     <span className={styles.top}>
                       <PriorityIcon priority={task.priority} />
-                      <span className={styles.kind}>{kindLabels[request.kind]}</span>
+                      <span
+                        className={
+                          request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind
+                        }
+                      >
+                        {requestLabel(request)}
+                      </span>
                       <span className={styles.age}>{age(request.createdAt, now)}</span>
                     </span>
                     <span className={styles.headline}>{headline(request)}</span>

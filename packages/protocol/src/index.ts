@@ -151,6 +151,7 @@ export {
   type PermissionMode,
   permissionModes,
   type Run,
+  type RunEnding,
   type RunProblem,
   type RunState,
   type RunWithConversation,

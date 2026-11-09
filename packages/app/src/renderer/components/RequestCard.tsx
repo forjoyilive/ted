@@ -7,6 +7,7 @@ import {
   headline,
   kindLabels,
   poster,
+  requestLabel,
   summary,
   useNow,
 } from '../requests.ts'
@@ -19,7 +20,9 @@ import styles from './RequestCard.module.css'
 function CardHead({ request, task, now }: { request: Comment; task: Task; now: number }) {
   return (
     <div className={styles.head}>
-      <span className={styles.kind}>{kindLabels[request.kind]}</span>
+      <span className={request.failed ? `${styles.kind} ${styles.failedKind}` : styles.kind}>
+        {requestLabel(request)}
+      </span>
       <span>{` · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}</span>
     </div>
   )
@@ -72,7 +75,11 @@ function Summary({ text }: { text: string }) {
   return (
     <div className={styles.summaryBlock}>
       {paragraphs.map(({ paragraph, key }) =>
-        paragraph.startsWith('> ') ? (
+        paragraph.startsWith('```') ? (
+          <pre key={key} className={styles.command}>
+            {paragraph.replace(/^```[^\n]*\n?/, '').replace(/\n?```\s*$/, '')}
+          </pre>
+        ) : paragraph.startsWith('> ') ? (
           <blockquote key={key} className={styles.quoted}>
             “{paragraph.slice(2).trim()}”
           </blockquote>
@@ -90,10 +97,12 @@ export function RequestCard({
   request,
   task,
   readOnly = false,
+  onOpenRun,
 }: {
   request: Comment
   task: Task
   readOnly?: boolean
+  onOpenRun?: ((runId: string) => void) | undefined
 }) {
   const now = useNow()
   const [text, setText] = useState('')
@@ -121,8 +130,12 @@ export function RequestCard({
 
   return (
     <section
-      className={readOnly ? `${styles.card} ${styles.readOnly}` : styles.card}
-      aria-label={readOnly ? `${kindLabels[request.kind]}, read-only` : kindLabels[request.kind]}
+      className={[
+        styles.card,
+        ...(request.failed ? [styles.failedCard] : []),
+        ...(readOnly ? [styles.readOnly] : []),
+      ].join(' ')}
+      aria-label={readOnly ? `${requestLabel(request)}, read-only` : requestLabel(request)}
     >
       <CardHead request={request} task={task} now={now} />
       <h2 className={styles.title}>{headline(request)}</h2>
@@ -155,11 +168,13 @@ export function RequestCard({
             placeholder={
               request.permission
                 ? 'Comment, or say why you’re denying…'
-                : actionChoice !== undefined
-                  ? 'Comment, or tell the Task Lead what to do next…'
-                  : request.kind === 'question' && request.choices
-                    ? 'Or write your own answer…'
-                    : 'Comment to the Task Lead…'
+                : request.failed
+                  ? 'Or tell the Task Lead what to change, then Retry…'
+                  : actionChoice !== undefined
+                    ? 'Comment, or tell the Task Lead what to do next…'
+                    : request.kind === 'question' && request.choices
+                      ? 'Or write your own answer…'
+                      : 'Comment to the Task Lead…'
             }
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -178,6 +193,15 @@ export function RequestCard({
             </p>
           )}
           <div className={styles.buttons}>
+            {request.failed && onOpenRun && (
+              <button
+                type="button"
+                className={styles.openRun}
+                onClick={() => onOpenRun(request.failed?.runId ?? '')}
+              >
+                Open last Run
+              </button>
+            )}
             {request.gate?.caption !== undefined && (
               <span className={styles.caption}>{request.gate.caption}</span>
             )}
@@ -216,6 +240,12 @@ export function RequestCard({
               </>
             ) : actionChoice !== undefined ? (
               <>
+                {request.failed && (
+                  <Help>
+                    Send keeps your Comment for the next Run. Retry sends it and starts a fresh Task
+                    Lead Run from the brief.
+                  </Help>
+                )}
                 <Button
                   disabled={sending || !typed}
                   onClick={() => void send({ action: 'answer', text })}
@@ -225,7 +255,13 @@ export function RequestCard({
                 <Button
                   variant="primary"
                   disabled={sending}
-                  onClick={() => void send({ action: 'answer', choice: actionChoice })}
+                  onClick={() =>
+                    void send({
+                      action: 'answer',
+                      choice: actionChoice,
+                      ...(request.failed ? withText : {}),
+                    })
+                  }
                 >
                   {actionChoice}
                 </Button>
@@ -349,7 +385,7 @@ export function AnsweredCard({
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
   const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
   return (
-    <section className={styles.answered} aria-label={`${kindLabels[request.kind]}, ${outcome}`}>
+    <section className={styles.answered} aria-label={`${requestLabel(request)}, ${outcome}`}>
       <div className={styles.answeredHead}>
         <CardHead request={request} task={task} now={now} />
         <button
@@ -399,7 +435,7 @@ export function OpenRequestLine({
     <button type="button" className={styles.openLine} onClick={onPin}>
       <span className={styles.openDot} aria-hidden />
       <span className={styles.openTitle}>
-        {`${kindLabels[request.kind]} from ${poster(request, task)} · waiting · ${
+        {`${requestLabel(request)} from ${poster(request, task)} · waiting · ${
           pinned ? 'shown below' : `${others} more below`
         }`}
       </span>
@@ -432,7 +468,7 @@ export function WaitingRow({
             title={headline(request)}
             onClick={() => onPin(request.id)}
           >
-            {`${kindLabels[request.kind]} · ${age(request.createdAt, now)}`}
+            {`${requestLabel(request)} · ${age(request.createdAt, now)}`}
           </button>
         ))}
       </div>

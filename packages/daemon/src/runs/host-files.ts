@@ -6,6 +6,7 @@ export interface LaunchFile {
   cwd: string
   input: string
   driver?: string
+  inputFrom?: number
 }
 
 export interface HostDriver {
@@ -23,7 +24,7 @@ export type HostRecord =
   | { t: 'start'; v: 1; hostPid: number; agentPid: number | null }
   | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
-  | { t: 'exit'; code: number | null; signal: string | null; error?: string }
+  | { t: 'exit'; code: number | null; signal: string | null; error?: string; stopped?: boolean }
 
 export interface GenerationLine {
   forGeneration: number
@@ -51,5 +52,6 @@ export function runFiles(runDir: string) {
     log: path.join(runDir, 'host.log'),
     lock: path.join(runDir, 'host.lock'),
     input: path.join(runDir, 'input.jsonl'),
+    pid: path.join(runDir, 'host.pid'),
   }
 }

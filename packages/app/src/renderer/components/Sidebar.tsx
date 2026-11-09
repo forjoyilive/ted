@@ -26,6 +26,7 @@ interface SidebarProps {
   footer?: SidebarFooter
   runsOpen?: boolean
   onOpenRuns?: () => void
+  onOpenFailed?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: () => void
   onAddFactory: () => void
@@ -56,6 +57,7 @@ export function Sidebar({
   footer = {},
   runsOpen = false,
   onOpenRuns,
+  onOpenFailed,
   dispatch,
   onNewTask,
   onAddFactory,
@@ -173,7 +175,14 @@ export function Sidebar({
             ) : (
               <p className={styles.runs}>{footer.runs}</p>
             ))}
-          {footer.failed !== undefined && <p className={styles.failed}>{footer.failed}</p>}
+          {footer.failed !== undefined &&
+            (onOpenFailed ? (
+              <button type="button" className={styles.failedButton} onClick={onOpenFailed}>
+                {footer.failed}
+              </button>
+            ) : (
+              <p className={styles.failed}>{footer.failed}</p>
+            ))}
           {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
           {footer.simulators !== undefined && (
             <p className={styles.simulators}>{footer.simulators}</p>
