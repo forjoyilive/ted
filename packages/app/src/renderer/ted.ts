@@ -29,9 +29,12 @@ import type {
   RepoCheck,
   RestoreBackupResult,
   Run,
+  RunChat,
   RunFixRequest,
   RunFixResult,
+  RunMessage,
   RunSlots,
+  RunSummary,
   StageEntry,
   StorageSummary,
   Task,
@@ -73,6 +76,17 @@ export const ted = {
   answerRequest: (commentId: string, answer: AnswerRequest) =>
     window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
+  getRunChat: (runId: string) => window.ted.request('getRunChat', runId) as Promise<RunChat>,
+  sendRunMessage: (runId: string, text: string) =>
+    window.ted.request('sendRunMessage', runId, text) as Promise<RunMessage>,
+  restartRun: (runId: string) => window.ted.request('restartRun', runId) as Promise<RunSummary>,
+  stopRun: (runId: string) => window.ted.request('stopRun', runId) as Promise<RunSummary>,
+  listTaskRuns: (taskId: string) =>
+    window.ted.request('listTaskRuns', taskId) as Promise<RunSummary[]>,
+  openRunTab: (taskId: string, runId: string) =>
+    window.ted.request('openRunTab', taskId, runId) as Promise<Task>,
+  closeRunTab: (taskId: string, runId: string) =>
+    window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>

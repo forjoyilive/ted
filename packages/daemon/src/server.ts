@@ -39,6 +39,7 @@ import {
   type RepoSource,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SendRunMessageRequest,
   type SetActivityRequest,
   type SetLocalFolderRequest,
   type StartDevRunRequest,
@@ -627,6 +628,55 @@ const routes: Route[] = [
       }
       return [201, await runs.start({ agent, prompt, cwd })]
     },
+  },
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/chat$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.chat(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/messages$/,
+    async handle({ req, params: [id = ''] }, { conversations }) {
+      const body = (await readJson(req)) as Partial<SendRunMessageRequest> | null
+      const text = typeof body?.text === 'string' ? body.text.trim() : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      return [201, await conversations.send(id, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/restart$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [
+      200,
+      await conversations.restart(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/stop$/,
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.stop(id)],
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/runs$/,
+    handle: async ({ params: [ref = ''] }, { conversations }) => [200, conversations.taskRuns(ref)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+      200,
+      conversations.openTab(ref, runId),
+    ],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/tabs\/([^/]+)$/,
+    handle: async ({ params: [ref = '', runId = ''] }, { conversations }) => [
+      200,
+      conversations.closeTab(ref, runId),
+    ],
   },
   {
     method: 'GET',

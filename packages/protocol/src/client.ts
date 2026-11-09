@@ -1,6 +1,7 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
 import type { Activity, OpenAppResult } from './activity.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
+import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CommandLineStatus } from './command-line.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
@@ -332,6 +333,40 @@ export class DaemonClient {
 
   getRun(id: string): Promise<RunWithConversation> {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
+  }
+
+  getRunChat(id: string): Promise<RunChat> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}/chat`)
+  }
+
+  sendRunMessage(id: string, text: string): Promise<RunMessage> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/messages`, { text })
+  }
+
+  restartRun(id: string): Promise<RunSummary> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/restart`)
+  }
+
+  stopRun(id: string): Promise<RunSummary> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/stop`)
+  }
+
+  listTaskRuns(ref: string): Promise<RunSummary[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/runs`)
+  }
+
+  openRunTab(ref: string, runId: string): Promise<Task> {
+    return this.#request(
+      'PUT',
+      `/tasks/${encodeURIComponent(ref)}/tabs/${encodeURIComponent(runId)}`,
+    )
+  }
+
+  closeRunTab(ref: string, runId: string): Promise<Task> {
+    return this.#request(
+      'DELETE',
+      `/tasks/${encodeURIComponent(ref)}/tabs/${encodeURIComponent(runId)}`,
+    )
   }
 
   getDataStatus(): Promise<DataStatus> {

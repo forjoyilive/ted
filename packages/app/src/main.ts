@@ -88,6 +88,13 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   answerRequest: (client, commentId, answer) =>
     client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
+  getRunChat: (client, runId) => client.getRunChat(String(runId)),
+  sendRunMessage: (client, runId, text) => client.sendRunMessage(String(runId), String(text)),
+  restartRun: (client, runId) => client.restartRun(String(runId)),
+  stopRun: (client, runId) => client.stopRun(String(runId)),
+  listTaskRuns: (client, taskId) => client.listTaskRuns(String(taskId)),
+  openRunTab: (client, taskId, runId) => client.openRunTab(String(taskId), String(runId)),
+  closeRunTab: (client, taskId, runId) => client.closeRunTab(String(taskId), String(runId)),
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),

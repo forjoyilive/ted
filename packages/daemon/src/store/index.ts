@@ -20,6 +20,7 @@ import {
   type CommentAuthor,
   type CommentKind,
   type ConversationEntry,
+  type ConversationTab,
   type CopySkip,
   type DaemonEvent,
   defaultMachineSettings,
@@ -30,6 +31,7 @@ import {
   type MachineSettings,
   type Priority,
   type Run,
+  type RunMessage,
   type RunProblem,
   type RunState,
   type StageEntry,
@@ -61,6 +63,7 @@ import {
   banners,
   comments,
   conversationEntries,
+  conversationTabs,
   events,
   factories,
   factoryRepos,
@@ -68,6 +71,7 @@ import {
   localFolders,
   machineSettings,
   machineSettingValues,
+  runMessages,
   runs,
   schema,
   sendBackResets,
@@ -310,6 +314,11 @@ export interface TedStore {
   listRuns(): Run[]
   runReadOffset(id: string): number
   conversation(runId: string): ConversationEntry[]
+  taskRunList(taskId: string): Run[]
+  recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
+  runMessages(runId: string): RunMessage[]
+  openTab(taskId: string, runId: string): Task
+  closeTab(taskId: string, runId: string): Task
   settings(): MachineSettings
   activity(): Activity
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
@@ -565,6 +574,21 @@ export async function openStore({
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
+    const tabs: ConversationTab[] = store
+      .query(queryDb(conversationTabs.where({ taskId: row.id }).orderBy('openedAt', 'asc')))
+      .flatMap((tab) => {
+        const run = all.find((r) => r.id === tab.runId)
+        return run
+          ? [
+              {
+                runId: run.id,
+                name: 'Task Lead',
+                agent: run.agent as AgentKind,
+                state: run.state as RunState,
+              },
+            ]
+          : []
+      })
     const updatedAt = [
       row.createdAt,
       changedAt,
@@ -613,6 +637,7 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      tabs,
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
         .map((r) => {
@@ -1327,7 +1352,11 @@ export async function openStore({
       const target = holding ? 'waiting' : state
       const stateChanged = target !== undefined && target !== current.state
       commit(
-        events.runOutputRead({ runId, toOffset, entries }),
+        events.runOutputReadV2({
+          runId,
+          toOffset,
+          entries: entries.map((entry) => ({ ...entry, at: entry.at ?? at })),
+        }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
           : []),
@@ -1336,6 +1365,7 @@ export async function openStore({
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),
       )
+      if (entries.length > 0) emit({ type: 'run-output', runId })
       if (newProblem || stateChanged) {
         const row = runRow(runId)
         if (row) emit({ type: 'run-updated', run: toRun(row) })
@@ -1372,7 +1402,31 @@ export async function openStore({
     conversation: (runId) =>
       store
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
-        .map(({ offset, line }) => ({ offset, line })),
+        .map(({ offset, line, at }) => ({ offset, line, ...(at !== null && { at }) })),
+    taskRunList: (taskId) => taskRuns(taskId).map(toRun),
+    recordRunMessage({ runId, text, lead }) {
+      const taskId = taskIdOfRun(runId) ?? null
+      const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
+      commit(events.runMessageSent({ ...message, taskId, lead: lead && taskId !== null }))
+      emit({ type: 'run-output', runId })
+      if (taskId !== null && lead) updatedTask(taskId)
+      return message
+    },
+    runMessages: (runId) =>
+      store.query(queryDb(runMessages.where({ runId }).orderBy('at', 'asc'))).map((row) => row),
+    openTab(taskId, runId) {
+      const at = new Date().toISOString()
+      if (store.query(queryDb(conversationTabs.where({ id: `${taskId}:${runId}` }))).length === 0) {
+        commit(events.conversationTabOpened({ taskId, runId, at }))
+      }
+      return updatedTask(taskId)
+    },
+    closeTab(taskId, runId) {
+      if (store.query(queryDb(conversationTabs.where({ id: `${taskId}:${runId}` }))).length > 0) {
+        commit(events.conversationTabClosed({ taskId, runId, at: new Date().toISOString() }))
+      }
+      return updatedTask(taskId)
+    },
     settings,
     activity,
     updateSettings(changes) {

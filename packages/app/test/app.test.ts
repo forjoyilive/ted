@@ -232,6 +232,95 @@ describe('TED app', () => {
       .toBe(true)
   })
 
+  test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const edit = {
+      emit: {
+        type: 'assistant',
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              type: 'tool_use',
+              id: 't1',
+              name: 'Edit',
+              input: {
+                file_path: 'notes.ts',
+                old_string: 'by updated\n',
+                new_string: 'by pinned\n',
+              },
+            },
+          ],
+        },
+      },
+    }
+    const done = {
+      emit: {
+        type: 'user',
+        message: {
+          role: 'user',
+          content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+        },
+      },
+    }
+    const steps = [
+      { everyMessage: [{ say: 'Noted.' }, { endTurn: true }] },
+      edit,
+      done,
+      { say: 'Pinned notes now sort first.' },
+      { endTurn: true },
+    ]
+    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps }))
+    await ted('task', 'start', 'NB-1')
+    const client = await daemonClient()
+    await expect
+      .poll(async () => (await client.listTasks())[0]?.runs[0]?.state, { timeout: 20_000 })
+      .toBe('idle')
+
+    let window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: /Task Lead/ }).click()
+
+    const chat = window.getByRole('region', { name: 'Run chat' })
+    await chat.getByText('Pinned notes now sort first.').waitFor()
+    await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
+    await chat.getByRole('button', { name: /^Edit/ }).click()
+    await chat.getByText('by pinned').waitFor()
+    expect(await chat.getByRole('button', { name: 'Restart' }).isEnabled()).toBe(true)
+
+    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    await box.fill('Keep pinned notes in the order they were pinned.')
+    await box.press('Enter')
+    await chat.getByText(/to this Run only/).waitFor()
+    await chat.getByText('Noted.').waitFor()
+    expect(await client.listComments('NB-1')).toEqual([])
+
+    await window.getByRole('tab', { name: 'Thread' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
+    await thread.getByRole('button', { name: 'View message' }).click()
+    await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
+
+    await app?.close()
+    app = undefined
+    window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    await window.getByRole('tab', { name: /Task Lead/ }).click()
+    await window
+      .getByRole('region', { name: 'Run chat' })
+      .getByText('Pinned notes now sort first.')
+      .waitFor()
+    await window.getByRole('button', { name: 'Close Task Lead' }).click()
+    await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
+  }, 90_000)
+
   test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
     await ted('task', 'create', 'Fix login')
     const window = await launchApp()

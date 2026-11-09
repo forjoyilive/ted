@@ -19,6 +19,18 @@ export {
   isShowing,
   type RaiseBanner,
 } from './banner.ts'
+export type {
+  ChatDiff,
+  ChatDiffLine,
+  ChatItem,
+  ChatToolStatus,
+  ConversationTab,
+  RunChat,
+  RunMessage,
+  RunRole,
+  RunSummary,
+  SendRunMessageRequest,
+} from './chat.ts'
 export {
   DaemonClient,
   DaemonRequestError,

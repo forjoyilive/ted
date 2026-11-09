@@ -184,6 +184,16 @@ export function threadEvents(
           `Paused · ${agentNames[text(data.agent)] ?? text(data.agent)} can’t run right now`,
         )
         break
+      case 'v1.RunMessageSent':
+        lines.push({
+          id: entry.id,
+          taskId,
+          at: entry.at,
+          tone: 'edit',
+          text: 'You steered the Task Lead in its Conversation',
+          runId: text(data.runId),
+        })
+        break
       case 'v1.TaskRunReleased':
         if (held) add(entry, 'quiet', 'Continued')
         held = false
