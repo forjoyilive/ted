@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -23,3 +24,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
+      - run: pnpm --filter @ted/app exec install-electron
+        if: startsWith(github.ref, 'refs/tags/v')
+      # Ubuntu runners block Chromium's OS sandbox; the renderer's own sandbox stays on.
+      - run: xvfb-run -a pnpm test
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
