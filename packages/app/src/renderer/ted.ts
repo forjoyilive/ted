@@ -51,6 +51,7 @@ import type {
   RunSummary,
   SaveSettingsRequest,
   SaveSettingsResult,
+  SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
   StageEntry,
@@ -120,6 +121,8 @@ export const ted = {
     window.ted.request('editTask', taskId, edit) as Promise<Task>,
   taskDescriptions: (taskId: string) =>
     window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
+  search: (query: string, factoryId?: string) =>
+    window.ted.request('search', query, factoryId) as Promise<SearchResults>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
     window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>

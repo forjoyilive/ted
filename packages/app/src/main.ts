@@ -120,6 +120,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
   editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
   taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
+  search: (client, query, factoryId) =>
+    client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),

@@ -17,6 +17,7 @@
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",
     "./storage": "./src/storage.ts",
-    "./checks": "./src/checks.ts"
+    "./checks": "./src/checks.ts",
+    "./search": "./src/search.ts"
   }
 }

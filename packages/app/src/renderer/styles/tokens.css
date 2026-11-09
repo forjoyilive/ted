@@ -71,6 +71,9 @@
   --diff-removed-count: light-dark(#c0392b, #f07a6a);
   --diff-hunk: light-dark(#f1f2f8, #20222e);
 
+  --find-match: light-dark(#fbe7a6, #6a5418);
+  --find-current: light-dark(#f5b942, #b8892a);
+
   --priority-bar: light-dark(#6c6b66, #adaba4);
   --priority-bar-dim: light-dark(#d6d5d0, #4a4945);
   --priority-none: light-dark(#a19f99, #7e7c76);

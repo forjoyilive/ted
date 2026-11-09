@@ -6,7 +6,14 @@ import { runStatusAction, type StatusAction, statusAction } from '../task-action
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { EditTaskDialog, editTaskEvent } from '../views/EditTaskDialog.tsx'
-import { ArchiveDialog, archiveTaskEvent, DeleteDialog, FollowUpDialog } from './ArchiveDialogs.tsx'
+import {
+  ArchiveDialog,
+  archiveTaskEvent,
+  DeleteDialog,
+  deleteTaskEvent,
+  FollowUpDialog,
+  followUpTaskEvent,
+} from './ArchiveDialogs.tsx'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
 import styles from './TaskActions.module.css'
@@ -145,13 +152,29 @@ export function TaskActionsMenu({
         setDialog('edit')
       }
     }
+    const onDelete = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id) {
+        setOpen(false)
+        setDialog('delete')
+      }
+    }
+    const onFollowUp = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && task.stage === 'done') {
+        setOpen(false)
+        setDialog('follow-up')
+      }
+    }
     window.addEventListener(archiveTaskEvent, onArchive)
     window.addEventListener(editTaskEvent, onEdit)
+    window.addEventListener(deleteTaskEvent, onDelete)
+    window.addEventListener(followUpTaskEvent, onFollowUp)
     return () => {
       window.removeEventListener(archiveTaskEvent, onArchive)
       window.removeEventListener(editTaskEvent, onEdit)
+      window.removeEventListener(deleteTaskEvent, onDelete)
+      window.removeEventListener(followUpTaskEvent, onFollowUp)
     }
-  }, [task.id, task.archived])
+  }, [task.id, task.archived, task.stage])
 
   const action = statusAction(task)
   const linear = task.source?.linear
