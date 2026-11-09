@@ -41,6 +41,7 @@ import { runStatusAction, statusAction } from '../task-actions.ts'
 import { clarifyDepthText, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
+import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -513,6 +514,7 @@ export function TaskDetails({
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
 }) {
+  const factory = factories.find((f) => f.id === task.factoryId)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
@@ -536,6 +538,14 @@ export function TaskDetails({
         </dd>
         <dt>Clarify depth</dt>
         <dd>{clarifyDepthText(task)}</dd>
+        {factory && showsRepos(factory) && (
+          <>
+            <dt>Repos</dt>
+            <dd>
+              <ReposField key={task.id} task={task} factory={factory} />
+            </dd>
+          </>
+        )}
         {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>

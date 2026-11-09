@@ -341,7 +341,7 @@ export function AddFactoryDialog({
   )
 }
 
-interface RepoRowViewProps {
+export interface RepoRowViewProps {
   row: RepoRow
   rows: readonly RepoRow[]
   index: number
@@ -358,7 +358,7 @@ interface RepoRowViewProps {
   onFix: (fix: RepoFix) => void
 }
 
-function RepoRowView({
+export function RepoRowView({
   row,
   rows,
   index,

@@ -27,6 +27,7 @@ import {
   type StoredFactoryRepo,
   type TedStore,
 } from './store/index.ts'
+import { maxFactoryRepos } from './workflow/check.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Factories {
@@ -36,6 +37,10 @@ export interface Factories {
   create(request: CreateFactoryRequest): Promise<Factory>
   retry(factoryId: string): Promise<Factory>
   setLocalFolder(key: string, folder: string): Promise<Factory>
+  rename(factoryId: string, name: string): Promise<Factory>
+  setRepoFolder(factoryId: string, repoName: string, folder: string | undefined): Promise<Factory>
+  syncRepos(factoryId: string, repos: StoredFactoryRepo[]): Promise<void>
+  approveRepos(factoryId: string, repos: string[]): void
   checkLocalFolders(): Promise<void>
   isCloned(factoryId: string): boolean
   start(): void
@@ -57,7 +62,9 @@ export interface FactoriesOptions {
 
 export const cloneFailedProblem = 'clone-failed'
 export const localFolderProblem = 'local-folder-missing'
-const maxRepos = 10
+export const repoAddedProblem = 'repo-added'
+export const repoInFileProblem = 'repo-in-workflow'
+const maxNameLength = 60
 const githubHost = 'github.com'
 const segment = /^[A-Za-z0-9_.-]+$/
 
@@ -246,8 +253,8 @@ export function createFactories(options: FactoriesOptions): Factories {
     if (!Array.isArray(request.repos) || request.repos.length === 0) {
       throw new RequestError(400, 'a Factory needs at least one repo')
     }
-    if (request.repos.length > maxRepos) {
-      throw new RequestError(400, `a Factory can have at most ${maxRepos} repos`)
+    if (request.repos.length > maxFactoryRepos) {
+      throw new RequestError(400, `a Factory can have at most ${maxFactoryRepos} repos`)
     }
     const names = request.repos.map((r) => r.name)
     for (const repoName of names) {
@@ -332,6 +339,9 @@ export function createFactories(options: FactoriesOptions): Factories {
   async function cloneOne(factory: StoredFactory, { repo, cloneUrl }: StoredFactoryRepo) {
     const clone = path.join(reposDir, ...repo.split('/'))
     try {
+      if (!isSafeRepo(repo) || !isInside(reposDir, clone)) {
+        throw new Error(`${repo} isn’t a GitHub repo TED can clone`)
+      }
       await cloneRemoved(clone)
       const inFlight = cloning.get(clone)
       if (inFlight) {
@@ -415,7 +425,10 @@ export function createFactories(options: FactoriesOptions): Factories {
 
   async function retry(factoryId: string): Promise<Factory> {
     const factory = find(factoryId)
-    if (factory.clonedAt !== undefined) return view(factory)
+    if (factory.clonedAt !== undefined) {
+      await cloneMissing(factory)
+      return view(store.getFactory(factoryId) ?? factory)
+    }
     void cloneAll(factory)
     return view(factory)
   }
@@ -447,6 +460,123 @@ export function createFactories(options: FactoriesOptions): Factories {
     return publish(factory)
   }
 
+  async function renameFactory(factoryId: string, given: string): Promise<Factory> {
+    const name = typeof given === 'string' ? given.trim() : ''
+    if (name === '') throw new RequestError(400, 'a Factory needs a name')
+    if (name.length > maxNameLength) {
+      throw new RequestError(400, `a Factory name is at most ${maxNameLength} characters`)
+    }
+    find(factoryId)
+    return publish(store.renameFactory(factoryId, name))
+  }
+
+  async function setRepoFolder(
+    factoryId: string,
+    repoName: string,
+    folder: string | undefined,
+  ): Promise<Factory> {
+    const factory = find(factoryId)
+    const repo = factory.repos.find((r) => r.name === repoName)?.repo
+    if (repo === undefined) throw new RequestError(404, `${factory.name} has no repo ${repoName}`)
+    if (folder === undefined) store.clearLocalFolder(repo)
+    else store.setLocalFolder(repo, await checkFolder(folder))
+    await checkLocalFolders()
+    return publish(factory)
+  }
+
+  const approved = new Set<string>()
+  const approval = (factoryId: string, repo: string) => `${factoryId}:${repo.toLowerCase()}`
+
+  function approveRepos(factoryId: string, repos: string[]): void {
+    for (const repo of repos) approved.add(approval(factoryId, repo))
+  }
+
+  async function syncRepos(factoryId: string, given: StoredFactoryRepo[]): Promise<void> {
+    const factory = store.getFactory(factoryId)
+    if (!factory || given.length === 0) return
+    const known = (r: StoredFactoryRepo) => factory.repos.some((s) => sameRepo(s.repo, r.repo))
+    const safe = given.filter((r) => isSafeRepo(r.repo)).slice(0, maxFactoryRepos)
+    const wanted = safe.filter((r) => known(r) || approved.has(approval(factoryId, r.repo)))
+    const unconfirmed = safe.filter((r) => !wanted.includes(r))
+    for (const banner of banners.list()) {
+      const subject = bannerSubject(banner.id)
+      if (banner.problem !== repoInFileProblem || banner.factoryId !== factoryId) continue
+      if (!unconfirmed.some((r) => sameRepo(r.repo, subject ?? ''))) {
+        banners.clear({ problem: repoInFileProblem, factoryId, ...(subject && { subject }) })
+      }
+    }
+    for (const repo of unconfirmed) {
+      banners.raise({
+        problem: repoInFileProblem,
+        factoryId,
+        subject: repo.repo,
+        severity: 'warning',
+        text: `.ted/workflow.yaml adds ${repo.repo} · TED clones it only once you add it here`,
+        action: { label: 'Add' },
+      })
+    }
+    if (wanted.length === 0 || !sameRepo(wanted[0]?.repo ?? '', factory.repo)) return
+    const same =
+      wanted.length === factory.repos.length &&
+      wanted.every(
+        (r, i) =>
+          sameRepo(r.repo, factory.repos[i]?.repo ?? '') && r.name === factory.repos[i]?.name,
+      )
+    if (same) return
+    const added = wanted.filter((r) => !known(r))
+    const changed = store.changeFactoryRepos(factoryId, wanted)
+    for (const repo of added) approved.delete(approval(factoryId, repo.repo))
+    await publish(changed)
+    for (const repo of added) {
+      banners.raise({
+        problem: repoAddedProblem,
+        factoryId,
+        subject: repo.repo,
+        severity: 'warning',
+        text: `${repo.repo} was added · a New setup Task can set up its Checks and Apps`,
+      })
+    }
+    if (added.length === 0 || factory.clonedAt === undefined) return
+    void cloneMissing(changed)
+  }
+
+  banners.onAction(repoInFileProblem, async (banner) => {
+    const factory = banner.factoryId === undefined ? undefined : store.getFactory(banner.factoryId)
+    const repo = bannerSubject(banner.id)
+    if (!factory || repo === undefined || !isSafeRepo(repo)) {
+      throw new RequestError(404, 'no such repo')
+    }
+    const check = await checkRepo({ source: { remote: repo }, primary: false })
+    if (!check.ok) throw new RequestError(409, check.problem?.text ?? `TED can’t add ${repo}`)
+    approveRepos(factory.id, [repo])
+    await workflows.resolve(factory, { fetch: false })
+  })
+
+  async function cloneMissing(factory: StoredFactory): Promise<void> {
+    const missing: StoredFactoryRepo[] = []
+    for (const repo of factory.repos) {
+      if (!(await exists(path.join(reposDir, ...repo.repo.split('/'))))) missing.push(repo)
+    }
+    if (missing.length === 0) {
+      progress.delete(factory.id)
+      banners.clear({ problem: cloneFailedProblem, factoryId: factory.id })
+      return
+    }
+    const release = options.idle?.hold()
+    try {
+      const results = await Promise.all(missing.map((repo) => cloneOne(factory, repo)))
+      if (results.every(Boolean)) {
+        progress.delete(factory.id)
+        banners.clear({ problem: cloneFailedProblem, factoryId: factory.id })
+      }
+    } catch (error) {
+      console.error(`cloning ${factory.name}’s repos failed:`, error)
+    } finally {
+      release?.()
+      void publish(store.getFactory(factory.id) ?? factory).catch(() => undefined)
+    }
+  }
+
   banners.onAction(localFolderProblem, async (banner, { folder }) => {
     if (folder === undefined) throw new RequestError(400, 'choose a folder to locate it')
     const factory = banner.factoryId === undefined ? undefined : store.getFactory(banner.factoryId)
@@ -467,6 +597,10 @@ export function createFactories(options: FactoriesOptions): Factories {
     create,
     retry,
     setLocalFolder,
+    rename: renameFactory,
+    setRepoFolder,
+    syncRepos,
+    approveRepos,
     checkLocalFolders,
     isCloned: (id) => store.getFactory(id)?.clonedAt !== undefined,
     start() {
@@ -478,7 +612,9 @@ export function createFactories(options: FactoriesOptions): Factories {
         for (const factory of store.listFactories()) {
           const states = progress.get(factory.id)
           const failed = states && [...states.values()].some((s) => s.state === 'failed')
-          if (factory.clonedAt === undefined && failed) void cloneAll(factory)
+          if (!failed) continue
+          if (factory.clonedAt === undefined) void cloneAll(factory)
+          else void cloneMissing(factory)
         }
         void checkLocalFolders().catch(() => undefined)
       }, options.retryEveryMs ?? 60_000)
@@ -578,6 +714,16 @@ async function cloneUrlFor(source: RepoSource | undefined, repo: string): Promis
 
 function isSafeSegment(value: string): boolean {
   return segment.test(value) && value !== '.' && value !== '..'
+}
+
+function isSafeRepo(repo: string): boolean {
+  const parts = repo.split('/')
+  return parts.length === 2 && parts.every(isSafeSegment)
+}
+
+function isInside(dir: string, file: string): boolean {
+  const relative = path.relative(path.resolve(dir), path.resolve(file))
+  return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
 }
 
 function sameRepo(a: string, b: string): boolean {

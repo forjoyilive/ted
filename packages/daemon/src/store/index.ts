@@ -368,6 +368,10 @@ export interface TedStore {
     entry: NewStageEntry
     repo: NewWorktree
   }): Task
+  setTaskRepos(
+    taskId: string,
+    input: { repos: string[]; names: string[]; by: 'human' | 'task-lead'; runId?: string },
+  ): Task
   worktreeSetupStarted(taskId: string, name: string, setup: RecordedSetup): void
   recordedSetup(taskId: string, name: string): RecordedSetup | undefined
   worktreeSetupFinished(
@@ -430,6 +434,9 @@ export interface TedStore {
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
+  clearLocalFolder(repo: string): void
+  renameFactory(factoryId: string, name: string): StoredFactory
+  changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
@@ -947,6 +954,7 @@ export async function openStore({
     clarifyDepthBy,
     branch,
     worktree,
+    chosenRepos,
     activity,
     activityEntries,
     leadAgent,
@@ -1092,6 +1100,12 @@ export async function openStore({
       waitsForBlockers,
       stopped: stoppedAt !== null,
       repos,
+      chosenRepos:
+        chosenRepos !== null
+          ? (JSON.parse(chosenRepos) as string[])
+          : listFactories()
+              .filter((f) => f.id === row.factoryId)
+              .map((f) => f.repo),
       attachments: attachmentsOf(row.id),
       ...(source && { source }),
       stage,
@@ -1796,6 +1810,19 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    setTaskRepos(taskId, { repos, names, by, runId }) {
+      commit(
+        events.taskReposSet({
+          taskId,
+          repos,
+          names,
+          by,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       commit(
         events.taskWorktreeSetupStarted({
@@ -2029,6 +2056,17 @@ export async function openStore({
     },
     setLocalFolder(repo, path) {
       commit(events.localFolderSet({ repo, path, at: new Date().toISOString() }))
+    },
+    clearLocalFolder(repo) {
+      commit(events.localFolderCleared({ repo, at: new Date().toISOString() }))
+    },
+    renameFactory(factoryId, name) {
+      commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
+    },
+    changeFactoryRepos(factoryId, repos) {
+      commit(events.factoryReposChanged({ factoryId, repos, at: new Date().toISOString() }))
+      return requireFactory(factoryId)
     },
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {

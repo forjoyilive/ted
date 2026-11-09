@@ -59,6 +59,7 @@ interface StubMerge {
   }[]
   reviews?: { id: string; state: string; author: StubAuthor; body: string; url?: string }[]
   deployments?: { environment: string; state: string; url?: string }[]
+  updateBase?: boolean
 }
 
 const readyHosts = {
@@ -270,6 +271,9 @@ function mergePullRequest(): void {
   else {
     merge.merged = true
     merge.mergedWith = method
+    if (merge.updateBase && merge.origin && expected) {
+      runGit(merge.origin, 'update-ref', 'refs/heads/main', expected)
+    }
   }
   state.merge = merge
   save()

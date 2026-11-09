@@ -26,6 +26,7 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type FactorySettingsChanges,
   linearKeyPage,
   type MachineSettings,
   type MoveTaskRequest,
@@ -34,6 +35,7 @@ import {
   parseLinearUrl,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SaveSettingsRequest,
   tedHome,
   tedPaths,
   tedVersion,
@@ -169,6 +171,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
+  setTaskRepos: (client, taskId, request) =>
+    client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
   chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
       title: String(title),
@@ -184,6 +188,23 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
   createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
   retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
+  factorySettings: (client, factoryId) => client.factorySettings(String(factoryId)),
+  previewFactorySettings: (client, factoryId, changes) =>
+    client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),
+  saveFactorySettings: (client, factoryId, request) =>
+    client.saveFactorySettings(String(factoryId), request as SaveSettingsRequest),
+  renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
+  setRepoLocalFolder: (client, factoryId, repoName, folder) =>
+    client.setRepoLocalFolder(String(factoryId), String(repoName), String(folder)),
+  clearRepoLocalFolder: (client, factoryId, repoName) =>
+    client.clearRepoLocalFolder(String(factoryId), String(repoName)),
+  openOnGitHub: async (_, target) => {
+    const url = String(target)
+    if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\/pull\/\d+)?$/.test(url)) {
+      throw new Error('That isn’t a GitHub repo or pull request link')
+    }
+    await shell.openExternal(url)
+  },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
