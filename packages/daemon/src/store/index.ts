@@ -1,22 +1,26 @@
 import { randomUUID } from 'node:crypto'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb } from '@livestore/livestore'
-import type {
-  AgentKind,
-  Appearance,
-  Comment,
-  ConversationEntry,
-  DaemonEvent,
-  Factory,
-  LayerKind,
-  LayerUse,
-  MachineSettings,
-  Run,
-  RunState,
-  StageEntry,
-  StageId,
-  Task,
+import {
+  type AgentKind,
+  type AgentStageId,
+  type Appearance,
+  agentStageIds,
+  type Comment,
+  type ConversationEntry,
+  type DaemonEvent,
+  type Factory,
+  type LayerKind,
+  type LayerUse,
+  type MachineSettings,
+  type Run,
+  type RunState,
+  type StageEntry,
+  type StageId,
+  type Task,
+  type TrackStage,
 } from '@ted/protocol'
+import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/status.ts'
 import {
   comments,
   conversationEntries,
@@ -47,7 +51,9 @@ export interface StoredTask extends Task {
   worktree?: string
 }
 
-export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
+export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
+  order: AgentStageId[]
+}
 
 export interface AcceptedLayer {
   files: Record<string, string | null>
@@ -73,6 +79,7 @@ export interface TedStore {
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
+  setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
   listComments(taskId: string): Comment[]
   subscribe(listener: (event: DaemonEvent) => void): () => void
@@ -114,18 +121,48 @@ export async function openStore({ directory }: { directory: string }): Promise<T
       ? placeholderFactory.key
       : (listFactories().find((f) => f.id === factoryId)?.key ?? '?')
 
-  const leadRunId = (taskId: string) =>
-    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
+  const taskRuns = (taskId: string) =>
+    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
 
-  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
-    const lead = leadRunId(row.id)
+  const entryRows = (taskId: string) =>
+    store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+
+  const toTask = ({
+    branch,
+    worktree,
+    activity,
+    activityAt,
+    ...row
+  }: typeof tasks.Type): StoredTask => {
+    const stage = row.stage as StageId
+    const all = taskRuns(row.id)
+    const lead = all.at(0)
+    const live = all.filter((r) => r.state !== 'finished')
+    const entries = entryRows(row.id)
+    const enteredAt = entries.at(-1)?.at ?? ''
+    const facts: TaskFacts = {
+      stage,
+      runs: live.map((r) => r.state as RunState),
+      ...(activity !== null &&
+        activityAt !== null &&
+        activityAt >= enteredAt && { agentActivity: activity }),
+    }
+    const status = taskStatus(facts)
+    const shown = taskActivity(facts)
     return {
       ...row,
-      stage: row.stage as StageId,
+      stage,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
       ...(worktree !== null && { worktree }),
-      ...(lead !== undefined && { leadRunId: lead }),
+      ...(lead !== undefined && { leadRunId: lead.id }),
+      ...(status !== undefined && { status }),
+      markers: taskMarkers(facts, status),
+      ...(shown !== undefined && { activity: shown }),
+      track: track(stage, entries),
+      runs: live
+        .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
+        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
     }
   }
 
@@ -146,13 +183,14 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   })
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEntered({
+    events.taskStageEnteredV2({
       id: randomUUID(),
       taskId,
       stage,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
+      order: JSON.stringify(entry.order),
       at,
     })
 
@@ -170,6 +208,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
   const taskRow = (id: string) => store.query(queryDb(tasks.where({ id }))).at(0)
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
+  const taskIdOfRun = (runId: string) => runRow(runId)?.taskId ?? undefined
 
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
@@ -210,7 +249,16 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         createdAt: new Date().toISOString(),
       }
       store.commit(events.taskCreated(row))
-      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
+      const task = toPublicTask(
+        toTask({
+          ...row,
+          stage: 'backlog',
+          branch: null,
+          worktree: null,
+          activity: null,
+          activityAt: null,
+        }),
+      )
       emit({ type: 'task-created', task })
       return task
     },
@@ -257,6 +305,17 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         }
       )
     },
+    setActivity(taskId, text, runId) {
+      store.commit(
+        events.taskActivitySet({
+          taskId,
+          text,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
     postComment({ taskId, body, authorRunId }) {
       const row = {
         id: randomUUID(),
@@ -285,6 +344,7 @@ export async function openStore({ directory }: { directory: string }): Promise<T
         startedAt: new Date().toISOString(),
       }
       store.commit(events.runStartedV2(row))
+      if (taskId !== undefined) updatedTask(taskId)
       return toRun({ ...row, state: 'working', readOffset: 0 })
     },
     recordRunOutput(runId, { toOffset, entries, state, sessionId }) {
@@ -299,6 +359,8 @@ export async function openStore({ directory }: { directory: string }): Promise<T
           ? [events.runStateChanged({ runId, state, at: new Date().toISOString() })]
           : []),
       )
+      const taskId = taskIdOfRun(runId)
+      if (state && state !== current.state && taskId !== undefined) updatedTask(taskId)
     },
     getRun(id) {
       const row = runRow(id)
@@ -320,4 +382,24 @@ export async function openStore({ directory }: { directory: string }): Promise<T
     },
     close: () => store.shutdownPromise(),
   }
+}
+
+function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): TrackStage[] {
+  const saved = entries.findLast((e) => e.order !== null)?.order
+  const order = saved ? (JSON.parse(saved) as AgentStageId[]) : [...agentStageIds]
+  const entered = new Set(entries.map((e) => e.stage))
+  const inOrder = (order as StageId[]).includes(stage)
+  const rank = (id: StageId) => (inOrder ? (order as StageId[]).indexOf(id) : builtInRank(id))
+  return order.map((id) => {
+    if (stage === 'backlog') return { stage: id, state: 'future' }
+    if (id === stage) return { stage: id, state: 'current' }
+    if (stage === 'done' || rank(id) < rank(stage)) {
+      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
+    }
+    return { stage: id, state: 'future' }
+  })
+}
+
+function builtInRank(id: StageId): number {
+  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
 }

@@ -1,0 +1,82 @@
+.track {
+  display: flex;
+  flex-shrink: 0;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  position: relative;
+  display: flex;
+}
+
+.segment {
+  display: flex;
+  align-items: center;
+  padding: 7px 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.segment[aria-disabled='true'] {
+  cursor: default;
+}
+
+.segment:focus-visible {
+  border-radius: 2px;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.bar {
+  position: relative;
+  box-sizing: border-box;
+  display: block;
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.past .bar {
+  background: var(--text-caption);
+}
+
+.current .bar {
+  background: var(--accent-default);
+}
+
+.future .bar {
+  background: var(--border-default);
+}
+
+.skipped .bar {
+  border: 1px solid var(--border-control);
+}
+
+.skipped .bar::after {
+  position: absolute;
+  top: 0.5px;
+  right: -1px;
+  left: -1px;
+  height: 1px;
+  background: var(--text-caption);
+  content: '';
+}
+
+.segment[aria-pressed='true'] .bar {
+  outline: 2px solid var(--focus-halo);
+  outline-offset: 1px;
+}
+
+.item .tooltip {
+  left: -4px;
+  width: max-content;
+  max-width: 240px;
+}
+
+.struck {
+  text-decoration: line-through;
+}

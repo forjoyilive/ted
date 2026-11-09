@@ -23,6 +23,10 @@ export function App() {
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
+  const openTaskByRef = (ref: string) => {
+    const found = tasks.find((t) => t.displayId === ref || t.id === ref)
+    if (found) openTask(found)
+  }
 
   function main() {
     if (task) {
@@ -32,6 +36,7 @@ export function App() {
             task={task}
             backLink={backLink(navigation)}
             onBack={() => dispatch({ type: 'close-task' })}
+            onOpenTask={openTaskByRef}
           />
           <TaskDetails task={task} factories={factories} />
         </>
@@ -49,7 +54,15 @@ export function App() {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
         if (screen.view === 'board') {
-          return <Board title={name} tasks={inFactory} factories={factories} onOpen={openTask} />
+          return (
+            <Board
+              title={name}
+              tasks={inFactory}
+              factories={factories}
+              onOpen={openTask}
+              onOpenTask={openTaskByRef}
+            />
+          )
         }
         if (screen.view === 'list') {
           return <TaskList title={name} tasks={inFactory} factories={factories} onOpen={openTask} />

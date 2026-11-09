@@ -156,6 +156,7 @@
 }
 
 .card {
+  position: relative;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -170,7 +171,7 @@
   text-align: left;
 }
 
-.card:focus-visible {
+.card:focus-within:has(.cardTitle:focus-visible) {
   outline: 2px solid var(--focus-ring);
 }
 
@@ -184,9 +185,44 @@
 }
 
 .cardTitle {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
   font-size: var(--text-14);
   font-weight: var(--weight-medium);
   line-height: var(--leading-tight);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cardTitle:focus-visible {
+  outline: none;
+}
+
+.cardTitle::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+}
+
+.card button:not(.cardTitle) {
+  position: relative;
+  z-index: 1;
+}
+
+.cardRuns {
+  margin-left: auto;
+}
+
+.cardActivity {
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .back {
@@ -207,22 +243,83 @@
 
 .taskHeader {
   display: flex;
+  flex-shrink: 0;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 22px 16px;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 8px;
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.headerRow > :first-child {
+  margin-right: auto;
+}
+
+.headerRow:last-child > :first-child {
+  margin-right: 0;
 }
 
 .taskMeta {
   color: var(--text-caption);
-  font-size: var(--text-13);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  white-space: pre;
 }
 
 .taskTitle {
+  flex: 1;
+  min-width: 0;
   margin: 0;
-  font-size: var(--text-21);
+  font-size: 19px;
   font-weight: var(--weight-semibold);
-  line-height: var(--leading-tight);
+  line-height: 1.45;
+}
+
+.stageName {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+}
+
+.activity {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-caption);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filterNote {
+  margin: 0;
+  padding: 8px 22px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-app);
+  color: var(--text-tertiary);
+  font-size: var(--text-12-5);
+}
+
+.linkButton {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+.linkButton:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .thread {

@@ -23,11 +23,18 @@ export {
   agentStageIds,
   type Comment,
   type CreateTaskRequest,
+  type GitHubWait,
   type Outcome,
   type PostCommentRequest,
   type ReportOutcomeRequest,
+  type SetActivityRequest,
   type StageId,
   type Task,
+  type TaskMarker,
+  type TaskRun,
+  type TaskStatus,
+  type TrackStage,
+  type TrackState,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

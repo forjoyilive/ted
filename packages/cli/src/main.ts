@@ -15,6 +15,7 @@ const usage = `Usage:
   ted help                                   Show this list of commands
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
+  ted status [--task <id>] "<text>"          Set the Task's activity line
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
@@ -78,6 +79,11 @@ try {
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
     await withDaemon(home, (client) => client.postComment(ref, body))
     console.log('Posted')
+  } else if (group === 'status' && command !== undefined) {
+    const ref = taskRef()
+    const text = [command, ...rest].join(' ')
+    await withDaemon(home, (client) => client.setActivity(ref, text))
+    console.log('Activity line set')
   } else if (group === 'outcome' && command === 'advance' && rest.length === 0) {
     const ref = taskRef()
     const task = await withDaemon(home, (client) => client.reportOutcome(ref, 'advance'))

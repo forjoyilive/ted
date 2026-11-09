@@ -1,6 +1,13 @@
 import { mkdir, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { AgentKind, AgentStageId, Comment, Outcome, Task } from '@ted/protocol'
+import {
+  type AgentKind,
+  type AgentStageId,
+  agentStageIds,
+  type Comment,
+  type Outcome,
+  type Task,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { clonePath } from '../factories.ts'
 import * as git from '../git.ts'
@@ -15,6 +22,7 @@ export interface Tasks {
   create(input: { title: string; factory?: string }): Promise<Task>
   start(ref: string): Promise<Task>
   comment(ref: string, caller: Caller, body: string): Comment
+  setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
   close(): Promise<void>
 }
@@ -75,7 +83,10 @@ export function createTasks(options: {
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
     const file = stage === 'done' ? undefined : workflow.stageFile(stage)
-    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers }
+    const order = workflow.stages.filter((id): id is AgentStageId =>
+      (agentStageIds as readonly string[]).includes(id),
+    )
+    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
   }
 
   async function start(ref: string): Promise<Task> {
@@ -141,6 +152,11 @@ export function createTasks(options: {
     comment(ref, caller, body) {
       const { task, runId } = ownTask(ref, caller)
       return store.postComment({ taskId: task.id, body, authorRunId: runId })
+    },
+
+    setActivity(ref, caller, text) {
+      const { task, runId } = ownTask(ref, caller)
+      return store.setActivity(task.id, text, runId)
     },
 
     async reportOutcome(ref, caller, _outcome) {

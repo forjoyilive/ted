@@ -1,6 +1,10 @@
-import type { Factory, Task } from '@ted/protocol'
+import type { AgentStageId, Factory, Task } from '@ted/protocol'
+import { useState } from 'react'
 import { AgentAvatar } from '../components/Avatar.tsx'
-import { useComments } from '../data.ts'
+import { StageTrack } from '../components/StageTrack.tsx'
+import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { useComments, useStageEntries } from '../data.ts'
+import { inStage } from '../stage-filter.ts'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
@@ -10,12 +14,18 @@ export function TaskThread({
   task,
   backLink,
   onBack,
+  onOpenTask,
 }: {
   task: Task
   backLink: string | undefined
   onBack: () => void
+  onOpenTask: (ref: string) => void
 }) {
   const comments = useComments(task.id)
+  const entries = useStageEntries(task.id, task.stage)
+  const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  const stage = filter?.taskId === task.id ? filter.stage : undefined
+  const shown = inStage(comments, entries, stage)
 
   return (
     <section className={styles.pane} aria-label="Task thread">
@@ -25,11 +35,36 @@ export function TaskThread({
         </button>
       )}
       <header className={styles.taskHeader}>
-        <span className={styles.taskMeta}>{task.displayId}</span>
-        <h1 className={styles.taskTitle}>{task.title}</h1>
+        <div className={styles.headerRow}>
+          <span className={styles.taskMeta}>{task.displayId} · Created by you</span>
+          <RunIcons runs={task.runs} />
+        </div>
+        <div className={styles.headerRow}>
+          <h1 className={styles.taskTitle}>{task.title}</h1>
+          <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+        </div>
+        <div className={styles.headerRow}>
+          <StageTrack
+            track={task.track}
+            selected={stage}
+            onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
+          />
+          <span className={styles.stageName}>{stageName(task.stage)}</span>
+          {task.activity !== undefined && (
+            <span className={styles.activity}>· {task.activity}</span>
+          )}
+        </div>
       </header>
+      {stage !== undefined && (
+        <p className={styles.filterNote}>
+          Showing {stageName(stage)} only ·{' '}
+          <button type="button" className={styles.linkButton} onClick={() => setFilter(undefined)}>
+            Show all
+          </button>
+        </p>
+      )}
       <ol className={styles.thread}>
-        {comments.map((comment) => (
+        {shown.map((comment) => (
           <li key={comment.id} className={styles.comment}>
             <AgentAvatar agent="claude" />
             <div>

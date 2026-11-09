@@ -6,6 +6,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
   listFactories: (client) => client.listFactories(),
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
