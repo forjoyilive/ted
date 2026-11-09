@@ -1,5 +1,6 @@
+import path from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { checkedCommits } from './check.ts'
+import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
 import { isNewer, parseVersion } from './release.ts'
 
 describe('release versions', () => {
@@ -24,5 +25,38 @@ describe('checked commits', () => {
   test('reads full commit hashes, one per line, and ignores anything else', () => {
     const sha = 'e3e1150'.padEnd(40, '0')
     expect(checkedCommits(`${sha}\nnot-a-sha\n\n${sha}\n`)).toEqual(new Set([sha]))
+  })
+})
+
+describe('check output', () => {
+  const root = path.resolve(import.meta.dirname, '..')
+  const report = {
+    testResults: [
+      {
+        name: path.join(root, 'packages/app/test/app.test.ts'),
+        startTime: 1_000,
+        endTime: 61_000,
+        assertionResults: [
+          { fullName: 'TED app launches', status: 'passed' },
+          { fullName: 'TED app quits', status: 'failed' },
+        ],
+      },
+    ],
+  }
+
+  test('times each test file from the JSON report', () => {
+    expect(fileTimes([report, {}])).toEqual({ 'packages/app/test/app.test.ts': 60_000 })
+  })
+
+  test('names the failed tests with their file', () => {
+    expect(failedTests(report)).toEqual(['packages/app/test/app.test.ts > TED app quits'])
+  })
+
+  test('the summary starts at Vitest’s Test Files line', () => {
+    const output =
+      ' ✓ a.test.ts\n\x1b[2m Test Files \x1b[22m 1 passed (1)\n      Tests  3 passed (3)\n'
+    expect(summary(output)).toBe(
+      '\x1b[2m Test Files \x1b[22m 1 passed (1)\n      Tests  3 passed (3)',
+    )
   })
 })

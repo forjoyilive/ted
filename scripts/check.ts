@@ -2,6 +2,11 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
+import {
+  acquireSuiteLock,
+  heldLockEnv,
+  waitingMessage,
+} from '../packages/daemon/test/support/suite-lock.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
@@ -33,7 +38,11 @@ type Step = { title: string; ok: boolean; output: string }
 
 function run(title: string, args: string[], onLine?: (line: string) => void): Promise<Step> {
   return new Promise((resolve) => {
-    const env = process.stdout.isTTY ? { ...process.env, FORCE_COLOR: '1' } : process.env
+    const env = {
+      ...process.env,
+      [heldLockEnv]: String(process.pid),
+      ...(process.stdout.isTTY && { FORCE_COLOR: '1' }),
+    }
     const child = spawn('pnpm', args, { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let output = ''
     let partial = ''
@@ -64,7 +73,20 @@ export function summary(output: string): string {
 }
 
 type JsonReport = {
-  testResults?: { name: string; startTime?: number; endTime?: number; status?: string }[]
+  testResults?: {
+    name: string
+    startTime?: number
+    endTime?: number
+    assertionResults?: { fullName: string; status: string }[]
+  }[]
+}
+
+export function failedTests(report: JsonReport): string[] {
+  return (report.testResults ?? []).flatMap((result) =>
+    (result.assertionResults ?? [])
+      .filter((test) => test.status === 'failed')
+      .map((test) => `${path.relative(root, result.name)} > ${test.fullName}`),
+  )
 }
 
 export function fileTimes(reports: JsonReport[]): Record<string, number> {
@@ -111,6 +133,15 @@ export async function runChecks(): Promise<boolean> {
     return false
   }
   mkdirSync(cacheDir, { recursive: true })
+  const unlock = await acquireSuiteLock({ onWait: (pid) => console.log(waitingMessage(pid)) })
+  try {
+    return await checkInParallel()
+  } finally {
+    await unlock()
+  }
+}
+
+async function checkInParallel(): Promise<boolean> {
   for (const group of testGroups) rmSync(reportFile(group.project), { force: true })
   console.log(
     `\n== Typecheck, Lint and Test (${testGroups.map((g) => `${g.project} ×${g.maxWorkers}`).join(', ')})`,
@@ -147,9 +178,12 @@ export async function runChecks(): Promise<boolean> {
     run('Lint', ['lint']).then(printBlock),
     ...tests,
   ])
-  for (const step of steps.slice(2)) {
+  for (const [index, step] of steps.slice(2).entries()) {
     console.log(`\n== ${step.title} ${step.ok ? 'passed' : 'failed'}`)
     console.log(summary(step.output))
+    const group = testGroups[index]
+    for (const name of group ? failedTests(readReport(group.project)) : [])
+      console.log(`  × ${name}`)
   }
   recordTimes()
   const failed = steps.filter((step) => !step.ok).map((step) => step.title)
