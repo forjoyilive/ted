@@ -21,7 +21,7 @@ type Tone = 'ok' | 'warn' | 'stop'
 
 const chipTone: Record<Tone, StatusTone> = { ok: 'success', warn: 'waiting', stop: 'failed' }
 
-function useIntegrations() {
+export function useIntegrations() {
   const [health, setHealth] = useState<IntegrationsHealth>()
   const [checking, setChecking] = useState(false)
   const [problem, setProblem] = useState<string>()
