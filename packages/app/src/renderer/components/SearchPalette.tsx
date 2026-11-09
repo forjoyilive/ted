@@ -209,7 +209,7 @@ export function SearchPalette({
         },
       })
     }
-    const found = terms.length > 0 && results ? results : undefined
+    const found = terms.length > 0 && results?.query === query ? results : undefined
     for (const hit of found?.tasks ?? []) {
       items.push({
         key: `task:${hit.taskId}`,
@@ -341,6 +341,7 @@ export function SearchPalette({
           onChange={(event) => {
             setQuery(event.target.value)
             setSelected(0)
+            setError(undefined)
           }}
           onKeyDown={onKeyDown}
         />
