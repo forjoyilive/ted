@@ -74,7 +74,8 @@ export function useAppActions(task: Task, app: TaskApp) {
       .finally(() => setBusy(false))
   }
   const live = isLive(app)
-  const runnable = !task.archived && task.stage !== 'done' && app.kind !== 'ios-simulator'
+  const runnable =
+    !task.archived && task.stage !== 'done' && app.kind !== 'ios-simulator' && !app.removed
   return {
     busy,
     error,

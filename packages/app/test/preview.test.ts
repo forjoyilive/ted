@@ -70,5 +70,8 @@ describe('App status lines', () => {
     )
     expect(appStatusLine(app({ endedAt: '2026-11-09T10:11:00Z' }), now)).toBe('Stopped 20m ago')
     expect(appStatusLine(app({}), now)).toBe('Not running')
+    expect(
+      appStatusLine(app({ state: 'running', url: 'http://localhost:5174', removed: true }), now),
+    ).toBe('Removed from settings · localhost:5174')
   })
 })

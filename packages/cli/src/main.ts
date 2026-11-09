@@ -931,10 +931,15 @@ async function runApp(given: string | undefined): Promise<void> {
     while (app.state === 'starting' || app.state === 'waiting') {
       await sleep(500)
       const current = app
-      app =
-        (await client.listApps(ref)).find(
-          (a) => a.repo === current.repo && a.name === current.name,
-        ) ?? app
+      const found = (await client.listApps(ref)).find(
+        (a) => a.repo === current.repo && a.name === current.name,
+      )
+      if (found === undefined || found.removed === true) {
+        throw new Error(
+          `${printable(current.name)} was removed from the Factory’s settings while TED waited for it`,
+        )
+      }
+      app = found
     }
     const log =
       app.state === 'running'

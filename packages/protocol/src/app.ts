@@ -19,6 +19,7 @@ export interface TaskApp {
   signal?: string
   problem?: string
   startedBy?: AppStarter
+  removed?: boolean
   waitingFor?: string
   simulator?: AppSimulator
 }

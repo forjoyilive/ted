@@ -792,7 +792,60 @@ export function createApps(options: AppsOptions): Apps {
         )
       }
     }
+    for (const { repo, app, instance } of await undeclared(taskId, task)) {
+      apps.push({ ...toApp(taskId, repo, app, instance), removed: true })
+    }
     return apps
+  }
+
+  async function undeclared(
+    taskId: string,
+    task: AppTask,
+  ): Promise<{ repo: string; app: AppDeclaration; instance: Instance }[]> {
+    const root = taskDir(taskId)
+    const found: { repo: string; app: AppDeclaration; instance: Instance }[] = []
+    for (const repoName of safeDirs(root)) {
+      const declared = task.repos.find((r) => r.name === repoName)?.apps ?? []
+      for (const appSlug of safeDirs(path.join(root, repoName))) {
+        if (declared.some((a) => slug(a.name) === appSlug)) continue
+        const instance = await readInstance(path.join(root, repoName, appSlug))
+        if (!instance || !isLiveInstance(instance)) continue
+        found.push({
+          repo: repoName,
+          app: {
+            name: instance.name,
+            kind: instance.kind,
+            run: '',
+            ready: instance.ready,
+            env: {},
+            ...(instance.url !== undefined && { url: instance.url }),
+          },
+          instance,
+        })
+      }
+    }
+    return found
+  }
+
+  async function findListed(
+    taskId: string,
+    ref: AppRef,
+  ): Promise<{ repo: { name: string }; app: AppDeclaration }> {
+    try {
+      return await find(taskId, ref)
+    } catch (error) {
+      const wanted = slug(ref.name.trim())
+      const gone = (await undeclared(taskId, await options.task(taskId))).find(
+        (u) => slug(u.app.name) === wanted && (ref.repo === undefined || ref.repo === u.repo),
+      )
+      if (!gone) throw error
+      return { repo: { name: gone.repo }, app: gone.app }
+    }
+  }
+
+  function isLiveInstance(instance: Instance): boolean {
+    const state = stateOf(instance)
+    return state === 'running' || state === 'starting' || state === 'waiting'
   }
 
   async function stopNow(taskId: string, repo: string, name: string): Promise<boolean> {
@@ -879,7 +932,7 @@ export function createApps(options: AppsOptions): Apps {
       )
     },
     async stop(taskId, ref) {
-      const { repo, app } = await find(taskId, ref)
+      const { repo, app } = await findListed(taskId, ref)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         if (await stopNow(taskId, repo.name, app.name)) {
           store.appStopped({ taskId, repo: repo.name, name: app.name })
@@ -932,7 +985,7 @@ export function createApps(options: AppsOptions): Apps {
     },
     answerSimulator: (comment, request, text) => sims.answer(comment, request, text),
     async log(taskId, ref) {
-      const { repo, app } = await find(taskId, ref)
+      const { repo, app } = await findListed(taskId, ref)
       const files = appFiles(dirOf(taskId, repo.name, app.name))
       const current = await readFile(files.log).catch(() => Buffer.alloc(0))
       const previous =

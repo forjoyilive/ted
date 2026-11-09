@@ -1,9 +1,11 @@
+import { execFile } from 'node:child_process'
 import { mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import http from 'node:http'
 import net from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import {
   type AppLog,
   type Factory,
@@ -27,6 +29,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 
+const execFileAsync = promisify(execFile)
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
 const runStub = `"'${process.execPath}' '${stubApp}'"`
 
@@ -313,6 +316,43 @@ describe('Apps', () => {
     expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(4096)
     expect(log.truncated).toBe(true)
     expect(log.text).not.toContain('line 00001')
+  })
+
+  test('a running App removed from the settings stays listed and stoppable, and ted run-app stops waiting for it', async () => {
+    const slow = ['      - name: Slow', '        run: "sleep 60"'].join('\n')
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(slow) })
+    const client = await start()
+    const task = await taskWithWorktree(
+      client,
+      JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Slow'] }, { endTurn: true }] }),
+    )
+    await waitForState(client, task, 'Slow', 'starting')
+
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    await execFileAsync('git', ['fetch', '-q', 'origin'], {
+      cwd: path.join(home, 'worktrees', 'NB-1', 'widgets'),
+    })
+
+    const removed = await appNamed(client, task, 'Slow')
+    expect(removed).toMatchObject({ state: 'starting', removed: true })
+    const lead = await waitUntil(async () => {
+      const current = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return current?.leadRunId
+    }, 'the lead')
+    const [result] = await waitUntil(async () => {
+      const texts = assistantTexts((await client.getRun(lead)).conversation)
+      return texts.length >= 1 ? texts.map((t) => JSON.parse(t) as { code: number }) : undefined
+    }, 'ted run-app to give up')
+    expect(result?.code).toBe(1)
+    expect(JSON.stringify(result)).toContain(
+      'Slow was removed from the Factory’s settings while TED waited for it',
+    )
+
+    const stopped = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/stop`, {
+      name: 'Slow',
+    })
+    expect(stopped.state).toBe('stopped')
+    expect(await appNamed(client, task, 'Slow')).toBeUndefined()
   })
 
   test('a crash shows as a thread event', async () => {
