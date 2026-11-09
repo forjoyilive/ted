@@ -385,6 +385,87 @@ export async function replayedTree(
   }
 }
 
+export interface FileChange {
+  path: string
+  added: number
+  removed: number
+}
+
+export async function changesBetween(
+  worktree: string,
+  input: { from: string; to: string; baseTip?: string },
+): Promise<FileChange[]> {
+  if (input.from === input.to) return []
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const base = input.baseTip
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-changes-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const bareEnv = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects })
+  const bare = async (args: string[], allowConflicts = false) => {
+    try {
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: scratch,
+        env: bareEnv,
+        maxBuffer: 16 * 1024 * 1024,
+      })
+      return stdout
+    } catch (error) {
+      const { stdout, code } = error as { stdout?: string; code?: number }
+      if (allowConflicts && code === 1 && stdout) return stdout
+      throw new GitError(`git ${args[0]} failed`)
+    }
+  }
+  try {
+    await bare(['init', '--bare', '--quiet', gitDir])
+    const ancestor = await bare(['merge-base', '--is-ancestor', input.from, input.to]).then(
+      () => true,
+      () => false,
+    )
+    let from = input.from
+    if (!ancestor && base !== undefined) {
+      const mergeBaseOf = (a: string, b: string) =>
+        bare(['merge-base', a, b]).then(
+          (out) => out.trim(),
+          () => '',
+        )
+      const oldBase = await mergeBaseOf(input.from, base)
+      const newBase = await mergeBaseOf(input.to, base)
+      if (oldBase !== '' && newBase !== '') {
+        const replayed = await bare(
+          ['merge-tree', '--write-tree', '--merge-base', oldBase, newBase, input.from],
+          true,
+        )
+        from = replayed.split('\n')[0]?.trim() || input.from
+      }
+    }
+    const out = await bare([
+      'diff',
+      '--no-ext-diff',
+      '--no-textconv',
+      '--no-renames',
+      '--numstat',
+      '-z',
+      from,
+      input.to,
+      '--',
+    ])
+    return out
+      .split('\0')
+      .filter((entry) => entry !== '')
+      .map((entry) => {
+        const [added = '', removed = '', ...rest] = entry.split('\t')
+        return {
+          path: rest.join('\t'),
+          added: Number.parseInt(added, 10) || 0,
+          removed: Number.parseInt(removed, 10) || 0,
+        }
+      })
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
 export async function headCommit(worktree: string): Promise<string> {
   return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
 }

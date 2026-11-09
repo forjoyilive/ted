@@ -16,6 +16,7 @@ export type CheckState = 'pending' | 'passed' | 'failed'
 
 export interface RemotePullRequest {
   id: string
+  title: string
   state: 'OPEN' | 'MERGED' | 'CLOSED'
   isDraft: boolean
   headRefOid: string
@@ -42,7 +43,33 @@ export type MergeStep =
 
 const mergeableStates = ['CLEAN', 'UNSTABLE', 'HAS_HOOKS']
 
-export function nextStep(target: MergeTarget, pr: RemotePullRequest): MergeStep {
+export type CiState = 'passed' | 'pending' | 'failed'
+
+export function relevantChecks(pr: RemotePullRequest): RemotePullRequest['checks'] {
+  const required = pr.checks.filter((c) => c.required)
+  return required.length > 0 ? required : pr.checks
+}
+
+export function ciState(
+  target: MergeTarget,
+  pr: RemotePullRequest,
+  options: { mergeAnyway?: boolean } = {},
+): CiState {
+  if (!target.hasCi) return 'passed'
+  const relevant = relevantChecks(pr)
+  if (relevant.some((c) => c.state === 'failed')) return 'failed'
+  if (options.mergeAnyway && !pr.checks.some((c) => c.required && c.state === 'pending')) {
+    return 'passed'
+  }
+  if (relevant.length === 0 || relevant.some((c) => c.state === 'pending')) return 'pending'
+  return 'passed'
+}
+
+export function nextStep(
+  target: MergeTarget,
+  pr: RemotePullRequest,
+  options: { mergeAnyway?: boolean } = {},
+): MergeStep {
   if (pr.state === 'MERGED') return { kind: 'merged' }
   if (pr.state === 'CLOSED') return { kind: 'closed' }
   if (pr.headRefOid !== target.expectedHead) return { kind: 'changed', head: pr.headRefOid }
@@ -50,21 +77,22 @@ export function nextStep(target: MergeTarget, pr: RemotePullRequest): MergeStep 
   if (pr.mergeable === 'CONFLICTING' || pr.mergeStateStatus === 'DIRTY') return { kind: 'conflict' }
   if (pr.mergeStateStatus === 'BEHIND') return { kind: 'behind' }
   const canAutoMerge = pr.autoMergeAllowed && !pr.autoMerge
-  const required = pr.checks.filter((c) => c.required)
-  const relevant = required.length > 0 ? required : pr.checks
-  if (target.hasCi) {
-    const failed = relevant.filter((c) => c.state === 'failed').map((c) => c.name)
-    if (failed.length > 0) return { kind: 'ci-failed', checks: failed }
+  const ci = ciState(target, pr, options)
+  if (ci === 'failed') {
+    const failed = relevantChecks(pr)
+      .filter((c) => c.state === 'failed')
+      .map((c) => c.name)
+    return { kind: 'ci-failed', checks: failed }
   }
-  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.reviewDecision === 'CHANGES_REQUESTED') {
-    return { kind: 'wait', on: 'review', autoMerge: canAutoMerge }
-  }
+  if (reviewMissing(pr)) return { kind: 'wait', on: 'review', autoMerge: canAutoMerge }
   const blocked = pr.mergeStateStatus === 'BLOCKED'
-  if (target.hasCi && (relevant.length === 0 || relevant.some((c) => c.state === 'pending'))) {
-    return { kind: 'wait', on: 'ci', autoMerge: blocked && canAutoMerge }
-  }
+  if (ci === 'pending') return { kind: 'wait', on: 'ci', autoMerge: blocked && canAutoMerge }
   if (mergeableStates.includes(pr.mergeStateStatus)) return { kind: 'merge', noCi: !target.hasCi }
   return { kind: 'wait', on: target.hasCi ? 'ci' : 'merge', autoMerge: blocked && canAutoMerge }
+}
+
+export function reviewMissing(pr: RemotePullRequest): boolean {
+  return pr.reviewDecision === 'REVIEW_REQUIRED' || pr.reviewDecision === 'CHANGES_REQUESTED'
 }
 
 export function chooseMethod(
@@ -102,6 +130,7 @@ export async function readPullRequests(
     const contexts = pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.contexts?.nodes ?? []
     found.set(target.name, {
       id: String(pr.id ?? ''),
+      title: typeof pr.title === 'string' ? pr.title : '',
       state: pr.state === 'MERGED' || pr.state === 'CLOSED' ? pr.state : 'OPEN',
       isDraft: pr.isDraft === true,
       headRefOid: pr.headRefOid,
@@ -139,6 +168,13 @@ export async function mergePullRequest(
     target.expectedHead,
     ...(options.auto ? ['--auto'] : []),
   ])
+}
+
+export async function disableAutoMerge(
+  gh: Pick<Gh, 'run'>,
+  target: Pick<MergeTarget, 'repo' | 'number'>,
+): Promise<void> {
+  await gh.run(['pr', 'merge', String(target.number), '--repo', target.repo, '--disable-auto'])
 }
 
 export async function rebasePullRequest(
@@ -188,7 +224,7 @@ function repositoryFields(i: number): string {
   return `r${i}: repository(owner: $o${i}, name: $n${i}) {
   squashMergeAllowed mergeCommitAllowed rebaseMergeAllowed autoMergeAllowed deleteBranchOnMerge
   pullRequest(number: $p${i}) {
-    id state isDraft headRefOid mergeable mergeStateStatus reviewDecision
+    id title state isDraft headRefOid mergeable mergeStateStatus reviewDecision
     autoMergeRequest { enabledAt }
     commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes {
       __typename
@@ -217,6 +253,7 @@ interface RepositoryBody {
   deleteBranchOnMerge?: boolean
   pullRequest?: {
     id?: unknown
+    title?: unknown
     state?: unknown
     isDraft?: unknown
     headRefOid?: unknown

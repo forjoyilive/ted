@@ -1,208 +1,28 @@
-import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { promisify } from 'node:util'
-import type { CheckRun, Comment, Factory, InboxItem, Task, ThreadEvent } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import type { CheckRun, Comment, Task, ThreadEvent } from '@ted/protocol'
+import { describe, expect, test } from 'vitest'
+import { commitToOrigin, waitUntil } from './helpers.ts'
 import {
-  api,
-  commitToOrigin,
-  killRunHosts,
-  makeOriginRepo,
-  makeTempHome,
-  stubClaudePath,
-  waitUntil,
-} from './helpers.ts'
+  approve,
+  branchHead,
+  type Client,
+  ctx,
+  getTask,
+  ghCalls,
+  lines,
+  merges,
+  originBranches,
+  readGh,
+  run,
+  setGh,
+  start,
+  toSignoff,
+  useMergeHarness,
+  waitForStage,
+} from './merge-harness.ts'
 
-const run = promisify(execFile)
-
-let home: string
-let cleanup: () => Promise<void>
-let scratch: string
-let origin: string
-let ghLog: string
-let ghState: string
-let daemon: RunningDaemon | undefined
-
-beforeEach(async () => {
-  ;({ home, cleanup } = await makeTempHome())
-  scratch = await mkdtemp(path.join(tmpdir(), 'ted-merge-'))
-  origin = await makeOriginRepo(scratch)
-  ghLog = path.join(scratch, 'gh.jsonl')
-  ghState = path.join(scratch, 'gh.json')
-  process.env.TED_STUB_GH = ghState
-  process.env.TED_STUB_GH_LOG = ghLog
-})
-
-afterEach(async () => {
-  await daemon?.stop()
-  daemon = undefined
-  await killRunHosts(home)
-  delete process.env.TED_STUB_GH
-  delete process.env.TED_STUB_GH_LOG
-  await cleanup()
-  await rm(scratch, { recursive: true, force: true })
-})
-
-const brief = `## Goal
-
-Let notes be edited offline.
-
-## Decisions so far
-
-None.
-
-## Current state
-
-Built. How to try it: open a note offline.
-
-## Open questions
-
-None.
-
-## Next step
-
-Merge it.
-`
-
-interface GhMerge {
-  origin?: string
-  mergeState?: string
-  reviewDecision?: string | null
-  checks?: { name: string; status?: string; conclusion?: string | null; required?: boolean }[]
-  allowed?: string[]
-  autoMergeAllowed?: boolean
-  rebaseConflict?: boolean
-  rebaseAddsCommit?: boolean
-  rebaseChangesMode?: boolean
-  isDraft?: boolean
-  merged?: boolean
-  autoMerge?: string
-  mergedWith?: string
-}
-
-const readGh = async () =>
-  JSON.parse(await readFile(ghState, 'utf8')) as { merge: GhMerge; heads?: Record<string, string> }
-
-async function setGh(merge: Partial<GhMerge>) {
-  const state = await readGh()
-  state.merge = { ...state.merge, ...merge }
-  await writeFile(ghState, JSON.stringify(state))
-}
-
-async function start(
-  options: { files?: Record<string, string>; merge?: GhMerge; workflow?: string[] } = {},
-) {
-  await writeFile(ghState, JSON.stringify({ merge: { origin, ...options.merge } }))
-  await commitToOrigin(scratch, {
-    '.gitignore': 'stub-*\n',
-    '.ted/workflow.yaml': [
-      'version: 1',
-      'order: [intake, work, validate, review, merge]',
-      ...(options.workflow ?? []),
-      '',
-    ].join('\n'),
-    ...options.files,
-  })
-  daemon = await startDaemon({
-    home,
-    version: '9.9.9',
-    claudeBin: stubClaudePath,
-    mergePollMs: 100,
-  })
-  const client = api(daemon.port, { appKey: daemon.appToken })
-  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
-    const res = await client.call(method, route, body)
-    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
-    return res.body as T
-  }
-  await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  const briefFile = path.join(scratch, 'brief.md')
-  await writeFile(briefFile, brief)
-  const findingsFile = path.join(scratch, 'findings.md')
-  await writeFile(findingsFile, 'The human asked for a bigger button.\n')
-  const mergingFile = path.join(scratch, 'merging')
-  return { ...client, ok, briefFile, findingsFile, mergingFile }
-}
-
-type Client = Awaited<ReturnType<typeof start>>
-
-const commitStep = {
-  run: [
-    'sh',
-    '-c',
-    'echo $$ >> work.txt && git add work.txt && git -c user.name=T -c user.email=t@example.com commit -qm work',
-  ],
-}
-
-function leadSteps(client: Client) {
-  const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
-  const script = [
-    `[ -e '${client.mergingFile}' ] && exit 0`,
-    commitStep.run[2],
-    `ted brief write --file '${client.briefFile}'`,
-    outcome,
-  ].join('\n')
-  const each = [{ run: ['sh', '-c', script] }, { endTurn: true }]
-  return JSON.stringify({
-    steps: [{ everyMessage: each }, { run: ['sh', '-c', outcome] }, { endTurn: true }],
-  })
-}
-
-async function toSignoff(client: Client, extra: Record<string, unknown> = {}) {
-  const task = await client.ok<Task>('POST', '/tasks', {
-    title: leadSteps(client),
-    factory: 'NB',
-    ...extra,
-  })
-  await client.ok('POST', `/tasks/${task.id}/start`)
-  const item = await waitUntil(async () => {
-    const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    return items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
-  }, 'the Review sign-off')
-  await waitUntil(
-    async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
-    'the pull request to be ready',
-  )
-  return { task, signoff: item.request }
-}
-
-const getTask = async (client: Client, id: string) => {
-  const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
-  if (!task) throw new Error(`no Task ${id}`)
-  return task
-}
-
-async function approve(client: Client, signoff: Comment) {
-  await writeFile(client.mergingFile, '')
-  await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
-}
-
-const waitForStage = (client: Client, task: Task, stage: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return current.stage === stage ? current : undefined
-  }, `${task.displayId} to reach ${stage}`)
-
-const ghCalls = async () =>
-  (await readFile(ghLog, 'utf8').catch(() => ''))
-    .split('\n')
-    .filter((line) => line !== '')
-    .map((line) => JSON.parse(line) as { args: string[]; stdin?: string })
-
-const merges = async () =>
-  (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'merge').map((c) => c.args)
-
-const lines = async (client: Client, task: Task) =>
-  (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
-
-const branchHead = async (branch: string) =>
-  (await run('git', ['rev-parse', `refs/heads/${branch}`], { cwd: origin })).stdout.trim()
-
-const originBranches = async () =>
-  (await run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads'], { cwd: origin })).stdout
+useMergeHarness()
 
 describe('Approve and merge', () => {
   test('with no CI, TED merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
@@ -344,7 +164,7 @@ describe('Approve and merge', () => {
     })
     const { task, signoff } = await toSignoff(client)
     const branch = (await getTask(client, task.id)).repos[0]?.branch ?? ''
-    await commitToOrigin(scratch, { 'other.txt': 'someone else’s change\n' })
+    await commitToOrigin(ctx.scratch, { 'other.txt': 'someone else’s change\n' })
 
     await approve(client, signoff)
     const done = await waitForStage(client, task, 'done')
@@ -380,7 +200,7 @@ describe('Approve and merge', () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     const state = await readGh()
-    await writeFile(ghState, JSON.stringify({ ...state, api: { result: 'auth' } }))
+    await writeFile(ctx.ghState, JSON.stringify({ ...state, api: { result: 'auth' } }))
     await approve(client, signoff)
 
     const waiting = await waitUntil(async () => {
@@ -440,8 +260,8 @@ describe('Merging only what the human signed off', () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     const branch = (await getTask(client, task.id)).repos[0]?.branch ?? ''
-    const work = await mkdtemp(path.join(scratch, 'other-'))
-    await run('git', ['clone', '-q', origin, 'repo'], { cwd: work })
+    const work = await mkdtemp(path.join(ctx.scratch, 'other-'))
+    await run('git', ['clone', '-q', ctx.origin, 'repo'], { cwd: work })
     const repo = path.join(work, 'repo')
     await run('git', ['checkout', '-q', branch], { cwd: repo })
     await commitIn(repo, 'sneaky.txt')
@@ -461,7 +281,7 @@ describe('Merging only what the human signed off', () => {
     async (_, extra) => {
       const client = await start({ merge: { mergeState: 'BEHIND', ...extra } })
       const { task, signoff } = await toSignoff(client)
-      await commitToOrigin(scratch, { 'other.txt': 'someone else’s change\n' })
+      await commitToOrigin(ctx.scratch, { 'other.txt': 'someone else’s change\n' })
       await approve(client, signoff)
 
       const back = await sentBack(client, task)

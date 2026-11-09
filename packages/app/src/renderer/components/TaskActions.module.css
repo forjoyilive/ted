@@ -113,13 +113,14 @@
   padding: 0 8px;
 }
 
-.item:hover:not(:disabled),
+.item:hover:not(:disabled, [aria-disabled='true']),
 .item:focus-visible {
   outline: none;
   background: var(--surface-selected);
 }
 
-.item:disabled {
+.item:disabled,
+.item[aria-disabled='true'] {
   color: var(--text-muted);
 }
 

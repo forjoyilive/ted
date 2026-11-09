@@ -16,12 +16,15 @@ import type {
   CommentAnswer,
   DaemonEvent,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   Effort,
   FactoryBoard,
   GitHubWait,
   InboxItem,
   LinearIssue,
   MergeMethod,
+  MergeRow,
   MoveTaskRequest,
   OutcomeResult,
   Priority,
@@ -32,6 +35,7 @@ import type {
   RunSlots,
   SetClarifyDepthRequest,
   SetTaskReposRequest,
+  SignOffChanges,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -47,7 +51,8 @@ import type {
   ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, parseLinearUrl } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, clarifyIsOver, parseLinearUrl } from '@ted/protocol'
+import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -106,13 +111,17 @@ import {
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import {
   chooseMethod,
+  ciState,
   deleteBranch,
+  disableAutoMerge,
   type MergeTarget,
   mergePullRequest,
   nextStep,
   type RemotePullRequest,
   readPullRequests,
   rebasePullRequest,
+  relevantChecks,
+  reviewMissing,
 } from './merge.ts'
 import { placeBetween } from './order.ts'
 import {
@@ -157,6 +166,7 @@ export interface CreateTaskInput
 
 export interface Tasks {
   create(input: CreateTaskInput): Promise<Task>
+  cancelMerge(ref: string, comment: string): Promise<Comment>
   defaults(factoryId: string): Promise<TaskDefaults>
   board(factoryId: string): Promise<FactoryBoard>
   start(ref: string): Promise<Task>
@@ -165,6 +175,8 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
+  edit(ref: string, request: EditTaskRequest): Promise<Task>
+  descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
@@ -224,6 +236,7 @@ export function createTasks(options: {
   gh?: Gh
   nudgeAfterMs?: number
   mergePollMs?: number
+  ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
 }): Tasks {
   const {
@@ -271,9 +284,11 @@ export function createTasks(options: {
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
   const merging = new Set<string>()
+  const mergeInFlight = new Map<string, Promise<unknown>>()
   const rebaseAsked = new Map<string, { from: string; to: string }>()
   const autoMergeTried = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
+  const ciStuckMs = options.ciStuckMs ?? { noChecks: 10 * 60_000, pending: 60 * 60_000 }
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -755,16 +770,53 @@ export function createTasks(options: {
   type MergeCycle = 'done' | 'wait' | 'busy'
   type MergeWork = MergeTarget & { url: string; worktree: string }
 
-  function tedMerges(task: Task, workflow: ResolvedWorkflow): boolean {
-    if (task.stage !== 'merge' || task.archived) return false
-    if (workflow.settings.stages.merge?.gate !== true) return true
+  type MergeMode = 'off' | 'gate' | 'merge' | 'canceled'
+
+  function mergeMode(task: Task, workflow: ResolvedWorkflow): MergeMode | undefined {
+    if (task.stage !== 'merge' || task.archived) return undefined
+    if (!workflow.stages.includes('merge')) return 'off'
     const since = visitStart(task)
-    return store
+    if (lastChangesRequested(task) !== '') return 'canceled'
+    if (workflow.settings.stages.merge?.gate !== true) return 'merge'
+    const approved = store
       .listComments(task.id)
       .some(
         (c) =>
           c.gate && c.stage === 'merge' && c.answer?.kind === 'approved' && c.createdAt >= since,
       )
+    return approved ? 'merge' : 'gate'
+  }
+
+  function tedMerges(task: Task, workflow: ResolvedWorkflow): boolean {
+    return mergeMode(task, workflow) === 'merge'
+  }
+
+  function startMerging(task: Task): void {
+    const since = visitStart(task)
+    const started = store
+      .taskLog(task.id)
+      .some((e) => e.name === 'v1.MergeStarted' && e.at >= since)
+    if (!started) store.mergeStarted(task.id)
+  }
+
+  function openPullRequests(task: Task) {
+    return task.repos.filter(
+      (r) =>
+        !r.removed &&
+        r.pullRequest !== undefined &&
+        r.pullRequest.state !== 'merged' &&
+        r.pullRequest.state !== 'closed',
+    )
+  }
+
+  function watched(task: StoredTask | undefined): task is StoredTask {
+    if (!task || task.archived) return false
+    if (task.stage === 'merge') return true
+    return task.stage === 'done' && openPullRequests(task).length > 0
+  }
+
+  function holdsMerge(taskId: string): boolean {
+    return openRequests(taskId).some((c) => !isCiStuck(c))
   }
 
   function watchMerge(taskId: string): void {
@@ -775,15 +827,17 @@ export function createTasks(options: {
       try {
         while (!closed) {
           const current = store.getTask(taskId)
-          if (current?.stage !== 'merge' || current.archived) return
+          if (!watched(current)) return
           await pullRequestQueue.get(taskId)
           let next: MergeCycle = 'wait'
-          if (!current.stopped && !checking.has(taskId) && openRequests(taskId).length === 0) {
-            next = await mergeCycle(taskId).catch((error: unknown) => {
+          if (!current.stopped && !checking.has(taskId) && !holdsMerge(taskId)) {
+            const cycle = mergeCycle(taskId).catch((error: unknown) => {
               if (error instanceof RequestError && error.status === 409) return 'busy' as const
               console.error(`couldn’t merge ${name}’s pull requests:`, redactSecrets(textOf(error)))
               return 'wait' as const
             })
+            mergeInFlight.set(taskId, cycle)
+            next = await cycle.finally(() => mergeInFlight.delete(taskId))
           }
           if (next === 'done') return
           await sleep(next === 'busy' ? 100 : mergePollMs, undefined, {
@@ -805,7 +859,13 @@ export function createTasks(options: {
     )
     if (open.length === 0) return []
     const methods = resolution.workflow.settings.repos ?? []
-    return (await pullRequestTargets(task)).flatMap((target) => {
+    const order = factoryRepos(resolution.workflow, factoryOf(task))
+    const rank = (repo: string) => {
+      const i = order.findIndex((e) => sameRepo(e.repo, repo))
+      return i === -1 ? order.length : i
+    }
+    const targets = (await pullRequestTargets(task)).sort((a, b) => rank(a.repo) - rank(b.repo))
+    return targets.flatMap((target) => {
       const repo = open.find((r) => r.name === target.name)
       const pr = repo?.pullRequest
       if (!repo || !pr) return []
@@ -822,7 +882,7 @@ export function createTasks(options: {
     })
   }
 
-  function setWait(taskId: string, name: string, on: GitHubWait): void {
+  function setWait(taskId: string, name: string, on: GitHubWait | undefined): void {
     const repo = find(taskId).repos.find((r) => r.name === name)
     if (repo?.pullRequest && repo.pullRequest.waiting !== on) {
       store.pullRequestWaiting(taskId, name, on)
@@ -873,9 +933,15 @@ export function createTasks(options: {
     findings: string,
     checkRunId?: string,
     toValidate = false,
+    options: { counted?: boolean } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
+    const split = mergeSplit(task)
+    if (split && !task.statuses.includes('partly-merged')) {
+      store.mergeStoppedPartway(taskId, split)
+    }
+    const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
     const { stages } = resolution.workflow
     const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
@@ -885,9 +951,23 @@ export function createTasks(options: {
     }
     if (advancing.has(taskId)) return 'busy'
     const outcome = await holding(task, () =>
-      sendBack(find(taskId), resolution, 'merge', { outcome: 'back', to, findings }, checkRunId),
+      sendBack(
+        find(taskId),
+        resolution,
+        'merge',
+        { outcome: 'back', to, findings: told },
+        checkRunId,
+        options,
+      ),
     )
     return outcome.request ? 'wait' : 'done'
+  }
+
+  function mergeSplit(task: StoredTask): { merged: string[]; open: string[] } | undefined {
+    const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    const merged = opened.filter((r) => r.pullRequest?.state === 'merged').map((r) => r.name)
+    const open = opened.filter((r) => r.pullRequest?.state !== 'merged').map((r) => r.name)
+    return merged.length > 0 && open.length > 0 ? { merged, open } : undefined
   }
 
   async function finishMerge(taskId: string): Promise<MergeCycle> {
@@ -901,6 +981,9 @@ export function createTasks(options: {
     })
     return 'done'
   }
+
+  const partwayFindings = ({ merged, open }: { merged: string[]; open: string[] }) =>
+    `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
 
   const needsSignOff = (target: MergeWork, why: string) =>
     `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
@@ -989,9 +1072,343 @@ export function createTasks(options: {
     )
   }
 
+  function ciStuckQuestions(task: Task): Comment[] {
+    const since = visitStart(task)
+    return store.listComments(task.id).filter((c) => isCiStuck(c) && c.createdAt >= since)
+  }
+
+  function lastPushAt(task: Task): string {
+    return task.repos
+      .flatMap((r) => (r.removed || !r.pushed ? [] : [r.pushed.at]))
+      .reduce(latest, visitStart(task))
+  }
+
+  function mergeAnyway(task: Task): boolean {
+    const pushed = lastPushAt(task)
+    return ciStuckQuestions(task).some(
+      (c) =>
+        c.createdAt >= pushed &&
+        c.answer?.kind === 'answered' &&
+        c.answer.choice === mergeAnywayChoice,
+    )
+  }
+
+  async function watchCi(
+    task: StoredTask,
+    waiting: readonly { target: MergeWork; pr: RemotePullRequest }[],
+  ): Promise<void> {
+    const asked = ciStuckQuestions(task)
+    const open = asked.filter((c) => c.answer === undefined)
+    if (waiting.length === 0) {
+      const at = new Date().toISOString()
+      for (const c of open) store.answerComment(c.id, { kind: 'withdrawn', at, ciReported: true })
+      return
+    }
+    if (open.length > 0) return
+    const pushed = lastPushAt(task)
+    const answeredAt = asked
+      .filter((c) => c.createdAt >= pushed)
+      .flatMap((c) => (c.answer ? [c.answer.at] : []))
+      .reduce(latest, '')
+    const now = Date.now()
+    const stuck = waiting.find(({ pr }) => {
+      const from = answeredAt !== '' ? answeredAt : pushed
+      const wait =
+        answeredAt === '' && pr.checks.length === 0 ? ciStuckMs.noChecks : ciStuckMs.pending
+      return now - Date.parse(from) >= wait
+    })
+    if (!stuck) return
+    const { target, pr } = stuck
+    const pending = relevantChecks(pr)
+      .filter((c) => c.state === 'pending')
+      .map((c) => c.name)
+    const requiredPending = pr.checks.some((c) => c.required && c.state === 'pending')
+    const where = `${target.repo}#${target.number}`
+    const minutes = (ms: number) => `${Math.round(ms / 60_000)} minutes`
+    const what =
+      pr.checks.length === 0
+        ? `No CI check has appeared on ${where} ${minutes(answeredAt === '' ? ciStuckMs.noChecks : ciStuckMs.pending)} after ${answeredAt === '' ? 'TED pushed' : 'you said to keep waiting'}.`
+        : `${pending.join(', ')} ${pending.length === 1 ? 'is' : 'are'} still queued or pending on ${where} after ${minutes(ciStuckMs.pending)}.`
+    store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: pr.checks.length === 0 ? `CI hasn’t started on ${where}` : `CI is stuck on ${where}`,
+      body: [
+        what,
+        `**${sendToLeadChoice}** sends the Task back to Work so the Task Lead can find out why. **${keepWaitingChoice}** waits another ${minutes(ciStuckMs.pending)}.${
+          requiredPending
+            ? ' A required check is still pending, so TED can’t merge without it.'
+            : ` **${mergeAnywayChoice}** merges without waiting for the checks.`
+        }`,
+      ].join('\n\n'),
+      choices: [
+        sendToLeadChoice,
+        keepWaitingChoice,
+        ...(requiredPending ? [] : [mergeAnywayChoice]),
+      ],
+    })
+  }
+
+  async function answerCiStuck(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    const answered = await holding(task, async () => {
+      const current = store.getComment(comment.id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn: CI reported before you answered')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      return store.answerComment(comment.id, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        ...(choice !== undefined && { choice }),
+        ...(text !== '' && { text }),
+      })
+    })
+    if (choice === sendToLeadChoice) {
+      await mergeSendBack(
+        task.id,
+        [
+          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
+          comment.body.split('\n\n')[0] ?? '',
+          'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
+          ...(text !== '' ? [`The human added: ${text}`] : []),
+        ].join('\n\n'),
+        undefined,
+        false,
+        { counted: false },
+      )
+    } else if (choice === undefined && text !== '') {
+      await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
+    }
+    return store.getComment(comment.id) ?? answered
+  }
+
+  function lastApproval(task: Task): Comment | undefined {
+    return store
+      .listComments(task.id)
+      .findLast(
+        (c) =>
+          c.kind === 'signoff' &&
+          c.gate !== undefined &&
+          c.stage !== 'merge' &&
+          c.answer?.kind === 'approved',
+      )
+  }
+
+  async function signOffChanges(
+    task: StoredTask,
+    summary?: string,
+  ): Promise<SignOffChanges | undefined> {
+    const approval = lastApproval(task)
+    if (approval?.answer?.kind !== 'approved') return undefined
+    const approvedAt = approval.answer.at
+    await pullRequestQueue.get(task.id)
+    const current = find(task.id)
+    const log = store.taskLog(task.id)
+    const targets = await pullRequestTargets(current)
+    const repos: SignOffChanges['repos'] = []
+    for (const target of targets) {
+      const repo = current.repos.find((r) => r.name === target.name)
+      const to = repo?.pullRequest?.signedOff ?? repo?.pushed?.commit
+      const approved = log.find(
+        (e) =>
+          e.name === 'v1.PullRequestSignedOff' &&
+          e.at >= approvedAt &&
+          e.data.name === target.name &&
+          typeof e.data.commit === 'string',
+      )?.data.commit as string | undefined
+      if (approved === undefined || to === undefined) continue
+      const base = repo?.pullRequest?.base ?? target.base
+      const baseTip = await git
+        .fetchBranch(target.worktree, { url: target.url, branch: base, haves: [approved, to] })
+        .catch(() => undefined)
+      const files = await git
+        .changesBetween(target.worktree, {
+          from: approved,
+          to,
+          ...(baseTip !== undefined && { baseTip }),
+        })
+        .catch((error: unknown) => {
+          console.error(
+            `couldn’t list the changes since sign-off in ${target.name}:`,
+            redactSecrets(textOf(error)),
+          )
+          return undefined
+        })
+      repos.push(
+        files ? { name: target.name, files } : { name: target.name, files: [], unavailable: true },
+      )
+    }
+    if (repos.length === 0) return undefined
+    return {
+      since: approval.id,
+      ...(summary !== undefined && summary !== '' && { summary }),
+      repos,
+    }
+  }
+
+  async function postMergeGate(
+    task: StoredTask,
+    ready: readonly { target: MergeWork; pr: RemotePullRequest }[],
+  ): Promise<void> {
+    if (openGateRequest(task)) return
+    const rows: MergeRow[] = ready.map(({ target, pr }) => ({
+      name: target.name,
+      repo: target.repo,
+      number: target.number,
+      title: pr.title !== '' ? pr.title : task.title,
+      url: task.repos.find((r) => r.name === target.name)?.pullRequest?.url ?? '',
+      checks: {
+        passed: pr.checks.filter((c) => c.state === 'passed').length,
+        failed: pr.checks.filter((c) => c.state === 'failed').length,
+        pending: pr.checks.filter((c) => c.state === 'pending').length,
+      },
+      mergeable: pr.mergeable === 'MERGEABLE',
+      method: chooseMethod(target.method, pr.allowed) ?? target.method,
+      reviewMissing: reviewMissing(pr),
+    }))
+    const changes = await signOffChanges(task)
+    const count = rows.length
+    store.postComment({
+      taskId: task.id,
+      kind: 'signoff',
+      author: { kind: 'ted' },
+      title:
+        count === 1
+          ? `Ready to merge: PR #${rows[0]?.number ?? ''}`
+          : `Ready to merge: ${count} pull requests`,
+      body: changes ? '' : (store.latestBrief(task.id)?.text ?? ''),
+      gate: {
+        approveLabel: count === 1 ? 'Merge' : `Merge ${count} pull requests`,
+        pullRequests: rows,
+        ...(changes && { changes }),
+      },
+    })
+  }
+
+  async function cancelMerge(ref: string, text: string): Promise<Comment> {
+    const task = find(ref)
+    if (!store.mergePending(task.id)) {
+      throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
+    }
+    const posted = await holding(task, async () => {
+      if (!store.mergePending(task.id)) {
+        throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
+      }
+      const comment = store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
+      store.mergeCanceled(task.id, comment.id)
+      return comment
+    })
+    await mergeInFlight.get(task.id)
+    const stillOn = await turnOffAutoMerge(task.id)
+    watchMerge(task.id)
+    for (const repo of find(task.id).repos) {
+      if (repo.pullRequest?.waiting !== undefined && repo.pullRequest.state !== 'merged') {
+        store.pullRequestWaiting(task.id, repo.name, undefined)
+      }
+    }
+    const current = find(task.id)
+    const run = liveLead(current)
+    if (run) {
+      await sendComment(run.id, posted)
+      await deliver(
+        current,
+        'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+      )
+    }
+    if (stillOn.length > 0) {
+      throw new RequestError(
+        502,
+        `Your Comment is posted and TED won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. TED keeps trying to turn it off.`,
+      )
+    }
+    return store.getComment(posted.id) ?? posted
+  }
+
+  async function turnOffAutoMerge(taskId: string): Promise<string[]> {
+    const gh = options.gh
+    const stillOn: string[] = []
+    for (const repo of find(taskId).repos) {
+      const pr = repo.pullRequest
+      if (repo.removed || !pr || pr.autoMerge === undefined || pr.state === 'merged') continue
+      const where = `${repo.repo}#${pr.number}`
+      if (!gh) {
+        stillOn.push(where)
+        continue
+      }
+      try {
+        await disableAutoMerge(gh, { repo: repo.repo, number: pr.number })
+        store.autoMergeDisabled(taskId, repo.name)
+      } catch (error) {
+        console.error(`couldn’t turn off auto-merge for ${where}:`, redactSecrets(textOf(error)))
+        stillOn.push(where)
+      }
+    }
+    return stillOn
+  }
+
+  async function watchOnlyCycle(taskId: string): Promise<MergeCycle> {
+    const task = find(taskId)
+    const open = openPullRequests(task)
+    if (open.length === 0) return task.stage === 'merge' ? finishMerge(taskId) : 'done'
+    const gh = options.gh
+    if (!gh) return 'wait'
+    const targets = open.flatMap((r) =>
+      r.pullRequest
+        ? [
+            {
+              name: r.name,
+              repo: r.repo,
+              number: r.pullRequest.number,
+              branch: r.branch,
+              base: r.pullRequest.base,
+              expectedHead: '',
+              hasCi: false,
+              method: 'squash' as const,
+            },
+          ]
+        : [],
+    )
+    let remote: Map<string, RemotePullRequest>
+    try {
+      remote = await readPullRequests(gh, targets)
+    } catch (error) {
+      if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+        if (task.stage === 'merge') {
+          for (const target of targets) setWait(taskId, target.name, 'sign-in')
+        }
+      }
+      throw error
+    }
+    let left = 0
+    for (const target of targets) {
+      const pr = remote.get(target.name)
+      if (pr?.state === 'MERGED') {
+        store.pullRequestMerged(taskId, target.name, { noCi: false, byTed: false })
+        continue
+      }
+      left++
+      if (task.stage === 'merge') setWait(taskId, target.name, 'merge')
+    }
+    if (left > 0) return 'wait'
+    return task.stage === 'merge' ? finishMerge(taskId) : 'done'
+  }
+
   async function mergeCycle(taskId: string): Promise<MergeCycle> {
     const task = find(taskId)
+    if (advancing.has(taskId)) return 'busy'
+    if (task.stage === 'done') return watchOnlyCycle(taskId)
     const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    const mode = mergeMode(task, resolution.workflow)
+    if (mode === undefined) return 'done'
+    if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
+    if (mode === 'off') return watchOnlyCycle(taskId)
+    if (mode === 'merge') startMerging(task)
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
     if (targets.length === 0) return finishMerge(taskId)
@@ -1019,6 +1436,8 @@ export function createTasks(options: {
       throw error
     }
     const ready: { target: MergeWork; pr: RemotePullRequest; noCi: boolean }[] = []
+    const waitingForCi: { target: MergeWork; pr: RemotePullRequest }[] = []
+    const anyway = mergeAnyway(task)
     let open = 0
     for (const target of targets) {
       const pr = remote.get(target.name)
@@ -1027,7 +1446,7 @@ export function createTasks(options: {
         continue
       }
       const key = `${taskId}:${target.name}`
-      const step = nextStep(target, pr)
+      const step = nextStep(target, pr, { mergeAnyway: anyway })
       if (step.kind !== 'merged') open++
       switch (step.kind) {
         case 'merged': {
@@ -1089,25 +1508,60 @@ export function createTasks(options: {
             `CI failed on ${target.repo}#${target.number} at Merge: ${step.checks.join(', ')}. Fix it, and the Task comes back through Validate for a short re-sign-off.`,
           )
         case 'wait':
+          if (
+            mode === 'gate' &&
+            step.on === 'review' &&
+            ciState(target, pr, { mergeAnyway: anyway }) === 'passed' &&
+            pr.mergeable === 'MERGEABLE'
+          ) {
+            ready.push({ target, pr, noCi: !target.hasCi })
+            break
+          }
           setWait(taskId, target.name, step.on)
-          if (step.autoMerge) await enableAutoMerge(gh, task, target, pr)
+          if (ciState(target, pr, { mergeAnyway: anyway }) === 'pending') {
+            waitingForCi.push({ target, pr })
+          }
+          if (step.autoMerge && mode === 'merge' && targets.length === 1)
+            await enableAutoMerge(gh, task, target, pr)
           break
         case 'merge':
           ready.push({ target, pr, noCi: step.noCi })
           break
       }
     }
+    await watchCi(task, waitingForCi)
     if (ready.length === 0 || ready.length !== open) {
       return open === 0 ? finishMerge(taskId) : 'wait'
     }
+    if (mode === 'gate') {
+      for (const { target } of ready) setWait(taskId, target.name, undefined)
+      await postMergeGate(find(taskId), ready)
+      return 'wait'
+    }
     for (const { target, pr, noCi } of ready) {
+      if (mergeMode(find(taskId), resolution.workflow) !== 'merge') return 'done'
       const method = chooseMethod(target.method, pr.allowed)
       if (!method) {
         console.error(`GitHub allows no merge method on ${target.repo}`)
         setWait(taskId, target.name, 'merge')
         return 'wait'
       }
-      await mergePullRequest(gh, target, method, { auto: false })
+      try {
+        await mergePullRequest(gh, target, method, { auto: false })
+      } catch (error) {
+        if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
+          setWait(taskId, target.name, 'sign-in')
+          throw error
+        }
+        const now = (await readPullRequests(gh, [target]).catch(() => undefined))?.get(target.name)
+        if (now?.state !== 'MERGED') {
+          if (!mergeSplit(find(taskId))) throw error
+          return mergeSendBack(
+            taskId,
+            `TED couldn’t merge ${target.repo}#${target.number}: ${redactSecrets(textOf(error))}`,
+          )
+        }
+      }
       store.pullRequestMerged(taskId, target.name, {
         method,
         requested: target.method,
@@ -1767,7 +2221,7 @@ export function createTasks(options: {
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
-              task,
+              withOriginal(task, current),
               resolution.workflow,
               task.stage as AgentStageId,
               attachmentFile,
@@ -1782,7 +2236,7 @@ export function createTasks(options: {
             ),
             ...(note !== undefined ? [note] : []),
           ]
-        : [continueMessage]),
+        : [continueMessage, ...editedSince(current)]),
       ...(since !== undefined ? [since] : []),
       ...(resumeSession !== undefined && movedByApproval(current, waiting.answers)
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
@@ -1809,6 +2263,27 @@ export function createTasks(options: {
     )
     store.releaseTaskRun(task.id)
     await sendWaiting(task.id)
+  }
+
+  function withOriginal(task: StoredTask, current: StoredTask): StoredTask & { original?: string } {
+    const [first] = store.descriptionVersions(task.id)
+    const edited = { ...task, title: current.title, description: current.description }
+    return first && first.text !== current.description
+      ? { ...edited, original: first.text }
+      : edited
+  }
+
+  function editedSince(task: StoredTask): string[] {
+    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    if (!run) return []
+    const edited = store
+      .taskLog(task.id)
+      .some((e) => e.name === 'v1.TaskEdited' && e.at >= run.startedAt)
+    if (!edited) return []
+    const current = find(task.id)
+    return [
+      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+    ]
   }
 
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
@@ -2163,10 +2638,14 @@ export function createTasks(options: {
   async function move(
     task: StoredTask,
     resolution: WorkflowResolution,
-    next: AgentStageId | 'done',
-    message: string | undefined,
+    to: AgentStageId | 'done',
+    given: string | undefined,
     { signedOff = false }: { signedOff?: boolean } = {},
   ): Promise<Task> {
+    const mergeOff =
+      to === 'done' && task.stage !== 'merge' && !resolution.workflow.stages.includes('merge')
+    const next = mergeOff ? 'merge' : to
+    const message = mergeOff ? mergeOffMessage : given
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
@@ -2188,7 +2667,10 @@ export function createTasks(options: {
     } else if (message !== undefined) {
       await deliver(task, message)
     }
-    if (next === 'merge' && tedMerges(moved, resolution.workflow)) watchMerge(task.id)
+    if (next === 'merge') {
+      if (tedMerges(moved, resolution.workflow)) startMerging(moved)
+      watchMerge(task.id)
+    }
     return moved
   }
 
@@ -2254,6 +2736,13 @@ export function createTasks(options: {
 
   function lastChangesRequested(task: Task): string {
     const since = visitStart(task)
+    const canceled =
+      task.stage === 'merge'
+        ? store
+            .taskLog(task.id)
+            .filter((e) => e.name === 'v1.MergeCanceled')
+            .map((e) => e.at)
+        : []
     return store
       .listComments(task.id)
       .flatMap((c) =>
@@ -2261,6 +2750,7 @@ export function createTasks(options: {
           ? [c.answer.at]
           : [],
       )
+      .concat(canceled)
       .filter((at) => at >= since)
       .reduce(latest, '')
   }
@@ -2289,12 +2779,13 @@ export function createTasks(options: {
     from: AgentStageId,
     request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
     checkRunId?: string,
+    options: { counted?: boolean } = {},
   ): Promise<OutcomeResult & { pending?: boolean }> {
     const { workflow } = resolution
     const to = request.to
     const findings = request.findings.trim()
     checkBack(workflow, from, to)
-    const counted = lastChangesRequested(task) === ''
+    const counted = options.counted ?? lastChangesRequested(task) === ''
     const limit = workflow.settings.stages[from]?.max_back
     const count = store.sendBackCount(task.id, from)
     if (counted && limit !== undefined && count >= limit) {
@@ -3133,7 +3624,7 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: revivedMessage(reason),
+        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
@@ -3412,11 +3903,7 @@ export function createTasks(options: {
   }
 
   for (const task of store.listTasks()) {
-    if (task.stage !== 'merge' || task.archived) continue
-    inBackground(`look at ${task.displayId}’s merge`, async () => {
-      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
-      if (tedMerges(find(task.id), resolution.workflow)) watchMerge(task.id)
-    })
+    if (watched(store.getTask(task.id))) watchMerge(task.id)
   }
 
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
@@ -3606,6 +4093,25 @@ export function createTasks(options: {
       return store.setPriority(live(ref).id, priority)
     },
 
+    async edit(ref, { title, description }) {
+      const task = live(ref)
+      const before = store.descriptionVersions(task.id).at(-1)?.text ?? task.description
+      const edited = store.editTask(task.id, {
+        ...(title !== undefined && { title }),
+        ...(description !== undefined && { description }),
+      })
+      const renamed = edited.title !== task.title
+      const changed = edited.description !== task.description
+      if ((renamed || changed) && liveLead(find(task.id))) {
+        await deliver(task, editMessage(task, edited, before, renamed, changed))
+      }
+      return edited
+    },
+
+    descriptions(ref) {
+      return store.descriptionVersions(find(ref).id)
+    },
+
     archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
       const task = live(ref)
       if (deleting.has(task.id)) throw new RequestError(409, `${task.displayId} is being deleted`)
@@ -3686,6 +4192,12 @@ export function createTasks(options: {
         if (task.archived) {
           throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
         }
+        if (publicTask(task.id).commentBox === 'merge-pending') {
+          throw new RequestError(
+            409,
+            `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+          )
+        }
         return humanComment(task, body)
       }
       const { task, runId } = ownTask(ref, caller)
@@ -3736,6 +4248,12 @@ export function createTasks(options: {
         if (task.archived || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
         }
+        if (clarifyIsOver(task.stage)) {
+          throw new RequestError(
+            409,
+            `Clarify is over for ${task.displayId}, so changing its Clarify depth would do nothing`,
+          )
+        }
         const set = store.setClarifyDepth(task.id, { depth, by: 'human' })
         if (liveLead(find(task.id))) {
           await deliver(
@@ -3785,6 +4303,7 @@ export function createTasks(options: {
         comments: store.listComments(task.id),
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
+        descriptions: store.descriptionVersions(task.id),
       })
     },
 
@@ -3840,6 +4359,9 @@ export function createTasks(options: {
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
       }
+      if (isCiStuck(comment) && comment.answer === undefined && request.action === 'answer') {
+        return answerCiStuck(task, comment, request.choice, text)
+      }
       if (comment.failed !== undefined && comment.answer === undefined) {
         if (request.action === 'answer' && request.choice === retryChoice) {
           await resumeByHand(task.id, { comment: text })
@@ -3891,6 +4413,7 @@ export function createTasks(options: {
               ? `The human approved the ${gateName(comment)}.`
               : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
           if (now.stage === 'merge') {
+            startMerging(find(task.id))
             watchMerge(task.id)
             await deliver(
               now,
@@ -4018,10 +4541,15 @@ export function createTasks(options: {
             `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
           )
         }
-        if (stage === 'merge' && tedMerges(current, workflow)) {
+        if (stage === 'merge') {
+          const mode = mergeMode(current, workflow)
           throw new RequestError(
             409,
-            `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
+            mode === 'off'
+              ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
+              : mode === 'gate'
+                ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
+                : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
           )
         }
         const waiting = stage === 'clarify' ? openRound(current) : undefined
@@ -4084,13 +4612,20 @@ export function createTasks(options: {
           )
         }
         if (stage === 'validate') judge(current, 'passed', outcome.judged)
+        const leadsToMerge =
+          stage !== 'design' &&
+          stage !== 'clarify' &&
+          (workflow.next(stage) === 'merge' || workflow.next(stage) === 'done')
+        const changes = leadsToMerge
+          ? await signOffChanges(current, outcome.changes?.trim())
+          : undefined
         const request = store.postComment({
           taskId: task.id,
           kind: stage === 'design' ? 'review' : 'signoff',
           title: briefGoal(brief.text) ?? name,
           body: brief.text,
           author: { kind: 'run', runId },
-          gate: gateButtons(workflow, stage),
+          gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
         })
         if (stage === 'validate') pullRequestWork(task.id, 'again')
         if (stage === 'review' || workflow.next(stage) === 'merge') {
@@ -4113,6 +4648,7 @@ export function createTasks(options: {
     },
 
     useDefaultModel,
+    cancelMerge,
 
     setRepos,
 
@@ -4224,6 +4760,20 @@ export function createTasks(options: {
 }
 
 const skippableStages: readonly StageId[] = ['clarify', 'design']
+const sendToLeadChoice = 'Send to Task Lead'
+const keepWaitingChoice = 'Keep waiting'
+const mergeAnywayChoice = 'Merge anyway'
+const mergeOffMessage =
+  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
+
+function isCiStuck(comment: Comment): boolean {
+  return (
+    comment.author.kind === 'ted' &&
+    comment.kind === 'question' &&
+    comment.stage === 'merge' &&
+    comment.choices?.includes(keepWaitingChoice) === true
+  )
+}
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -4347,6 +4897,31 @@ function permissionMessage(approved: boolean, command: string, text: string): st
     : `The human denied this request and said:\n\n${text}`
 }
 
+function editMessage(
+  task: Task,
+  edited: Task,
+  before: string,
+  renamed: boolean,
+  changed: boolean,
+): string {
+  const marks = { context: '  ', added: '+ ', removed: '- ' } as const
+  const diff = diffTexts('description', before, edited.description)
+  return [
+    `The human edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
+    ...(renamed ? [`Title was: ${task.title}\nTitle now: ${edited.title}`] : []),
+    ...(changed
+      ? [
+          'Changes to the description (lines starting “- ” were removed, “+ ” were added):',
+          [
+            ...diff.lines.map((line) => `${marks[line.kind]}${line.text}`),
+            ...(diff.truncated ? ['(longer than shown; read the full description below)'] : []),
+          ].join('\n'),
+          `The description now reads:\n\n${edited.description}`,
+        ]
+      : []),
+  ].join('\n\n')
+}
+
 function humanMessage(body: string): string {
   return `The human posted a Comment on this Task:\n\n${body}`
 }
@@ -4426,4 +5001,9 @@ function slug(title: string): string {
   const cut = words.slice(0, slugLength + 1)
   const boundary = cut.lastIndexOf('-')
   return `-${boundary > 0 ? cut.slice(0, boundary) : words.slice(0, slugLength)}`
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }

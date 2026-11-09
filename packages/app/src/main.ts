@@ -27,6 +27,7 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   downloadUrl,
+  type EditTaskRequest,
   type FactorySettingsChanges,
   linearKeyPage,
   type MachineSettings,
@@ -91,6 +92,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
+  cancelMerge: (client, taskId, comment) => client.cancelMerge(String(taskId), String(comment)),
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
@@ -114,6 +116,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
   useDefaultModel: (client, taskId) => client.useDefaultModel(String(taskId)),
+  editTask: (client, taskId, edit) => client.editTask(String(taskId), edit as EditTaskRequest),
+  taskDescriptions: (client, taskId) => client.taskDescriptions(String(taskId)),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),

@@ -14,7 +14,7 @@ export interface TaskFacts {
   runs: readonly RunState[]
   openRequests?: number
   failed?: boolean
-  partlyMerged?: boolean
+  partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
   tedWorking?: boolean
   settingUp?: boolean
@@ -24,6 +24,8 @@ export interface TaskFacts {
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
+  mergePending?: boolean
+  autoMergeLeft?: boolean
   needsPlanning?: boolean
   agentActivity?: string
   archived?: boolean
@@ -62,7 +64,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
   if (facts.stage === 'done' || facts.archived) return []
   const has: Record<TaskStatusKind, boolean> = {
     failed: facts.failed === true,
-    'partly-merged': facts.partlyMerged === true,
+    'partly-merged': facts.partlyMerged !== undefined,
     'waiting-on-you': (facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting'),
     paused: facts.paused !== undefined,
     working:
@@ -81,6 +83,7 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   if (status?.kind === 'failed') return 'failed'
   if (status?.kind === 'stopped') return 'stopped'
   if (status?.kind === 'paused') return 'paused'
+  if (facts.mergePending) return 'merge-pending'
   return facts.leadLive ? 'live' : 'no-run'
 }
 
@@ -107,12 +110,19 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
+  if (facts.autoMergeLeft) {
+    return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
+  }
   if (facts.checking) {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`
   }
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.agentActivity !== undefined) return facts.agentActivity
+  if (facts.partlyMerged) {
+    const { merged, open } = facts.partlyMerged
+    return `${joinAnd(merged)} merged · ${joinAnd(open)} not yet`
+  }
   if (facts.settingUp) return 'Setting up the worktree'
   if (facts.paused !== undefined && facts.queue && 'place' in facts.queue) {
     return `Queued · ${ordinal(facts.queue.place)}`
@@ -145,4 +155,9 @@ function ordinal(n: number): string {
             ? 'rd'
             : 'th'
   return `${n}${suffix}`
+}
+
+function joinAnd(items: readonly string[]): string {
+  if (items.length < 2) return items.join('')
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
 }

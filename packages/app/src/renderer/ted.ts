@@ -22,7 +22,9 @@ import type {
   DaemonEvent,
   DataStatus,
   DeleteTaskRequest,
+  DescriptionVersion,
   Diagnostics,
+  EditTaskRequest,
   Factory,
   FactoryBoard,
   FactorySettingsChanges,
@@ -82,6 +84,8 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  cancelMerge: (taskId: string, comment: string) =>
+    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
   postComment: (taskId: string, body: string) =>
     window.ted.request('postComment', taskId, body) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>
@@ -111,6 +115,10 @@ export const ted = {
     window.ted.request('closeRunTab', taskId, runId) as Promise<Task>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
+  editTask: (taskId: string, edit: EditTaskRequest) =>
+    window.ted.request('editTask', taskId, edit) as Promise<Task>,
+  taskDescriptions: (taskId: string) =>
+    window.ted.request('taskDescriptions', taskId) as Promise<DescriptionVersion[]>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
     window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>

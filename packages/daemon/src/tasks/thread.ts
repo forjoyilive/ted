@@ -2,11 +2,13 @@ import type {
   ClarifyDepth,
   Comment,
   CopySkip,
+  DescriptionVersion,
   Judgment,
   LayerUse,
   ThreadEvent,
   ThreadEventTone,
 } from '@ted/protocol'
+import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { depthNames } from './rounds.ts'
@@ -15,6 +17,7 @@ export interface ThreadContext {
   comments: readonly Comment[]
   displayIdOf(taskId: string): string
   waitingFor: readonly string[]
+  descriptions?: readonly DescriptionVersion[]
 }
 
 export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
@@ -135,7 +138,7 @@ export function threadEvents(
     line: string,
     findings?: string,
     checkRunId?: string,
-    extra?: Pick<ThreadEvent, 'judgments' | 'validate'>,
+    extra?: Pick<ThreadEvent, 'judgments' | 'validate' | 'changes'>,
   ) =>
     lines.push({
       id: entry.id,
@@ -148,6 +151,7 @@ export function threadEvents(
       ...(extra?.judgments !== undefined &&
         extra.judgments.length > 0 && { judgments: extra.judgments }),
       ...(extra?.validate !== undefined && { validate: extra.validate }),
+      ...(extra?.changes !== undefined && { changes: extra.changes }),
     })
 
   for (const entry of log) {
@@ -158,6 +162,27 @@ export function threadEvents(
       case 'v2.TaskCreated':
         add(entry, 'done', 'You created this Task')
         break
+      case 'v1.TaskEdited': {
+        const title = text(data.title)
+        const version = typeof data.version === 'number' ? data.version : undefined
+        const renamed = title === '' ? '' : `renamed this Task to “${title}”`
+        const line =
+          version === undefined
+            ? `You ${renamed}`
+            : `You ${renamed === '' ? '' : `${renamed} and `}edited the description`
+        const versions = context.descriptions ?? []
+        const before = versions.find((v) => v.version === (version ?? 0) - 1)
+        const after = versions.find((v) => v.version === version)
+        add(
+          entry,
+          'edit',
+          line,
+          undefined,
+          undefined,
+          before && after ? { changes: diffTexts('Description', before.text, after.text) } : {},
+        )
+        break
+      }
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -444,6 +469,16 @@ export function threadEvents(
       case 'v1.PullRequestAutoMergeEnabled':
         add(entry, 'run', `Turned on auto-merge for ${text(data.name)}${methodNote(data)}`)
         break
+      case 'v1.MergeStoppedPartway': {
+        const merged = Array.isArray(data.merged) ? data.merged.map(String) : []
+        const open = Array.isArray(data.open) ? data.open.map(String) : []
+        add(
+          entry,
+          'failure',
+          `Merge stopped partway · ${joinAnd(merged)} merged, ${joinAnd(open)} didn’t. TED doesn’t revert a merged pull request.`,
+        )
+        break
+      }
       case 'v1.TaskBranchRebased':
         add(
           entry,

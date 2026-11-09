@@ -31,7 +31,7 @@ describe('taskStatus', () => {
   test('each status wins over every status below it', () => {
     const ladder: [Partial<TaskFacts>, string][] = [
       [{ failed: true }, 'failed'],
-      [{ partlyMerged: true }, 'partly-merged'],
+      [{ partlyMerged: { merged: ['app'], open: ['api'] } }, 'partly-merged'],
       [{ openRequests: 1 }, 'waiting-on-you'],
       [{ paused: 'Claude usage limit, resets 14:20' }, 'paused'],
       [{ runs: ['working'] }, 'working'],
@@ -104,6 +104,16 @@ describe('taskActivity', () => {
       'Starts when NB-46 merges',
     )
     expect(taskActivity(at({ runs: ['working'] }))).toBeUndefined()
+  })
+
+  test('a Partly merged Task names what merged and what hasn’t, unless the agent says more', () => {
+    const partlyMerged = { merged: ['app'], open: ['api', 'web'] }
+    expect(taskActivity(at({ stage: 'merge', partlyMerged }))).toBe(
+      'app merged · api and web not yet',
+    )
+    expect(taskActivity(at({ partlyMerged, agentActivity: 'Fixing api’s tests' }))).toBe(
+      'Fixing api’s tests',
+    )
   })
 
   test('a blocked Task whose Task Lead carries on is not Blocked; the blocker is a marker', () => {

@@ -8,8 +8,10 @@ import {
   type BlockedChoice,
   type BlockTaskRequest,
   blockedChoices,
+  type CancelMergeRequest,
   type CreateTaskRequest,
   clarifyDepths,
+  type EditTaskRequest,
   type Effort,
   efforts,
   isModelName,
@@ -121,6 +123,37 @@ export const taskRoutes: Route[] = [
       if (!priority) throw new HttpError(400, `priority must be ${priorities.join(', ')}`)
       return [200, tasks.setPriority(ref, priority)]
     },
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<EditTaskRequest> | null
+      const { title, description } = body ?? {}
+      if (title !== undefined && typeof title !== 'string') {
+        throw new HttpError(400, 'title must be text')
+      }
+      if (description !== undefined && typeof description !== 'string') {
+        throw new HttpError(400, 'description must be text')
+      }
+      if (title === undefined && description === undefined) {
+        throw new HttpError(400, 'send a title, a description or both')
+      }
+      const name = title === undefined ? undefined : oneLine(title)
+      if (name === '') throw new HttpError(400, 'a Task needs a title')
+      return [
+        200,
+        await tasks.edit(ref, {
+          ...(name !== undefined && { title: name }),
+          ...(description !== undefined && { description: description.trim() }),
+        }),
+      ]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/descriptions$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.descriptions(ref)],
   },
   {
     method: 'POST',
@@ -279,6 +312,16 @@ export const taskRoutes: Route[] = [
           ...(supersedes !== undefined && { supersedes }),
         }),
       ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/cancel-merge$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<CancelMergeRequest> | null
+      const text = typeof body?.comment === 'string' ? body.comment.trim() : ''
+      if (text === '') throw new HttpError(400, 'comment is required')
+      return [201, await tasks.cancelMerge(ref, text)]
     },
   },
   {
@@ -621,10 +664,15 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const judged = judgments(request.judged)
   if (request.outcome === 'advance') {
+    const changes = typeof request.changes === 'string' ? oneLine(request.changes) : ''
+    if ([...changes].length > 300) {
+      throw new HttpError(400, 'the changes summary is limited to 300 characters')
+    }
     return {
       outcome: 'advance',
       ...(request.skip === true && { skip: true }),
       ...(judged && { judged }),
+      ...(changes !== '' && { changes }),
     }
   }
   if (request.outcome === 'back') {

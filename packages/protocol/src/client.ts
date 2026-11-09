@@ -60,9 +60,12 @@ import type {
   AnswerRequest,
   ArchiveTaskRequest,
   Attachment,
+  CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
+  DescriptionVersion,
+  EditTaskRequest,
   InboxItem,
   MoveTaskRequest,
   OutcomeResult,
@@ -178,8 +181,21 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
   }
 
+  cancelMerge(ref: string, comment: string): Promise<Comment> {
+    const body: CancelMergeRequest = { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
+  }
+
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move`, request)
+  }
+
+  editTask(ref: string, request: EditTaskRequest): Promise<Task> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}`, request)
+  }
+
+  taskDescriptions(ref: string): Promise<DescriptionVersion[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/descriptions`)
   }
 
   setPriority(ref: string, priority: Priority): Promise<Task> {

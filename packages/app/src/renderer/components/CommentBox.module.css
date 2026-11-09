@@ -39,6 +39,15 @@
   gap: 8px;
 }
 
+.mergeNote {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-13);
+}
+
 .readOnly {
   box-sizing: border-box;
   margin: 0;

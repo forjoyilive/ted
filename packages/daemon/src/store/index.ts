@@ -32,6 +32,7 @@ import {
   type ConversationTab,
   type CopySkip,
   type DaemonEvent,
+  type DescriptionVersion,
   defaultMachineSettings,
   type Effort,
   type Factory,
@@ -105,6 +106,7 @@ import {
   taskAttachments,
   taskBlockers,
   taskBriefs,
+  taskDescriptions,
   taskLog,
   taskQueue,
   taskRepos,
@@ -413,7 +415,12 @@ export interface TedStore {
     input: { method?: MergeMethod; requested?: MergeMethod; noCi: boolean; byTed: boolean },
   ): void
   branchRebased(taskId: string, name: string, input: { commit: string; onto: string }): void
+  mergeStoppedPartway(taskId: string, input: { merged: string[]; open: string[] }): void
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
+  autoMergeDisabled(taskId: string, name: string): void
+  mergeStarted(taskId: string): void
+  mergeCanceled(taskId: string, commentId: string): void
+  mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   clearLocalFolder(repo: string): void
@@ -424,6 +431,8 @@ export interface TedStore {
   moveToBacklog(taskId: string): Task
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
+  editTask(taskId: string, edit: { title?: string; description?: string }): Task
+  descriptionVersions(taskId: string): DescriptionVersion[]
   archiveTask(taskId: string, record?: { closing: string[]; branches: number }): Task
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
@@ -823,6 +832,34 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
+  const mergePendingFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+    repos: readonly TaskRepo[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    const open = repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged')
+    if (!open) return false
+    const last = store
+      .query(queryDb(taskLog.where({ taskId })))
+      .filter(
+        (e) => (e.name === 'v1.MergeStarted' || e.name === 'v1.MergeCanceled') && e.at >= since,
+      )
+      .sort((a, b) => sequence(a.id) - sequence(b.id))
+      .at(-1)
+    return last?.name === 'v1.MergeStarted'
+  }
+
+  const mergeCanceledFor = (
+    taskId: string,
+    entries: readonly (typeof stageEntries.Type)[],
+  ): boolean => {
+    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    return store
+      .query(queryDb(taskLog.where({ taskId, name: 'v1.MergeCanceled' })))
+      .some((e) => e.at >= since)
+  }
+
   const isMerged = (taskId: string): boolean =>
     taskRow(taskId)?.stage === 'done' &&
     store
@@ -914,6 +951,7 @@ export async function openStore({
     stoppedRuns,
     stoppedWhy,
     failedAt,
+    partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -931,6 +969,15 @@ export async function openStore({
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
             ?.waiting
         : undefined
+    const mergeWaits = stage === 'merge' && mergePendingFor(row.id, entries, repos)
+    const autoMergeLeft =
+      stage === 'merge' &&
+      !mergeWaits &&
+      repos.some(
+        (r) =>
+          !r.removed && r.pullRequest?.autoMerge !== undefined && r.pullRequest.state !== 'merged',
+      ) &&
+      mergeCanceledFor(row.id, entries)
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -943,9 +990,17 @@ export async function openStore({
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
+    const opened = repos.filter((r) => !r.removed && r.pullRequest !== undefined)
+    const mergedRepos = opened.filter((r) => r.pullRequest?.state === 'merged')
+    const openRepos = opened.filter((r) => r.pullRequest?.state !== 'merged')
+    const partlyMerged =
+      partlyMergedAt !== null && mergedRepos.length > 0 && openRepos.length > 0
+        ? { merged: mergedRepos.map((r) => r.name), open: openRepos.map((r) => r.name) }
+        : undefined
     const facts: TaskFacts = {
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
+      ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
           at: stoppedAt,
@@ -963,6 +1018,8 @@ export async function openStore({
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
       ...(github !== undefined && { github }),
+      ...(mergeWaits && { mergePending: true }),
+      ...(autoMergeLeft && { autoMergeLeft: true }),
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
@@ -1188,6 +1245,9 @@ export async function openStore({
     stage: stage as StageId,
     ...(runId !== null && { runId }),
   })
+  const descriptionRows = (taskId: string) =>
+    store.query(queryDb(taskDescriptions.where({ taskId }).orderBy('version', 'asc')))
+
   const briefRows = (taskId: string) =>
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
@@ -1576,6 +1636,36 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    editTask(taskId, edit) {
+      const row = taskRow(taskId)
+      if (!row) throw new Error(`no Task ${taskId}`)
+      const title = edit.title !== undefined && edit.title !== row.title ? edit.title : null
+      const description =
+        edit.description !== undefined && edit.description !== row.description
+          ? edit.description
+          : null
+      if (title === null && description === null) return toPublicTask(toTask(row))
+      const versions = descriptionRows(taskId)
+      const latest = versions.at(-1)
+      commit(
+        events.taskEdited({
+          taskId,
+          title,
+          description,
+          version: description === null ? null : (latest?.version ?? 1) + 1,
+          previous: description === null || latest ? null : row.description,
+          previousAt: description === null || latest ? null : row.createdAt,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    descriptionVersions(taskId) {
+      const rows = descriptionRows(taskId)
+      if (rows.length > 0) return rows.map(({ version, text, at }) => ({ version, text, at }))
+      const row = taskRow(taskId)
+      return row ? [{ version: 1, text: row.description, at: row.createdAt }] : []
+    },
     setPriority(taskId, priority) {
       commit(events.taskPriorityChanged({ taskId, priority, at: new Date().toISOString() }))
       const task = updatedTask(taskId)
@@ -1891,7 +1981,27 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
+    mergeStoppedPartway(taskId, { merged, open }) {
+      commit(events.mergeStoppedPartway({ taskId, merged, open, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     isMerged: (taskId) => isMerged(taskId),
+    autoMergeDisabled(taskId, name) {
+      commit(events.pullRequestAutoMergeDisabled({ taskId, name, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergeStarted(taskId) {
+      commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergeCanceled(taskId, commentId) {
+      commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    mergePending(taskId) {
+      const task = taskRow(taskId)
+      return task?.stage === 'merge' && mergePendingFor(taskId, entryRows(taskId), reposOf(taskId))
+    },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
         events.pullRequestSignedOff({
