@@ -43,6 +43,7 @@ import type { Attachments } from './attachments.ts'
 import type { CommandLine } from './command-line.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
+import { cantSaveMessage, isDiskFullError } from './disk.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
@@ -543,9 +544,20 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/storage$/,
+    handle: async (_, { storage }) => [200, await storage.summary()],
+  },
+  {
+    method: 'POST',
+    path: /^\/storage\/remove-clones$/,
+    handle: async (_, { storage }) => [200, await storage.removeUnusedClones()],
+  },
+  {
     method: 'POST',
     path: /^\/dev\/runs$/,
-    async handle({ req }, { runs, agents }) {
+    async handle({ req }, { runs, agents, disk }) {
+      if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
       const body = (await readJson(req)) as Partial<StartDevRunRequest> | null
       const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : ''
       const cwd = typeof body?.cwd === 'string' ? body.cwd : ''
@@ -574,6 +586,7 @@ export async function listen(options: BaseOptions): Promise<{ server: http.Serve
     options.idle?.reset()
     handle(req, res, options).catch((error: unknown) => {
       if (error instanceof HttpError) return sendJson(res, error.status, { error: error.message })
+      if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
       console.error(
         redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
       )
@@ -612,6 +625,9 @@ async function handle(
   const route = find(routes, req, url, caller)
   if (!route) throw new HttpError(404, 'not found')
   const services = await options.data.services()
+  if (services.disk.cantSave() && req.method !== 'GET' && !url.startsWith('/storage/')) {
+    throw new HttpError(507, cantSaveMessage)
+  }
   const reply = await route.route.handle(context(route.params), { ...options, ...services })
   if (reply) sendJson(res, ...reply)
 

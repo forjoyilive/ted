@@ -1177,6 +1177,24 @@ describe('Working Runs', () => {
     await window.getByRole('region', { name: 'widgets' }).getByText('1 of 1 working').waitFor()
   })
 
+  test('a nearly full disk shows a warning whose Open Storage shows what uses the space', async () => {
+    const free = path.join(home, 'free-bytes')
+    await writeFile(free, String(8.2e9))
+    const window = await launchApp({ TED_FREE_BYTES_FILE: free })
+    await window.getByText('Disk almost full · 8.2 GB free').waitFor()
+
+    await window.getByRole('button', { name: 'Open Storage' }).click()
+
+    const page = window.getByRole('main', { name: 'Storage' })
+    await page.getByText(/used under .* · 8\.2 GB free/).waitFor()
+    await page.getByRole('group', { name: 'Space used' }).getByText('Store').waitFor()
+    await page.getByRole('group', { name: 'Clean up' }).getByText('None to remove').waitFor()
+    await page
+      .getByRole('region', { name: 'Backups' })
+      .getByText(/^Daily · /)
+      .waitFor()
+  })
+
   test('Settings · Limits changes the limit and shows what is working now', async () => {
     const window = await twoTasksOneSlot()
     await ted('task', 'start', 'NB-1')
