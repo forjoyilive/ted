@@ -2,7 +2,8 @@
 import path from 'node:path'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
-import { type RunWithConversation, tedHome } from '@ted/protocol'
+import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
+import { type RunWithConversation, tedHome, tedPaths } from '@ted/protocol'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -11,6 +12,7 @@ const usage = `Usage:
   ted task create [--factory <key>] "<title>"  Create a Task
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
+  ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
   ted dev factory add <owner/repo | git URL> --key <key>
                                              Add a one-repo Factory (development only)
   ted dev run start [--cwd <dir>] "<prompt>"  Start a Claude Code Run (development only)
@@ -90,6 +92,8 @@ try {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
     console.log(`Started ${task.displayId} on branch ${task.branch}`)
+  } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
+    await workflowCheck(rest[0] ?? '.ted')
   } else if (group === 'dev' && command === 'factory' && rest[0] === 'add' && rest.length === 2) {
     const repo = rest[1] ?? ''
     const key = options.key
@@ -108,13 +112,40 @@ try {
     throw new UsageError('')
   }
 } catch (error) {
-  if (error instanceof UsageError) {
+  if (error instanceof NothingToCheckError) {
+    console.error(`ted: ${error.message}`)
+    process.exitCode = 1
+  } else if (error instanceof UsageError) {
     console.error(error.message === '' ? usage : `ted: ${error.message}`)
     process.exitCode = 2
   } else {
     console.error(`ted: ${error instanceof Error ? error.message : String(error)}`)
     process.exitCode = 1
   }
+}
+
+async function workflowCheck(target: string): Promise<void> {
+  const problems = await checkWorkflowPath(path.resolve(target), {
+    libraryDir: tedPaths(home).library,
+  })
+  for (const p of problems) {
+    const file = path.relative(process.cwd(), p.path)
+    console.log(`${file}:${p.line}:${p.column}: ${p.severity}: ${printable(p.message)}`)
+  }
+  const count = (severity: string) => problems.filter((p) => p.severity === severity).length
+  const errors = count('error')
+  const warnings = count('warning')
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  if (problems.length === 0)
+    console.log(`No problems in ${path.relative(process.cwd(), path.resolve(target)) || '.'}`)
+  else {
+    console.log(
+      [errors > 0 && plural(errors, 'error'), warnings > 0 && plural(warnings, 'warning')]
+        .filter(Boolean)
+        .join(', '),
+    )
+  }
+  if (errors > 0) process.exitCode = 1
 }
 
 function formatRun({ run, conversation }: RunWithConversation): string {

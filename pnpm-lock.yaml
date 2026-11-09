@@ -19,7 +19,7 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^5.1.0
-        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))
+        version: 5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))
 
   packages/app:
     dependencies:
@@ -50,7 +50,7 @@ importers:
         version: 1.65.0
       vite:
         specifier: 8.3.6
-        version: 8.3.6(@types/node@24.19.2)
+        version: 8.3.6(@types/node@24.19.2)(yaml@2.8.1)
 
   packages/cli:
     dependencies:
@@ -65,10 +65,10 @@ importers:
     dependencies:
       '@livestore/adapter-node':
         specifier: 0.5.0
-        version: 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+        version: 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@livestore/livestore':
         specifier: 0.5.0
-        version: 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+        version: 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
@@ -78,6 +78,9 @@ importers:
       effect:
         specifier: ^4.1.2
         version: 4.1.2
+      yaml:
+        specifier: 2.8.1
+        version: 2.8.1
 
   packages/protocol: {}
 
@@ -1002,6 +1005,11 @@ packages:
       utf-8-validate:
         optional: true
 
+  yaml@2.8.1:
+    resolution: {integrity: sha512-lcYcMxX2PO9XMGvAJkJ3OsNMw+/7FKes7/hgerGUYWIoWu5j/+YQqcZr5JnPZWzOsEBgMbSbiSTn/dv/69Mkpw==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
 snapshots:
 
   '@biomejs/biome@2.6.6':
@@ -1088,10 +1096,10 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  '@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))':
+  '@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))':
     dependencies:
       effect: 4.1.2
-      vitest: 5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))
+      vitest: 5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))
 
   '@electron-internal/extract-zip@1.0.8': {}
 
@@ -1117,24 +1125,24 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@livestore/adapter-node@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/adapter-node@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
       '@effect/platform-browser': 4.1.2(effect@4.1.2)
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/sqlite-wasm': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/webmesh': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/sqlite-wasm': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/webmesh': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
       effect: 4.1.2
 
-  '@livestore/common-cf@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/common-cf@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@cloudflare/workers-types': 4.20251118.0
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
@@ -1142,45 +1150,45 @@ snapshots:
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
       effect: 4.1.2
 
-  '@livestore/common@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/common@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
       '@effect/platform-browser': 4.1.2(effect@4.1.2)
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/webmesh': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/webmesh': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@noble/hashes': 2.4.0
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
       effect: 4.1.2
 
-  '@livestore/livestore@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/livestore@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
       '@effect/platform-browser': 4.1.2(effect@4.1.2)
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
       effect: 4.1.2
 
-  '@livestore/sqlite-wasm@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/sqlite-wasm@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@cloudflare/workers-types': 4.20251118.0
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
@@ -1188,24 +1196,24 @@ snapshots:
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/common-cf': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/common': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/common-cf': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@livestore/wa-sqlite': 0.5.0
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
       effect: 4.1.2
 
-  '@livestore/utils@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/utils@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
       '@effect/platform-browser': 4.1.2(effect@4.1.2)
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
@@ -1216,15 +1224,15 @@ snapshots:
 
   '@livestore/wa-sqlite@0.5.0': {}
 
-  '@livestore/webmesh@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
+  '@livestore/webmesh@0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)':
     dependencies:
       '@effect/opentelemetry': 4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2)
       '@effect/platform-browser': 4.1.2(effect@4.1.2)
       '@effect/platform-bun': 4.1.2(effect@4.1.2)
       '@effect/platform-node': 4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0))
       '@effect/platform-node-shared': 4.1.2(effect@4.1.2)
-      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)))
-      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
+      '@effect/vitest': 4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)))
+      '@livestore/utils': 0.5.0(@effect/opentelemetry@4.1.2(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@opentelemetry/semantic-conventions@1.45.0)(effect@4.1.2))(@effect/platform-browser@4.1.2(effect@4.1.2))(@effect/platform-bun@4.1.2(effect@4.1.2))(@effect/platform-node-shared@4.1.2(effect@4.1.2))(@effect/platform-node@4.1.2(effect@4.1.2)(redis@6.3.1(@opentelemetry/api@1.9.0)))(@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))))(@opentelemetry/api@1.9.0)(@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.0))(@standard-schema/spec@1.1.0)(effect@4.1.2)
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.0)
       '@standard-schema/spec': 1.1.0
@@ -1406,14 +1414,14 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
-  '@vitest/mocker@5.1.0(vite@8.3.6(@types/node@24.19.2))':
+  '@vitest/mocker@5.1.0(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.31
       '@vitest/spy': 5.1.0
       estree-walker: 3.0.3
       magic-string: 1.4.5
     optionalDependencies:
-      vite: 8.3.6(@types/node@24.19.2)
+      vite: 8.3.6(@types/node@24.19.2)(yaml@2.8.1)
 
   '@vitest/spy@5.1.0': {}
 
@@ -1633,7 +1641,7 @@ snapshots:
 
   undici@8.12.4: {}
 
-  vite@8.3.6(@types/node@24.19.2):
+  vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.7
@@ -1643,11 +1651,12 @@ snapshots:
     optionalDependencies:
       '@types/node': 24.19.2
       fsevents: 2.3.3
+      yaml: 2.8.1
 
-  vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)):
+  vitest@5.1.0(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@8.3.6(@types/node@24.19.2))
+      '@vitest/mocker': 5.1.0(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -1658,7 +1667,7 @@ snapshots:
       tinybench: 6.2.3
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.6(@types/node@24.19.2)
+      vite: 8.3.6(@types/node@24.19.2)(yaml@2.8.1)
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@opentelemetry/api': 1.10.0
@@ -1666,10 +1675,10 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
-  vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)):
+  vitest@5.1.0(@opentelemetry/api@1.9.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1)):
     dependencies:
       '@types/chai': 5.2.3
-      '@vitest/mocker': 5.1.0(vite@8.3.6(@types/node@24.19.2))
+      '@vitest/mocker': 5.1.0(vite@8.3.6(@types/node@24.19.2)(yaml@2.8.1))
       chai: 6.3.0
       es-module-lexer: 2.3.2
       expect-type: 1.4.0
@@ -1680,7 +1689,7 @@ snapshots:
       tinybench: 6.2.3
       tinyexec: 1.3.1
       tinyglobby: 0.2.17
-      vite: 8.3.6(@types/node@24.19.2)
+      vite: 8.3.6(@types/node@24.19.2)(yaml@2.8.1)
       why-is-node-running: 3.2.1
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
@@ -1691,3 +1700,5 @@ snapshots:
   why-is-node-running@3.2.1: {}
 
   ws@8.22.2: {}
+
+  yaml@2.8.1: {}

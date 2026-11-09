@@ -16,5 +16,6 @@ export interface Agent {
     runDir: string
     env: NodeJS.ProcessEnv
   }): AgentLaunch
+  message(text: string): string
   stateFrom(line: string): RunState | undefined
 }

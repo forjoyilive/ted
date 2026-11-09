@@ -64,6 +64,29 @@ export const comments = State.SQLite.table({
   },
 })
 
+export const stageEntries = State.SQLite.table({
+  name: 'stageEntries',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    stageFileLayer: State.SQLite.text({ nullable: true }),
+    stageFilePath: State.SQLite.text({ nullable: true }),
+    layers: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const workflowLayers = State.SQLite.table({
+  name: 'workflowLayers',
+  columns: {
+    layer: State.SQLite.text({ primaryKey: true }),
+    files: State.SQLite.text(),
+    version: State.SQLite.text(),
+    acceptedAt: State.SQLite.text(),
+  },
+})
+
 const runStartedFields = {
   id: Schema.String,
   agent: Schema.String,
@@ -137,6 +160,27 @@ export const events = {
       entries: Schema.Array(Schema.Struct({ offset: Schema.Number, line: Schema.String })),
     }),
   }),
+  taskStageEntered: Events.synced({
+    name: 'v1.TaskStageEntered',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      stageFileLayer: Schema.NullOr(Schema.String),
+      stageFilePath: Schema.NullOr(Schema.String),
+      layers: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  workflowLayerAccepted: Events.synced({
+    name: 'v1.WorkflowLayerAccepted',
+    schema: Schema.Struct({
+      layer: Schema.String,
+      files: Schema.String,
+      version: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   runStateChanged: Events.synced({
     name: 'v1.RunStateChanged',
     schema: Schema.Struct({ runId: Schema.String, state: Schema.String, at: Schema.String }),
@@ -159,10 +203,13 @@ const materializers = State.SQLite.materializers(events, {
     ),
   ],
   'v1.RunStateChanged': ({ runId, state }) => runs.update({ state }).where({ id: runId }),
+  'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
+  'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
+    workflowLayers.insert({ layer, files, version, acceptedAt: at }).onConflict('layer', 'replace'),
 })
 
 const state = State.SQLite.makeState({
-  tables: { factories, tasks, runs, conversationEntries, comments },
+  tables: { factories, tasks, runs, conversationEntries, comments, stageEntries, workflowLayers },
   materializers,
 })
 

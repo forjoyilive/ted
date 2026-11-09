@@ -18,5 +18,6 @@ export function runFiles(runDir: string) {
     launch: path.join(runDir, 'launch.json'),
     log: path.join(runDir, 'host.log'),
     lock: path.join(runDir, 'host.lock'),
+    input: path.join(runDir, 'input.jsonl'),
   }
 }
