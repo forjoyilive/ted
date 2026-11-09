@@ -18,6 +18,7 @@ pnpm workspace on Node 24: `packages/protocol` (paths, `daemon.json`, API types,
 - A new kind of live update is a new `DaemonEvent` variant, emitted by `TedStore` after its commit (ADR 0012).
 - Code that knows how a particular agent CLI starts or what its output means lives only in `packages/daemon/src/agents/` (ADR 0014). The host’s `launch.json` and `host.log` formats only ever gain fields, because a running host can outlive a daemon update (ADR 0013).
 - In the Electron main process, start work from `app.whenReady().then(...)`. Electron emits `ready` only after the ESM entry finishes evaluating, so a top-level `await` on it hangs.
+- On Linux, a process spawned from Electron’s main process inherits Chromium’s open descriptors. Start the daemon only through `withDaemon`, which closes them (ADR 0011); any other long-lived process spawned from the app needs the same treatment.
 - Test through public seams: `TedStore`, the daemon’s HTTP API, the daemon process, the `ted` binary, the Electron app (through Playwright’s `_electron`). Tests that start Runs use the stub agent `packages/daemon/test/fixtures/stub-claude.ts` and call `killRunHosts` in cleanup, because hosts outlive the daemon. CI runs the tests under `xvfb-run`.
 
 ## Issue tracker: Linear

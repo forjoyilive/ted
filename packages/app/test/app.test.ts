@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, readlink, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -135,4 +135,26 @@ describe('TED app', () => {
       bridge: ['onEvent', 'request'],
     })
   })
+
+  test.runIf(process.platform === 'linux')(
+    'the daemon the app starts shares no pipes or sockets with Electron',
+    async () => {
+      await (await launchApp()).getByText('No Tasks yet.').waitFor()
+      const electronPid = app?.process().pid
+      if (electronPid === undefined) throw new Error('no Electron pid')
+
+      const electron = new Set(await channelsOf(electronPid))
+      const shared = (await channelsOf(await daemonPid())).filter((c) => electron.has(c))
+
+      expect(shared).toEqual([])
+    },
+  )
 })
+
+async function channelsOf(pid: number): Promise<string[]> {
+  const dir = `/proc/${pid}/fd`
+  const targets = await Promise.all(
+    (await readdir(dir)).map((fd) => readlink(path.join(dir, fd)).catch(() => '')),
+  )
+  return targets.filter((target) => /^(pipe|socket):/.test(target))
+}

@@ -8,6 +8,8 @@ Vite builds the renderer, which needs a bundler anyway for TSX and npm imports. 
 
 The app starts the daemon through the same `withDaemon` as the `ted` CLI, in `@ted/daemon/launch`. It spawns `process.execPath` with `ELECTRON_RUN_AS_NODE=1`: under the app that is the Electron binary running as Node, as the spec requires (§2.1), and under the CLI it is plain Node, which ignores the variable. If a daemon is already running, the app connects to it.
 
+On Linux, a process spawned from Electron’s main process inherits every descriptor Chromium opened without close-on-exec: sockets, pipes, and cache and resource files. Node’s `spawn` has no option to close them, and macOS already closes them for us. So on Linux the launcher lists its inheritable descriptors, each with its device and inode, in `TED_INHERITED_FDS`. The daemon closes them as its first action, but only where the number still points at the same file, so it never closes a descriptor its own runtime reused. Without this, the daemon held Electron’s output sockets open after the app quit, and anything waiting on them waited for the daemon.
+
 ## Considered Options
 
 - **A TypeScript preload built by Vite as a second target.** Typed, but adds a second build config for a file that never changes. Rejected.

@@ -1,6 +1,9 @@
 import { parseArgs } from 'node:util'
 import { tedHome, tedVersion } from '@ted/protocol'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
+import { closeInheritedFds } from './inherited-fds.ts'
+
+closeInheritedFds()
 
 const { values } = parseArgs({ options: { 'exit-when-idle': { type: 'boolean' } } })
 

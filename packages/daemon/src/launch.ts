@@ -3,6 +3,7 @@ import { mkdir, open } from 'node:fs/promises'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { DaemonClient, DaemonUnreachableError, readDaemonInfo, tedPaths } from '@ted/protocol'
+import { inheritedFdsEnv } from './inherited-fds.ts'
 
 const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
@@ -43,7 +44,7 @@ async function startDaemon(home: string): Promise<void> {
   const child = spawn(process.execPath, [daemonMain, '--exit-when-idle'], {
     detached: true,
     stdio: ['ignore', log.fd, log.fd],
-    env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1' },
+    env: { ...process.env, TED_HOME: home, ELECTRON_RUN_AS_NODE: '1', ...inheritedFdsEnv() },
   })
   child.unref()
   await log.close()
