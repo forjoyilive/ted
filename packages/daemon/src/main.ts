@@ -18,6 +18,7 @@ try {
   daemon = await startDaemon({
     home: tedHome(),
     version: tedVersion,
+    ...(process.env.TED_CLAUDE_BIN && { claudeBin: process.env.TED_CLAUDE_BIN }),
     ...(values['exit-when-idle'] && {
       idleExit: { afterMs: Number(process.env.TED_IDLE_EXIT_MS) || 60_000, onIdle: shutdown },
     }),

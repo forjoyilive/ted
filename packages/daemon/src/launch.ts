@@ -17,7 +17,7 @@ export async function withDaemon<T>(
     const info = await readDaemonInfo(home)
     if (info) {
       try {
-        return await call(new DaemonClient(info))
+        return await call(new DaemonClient(info, process.env.TED_RUN_TOKEN || info.token))
       } catch (error) {
         if (!(error instanceof DaemonUnreachableError)) throw error
       }

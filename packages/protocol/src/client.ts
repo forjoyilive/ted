@@ -1,5 +1,6 @@
 import type { DaemonInfo } from './daemon-info.ts'
 import type { DaemonEvent } from './events.ts'
+import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { CreateTaskRequest, Task } from './task.ts'
 
 export class DaemonUnreachableError extends Error {}
@@ -18,9 +19,11 @@ export interface Subscription {
 
 export class DaemonClient {
   readonly #info: DaemonInfo
+  readonly #token: string
 
-  constructor(info: DaemonInfo) {
+  constructor(info: DaemonInfo, token: string = info.token) {
     this.#info = info
+    this.#token = token
   }
 
   listTasks(): Promise<Task[]> {
@@ -29,6 +32,14 @@ export class DaemonClient {
 
   createTask(input: CreateTaskRequest): Promise<Task> {
     return this.#request('POST', '/tasks', input)
+  }
+
+  startDevRun(input: StartDevRunRequest): Promise<Run> {
+    return this.#request('POST', '/dev/runs', input)
+  }
+
+  getRun(id: string): Promise<RunWithConversation> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
   }
 
   async subscribe(onEvent: (event: DaemonEvent) => void): Promise<Subscription> {
@@ -68,7 +79,7 @@ export class DaemonClient {
       return await fetch(`http://127.0.0.1:${this.#info.port}${route}`, {
         method,
         headers: {
-          authorization: `Bearer ${this.#info.token}`,
+          authorization: `Bearer ${this.#token}`,
           ...(body !== undefined && { 'content-type': 'application/json' }),
         },
         ...(body !== undefined && { body: JSON.stringify(body) }),

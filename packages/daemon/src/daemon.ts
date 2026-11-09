@@ -1,14 +1,18 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, tedPaths } from '@ted/protocol'
+import { claudeAgent } from './agents/claude.ts'
 import { startIdleTimer } from './idle.ts'
 import { acquireLock } from './lock.ts'
+import { loadRunTokens } from './run-token.ts'
+import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
 import { openStore } from './store/index.ts'
 
 export interface DaemonOptions {
   home: string
   version: string
+  claudeBin?: string
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
 }
@@ -26,13 +30,23 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw error
   })
-  const token = randomBytes(32).toString('hex')
   const idle = options.idleExit && startIdleTimer(options.idleExit)
+  const runTokens = await loadRunTokens(paths.runTokenKey)
+  const runs = await startRunManager({
+    home: paths.home,
+    store,
+    agent: claudeAgent(options.claudeBin ?? 'claude'),
+    tokens: runTokens,
+    ...(idle && { idle }),
+  })
+  const token = randomBytes(32).toString('hex')
   const { server, port } = await listen({
     version: options.version,
     token,
     store,
     keepaliveMs: options.keepaliveMs ?? 30_000,
+    runs,
+    runTokens,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }
@@ -49,6 +63,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         server.close(() => resolve())
         server.closeAllConnections()
       })
+      await runs.close()
       await store.close()
       lock.release()
     },

@@ -9,6 +9,9 @@ import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
+const stubClaudePath = fileURLToPath(
+  new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
+)
 const run = promisify(execFile)
 
 let home: string
@@ -28,7 +31,13 @@ afterEach(async () => {
 
 function ted(args: string[], idleExitMs = 30_000) {
   return run(process.execPath, [cliPath, ...args], {
-    env: { ...process.env, TED_HOME: home, TED_IDLE_EXIT_MS: String(idleExitMs) },
+    env: {
+      ...process.env,
+      TED_HOME: home,
+      TED_IDLE_EXIT_MS: String(idleExitMs),
+      TED_CLAUDE_BIN: stubClaudePath,
+    },
+    cwd: home,
   })
 }
 
@@ -107,5 +116,35 @@ describe('ted task', () => {
 
   test('an unknown command prints usage and fails', async () => {
     await expect(ted(['nonsense'])).rejects.toMatchObject({ code: 2 })
+  })
+})
+
+describe('ted dev run', () => {
+  test('start runs the agent in a Run, and show prints its state and Conversation', async () => {
+    const prompt = JSON.stringify({
+      steps: [{ say: 'hi from the stub' }, { endTurn: true }, { exit: 0 }],
+    })
+
+    const started = await ted(['dev', 'run', 'start', prompt])
+    const id = started.stdout.trim().replace(/^Started Run /, '')
+    expect(id).toMatch(/^[0-9a-f-]{36}$/)
+
+    let shown = ''
+    for (let i = 0; i < 100 && !shown.includes('finished'); i++) {
+      shown = (await ted(['dev', 'run', 'show', id])).stdout
+      await sleep(100)
+    }
+    const lines = shown.trim().split('\n')
+    expect(lines[0]).toBe(`Run ${id}  finished`)
+    expect(lines[1]).toMatch(/^Session [0-9a-f-]{36}$/)
+    expect(lines).toContain('assistant: hi from the stub')
+    expect(lines).toContain('system hook_started Stop')
+  })
+
+  test('show refuses an unknown Run', async () => {
+    await expect(ted(['dev', 'run', 'show', 'nope'])).rejects.toMatchObject({
+      code: 1,
+      stderr: 'ted: no such Run\n',
+    })
   })
 })

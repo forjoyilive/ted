@@ -1,10 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { makeTempHome, rawRequest } from './helpers.ts'
+import { api, killRunHosts, makeTempHome, rawRequest, stubClaudePath, tokenFor } from './helpers.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
@@ -80,4 +83,34 @@ test('an open event stream keeps a daemon started with --exit-when-idle running'
   subscription.close()
   const [code] = await exited
   expect(code).toBe(0)
+})
+
+test('an idle daemon stays up while a Run is live, and exits once it finishes', async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'ted-run-cwd-'))
+  try {
+    child = spawn(process.execPath, [mainPath, '--exit-when-idle'], {
+      env: {
+        ...process.env,
+        TED_HOME: home,
+        TED_IDLE_EXIT_MS: '500',
+        TED_CLAUDE_BIN: stubClaudePath,
+      },
+      stdio: 'ignore',
+    })
+    const exited = once(child, 'exit')
+    const port = await waitForPort()
+    const client = api(port, await tokenFor(home))
+    const finish = path.join(cwd, 'finish')
+    await client.startRun([{ waitFor: finish }, { exit: 0 }], cwd)
+
+    await sleep(1_500)
+    expect(child.exitCode).toBeNull()
+
+    await writeFile(finish, '')
+    const [code] = await exited
+    expect(code).toBe(0)
+  } finally {
+    await killRunHosts(home)
+    await rm(cwd, { recursive: true, force: true })
+  }
 })

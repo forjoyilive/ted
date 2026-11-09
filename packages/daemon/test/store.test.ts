@@ -57,11 +57,52 @@ describe('TedStore', () => {
     const storeFiles = await readdir(path.join(dir, 'ted'))
     const stateFiles = storeFiles.filter((f) => f.startsWith('state'))
     expect(stateFiles).not.toHaveLength(0)
-    for (const f of stateFiles) await rm(path.join(dir, 'ted', f))
+    for (const f of stateFiles) await rm(path.join(dir, 'ted', f), { force: true })
 
     const second = await openStore({ directory: dir })
     try {
       expect(second.listTasks()).toEqual([a, b])
+    } finally {
+      await second.close()
+    }
+  })
+
+  test('records a Run with its session ID, Conversation, read offset and state', async () => {
+    const first = await openStore({ directory: dir })
+    const run = first.startRun({
+      id: 'run-1',
+      agent: 'claude',
+      sessionId: 'session-1',
+      prompt: 'Hello',
+      cwd: '/tmp',
+    })
+    expect(run).toMatchObject({ id: 'run-1', sessionId: 'session-1', state: 'working' })
+
+    first.recordRunOutput('run-1', {
+      toOffset: 40,
+      entries: [
+        { offset: 10, line: '{"a":1}' },
+        { offset: 25, line: '{"b":2}' },
+      ],
+    })
+    first.recordRunOutput('run-1', {
+      toOffset: 60,
+      entries: [{ offset: 40, line: '{"c":3}' }],
+      state: 'idle',
+    })
+    await first.close()
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.getRun('run-1')).toMatchObject({ sessionId: 'session-1', state: 'idle' })
+      expect(second.runReadOffset('run-1')).toBe(60)
+      expect(second.conversation('run-1').map((e) => e.line)).toEqual([
+        '{"a":1}',
+        '{"b":2}',
+        '{"c":3}',
+      ])
+      expect(second.listRuns().map((r) => r.id)).toEqual(['run-1'])
+      expect(second.getRun('missing')).toBeUndefined()
     } finally {
       await second.close()
     }

@@ -9,14 +9,16 @@ pnpm workspace on Node 24: `packages/protocol` (paths, `daemon.json`, API types,
 - `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes), `pnpm test` (Vitest). CI runs all three on Ubuntu.
 - `pnpm ted <args>` runs the `ted` CLI from source. It starts the daemon if needed.
 - `pnpm app` builds the renderer and opens the app from source. Like `ted`, it reuses a running daemon or starts one.
-- Set `TED_HOME` to use a folder other than `~/.ted`. Tests always set it to a temp folder. `TED_IDLE_EXIT_MS` shortens the idle exit of a daemon that `ted` or the app started.
+- `pnpm ted dev run start [--cwd <dir>] "<prompt>"` starts a Claude Code Run in a detached host; `pnpm ted dev run show <run-id>` prints its state and Conversation.
+- Set `TED_HOME` to use a folder other than `~/.ted`. Tests always set it to a temp folder. `TED_IDLE_EXIT_MS` shortens the idle exit of a daemon that `ted` or the app started. `TED_CLAUDE_BIN` names the `claude` binary the daemon starts.
 - Write erasable TypeScript only, and name the `.ts` file in relative imports (ADR 0008).
 - Only `packages/daemon/src/store/` imports LiveStore. Events are named `v<N>.<PastTense>` and never edited once shipped; a change is a new versioned event (ADR 0010).
-- Every daemon route sits behind the loopback guard in `packages/daemon/src/server.ts`; clients call the daemon only through `DaemonClient` (ADR 0009).
+- Every daemon route sits behind the loopback guard in `packages/daemon/src/server.ts`; clients call the daemon only through `DaemonClient` (ADR 0009). A route is closed to Run tokens unless it sets `runToken: true`, which only actions spec 2.3 allows may set (ADR 0015).
 - The renderer reaches the daemon only through `window.ted`. A new daemon call goes in `requests` in `packages/app/src/main.ts` and in `packages/app/src/renderer/ted.ts`; the preload stays as it is (ADR 0011).
 - A new kind of live update is a new `DaemonEvent` variant, emitted by `TedStore` after its commit (ADR 0012).
+- Code that knows how a particular agent CLI starts or what its output means lives only in `packages/daemon/src/agents/` (ADR 0014). The host’s `launch.json` and `host.log` formats only ever gain fields, because a running host can outlive a daemon update (ADR 0013).
 - In the Electron main process, start work from `app.whenReady().then(...)`. Electron emits `ready` only after the ESM entry finishes evaluating, so a top-level `await` on it hangs.
-- Test through public seams: `TedStore`, the daemon’s HTTP API, the daemon process, the `ted` binary, the Electron app (through Playwright’s `_electron`). Tests that start agents use a stub agent. CI runs the tests under `xvfb-run`.
+- Test through public seams: `TedStore`, the daemon’s HTTP API, the daemon process, the `ted` binary, the Electron app (through Playwright’s `_electron`). Tests that start Runs use the stub agent `packages/daemon/test/fixtures/stub-claude.ts` and call `killRunHosts` in cleanup, because hosts outlive the daemon. CI runs the tests under `xvfb-run`.
 
 ## Issue tracker: Linear
 
