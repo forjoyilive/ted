@@ -1,10 +1,25 @@
-import type { Task } from '@ted/protocol'
+import type { Banner, Task } from '@ted/protocol'
 import { useEffect, useReducer } from 'react'
 import styles from './App.module.css'
+import {
+  appWideBanners,
+  factoriesStoppingWork,
+  factoryBanners,
+  settingsStopsWork,
+} from './banners.ts'
+import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useFactories, useSettings, useTasks } from './data.ts'
-import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
+import { useBanners, useFactories, useSettings, useTasks } from './data.ts'
+import {
+  backLink,
+  currentFactoryId,
+  initialNavigation,
+  navigate,
+  type SettingsSectionId,
+  settingsSectionIds,
+} from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { ted } from './ted.ts'
 import { Inbox, Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
 import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
@@ -14,6 +29,17 @@ const factoryViewTitles = {
   automations: 'Automations',
   settings: 'Factory settings',
 } as const
+
+function sectionsStoppingWork(banners: readonly Banner[]) {
+  const stopping: Partial<Record<SettingsSectionId, boolean>> = {}
+  for (const banner of banners) {
+    const place = banner.action?.opens
+    if (banner.severity !== 'stops-work' || place?.kind !== 'settings') continue
+    const section = settingsSectionIds.find((id) => id === place.section)
+    if (section !== undefined) stopping[section] = true
+  }
+  return stopping
+}
 
 const stubTitles = { search: 'Search', 'new-task': 'New Task', 'add-factory': 'Add Factory' }
 
@@ -45,9 +71,36 @@ export function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [settingsOpen])
+  const banners = useBanners()
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
+
+  async function act(banner: Banner) {
+    const place = banner.action?.opens
+    if (!place) {
+      await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
+    } else if (place.kind === 'settings') {
+      const section = settingsSectionIds.find((id) => id === place.section)
+      dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
+    } else if (place.kind === 'factory-settings') {
+      dispatch({
+        type: 'open',
+        screen: { kind: 'factory', factoryId: place.factoryId, view: 'settings' },
+      })
+    } else {
+      dispatch({ type: 'open-task', taskId: place.taskId })
+    }
+  }
+
+  const bannerStack = (label: string, shown: Banner[]) => (
+    <BannerStack
+      label={label}
+      banners={shown}
+      onAction={act}
+      onDismiss={(banner) => void ted.dismissBanner(banner.id)}
+    />
+  )
 
   function main() {
     if (task) {
@@ -71,13 +124,16 @@ export function App() {
       case 'factory': {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
-        if (screen.view === 'board') {
-          return <Board title={name} tasks={inFactory} factories={factories} onOpen={openTask} />
+        const view = {
+          title: name,
+          tasks: inFactory,
+          factories,
+          onOpen: openTask,
+          banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        if (screen.view === 'list') {
-          return <TaskList title={name} tasks={inFactory} factories={factories} onOpen={openTask} />
-        }
-        return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} />
+        if (screen.view === 'board') return <Board {...view} />
+        if (screen.view === 'list') return <TaskList {...view} />
+        return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
       default:
         return <Stub title={stubTitles[screen.kind]} />
@@ -87,13 +143,19 @@ export function App() {
   if (navigation.settings) {
     return (
       <div className={styles.app}>
-        <SettingsShell
-          section={navigation.settings.section}
-          settings={settings}
-          factories={factories}
-          inboxCount={inboxCount}
-          dispatch={dispatch}
-        />
+        <div className={styles.main}>
+          {bannerStack('Problems', appWideBanners(banners))}
+          <div className={styles.panes}>
+            <SettingsShell
+              section={navigation.settings.section}
+              settings={settings}
+              factories={factories}
+              inboxCount={inboxCount}
+              stopsWork={sectionsStoppingWork(banners)}
+              dispatch={dispatch}
+            />
+          </div>
+        </div>
       </div>
     )
   }
@@ -105,9 +167,16 @@ export function App() {
         factories={factories}
         currentFactoryId={currentFactoryId(navigation, tasks)}
         inboxCount={inboxCount}
+        badges={Object.fromEntries(
+          [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
+        )}
+        settingsProblem={settingsStopsWork(banners)}
         dispatch={dispatch}
       />
-      <main className={styles.main}>{main()}</main>
+      <main className={styles.main}>
+        {bannerStack('Problems', appWideBanners(banners))}
+        <div className={styles.panes}>{main()}</div>
+      </main>
     </div>
   )
 }

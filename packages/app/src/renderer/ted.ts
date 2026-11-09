@@ -1,4 +1,5 @@
 import type {
+  Banner,
   Comment,
   DaemonEvent,
   Diagnostics,
@@ -37,5 +38,8 @@ export const ted = {
   copyReport: () => window.ted.request('copyReport') as Promise<void>,
   tedFolder: () => window.ted.request('tedFolder') as Promise<{ path: string; platform: string }>,
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
+  listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
+  dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
+  actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

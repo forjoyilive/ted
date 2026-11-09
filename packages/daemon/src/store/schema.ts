@@ -103,6 +103,20 @@ export const workflowLayers = State.SQLite.table({
   },
 })
 
+export const banners = State.SQLite.table({
+  name: 'banners',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    problem: State.SQLite.text(),
+    severity: State.SQLite.text(),
+    factoryId: State.SQLite.text({ nullable: true }),
+    text: State.SQLite.text(),
+    action: State.SQLite.text({ nullable: true }),
+    raisedAt: State.SQLite.text(),
+    dismissedUntil: State.SQLite.text({ nullable: true }),
+  },
+})
+
 const runStartedFields = {
   id: Schema.String,
   agent: Schema.String,
@@ -209,6 +223,26 @@ export const events = {
     name: 'v1.MachineSettingsChanged',
     schema: Schema.Struct({ changes: Schema.String, at: Schema.String }),
   }),
+  bannerRaised: Events.synced({
+    name: 'v1.BannerRaised',
+    schema: Schema.Struct({
+      id: Schema.String,
+      problem: Schema.String,
+      severity: Schema.String,
+      factoryId: Schema.NullOr(Schema.String),
+      text: Schema.String,
+      action: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  bannerDismissed: Events.synced({
+    name: 'v1.BannerDismissed',
+    schema: Schema.Struct({ id: Schema.String, until: Schema.String, at: Schema.String }),
+  }),
+  bannerCleared: Events.synced({
+    name: 'v1.BannerCleared',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -244,6 +278,14 @@ const materializers = State.SQLite.materializers(events, {
         .insert({ name, value: JSON.stringify(value) })
         .onConflict('name', 'replace'),
     ),
+  'v1.BannerRaised': ({ at, ...banner }) => [
+    banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
+    banners
+      .update({ severity: banner.severity, text: banner.text, action: banner.action })
+      .where({ id: banner.id }),
+  ],
+  'v1.BannerDismissed': ({ id, until }) => banners.update({ dismissedUntil: until }).where({ id }),
+  'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
 })
 
 const state = State.SQLite.makeState({
@@ -257,6 +299,7 @@ const state = State.SQLite.makeState({
     workflowLayers,
     machineSettings,
     machineSettingValues,
+    banners,
   },
   materializers,
 })

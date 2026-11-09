@@ -2,6 +2,8 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
+import { createBanners } from './banners.ts'
+import { ensureClone } from './factories.ts'
 import { startIdleTimer } from './idle.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
@@ -46,10 +48,25 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     tokens: runTokens,
     ...(idle && { idle }),
   })
+  const banners = createBanners({ store })
+  const workflows = createWorkflows({
+    store,
+    banners,
+    libraryDir: paths.library,
+    reposDir: paths.repos,
+  })
+  banners.onAction('clone-failed', async ({ factoryId }) => {
+    const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
+    if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+  })
+  for (const factory of store.listFactories()) {
+    await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
+  }
   const tasks = createTasks({
     store,
     runs,
-    workflows: createWorkflows({ store, libraryDir: paths.library, reposDir: paths.repos }),
+    workflows,
+    banners,
     reposDir: paths.repos,
     worktreesDir: paths.worktrees,
     leadAgent: () => agents.defaultLead(),
@@ -64,6 +81,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     agents,
     runTokens,
     tasks,
+    banners,
+    workflows,
     reposDir: paths.repos,
     home: paths.home,
     ...(idle && { idle }),

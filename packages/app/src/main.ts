@@ -42,6 +42,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       ? client.getSettings()
       : client.updateSettings({ profilePicture: picture })
   },
+  listBanners: (client) => client.listBanners(),
+  dismissBanner: (client, id) => client.dismissBanner(String(id)),
+  actOnBanner: (client, id) => client.actOnBanner(String(id)),
 }
 
 const pictureSize = 256

@@ -1,3 +1,4 @@
+import type { Banner } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
@@ -88,6 +89,18 @@ export class DaemonClient {
 
   readRunOutput(id: string): Promise<LogText> {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}/raw`)
+  }
+
+  listBanners(): Promise<Banner[]> {
+    return this.#request('GET', '/banners')
+  }
+
+  dismissBanner(id: string): Promise<Banner> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/dismiss`)
+  }
+
+  actOnBanner(id: string): Promise<void> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
   }
 
   addFactory(input: AddFactoryRequest): Promise<Factory> {
