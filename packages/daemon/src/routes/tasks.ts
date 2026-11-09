@@ -33,6 +33,7 @@ import {
 } from '@ted/protocol'
 import type { Attachments } from '../attachments.ts'
 import { RequestError as HttpError } from '../errors.ts'
+import { draftRequest, lineText } from '../tasks/line-comments.ts'
 import type { CreateTaskInput } from '../tasks/tasks.ts'
 import { type Route, readJson, readOptionalJson } from './route.ts'
 
@@ -349,6 +350,47 @@ export const taskRoutes: Route[] = [
     async handle({ req, params: [ref = '', name = ''] }, { tasks }) {
       const file = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? undefined
       return [200, await tasks.fileDiffs(ref, name, file)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/line-comments$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.lineComments(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/line-comments$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      return [201, await tasks.draftLineComment(ref, draftRequest(await readJson(req)))]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/line-comments$/,
+    async handle({ params: [ref = ''] }, { tasks }) {
+      tasks.discardLineComments(ref)
+      return [200, {}]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/line-comments\/send$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [201, await tasks.sendLineComments(ref)],
+  },
+  {
+    method: 'PATCH',
+    path: /^\/line-comments\/([^/]+)$/,
+    async handle({ req, params: [id = ''] }, { tasks }) {
+      const body = (await readJson(req)) as { body?: unknown } | null
+      return [200, tasks.editLineComment(id, lineText(body?.body))]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/line-comments\/([^/]+)$/,
+    async handle({ params: [id = ''] }, { tasks }) {
+      tasks.deleteLineComment(id)
+      return [200, {}]
     },
   },
   {

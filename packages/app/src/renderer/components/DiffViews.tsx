@@ -1,15 +1,16 @@
-import type { FileDiff, TaskChanges } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
+import type { FileDiff, LineSide, TaskChanges } from '@ted/protocol'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { type ChangedFile, changedFiles, splitPath } from '../changes.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { ChangeList, DiffCounts } from './ChangesSection.tsx'
-import { FileDiffBody, type RowExtra } from './DiffTable.tsx'
+import { FileDiffBody, type Gutter, type RowExtra } from './DiffTable.tsx'
 import styles from './DiffViews.module.css'
 import { ChevronIcon } from './icons.tsx'
 
 export interface DiffSeams {
   after?: (file: ChangedFile) => RowExtra | undefined
+  gutter?: (file: ChangedFile) => Gutter | undefined
   onOpenInEditor?: (file: ChangedFile) => void
 }
 
@@ -67,11 +68,18 @@ function OpenInEditor({ file, seams }: { file: ChangedFile; seams: DiffSeams }) 
   )
 }
 
+export interface LineFocus {
+  side: LineSide
+  line: number
+}
+
 export function DiffView({
   taskId,
   changes,
   file,
   seams = {},
+  focus,
+  footer,
   onBack,
   onOpen,
 }: {
@@ -79,6 +87,8 @@ export function DiffView({
   changes: TaskChanges | undefined
   file: ChangedFile
   seams?: DiffSeams
+  focus?: LineFocus | undefined
+  footer?: ReactNode
   onBack: () => void
   onOpen: (file: ChangedFile) => void
 }) {
@@ -89,6 +99,14 @@ export function DiffView({
   const diff = diffs?.[0]
   const previous = files[index - 1]
   const next = files[index + 1]
+  const body = useRef<HTMLDivElement>(null)
+  const loaded = diff !== undefined
+  useEffect(() => {
+    if (!focus || !loaded) return
+    body.current
+      ?.querySelector(`tr[data-${focus.side}="${focus.line}"]`)
+      ?.scrollIntoView({ block: 'center' })
+  }, [focus, loaded])
   return (
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
@@ -130,7 +148,7 @@ export function DiffView({
           branch, including uncommitted work
         </p>
       </header>
-      <div className={styles.body}>
+      <div className={styles.body} ref={body}>
         {error !== undefined ? (
           <p className={styles.error}>{error}</p>
         ) : diff ? (
@@ -138,11 +156,13 @@ export function DiffView({
             key={`${diff.repo}\0${diff.path}`}
             diff={diff}
             after={seams.after?.(current)}
+            gutter={seams.gutter?.(current)}
           />
         ) : diffs ? (
           <p className={styles.note}>This file no longer differs from its base.</p>
         ) : null}
       </div>
+      {footer}
     </section>
   )
 }
@@ -151,11 +171,13 @@ export function AllChanges({
   taskId,
   changes,
   seams = {},
+  footer,
   onCollapse,
 }: {
   taskId: string
   changes: TaskChanges
   seams?: DiffSeams
+  footer?: ReactNode
   onCollapse: () => void
 }) {
   const sections = useRef(new Map<string, HTMLElement>())
@@ -199,6 +221,7 @@ export function AllChanges({
             ))}
         </div>
       </div>
+      {footer}
     </section>
   )
 }
@@ -235,7 +258,9 @@ function RepoDiffs({
           <span className={styles.spacer} />
           <OpenInEditor file={file} seams={seams} />
         </header>
-        {diff && <FileDiffBody diff={diff} after={seams.after?.(file)} />}
+        {diff && (
+          <FileDiffBody diff={diff} after={seams.after?.(file)} gutter={seams.gutter?.(file)} />
+        )}
       </article>
     )
   })

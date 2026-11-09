@@ -118,3 +118,45 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+.gutter {
+  position: relative;
+}
+
+.plus {
+  position: absolute;
+  top: 1px;
+  right: -9px;
+  z-index: 1;
+  display: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: var(--accent-default);
+  color: var(--text-on-accent);
+  font: inherit;
+  font-size: var(--text-12);
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.plus::before {
+  content: '+';
+}
+
+.table tr:hover .plus,
+.plus:focus-visible {
+  display: block;
+}
+
+.plus:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.picked td {
+  box-shadow: inset 0 0 0 999px var(--accent-subtle);
+}

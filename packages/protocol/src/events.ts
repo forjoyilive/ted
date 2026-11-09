@@ -38,3 +38,4 @@ export type DaemonEvent =
   | { type: 'automation-updated'; automationId: string }
   | { type: 'automation-deleted'; automationId: string }
   | { type: 'library-changed' }
+  | { type: 'line-comments-changed'; taskId: string }

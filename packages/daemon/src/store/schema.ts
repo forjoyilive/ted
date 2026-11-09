@@ -294,6 +294,27 @@ export const comments = State.SQLite.table({
   },
 })
 
+export const lineComments = State.SQLite.table({
+  name: 'lineComments',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    path: State.SQLite.text(),
+    side: State.SQLite.text(),
+    start: State.SQLite.integer(),
+    end: State.SQLite.integer(),
+    commit: State.SQLite.text(),
+    quoted: State.SQLite.text(),
+    body: State.SQLite.text(),
+    createdAt: State.SQLite.text(),
+    editedAt: State.SQLite.text({ nullable: true }),
+    commentId: State.SQLite.text({ nullable: true }),
+    sentAt: State.SQLite.text({ nullable: true }),
+    deleted: State.SQLite.boolean({ default: false }),
+  },
+})
+
 export const taskLog = State.SQLite.table({
   name: 'taskLog',
   columns: {
@@ -1401,6 +1422,38 @@ export const events = {
     name: 'v1.CommentsRead',
     schema: Schema.Struct({ ids: Schema.Array(Schema.String), at: Schema.String }),
   }),
+  lineCommentDrafted: Events.synced({
+    name: 'v1.LineCommentDrafted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      repo: Schema.String,
+      path: Schema.String,
+      side: Schema.String,
+      start: Schema.Number,
+      end: Schema.Number,
+      commit: Schema.String,
+      quoted: Schema.String,
+      body: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  lineCommentEdited: Events.synced({
+    name: 'v1.LineCommentEdited',
+    schema: Schema.Struct({ id: Schema.String, body: Schema.String, at: Schema.String }),
+  }),
+  lineCommentsDeleted: Events.synced({
+    name: 'v1.LineCommentsDeleted',
+    schema: Schema.Struct({ ids: Schema.Array(Schema.String), at: Schema.String }),
+  }),
+  lineCommentsSent: Events.synced({
+    name: 'v1.LineCommentsSent',
+    schema: Schema.Struct({
+      ids: Schema.Array(Schema.String),
+      commentId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   commentAnswerHeld: Events.synced({
     name: 'v1.CommentAnswerHeld',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
@@ -2095,6 +2148,7 @@ const materializers = counted(
         taskBlockers.delete().where({ taskId }),
         taskAttachments.delete().where({ taskId }),
         commentAttachments.delete().where({ taskId }),
+        lineComments.delete().where({ taskId }),
         taskSources.delete().where({ taskId }),
         runs.delete().where({ taskId }),
         subAgentRequests.delete().where({ taskId }),
@@ -2451,6 +2505,16 @@ const materializers = counted(
         ids.map((id) => comments.update({ deliveredRunId: runId, deliveredAt: at }).where({ id })),
       'v1.CommentsRead': ({ ids, at }) =>
         ids.map((id) => comments.update({ readAt: at }).where({ id })),
+      'v1.LineCommentDrafted': ({ at, ...draft }) =>
+        lineComments.insert({ ...draft, createdAt: at }).onConflict('id', 'ignore'),
+      'v1.LineCommentEdited': ({ id, body, at }) =>
+        lineComments.update({ body, editedAt: at }).where({ id, commentId: null }),
+      'v1.LineCommentsDeleted': ({ ids }) =>
+        ids.map((id) => lineComments.update({ deleted: true }).where({ id, commentId: null })),
+      'v1.LineCommentsSent': ({ ids, commentId, at }) =>
+        ids.map((id) =>
+          lineComments.update({ commentId, sentAt: at }).where({ id, commentId: null }),
+        ),
       'v1.CommentAnswerHeld': ({ id }) => comments.update({ answerHeld: true }).where({ id }),
       'v1.CommentAnswersDelivered': ({ ids }) =>
         ids.map((id) => comments.update({ answerHeld: false }).where({ id })),
@@ -2527,6 +2591,7 @@ const state = State.SQLite.makeState({
     runInterrupts,
     conversationTabs,
     comments,
+    lineComments,
     taskLog,
     taskBriefs,
     taskDescriptions,

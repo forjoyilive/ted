@@ -19,15 +19,19 @@ export function ChangesSection({
   onOpen,
   onExpandAll,
   drafts,
+  draftTotal = 0,
 }: {
   changes: TaskChanges | undefined
   selected?: ChangedFile | undefined
   onOpen: (file: ChangedFile) => void
   onExpandAll?: (() => void) | undefined
   drafts?: DraftCount | undefined
+  draftTotal?: number
 }) {
   if (!changes || changes.repos.length === 0) return null
-  const count = changes.files === 1 ? '1 file' : `${changes.files} files`
+  const count = `${changes.files === 1 ? '1 file' : `${changes.files} files`}${
+    draftTotal > 0 ? ` · ${draftTotal === 1 ? '1 draft' : `${draftTotal} drafts`}` : ''
+  }`
   return (
     <section className={styles.section} aria-label="Changes">
       <div className={styles.headingRow}>
