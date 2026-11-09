@@ -1,4 +1,5 @@
 import type { Factory, StageId, Task } from '@ted/protocol'
+import type { ReactNode } from 'react'
 import { Button } from '../components/Button.tsx'
 import { PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -32,6 +33,7 @@ interface TaskViewProps {
   factories: readonly Factory[]
   onOpen: (task: Task) => void
   onNewTask: () => void
+  banners?: ReactNode
 }
 
 function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void }) {
@@ -47,10 +49,11 @@ function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void
   )
 }
 
-export function TaskList({ title, tasks, factories, onOpen, onNewTask }: TaskViewProps) {
+export function TaskList({ title, tasks, factories, onOpen, onNewTask, banners }: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
       <ViewHeader title={title} onNewTask={onNewTask} />
+      {banners}
       <div className={styles.body}>
         {tasks.length === 0 ? (
           <p className={styles.empty}>No Tasks yet.</p>
@@ -85,7 +88,7 @@ export function TaskList({ title, tasks, factories, onOpen, onNewTask }: TaskVie
   )
 }
 
-export function Board({ title, tasks, onOpen, onNewTask }: TaskViewProps) {
+export function Board({ title, tasks, onOpen, onNewTask, banners }: TaskViewProps) {
   const stages: string[] = [
     ...stageOrder,
     ...new Set(tasks.map((t) => t.stage).filter((s) => !stageOrder.includes(s))),
@@ -94,6 +97,7 @@ export function Board({ title, tasks, onOpen, onNewTask }: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
       <ViewHeader title={title} onNewTask={onNewTask} />
+      {banners}
       <div className={styles.board}>
         {stages.map((stage) => {
           const inStage = tasks.filter((t) => t.stage === stage)

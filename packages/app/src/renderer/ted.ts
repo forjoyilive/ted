@@ -1,5 +1,6 @@
 import type {
   Attachment,
+  Banner,
   Comment,
   CreateTaskRequest,
   DaemonEvent,
@@ -34,5 +35,8 @@ export const ted = {
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
+  listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
+  dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
+  actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

@@ -18,6 +18,7 @@ import {
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
+import type { Banners } from './banners.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
@@ -25,6 +26,7 @@ import type { RunTokens } from './run-token.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
 import type { Caller, CreateTaskInput, Tasks } from './tasks/tasks.ts'
+import type { Workflows } from './workflow/workflows.ts'
 
 export interface ServerOptions {
   version: string
@@ -37,6 +39,8 @@ export interface ServerOptions {
   runTokens: RunTokens
   tasks: Tasks
   attachments: Attachments
+  banners: Banners
+  workflows: Workflows
   reposDir: string
 }
 
@@ -153,14 +157,32 @@ const routes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: /^\/banners$/,
+    handle: async (_, { banners }) => [200, banners.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/banners\/([^/]+)\/dismiss$/,
+    handle: async ({ params: [id = ''] }, { banners }) => [200, banners.dismiss(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/banners\/([^/]+)\/action$/,
+    async handle({ params: [id = ''] }, { banners }) {
+      await banners.act(id)
+      return [200, {}]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/dev\/factories$/,
-    async handle({ req }, { store, reposDir }) {
+    async handle({ req }, { store, reposDir, workflows }) {
       const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
-      return [201, await addFactory({ store, reposDir }, { repo, key })]
+      return [201, await addFactory({ store, reposDir, workflows }, { repo, key })]
     },
   },
   {

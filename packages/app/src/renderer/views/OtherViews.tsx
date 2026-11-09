@@ -1,4 +1,5 @@
 import type { Appearance } from '@ted/protocol'
+import type { ReactNode } from 'react'
 import { Help } from '../components/Help.tsx'
 import { useSettings } from '../data.ts'
 import { ted } from '../ted.ts'
@@ -21,12 +22,13 @@ export function Inbox() {
   )
 }
 
-export function Stub({ title }: { title: string }) {
+export function Stub({ title, banners }: { title: string; banners?: ReactNode }) {
   return (
     <section className={styles.pane} aria-label={title}>
       <header className={styles.header}>
         <h1 className={styles.title}>{title}</h1>
       </header>
+      {banners}
       <p className={styles.empty}>Not built yet.</p>
     </section>
   )

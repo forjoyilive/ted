@@ -22,6 +22,7 @@ interface SidebarProps {
   currentFactoryId: string | undefined
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
+  settingsProblem?: boolean
   footer?: SidebarFooter
   dispatch: (action: NavigationAction) => void
   onNewTask: () => void
@@ -48,6 +49,7 @@ export function Sidebar({
   currentFactoryId,
   inboxCount,
   badges = {},
+  settingsProblem = false,
   footer = {},
   dispatch,
   onNewTask,
@@ -103,7 +105,11 @@ export function Sidebar({
               <ChevronIcon open={expanded} className={styles.chevron} />
               <span className={styles.label}>{factory.name}</span>
               {badge.failed && <DotIcon className={styles.failedDot} />}
-              {badge.stopsWork && <WarningIcon className={styles.warning} />}
+              {badge.stopsWork && (
+                <span role="img" aria-label="A problem stops work" className={styles.warning}>
+                  <WarningIcon />
+                </span>
+              )}
               {(badge.waiting ?? 0) > 0 && <span className={styles.count}>{badge.waiting}</span>}
             </button>
             {expanded &&
@@ -143,6 +149,11 @@ export function Sidebar({
         {...current({ kind: 'settings' })}
       >
         <span className={styles.label}>Settings</span>
+        {settingsProblem && (
+          <span role="img" aria-label="A problem stops work" className={styles.failedDot}>
+            <DotIcon />
+          </span>
+        )}
         <span className={styles.shortcut}>⌘,</span>
       </button>
 

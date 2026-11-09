@@ -513,6 +513,64 @@ describe('New Task dialog', () => {
   })
 })
 
+describe('banners', () => {
+  const noChecks = 'No Checks set up · Validate relies on the agent alone'
+
+  test('a Factory banner shows on that Factory’s pages only, and × hides a warning', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    const nav = sidebar(window)
+    const factoryBanners = window.getByRole('region', { name: 'widgets problems' })
+
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    await factoryBanners.getByText(noChecks).waitFor()
+    await nav.getByRole('button', { name: 'List', exact: true }).click()
+    await factoryBanners.getByText(noChecks).waitFor()
+    expect(await nav.getByRole('img', { name: 'A problem stops work' }).count()).toBe(0)
+
+    await nav.getByRole('button', { name: 'All Tasks' }).click()
+    await window.getByRole('region', { name: 'All Tasks' }).waitFor()
+    expect(await window.getByText(noChecks).count()).toBe(0)
+
+    await nav.getByRole('button', { name: 'Board', exact: true }).click()
+    await factoryBanners.getByRole('button', { name: 'Dismiss for 24 hours' }).click()
+    await factoryBanners.waitFor({ state: 'detached' })
+    const [banner] = await (await daemonClient()).listBanners()
+    expect(banner?.dismissedUntil).toBeDefined()
+  })
+
+  test('a stops-work Factory banner marks the sidebar row, and Retry clears it', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    const factoryBanners = window.getByRole('region', { name: 'widgets problems' })
+    await factoryBanners.getByText(noChecks).waitFor()
+
+    await rm(path.join(home, 'repos'), { recursive: true, force: true })
+    await run('mv', [origin, `${origin}.hidden`])
+    await expect(ted('task', 'start', 'NB-1')).rejects.toMatchObject({ code: 1 })
+
+    const failed = factoryBanners.getByRole('alert')
+    await failed.getByText('Couldn’t clone acme/widgets').waitFor()
+    expect(await factoryBanners.locator('[role=alert], [role=status]').allTextContents()).toEqual([
+      expect.stringContaining('Couldn’t clone'),
+      expect.stringContaining('No Checks'),
+    ])
+    expect(await failed.getByRole('button', { name: 'Dismiss for 24 hours' }).count()).toBe(0)
+    await nav.getByRole('img', { name: 'A problem stops work' }).waitFor()
+
+    await run('mv', [`${origin}.hidden`, origin])
+    await failed.getByRole('button', { name: 'Retry' }).click()
+
+    await failed.waitFor({ state: 'detached' })
+    await nav.getByRole('img', { name: 'A problem stops work' }).waitFor({ state: 'detached' })
+  })
+})
+
 async function channelsOf(pid: number): Promise<string[]> {
   const dir = `/proc/${pid}/fd`
   const targets = await Promise.all(
