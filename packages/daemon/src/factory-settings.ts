@@ -214,7 +214,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const tries = options.mergeTries ?? 10
     const where = `${factory.repo}’s ${target.base} branch`
     for (let attempt = 0; attempt < tries; attempt++) {
-      const pr = (await readPullRequests(gh, [target])).get(target.name)
+      const pr = (
+        await readPullRequests(gh, [{ key: target.name, repo: target.repo, number: target.number }])
+      ).get(target.name)
       if (!pr) return { merged: false, reason: 'GitHub didn’t return the pull request.' }
       const step = nextStep(target, pr)
       switch (step.kind) {
