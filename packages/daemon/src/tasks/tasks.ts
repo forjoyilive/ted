@@ -1509,20 +1509,21 @@ export function createTasks(options: {
     const result = await subAgents.result(check.runId)
     if (closed) return
     const said = result.message?.trim() ?? ''
-    const verdict: LoopVerdict = verdictIn(said) ?? 'failed'
+    const finished = result.error === undefined && result.state !== 'stopped'
+    const verdict: LoopVerdict = finished ? (verdictIn(said) ?? 'failed') : 'failed'
     const reason =
       verdict !== 'failed'
         ? reasonIn(said)
-        : result.error !== undefined
-          ? 'the loop check didn’t finish'
-          : 'the loop check gave no verdict'
-    store.finishLoopCheck(check.runId, verdict, reason)
+        : finished
+          ? 'the loop check gave no verdict'
+          : 'the loop check didn’t finish'
     const run = store.getRun(check.runId)
     if (run && run.state !== 'finished') await runs.stop(run.id).catch(() => undefined)
+    const resolution = await resolveWorkflow(factoryOf(find(check.taskId)), { fetch: false })
+    const { workflow } = resolution
+    store.finishLoopCheck(check.runId, verdict, reason)
     const task = find(check.taskId)
     if (task.stage !== 'validate' || task.archived) return
-    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
-    const { workflow } = resolution
     if (verdict === 'converging') {
       store.recordSendBack({
         taskId: task.id,
