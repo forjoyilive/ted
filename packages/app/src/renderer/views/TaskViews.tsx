@@ -1,4 +1,6 @@
 import type { Factory, StageId, Task } from '@ted/protocol'
+import { Button } from '../components/Button.tsx'
+import { PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import styles from './views.module.css'
 
@@ -29,14 +31,26 @@ interface TaskViewProps {
   tasks: readonly Task[]
   factories: readonly Factory[]
   onOpen: (task: Task) => void
+  onNewTask: () => void
 }
 
-export function TaskList({ title, tasks, factories, onOpen }: TaskViewProps) {
+function ViewHeader({ title, onNewTask }: { title: string; onNewTask: () => void }) {
+  return (
+    <header className={styles.header}>
+      <h1 className={styles.title}>{title}</h1>
+      <span className={styles.headerSpacer} />
+      <Button size="small" variant="quiet" onClick={onNewTask}>
+        <PlusIcon />
+        New Task
+      </Button>
+    </header>
+  )
+}
+
+export function TaskList({ title, tasks, factories, onOpen, onNewTask }: TaskViewProps) {
   return (
     <section className={styles.pane} aria-label={title}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{title}</h1>
-      </header>
+      <ViewHeader title={title} onNewTask={onNewTask} />
       <div className={styles.body}>
         {tasks.length === 0 ? (
           <p className={styles.empty}>No Tasks yet.</p>
@@ -53,7 +67,7 @@ export function TaskList({ title, tasks, factories, onOpen }: TaskViewProps) {
               {tasks.map((task) => (
                 <li key={task.id}>
                   <button type="button" className={styles.taskRow} onClick={() => onOpen(task)}>
-                    <PriorityIcon priority="none" />
+                    <PriorityIcon priority={task.priority} />
                     <span className={styles.id}>{task.displayId}</span>
                     <span className={styles.cell}>{task.title}</span>
                     <span className={`${styles.cell} ${styles.meta}`}>
@@ -71,7 +85,7 @@ export function TaskList({ title, tasks, factories, onOpen }: TaskViewProps) {
   )
 }
 
-export function Board({ title, tasks, onOpen }: TaskViewProps) {
+export function Board({ title, tasks, onOpen, onNewTask }: TaskViewProps) {
   const stages: string[] = [
     ...stageOrder,
     ...new Set(tasks.map((t) => t.stage).filter((s) => !stageOrder.includes(s))),
@@ -79,9 +93,7 @@ export function Board({ title, tasks, onOpen }: TaskViewProps) {
 
   return (
     <section className={styles.pane} aria-label={title}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>{title}</h1>
-      </header>
+      <ViewHeader title={title} onNewTask={onNewTask} />
       <div className={styles.board}>
         {stages.map((stage) => {
           const inStage = tasks.filter((t) => t.stage === stage)
@@ -99,7 +111,7 @@ export function Board({ title, tasks, onOpen }: TaskViewProps) {
                   onClick={() => onOpen(task)}
                 >
                   <span className={styles.cardId}>
-                    <PriorityIcon priority="none" />
+                    <PriorityIcon priority={task.priority} />
                     {task.displayId}
                   </span>
                   <span className={styles.cardTitle}>{task.title}</span>

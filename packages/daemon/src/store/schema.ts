@@ -20,10 +20,40 @@ export const tasks = State.SQLite.table({
     factoryId: State.SQLite.text(),
     number: State.SQLite.integer(),
     title: State.SQLite.text(),
+    description: State.SQLite.text({ default: '' }),
+    priority: State.SQLite.text({ default: 'none' }),
+    clarifyDepth: State.SQLite.text({ default: 'auto' }),
+    leadAgent: State.SQLite.text({ nullable: true }),
+    leadModel: State.SQLite.text({ nullable: true }),
+    leadEffort: State.SQLite.text({ nullable: true }),
+    startRequested: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskBlockers = State.SQLite.table({
+  name: 'taskBlockers',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    blockerId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const taskAttachments = State.SQLite.table({
+  name: 'taskAttachments',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -127,6 +157,38 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  taskCreatedV2: Events.synced({
+    name: 'v2.TaskCreated',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      number: Schema.Number,
+      title: Schema.String,
+      description: Schema.String,
+      priority: Schema.String,
+      clarifyDepth: Schema.String,
+      leadAgent: Schema.NullOr(Schema.String),
+      leadModel: Schema.NullOr(Schema.String),
+      leadEffort: Schema.NullOr(Schema.String),
+      startRequested: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  taskBlockerAdded: Events.synced({
+    name: 'v1.TaskBlockerAdded',
+    schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
+  }),
+  taskAttachmentAdded: Events.synced({
+    name: 'v1.TaskAttachmentAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   taskStarted: Events.synced({
     name: 'v1.TaskStarted',
     schema: Schema.Struct({
@@ -206,6 +268,15 @@ export const events = {
 const materializers = State.SQLite.materializers(events, {
   'v1.FactoryAdded': (factory) => factories.insert(factory),
   'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+  'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+  'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+    taskBlockers
+      .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
+      .onConflict('id', 'ignore'),
+  'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
+    taskAttachments
+      .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+      .onConflict('id', 'ignore'),
   'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
     tasks.update({ stage, branch, worktree }).where({ id: taskId }),
   'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
@@ -232,6 +303,8 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     tasks,
+    taskBlockers,
+    taskAttachments,
     runs,
     conversationEntries,
     comments,

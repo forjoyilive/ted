@@ -8,19 +8,23 @@ import {
   agentKinds,
   appearances,
   type CreateTaskRequest,
+  clarifyDepths,
+  efforts,
   type MachineSettings,
   type PostCommentRequest,
+  priorities,
   type ReportOutcomeRequest,
   type StartDevRunRequest,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
+import type { Attachments } from './attachments.ts'
 import { RequestError as HttpError } from './errors.ts'
 import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
 import type { RunTokens } from './run-token.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { TedStore } from './store/index.ts'
-import type { Caller, Tasks } from './tasks/tasks.ts'
+import type { Caller, CreateTaskInput, Tasks } from './tasks/tasks.ts'
 
 export interface ServerOptions {
   version: string
@@ -32,6 +36,7 @@ export interface ServerOptions {
   agents: Agents
   runTokens: RunTokens
   tasks: Tasks
+  attachments: Attachments
   reposDir: string
 }
 
@@ -69,13 +74,14 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks$/,
-    async handle({ req }, { tasks }) {
-      const body = (await readJson(req)) as Partial<CreateTaskRequest> | null
-      const title = typeof body?.title === 'string' ? body.title.trim() : ''
-      if (title === '') throw new HttpError(400, 'title is required')
-      const factory = typeof body?.factory === 'string' ? body.factory : undefined
-      return [201, await tasks.create({ title, ...(factory !== undefined && { factory }) })]
+    async handle({ req }, { tasks, attachments }) {
+      return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
     },
+  },
+  {
+    method: 'POST',
+    path: /^\/attachments$/,
+    handle: async ({ req }, { attachments }) => [201, await attachments.save(req)],
   },
   {
     method: 'POST',
@@ -128,6 +134,11 @@ const routes: Route[] = [
       200,
       store.listFactories().map(({ cloneUrl: _, ...factory }) => factory),
     ],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/task-defaults$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.defaults(id)],
   },
   {
     method: 'GET',
@@ -286,6 +297,87 @@ function settingsChanges(body: unknown): Partial<MachineSettings> {
     changes.appearance = appearance
   }
   return changes
+}
+
+async function createTaskInput(body: unknown, attachments: Attachments): Promise<CreateTaskInput> {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new HttpError(400, 'a Task must be an object')
+  }
+  const request = body as Record<keyof CreateTaskRequest, unknown>
+  const text = (name: 'title' | 'description' | 'factory') => {
+    const value = request[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
+    return value
+  }
+  const oneOf = <T extends string>(name: string, value: unknown, allowed: readonly T[]) => {
+    if (value === undefined) return undefined
+    const found = allowed.find((a) => a === value)
+    if (!found) throw new HttpError(400, `${name} must be ${allowed.join(', ')}`)
+    return found
+  }
+  const list = (name: string, value: unknown) => {
+    if (value === undefined) return undefined
+    if (!Array.isArray(value)) throw new HttpError(400, `${name} must be a list`)
+    return value as unknown[]
+  }
+
+  const title = text('title')
+  const description = text('description')
+  const factory = text('factory')
+  const priority = oneOf('priority', request.priority, priorities)
+  const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
+  const lead = taskLead(request.lead)
+  const blockedBy = list('blockedBy', request.blockedBy)?.map((ref) => {
+    if (typeof ref !== 'string') throw new HttpError(400, 'blockedBy must list Task IDs')
+    return ref
+  })
+  const attached = await Promise.all(
+    (list('attachments', request.attachments) ?? []).map((item) => {
+      const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
+      if (typeof hash !== 'string' || typeof name !== 'string') {
+        throw new HttpError(400, 'an attachment needs a hash and a name')
+      }
+      return attachments.find({
+        hash,
+        name,
+        mediaType: typeof mediaType === 'string' ? mediaType : '',
+      })
+    }),
+  )
+  if (request.start !== undefined && typeof request.start !== 'boolean') {
+    throw new HttpError(400, 'start must be true or false')
+  }
+  return {
+    ...(title !== undefined && { title }),
+    ...(description !== undefined && { description }),
+    ...(factory !== undefined && { factory }),
+    ...(priority !== undefined && { priority }),
+    ...(clarifyDepth !== undefined && { clarifyDepth }),
+    ...(lead !== undefined && { lead }),
+    ...(blockedBy !== undefined && { blockedBy }),
+    ...(attached.length > 0 && { attachments: attached }),
+    ...(request.start !== undefined && { start: request.start }),
+  }
+
+  function taskLead(value: unknown) {
+    if (value === undefined) return undefined
+    if (typeof value !== 'object' || value === null) {
+      throw new HttpError(400, 'lead must be an object')
+    }
+    const { agent, model, effort } = value as Record<string, unknown>
+    const kind = oneOf('lead.agent', agent, agentKinds)
+    if (kind === undefined) throw new HttpError(400, 'lead.agent is required')
+    if (model !== undefined && (typeof model !== 'string' || model.trim() === '')) {
+      throw new HttpError(400, 'lead.model must be text')
+    }
+    const level = oneOf('lead.effort', effort, efforts)
+    return {
+      agent: kind,
+      ...(typeof model === 'string' && { model: model.trim() }),
+      ...(level !== undefined && { effort: level }),
+    }
+  }
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

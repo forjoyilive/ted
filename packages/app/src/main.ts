@@ -1,12 +1,27 @@
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
-import { type DaemonClient, type DaemonEvent, type MachineSettings, tedHome } from '@ted/protocol'
+import {
+  type CreateTaskRequest,
+  type DaemonClient,
+  type DaemonEvent,
+  type MachineSettings,
+  tedHome,
+} from '@ted/protocol'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme } from 'electron'
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   listFactories: (client) => client.listFactories(),
+  createTask: (client, input) => client.createTask(input as CreateTaskRequest),
+  taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
+  uploadAttachment: (client, name, mediaType, bytes) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
+    return client.uploadAttachment(
+      { name: String(name), mediaType: String(mediaType) },
+      new Uint8Array(bytes),
+    )
+  },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
 }

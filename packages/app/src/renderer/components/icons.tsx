@@ -95,3 +95,37 @@ export function CodexMark({ size, className }: IconProps & { size: number }) {
     </svg>
   )
 }
+
+export function CloseIcon({ size = 14, className }: IconProps & { size?: number }) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 14 14"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M3.5 3.5L10.5 10.5M10.5 3.5L3.5 10.5"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        stroke="currentColor"
+      />
+    </svg>
+  )
+}
+
+export function PaperclipIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+      <path
+        d="M11.6 6.6L7.1 11.1C5.9 12.3 4 12.3 2.8 11.1C1.6 9.9 1.6 8 2.8 6.8L7.6 2C8.4 1.2 9.6 1.2 10.4 2C11.2 2.8 11.2 4 10.4 4.8L5.7 9.5C5.3 9.9 4.7 9.9 4.3 9.5C3.9 9.1 3.9 8.5 4.3 8.1L8.4 4"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        stroke="currentColor"
+      />
+    </svg>
+  )
+}

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import type { AgentStageId, Task } from '@ted/protocol'
+import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
@@ -18,6 +18,7 @@ export async function taskLeadPrompt(
   task: Task,
   workflow: ResolvedWorkflow,
   stage: AgentStageId,
+  attachmentFile?: (attachment: Attachment) => string,
 ): Promise<string> {
   const preamble = await readFile(new URL('preamble.md', defaults), 'utf8')
   return [
@@ -25,6 +26,14 @@ export async function taskLeadPrompt(
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
+    ...(task.description !== '' ? [task.description] : []),
+    ...(attachmentFile && task.attachments.length > 0
+      ? [
+          `Attached files:\n${task.attachments
+            .map((a) => `- ${a.name}: ${attachmentFile(a)}`)
+            .join('\n')}`,
+        ]
+      : []),
   ].join('\n\n')
 }
 

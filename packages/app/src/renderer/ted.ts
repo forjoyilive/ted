@@ -1,4 +1,13 @@
-import type { Comment, DaemonEvent, Factory, MachineSettings, Task } from '@ted/protocol'
+import type {
+  Attachment,
+  Comment,
+  CreateTaskRequest,
+  DaemonEvent,
+  Factory,
+  MachineSettings,
+  Task,
+  TaskDefaults,
+} from '@ted/protocol'
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -16,6 +25,12 @@ export const ted = {
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
+  createTask: (input: CreateTaskRequest) =>
+    window.ted.request('createTask', input) as Promise<Task>,
+  taskDefaults: (factoryId: string) =>
+    window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
+  uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
+    window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,

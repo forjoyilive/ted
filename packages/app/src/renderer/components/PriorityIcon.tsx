@@ -1,6 +1,5 @@
+import type { Priority } from '@ted/protocol'
 import styles from './PriorityIcon.module.css'
-
-export type Priority = 'urgent' | 'high' | 'medium' | 'low' | 'none'
 
 const labels: Record<Priority, string> = {
   urgent: 'Urgent',
