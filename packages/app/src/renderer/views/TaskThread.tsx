@@ -202,6 +202,9 @@ export function TaskPanes({
   onOpenTask: (ref: string) => void
 }) {
   const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  useEffect(() => {
+    if (answeredId !== undefined) setShown(undefined)
+  }, [answeredId])
   const shownRun = shown?.taskId === task.id ? shown.runId : undefined
   const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
   const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
@@ -263,6 +266,9 @@ export function TaskThread({
   const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  useEffect(() => {
+    if (answeredId !== undefined) setFilter(undefined)
+  }, [answeredId])
   const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
