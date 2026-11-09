@@ -1,9 +1,11 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AgentHealth,
   Banner,
   Comment,
   DataStatus,
   Factory,
+  InboxItem,
   MachineSettings,
   RunSlots,
   StageEntry,
@@ -101,7 +103,7 @@ const taskFrom = (event: TedEvent) =>
   event.type === 'task-created' || event.type === 'task-updated' ? event.task : undefined
 
 const factoryFrom = (event: TedEvent) =>
-  event.type === 'factory-added' ? event.factory : undefined
+  event.type === 'factory-added' || event.type === 'factory-updated' ? event.factory : undefined
 
 export function useTasks(): Task[] {
   return useLive(ted.listTasks, taskFrom, byCreatedAt)
@@ -115,12 +117,49 @@ export function useComments(taskId: string): Comment[] {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
-      event.type === 'comment-posted' && event.comment.taskId === taskId
+      (event.type === 'comment-posted' || event.type === 'comment-updated') &&
+      event.comment.taskId === taskId
         ? event.comment
         : undefined,
     [taskId],
   )
   return useLive(load, pick, byCreatedAt)
+}
+
+const inboxEvents = new Set<TedEvent['type']>([
+  'comment-posted',
+  'comment-updated',
+  'task-created',
+  'task-updated',
+])
+
+export function useInbox(): InboxItem[] {
+  const [items, setItems] = useState<InboxItem[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let latest = 0
+    const load = () => {
+      const call = ++latest
+      void ted.listInbox().then(
+        (loaded) => {
+          if (call === latest) setItems(loaded)
+        },
+        () => undefined,
+      )
+    }
+    const unsubscribe = ted.onEvent((event) => {
+      if (inboxEvents.has(event.type)) load()
+    })
+    load()
+    return () => {
+      latest = -1
+      unsubscribe()
+    }
+  }, [epoch])
+
+  return items
 }
 
 export function useSettings(): MachineSettings | undefined {
@@ -259,4 +298,29 @@ export function useBanners(): Banner[] {
   }, [banners, now])
 
   return banners
+}
+
+export function useAgentHealth(): AgentHealth[] {
+  const [health, setHealth] = useState<AgentHealth[]>([])
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    const merge = (incoming: AgentHealth[]) =>
+      setHealth((current) => {
+        const byAgent = new Map(current.map((h) => [h.agent, h]))
+        for (const h of incoming) {
+          const known = byAgent.get(h.agent)
+          if (!known || known.checkedAt <= h.checkedAt) byAgent.set(h.agent, h)
+        }
+        return [...byAgent.values()].sort((a, b) => a.agent.localeCompare(b.agent))
+      })
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'agent-health-changed') merge([event.health])
+    })
+    void ted.agentHealth().then(merge, () => undefined)
+    return unsubscribe
+  }, [epoch])
+
+  return health
 }

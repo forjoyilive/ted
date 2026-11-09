@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readlink, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -27,6 +27,7 @@ const run = promisify(execFile)
 
 let home: string
 let app: ElectronApplication | undefined
+let extraEnv: Record<string, string> = {}
 
 beforeAll(async () => {
   await build({ configFile: path.join(appDir, 'vite.config.ts'), logLevel: 'warn' })
@@ -34,6 +35,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-app-'))
+  extraEnv = {}
 })
 
 afterEach(async () => {
@@ -54,6 +56,7 @@ const env = () => ({
   TED_IDLE_EXIT_MS: '30000',
   TED_CLAUDE_BIN: stubClaudePath,
   TED_HIDDEN_WINDOW: '1',
+  ...extraEnv,
 })
 
 async function launchApp(extraEnv: Record<string, string> = {}): Promise<Page> {
@@ -151,6 +154,9 @@ describe('TED app', () => {
 
   test('a Task Lead’s Comment and the move to Done show in the window as they happen', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'Halfway there'] },
@@ -288,18 +294,26 @@ describe('TED app', () => {
     await code.getByText(path.join(home, 'worktrees', 'NB-1', 'widgets')).waitFor()
   })
 
-  test('a missing local folder raises a Factory banner with Locate', async () => {
+  test('a missing local folder raises a Factory banner whose Locate picks a new folder', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const folder = path.join(home, 'local')
+    const moved = path.join(home, 'moved')
     await mkdir(folder)
     await ted('dev', 'factory', 'add', origin, '--key', 'NB', '--local-folder', folder)
     await rm(folder, { recursive: true })
+    await mkdir(moved)
 
     const window = await launchApp()
+    await pickFolderWith(moved)
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
 
-    const banner = window.getByRole('alert')
-    await banner.getByText('Local folder for widgets not found').waitFor()
-    await banner.getByRole('button', { name: 'Locate' }).waitFor()
+    const banners = window.getByRole('region', { name: 'widgets problems' })
+    await banners.getByText('Local folder for widgets not found').waitFor()
+    await banners.getByRole('button', { name: 'Locate' }).click()
+
+    await window.getByText('Local folder for widgets not found').waitFor({ state: 'detached' })
+    const [factory] = await (await daemonClient()).listFactories()
+    expect(factory?.localFolder).toEqual({ path: moved, found: true })
   })
 
   test('quitting with nothing running ends the app and TED’s background process', async () => {
@@ -411,6 +425,45 @@ describe('TED app frame', () => {
 
       await window.getByRole('heading', { name: 'Offline editing' }).waitFor({ state: 'detached' })
     }
+  })
+
+  test('Blocked by in Task details adds and removes blockers, and refuses a cycle', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Crash when search is empty')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
+    await window.getByRole('main').getByText('Offline editing').click()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+
+    await details.getByRole('button', { name: 'Add blocker' }).click()
+    await details.getByLabel('Find a Task').fill('crash')
+    await details.getByRole('option', { name: /NB-1/ }).click()
+
+    await details.getByText('Crash when search is empty').waitFor()
+    await window.getByRole('main').getByText('Blocked by').first().waitFor()
+    await window.getByText('Starts when NB-1 merges').first().waitFor()
+
+    await window.getByRole('button', { name: '← List' }).click()
+    await window.getByRole('main').getByText('Crash when search is empty').click()
+    await details.getByRole('button', { name: 'Add blocker' }).click()
+    await details.getByLabel('Find a Task').fill('offline')
+    await details.getByRole('option', { name: /NB-2/ }).click()
+    await details
+      .getByText('NB-2 can’t block NB-1: that makes a cycle, NB-1 → NB-2 → NB-1')
+      .waitFor()
+
+    await window.getByRole('button', { name: '← List' }).click()
+    await window.getByRole('main').getByText('Offline editing').click()
+    await details.getByRole('button', { name: 'Remove NB-1' }).click()
+    await expect
+      .poll(
+        async () =>
+          (await (await daemonClient()).listTasks()).find((t) => t.displayId === 'NB-2')?.blockedBy,
+      )
+      .toEqual([])
   })
 
   test('the theme follows the system appearance', async () => {
@@ -813,6 +866,112 @@ describe('App Settings', () => {
   })
 })
 
+describe('Add Factory', () => {
+  const dialog = (window: Page) => window.getByRole('dialog')
+
+  async function openForm(window: Page) {
+    await sidebar(window).getByRole('button', { name: 'Add Factory' }).click()
+    await dialog(window).waitFor()
+  }
+
+  test('adding from owner/repo checks access, clones, and opens the new Board', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByRole('heading', { name: 'Add your first Factory' }).waitFor()
+    expect(await form.getByLabel('Show the tutorial').isChecked()).toBe(true)
+
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Can push and open pull requests').waitFor()
+    expect(await form.getByLabel('Name', { exact: true }).first().inputValue()).toBe('widgets')
+    expect(await form.getByLabel('Key').inputValue()).toBe('WD')
+    await form.getByText('TED clones the repo, then starts the setup Task WD-1.').waitFor()
+
+    await form.getByRole('button', { name: 'Add Factory' }).click()
+    await dialog(window).waitFor({ state: 'detached' })
+    await sidebar(window).getByRole('button', { name: 'Widgets' }).waitFor()
+    await window.getByRole('region', { name: 'Setting up Widgets' }).waitFor({ state: 'detached' })
+    const [factory] = await (await daemonClient()).listFactories()
+    expect(factory).toMatchObject({ key: 'WD', cloned: true, showTutorial: true })
+  })
+
+  test('access problems and a taken key show their messages and keep Add Factory disabled', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByRole('heading', { name: 'Add Factory' }).waitFor()
+
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/nope')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Repository not found, or your GitHub account can’t see it.').waitFor()
+    await form.getByRole('button', { name: 'Check again' }).waitFor()
+    await form.getByRole('button', { name: 'GitHub settings' }).waitFor()
+
+    await form.getByRole('button', { name: 'Clear the primary repo' }).click()
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText(/is the primary repo of Factory widgets\./).waitFor()
+    await form.getByRole('button', { name: 'Open widgets' }).waitFor()
+
+    await form.getByLabel('Key').fill('NB')
+    await form.getByText('NB is already the key of widgets.').waitFor()
+    await form.getByText('Fix the 1 repo problem and the key to continue.').waitFor()
+    expect(await form.getByRole('button', { name: 'Add Factory' }).isDisabled()).toBe(true)
+  })
+
+  test('Choose folder reads the folder’s GitHub remote', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const folder = path.join(home, 'code', 'widgets')
+    await run('git', ['clone', path.join(home, 'origin', 'acme', 'widgets.git'), folder])
+    await run('git', ['remote', 'set-url', 'origin', 'git@github.com:acme/widgets.git'], {
+      cwd: folder,
+    })
+    const window = await launchApp()
+    await pickFolderWith(folder)
+    await openForm(window)
+    const form = dialog(window)
+
+    await form.getByRole('button', { name: 'Choose folder…' }).click()
+    await form.getByText('acme/widgets').waitFor()
+    await form.getByText('from a folder').waitFor()
+    await form.getByText('Can push and open pull requests').waitFor()
+  })
+
+  test('a failed clone shows a red row and the banner; Retry recovers', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const origin = path.join(home, 'origin', 'acme', 'widgets.git')
+    await rename(origin, `${origin}.hidden`)
+    const window = await launchApp()
+    await openForm(window)
+    const form = dialog(window)
+    await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
+    await form.getByLabel('GitHub URL or owner/repo').press('Enter')
+    await form.getByText('Can push and open pull requests').waitFor()
+    await form.getByRole('button', { name: 'Add Factory' }).click()
+
+    const panel = window.getByRole('region', { name: 'Setting up Widgets' })
+    await panel.getByText(/Clone failed:/).waitFor()
+    const banners = window.getByRole('region', { name: 'Widgets problems' })
+    await banners
+      .getByText('Couldn’t clone acme/widgets · Widgets can’t start Tasks until it’s cloned')
+      .waitFor()
+    await sidebar(window).getByRole('img', { name: 'A problem stops work' }).waitFor()
+
+    await rename(`${origin}.hidden`, origin)
+    await banners.getByRole('button', { name: 'Retry' }).click()
+    await panel.waitFor({ state: 'detached' })
+    await banners.getByText(/Couldn’t clone/).waitFor({ state: 'detached' })
+  })
+})
+
 describe('banners', () => {
   const noChecks = 'No Checks set up · Validate relies on the agent alone'
 
@@ -868,6 +1027,37 @@ describe('banners', () => {
 
     await failed.waitFor({ state: 'detached' })
     await nav.getByRole('img', { name: 'A problem stops work' }).waitFor({ state: 'detached' })
+  })
+})
+
+describe('agent health', () => {
+  test('a signed-out agent pauses its Task, shows a Fix banner and a red Agents card', async () => {
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Offline editing')
+    await ted('task', 'start', 'NB-1')
+    const window = await launchApp()
+
+    const problems = window.getByRole('region', { name: 'Problems' })
+    const banner = problems.getByRole('alert').filter({ hasText: 'Claude Code is signed out' })
+    await banner.getByRole('button', { name: 'Fix' }).waitFor()
+    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
+    await window.getByText('Paused · Claude Code is signed out').waitFor()
+
+    await openSettings(window)
+    await settingsNav(window).getByRole('button', { name: 'Agents', exact: true }).click()
+    const card = window.getByRole('region', { name: 'Claude Code' })
+    await card.getByText(/^Signed out/).waitFor()
+    await card.getByText('Not signed in.').waitFor()
+    await card.getByRole('button', { name: 'Sign in' }).waitFor()
+    await card.getByRole('button', { name: 'Copy command' }).waitFor()
+    expect(await card.getAttribute('data-state')).toBe('signed-out')
+
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+    await card.getByRole('button', { name: 'Check again' }).click()
+    await card.getByText('Ready').waitFor()
+    await banner.waitFor({ state: 'detached' })
   })
 })
 
@@ -994,6 +1184,9 @@ describe('daemon crashes', () => {
 
   test('killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const steps = JSON.stringify({
       steps: [
         { waitFor: path.join(home, 'go') },
@@ -1052,6 +1245,47 @@ describe('daemon crashes', () => {
 
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
     await footer.getByRole('button', { name: '1 of 7 Runs working' }).waitFor()
+  })
+
+  test('after reconnecting, the Inbox shows a request raised while the app was away', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nLet notes be edited offline.',
+        '## Decisions so far\n\n- Keep both edits on a clash.',
+        '## Current state\n\nThe approach is written up.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nBuild it.\n',
+      ].join('\n\n'),
+    )
+    const gate = [
+      { run: ['ted', 'brief', 'write', '--file', briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ]
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
+    )
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '8000,0,0' })
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.waitFor()
+
+    await killDaemon()
+    await reconnecting(window).waitFor()
+    await ted('task', 'start', 'NB-1')
+    await expect
+      .poll(async () => (await (await daemonClient()).listInbox()).length, { timeout: 20_000 })
+      .toBe(1)
+
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await inbox.getByRole('button').filter({ hasText: 'Design review' }).waitFor()
   })
 
   test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
@@ -1221,6 +1455,31 @@ describe('running in the background', () => {
   })
 })
 
+async function pickFolderWith(folder: string): Promise<void> {
+  await app?.evaluate(({ dialog }, chosen) => {
+    dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [chosen] })) as never
+  }, folder)
+}
+
+async function githubReady(repos: string[], extra: Record<string, unknown> = {}): Promise<void> {
+  const paths: Record<string, unknown> = {}
+  for (const repo of repos) {
+    paths[`repos/${repo}`] = {
+      body: { full_name: repo, default_branch: 'main', permissions: { push: true } },
+    }
+    paths[`repos/${repo}/commits?per_page=1`] = { body: [] }
+  }
+  const state = path.join(home, 'gh.json')
+  await writeFile(state, JSON.stringify({ paths: { ...paths, ...extra } }))
+  extraEnv = {
+    ...extraEnv,
+    TED_STUB_GH: state,
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: `url.file://${path.join(home, 'origin')}/.insteadOf`,
+    GIT_CONFIG_VALUE_0: 'https://github.com/',
+  }
+}
+
 async function channelsOf(pid: number): Promise<string[]> {
   const dir = `/proc/${pid}/fd`
   const targets = await Promise.all(
@@ -1228,3 +1487,68 @@ async function channelsOf(pid: number): Promise<string[]> {
   )
   return targets.filter((target) => /^(pipe|socket):/.test(target))
 }
+
+describe('Inbox and Gates', () => {
+  test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nLet notes be edited offline.',
+        '## Decisions so far\n\n- Keep both edits on a clash.',
+        '## Current state\n\nThe approach is written up.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nBuild it.\n',
+      ].join('\n\n'),
+    )
+    const gate = [
+      { run: ['ted', 'brief', 'write', '--file', briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ]
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
+    )
+    const window = await launchApp()
+    await ted('task', 'start', 'NB-1')
+
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    const row = inbox.getByRole('button').filter({ hasText: 'Design review' })
+    await row.waitFor()
+    expect(await row.textContent()).toContain('Let notes be edited offline.')
+    await sidebar(window)
+      .getByRole('button', { name: /^Inbox/ })
+      .getByText('1')
+      .waitFor()
+    await row.click()
+
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    const card = thread.getByRole('region', { name: 'Design review', exact: true })
+    await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
+    await thread.getByText('Waiting on you', { exact: true }).waitFor()
+    expect(await card.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
+    await card.getByRole('textbox', { name: 'Your answer' }).fill('Split the sync step in two.')
+    await card.getByRole('button', { name: 'Request changes' }).click()
+
+    const answered = thread.getByRole('region', { name: 'Design review, answered' }).first()
+    await answered.getByText('You requested changes').waitFor()
+    await answered.getByText('“Split the sync step in two.”').waitFor()
+    await card.getByRole('button', { name: 'Approve' }).click()
+
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByText('Review', { exact: true }).waitFor()
+    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
+    await signoff.waitFor()
+    await signoff.click()
+    await thread
+      .getByRole('region', { name: 'Sign-off', exact: true })
+      .getByRole('button', { name: 'Approve and merge' })
+      .waitFor()
+  })
+})

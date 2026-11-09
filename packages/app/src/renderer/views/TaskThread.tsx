@@ -1,36 +1,68 @@
-import type { AgentStageId, Factory, Task } from '@ted/protocol'
+import type { AgentStageId, Comment, Factory, Task } from '@ted/protocol'
 import { useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
+import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { AnsweredCard, OpenRequestLine, RequestCard } from '../components/RequestCard.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import { useComments, useStageEntries } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
 const time = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
+function leadAgent(task: Task, comment: Comment) {
+  const { author } = comment
+  if (author.kind !== 'run') return undefined
+  return task.runs.find((r) => r.id === author.runId)?.agent ?? task.lead?.agent ?? 'claude'
+}
+
+function NoteRow({ task, comment }: { task: Task; comment: Comment }) {
+  const agent = leadAgent(task, comment)
+  const author =
+    comment.author.kind === 'human' ? 'You' : comment.author.kind === 'ted' ? 'TED' : 'Task Lead'
+  return (
+    <li className={styles.comment}>
+      {agent !== undefined ? <AgentAvatar agent={agent} /> : <PersonAvatar name={author} />}
+      <div>
+        <div className={styles.commentHead}>
+          <span className={styles.author}>{author}</span>
+          <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
+        </div>
+        <p className={styles.commentBody}>{comment.body}</p>
+      </div>
+    </li>
+  )
+}
+
 export function TaskThread({
   task,
   backLink,
+  requestId,
   onBack,
   onOpenTask,
 }: {
   task: Task
   backLink: string | undefined
+  requestId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
 }) {
   const comments = useComments(task.id)
   const entries = useStageEntries(task.id, task.stage)
   const [filter, setFilter] = useState<{ taskId: string; stage: AgentStageId }>()
+  const [chosen, setChosen] = useState<{ from: string | undefined; id: string }>()
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const shown = inStage(comments, entries, stage)
+  const open = comments.filter((c) => c.kind !== 'note' && c.answer === undefined)
+  const pinnedId = chosen?.from === requestId ? chosen?.id : requestId
+  const pinned = open.find((c) => c.id === pinnedId) ?? open[0]
 
   return (
     <section className={styles.pane} aria-label="Task thread">
@@ -47,7 +79,7 @@ export function TaskThread({
         <div className={styles.headerRow}>
           <h1 className={styles.taskTitle}>{task.title}</h1>
           <TaskStatusChips task={task} onOpenTask={onOpenTask} />
-          {task.status?.kind === 'queued' && task.runs.length === 0 && (
+          {task.status?.kind === 'queued' && task.runs.length === 0 && task.repos.length === 0 && (
             <Button
               size="small"
               variant="quiet"
@@ -81,25 +113,33 @@ export function TaskThread({
         </p>
       )}
       <ol className={styles.thread}>
-        {shown.map((comment) => (
-          <li key={comment.id} className={styles.comment}>
-            {comment.author.kind === 'ted' ? (
-              <PersonAvatar name="TED" />
-            ) : (
-              <AgentAvatar agent={task.lead?.agent ?? 'claude'} />
-            )}
-            <div>
-              <div className={styles.commentHead}>
-                <span className={styles.author}>
-                  {comment.author.kind === 'ted' ? 'TED' : 'Task Lead'}
-                </span>
-                <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
-              </div>
-              <p className={styles.commentBody}>{comment.body}</p>
-            </div>
-          </li>
-        ))}
+        {shown.map((comment) => {
+          if (comment.kind === 'note') {
+            return <NoteRow key={comment.id} task={task} comment={comment} />
+          }
+          if (comment.answer !== undefined) {
+            return (
+              <li key={comment.id} className={styles.requestItem}>
+                <AnsweredCard request={comment} task={task} />
+              </li>
+            )
+          }
+          if (comment.id === pinned?.id) return null
+          return (
+            <li key={comment.id} className={styles.requestItem}>
+              <OpenRequestLine
+                request={comment}
+                onPin={() => setChosen({ from: requestId, id: comment.id })}
+              />
+            </li>
+          )
+        })}
       </ol>
+      {pinned && (
+        <div className={styles.pinned}>
+          <RequestCard key={pinned.id} request={pinned} task={task} />
+        </div>
+      )}
     </section>
   )
 }
@@ -113,7 +153,6 @@ export function TaskDetails({
   tasks: readonly Task[]
   factories: readonly Factory[]
 }) {
-  const blockers = task.blockedBy.map((id) => tasks.find((t) => t.id === id)?.displayId ?? id)
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
       <dl className={styles.details}>
@@ -129,10 +168,12 @@ export function TaskDetails({
         </dd>
         <dt>Clarify depth</dt>
         <dd>{clarifyDepthLabels[task.clarifyDepth]}</dd>
-        {blockers.length > 0 && (
+        {task.stage !== 'done' && (
           <>
             <dt>Blocked by</dt>
-            <dd>{blockers.join(', ')}</dd>
+            <dd>
+              <BlockedByField key={task.id} task={task} tasks={tasks} />
+            </dd>
           </>
         )}
         {task.attachments.length > 0 && (
@@ -159,5 +200,30 @@ export function TaskDetails({
       </dl>
       <CodeSection task={task} />
     </aside>
+  )
+}
+
+function BlockedByField({ task, tasks }: { task: Task; tasks: readonly Task[] }) {
+  const [error, setError] = useState<string>()
+  const blockers = task.blockedBy.flatMap((id) => tasks.filter((t) => t.id === id))
+  const change = (request: Promise<Task>) => {
+    setError(undefined)
+    request.catch((failure: unknown) => setError(readableError(failure)))
+  }
+  return (
+    <>
+      <BlockerPicker
+        tasks={tasks.filter((t) => t.id !== task.id)}
+        blockers={blockers}
+        menuAlign="end"
+        onAdd={(id) => change(ted.blockTask(task.id, id))}
+        onRemove={(id) => change(ted.unblockTask(task.id, id))}
+      />
+      {error !== undefined && (
+        <p className={styles.fieldError} role="alert">
+          {error}
+        </p>
+      )}
+    </>
   )
 }

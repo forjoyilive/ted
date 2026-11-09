@@ -58,15 +58,13 @@
 .close:focus-visible,
 .chipRemove:focus-visible,
 .attach:focus-visible,
-.moreToggle:focus-visible,
-.option:focus-visible {
+.moreToggle:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
 
 .title,
-.description,
-.searchInput {
+.description {
   box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--border-control);
@@ -236,14 +234,12 @@
 }
 
 .title::placeholder,
-.description::placeholder,
-.searchInput::placeholder {
+.description::placeholder {
   color: var(--text-caption);
 }
 
 .title:focus,
-.description:focus,
-.searchInput:focus {
+.description:focus {
   border-color: var(--accent-default);
   outline: 1px solid var(--accent-default);
   outline-offset: -2px;
@@ -265,8 +261,7 @@
   color: var(--text-caption);
 }
 
-.chip,
-.blocker {
+.chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -337,85 +332,6 @@
 .hint {
   color: var(--text-caption);
   font-size: var(--text-12-5);
-}
-
-.blockers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-}
-
-.blocker {
-  padding: 4px 6px 4px 10px;
-  border: 1px solid var(--border-control);
-  background: var(--surface-card);
-  font-size: var(--text-13);
-}
-
-.blockerId {
-  flex-shrink: 0;
-  color: var(--text-caption);
-}
-
-.blockerTitle {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.search {
-  position: relative;
-  width: 260px;
-}
-
-.searchInput {
-  padding: 5px 10px;
-  border-radius: var(--radius-control);
-  font-size: var(--text-13);
-}
-
-.options {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  width: 340px;
-  max-height: 240px;
-  padding: 4px;
-  overflow-y: auto;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-raised);
-  box-shadow: 0 6px 16px var(--shadow-popover);
-}
-
-.option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 5px 8px;
-  border: none;
-  border-radius: 6px;
-  background: none;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-13);
-  text-align: left;
-}
-
-.option:hover {
-  background: var(--surface-selected);
-}
-
-.noMatch {
-  margin: 0;
-  padding: 5px 8px;
-  color: var(--text-caption);
 }
 
 .more {

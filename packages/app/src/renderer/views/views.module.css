@@ -440,3 +440,22 @@
   margin-left: 6px;
   color: var(--text-caption);
 }
+
+.fieldError {
+  margin: 6px 0 0;
+  color: var(--status-failed-fg);
+  font-size: var(--text-12);
+}
+
+.requestItem {
+  display: flex;
+  flex-direction: column;
+}
+
+.pinned {
+  flex-shrink: 0;
+  max-height: 65%;
+  overflow-y: auto;
+  padding: 14px 22px 18px;
+  border-top: 1px solid var(--border-subtle);
+}

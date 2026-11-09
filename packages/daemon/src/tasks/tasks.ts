@@ -2,26 +2,33 @@ import { mkdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentStageId,
+  AnswerRequest,
   Attachment,
   Comment,
+  CommentAnswer,
   DaemonEvent,
+  InboxItem,
   LinearIssue,
-  Outcome,
+  OutcomeResult,
+  ReportOutcomeRequest,
   Run,
   RunSlots,
+  StageId,
   Task,
+  TaskBrief,
   TaskDefaults,
   TaskLead,
   TaskRepo,
   TaskSource,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { clarifyDepths, parseLinearUrl } from '@ted/protocol'
+import { briefHeadings, clarifyDepths, parseLinearUrl, priorities } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
@@ -36,9 +43,15 @@ import type {
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
-import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
+import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import {
+  backStageMessage,
+  nextStageMessage,
+  stageTitle,
+  taskLeadPrompt,
+} from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
-import { type SlotUse, startsNow } from './queue.ts'
+import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -64,14 +77,21 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
+  block(ref: string, caller: Caller, by: string): Promise<Task>
+  unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
   subscribe(listener: (event: DaemonEvent) => void): () => void
-  comment(ref: string, caller: Caller, body: string): Comment
+  comment(ref: string, caller: Caller, input: { body: string; choices?: string[] }): Comment
   setActivity(ref: string, caller: Caller, text: string): Task
-  reportOutcome(ref: string, caller: Caller, outcome: Outcome): Promise<Task>
+  reportOutcome(ref: string, caller: Caller, outcome: ReportOutcomeRequest): Promise<OutcomeResult>
+  answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  writeBrief(ref: string, caller: Caller, text: string): TaskBrief
+  brief(ref: string, caller: Caller): TaskBrief
+  inbox(): InboxItem[]
   setLead(ref: string, lead: TaskLead): Task
   useDefaultModel(ref: string): Promise<Task>
   setupLog(ref: string, repo: string): Promise<string>
+  wake(factoryId?: string): void
   close(): Promise<void>
 }
 
@@ -86,8 +106,10 @@ export function createTasks(options: {
   worktreesDir: string
   logsDir: string
   agents: Agents
+  health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
   linear?: Pick<Linear, 'issueFor'>
+  isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
 }): Tasks {
   const {
@@ -99,12 +121,16 @@ export function createTasks(options: {
     worktreesDir,
     logsDir,
     agents,
+    health,
     attachmentFile,
   } = options
   const starting = new Set<string>()
+  const relaunching = new Set<string>()
+  const interrupted = new Set<string>()
   const advancing = new Set<string>()
   const applying = new Set<string>()
-  const asked = new Set<string>()
+  const asked = new Map<string, string>()
+  const stoppingForBlockers = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -152,7 +178,7 @@ export function createTasks(options: {
   async function slotUse(factoryIds: readonly string[]) {
     const all = store.listTasks()
     const holders = all.flatMap((task) => {
-      const runs = task.runs.filter((r) => r.state === 'working').length
+      const runs = task.runs.filter((r) => r.state === 'working' && r.paused === undefined).length
       const settingUp = task.repos.some((r) => !r.removed && r.setup?.state === 'running')
       const slots = Math.max(runs, settingUp || holds.has(task.id) ? 1 : 0)
       return slots > 0 ? [{ task, runs, settingUp, slots }] : []
@@ -174,13 +200,38 @@ export function createTasks(options: {
     return { use, holders, all }
   }
 
+  const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
+  const ready = () =>
+    runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId))
+
+  function heldReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return store.heldRuns().flatMap((held) => {
+      const task = store.getTask(held.taskId)
+      const agent = task?.lead?.agent ?? held.agent
+      if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
-    const queued = store.queue()
-    if (queued.length === 0) return
-    const { use } = await slotUse(queued.map((q) => q.factoryId))
-    for (const entry of startsNow(store.queue(), use)) {
-      if (!holds.has(entry.id)) begin(entry.id)
+    const held = heldReady()
+    const queued = ready()
+    if (queued.length === 0 && held.length === 0) return
+    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    const heldIds = new Set(held.map((h) => h.id))
+    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
+      if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (!holds.has(entry.id)) begin(entry.id)
     }
+  }
+
+  function runnable<T extends { id: string }>(entries: readonly T[]): T[] {
+    const paused = store.agentPauses()
+    return entries.filter((entry) => {
+      const agent = store.getTask(entry.id)?.lead?.agent
+      return agent === undefined || paused[agent] === undefined
+    })
   }
 
   function pump(): Promise<void> {
@@ -258,7 +309,8 @@ export function createTasks(options: {
     const work = launchQueued(taskId)
       .catch((error: unknown) => {
         if (store.queue().some((q) => q.id === taskId)) {
-          store.moveToBacklog(taskId)
+          if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.waitForBlockers(taskId)
+          else store.moveToBacklog(taskId)
           const message = error instanceof Error ? error.message : String(error)
           store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
         }
@@ -357,15 +409,48 @@ export function createTasks(options: {
   }
 
   function askAboutModel(run: Run): void {
-    if (run.problem !== 'model-unavailable') return void asked.delete(run.id)
+    if (run.problem !== 'model-unavailable') {
+      const id = asked.get(run.id)
+      asked.delete(run.id)
+      if (id !== undefined && store.getComment(id)?.answer === undefined) {
+        store.answerComment(id, {
+          kind: 'answered',
+          at: new Date().toISOString(),
+          text: 'The Task Lead no longer waits on this model.',
+        })
+      }
+      return
+    }
     const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || asked.has(run.id)) return
-    asked.add(run.id)
-    store.postTedComment({
+    const question = store.postComment({
       taskId: task.id,
       kind: 'question',
+      author: { kind: 'ted' },
+      title: `${run.model} isn’t in your plan`,
       body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. TED won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
+      choices: [useDefaultChoice, 'Change setting'],
     })
+    asked.set(run.id, question.id)
+  }
+
+  async function useDefaultModel(ref: string): Promise<Task> {
+    const task = find(ref)
+    const run = liveLead(task)
+    if (run?.problem !== 'model-unavailable' || applying.has(task.id)) {
+      throw new RequestError(409, `${task.displayId}’s Task Lead isn’t waiting on its model`)
+    }
+    applying.add(task.id)
+    try {
+      await restartLead(run, {
+        ...(run.model !== undefined && { model: run.model }),
+        ...(run.effort !== undefined && { effort: run.effort }),
+        usesDefaultModel: true,
+      })
+    } finally {
+      applying.delete(task.id)
+    }
+    return publicTask(task.id)
   }
 
   let closed = false
@@ -482,24 +567,42 @@ export function createTasks(options: {
     repo: TaskRepo,
     env: Record<string, string>,
     setupReport?: string,
+    { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
   ): Promise<void> {
-    const prompt = await taskLeadPrompt(
-      task,
-      resolution.workflow,
-      task.stage as AgentStageId,
-      attachmentFile,
-      setupReport,
-    )
     const lead = task.lead ?? leadFrom(resolution.workflow.settings)
+    const agent = lead.agent
+    if (!(await health.ready(agent))) {
+      store.holdTaskRun({
+        taskId: task.id,
+        agent,
+        ...(resumeSession !== undefined && { sessionId: resumeSession }),
+      })
+      return
+    }
+    const prompt =
+      resumeSession === undefined
+        ? [
+            await taskLeadPrompt(
+              task,
+              resolution.workflow,
+              task.stage as AgentStageId,
+              attachmentFile,
+              setupReport,
+            ),
+            ...(pickUp !== undefined ? [pickUp] : []),
+          ].join('\n\n')
+        : continueMessage
     await runs.start({
-      agent: lead.agent,
+      agent,
       prompt,
       cwd: repo.worktree,
       taskId: task.id,
       env: { ...env, TED_TASK: task.displayId },
+      ...(resumeSession !== undefined && { resume: resumeSession }),
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
     })
+    store.releaseTaskRun(task.id)
   }
 
   async function setUpAndLaunch(
@@ -555,7 +658,18 @@ export function createTasks(options: {
   async function resumeTask(taskId: string): Promise<void> {
     const task = find(taskId)
     const repo = task.repos.find((r) => !r.removed)
-    if (!repo || task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return
+    const held = store.heldRuns().find((h) => h.taskId === taskId)
+    const leadLive = task.runs.some((r) => r.id === task.leadRunId)
+    if (!repo || task.stage === 'backlog' || task.stage === 'done') {
+      if (held) store.releaseTaskRun(taskId)
+      return
+    }
+    if (held ? leadLive : task.leadRunId) return
+    if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
+      const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
+      const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
+      return launch(task, resolution, repo, env, undefined, { resumeSession: held.sessionId })
+    }
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, { fetch: false })
     const recorded = store.recordedSetup(task.id, repo.name)
@@ -587,29 +701,152 @@ export function createTasks(options: {
     return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
   }
 
+  function publicTask(id: string): Task {
+    const task = store.listTasks().find((t) => t.id === id)
+    if (!task) throw new RequestError(404, `no Task ${id}`)
+    return task
+  }
+
+  async function holding<T>(task: Task, work: () => Promise<T>): Promise<T> {
+    if (advancing.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} is already moving; try again`)
+    }
+    advancing.add(task.id)
+    try {
+      return await work()
+    } finally {
+      advancing.delete(task.id)
+    }
+  }
+
+  async function deliver(task: Task, text: string): Promise<void> {
+    const runId = find(task.id).leadRunId
+    const run = runId === undefined ? undefined : store.getRun(runId)
+    if (!run || run.state === 'finished') return
+    await runs.send(run.id, text)
+  }
+
+  async function move(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    next: AgentStageId | 'done',
+    message: string | undefined,
+  ): Promise<Task> {
+    const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (next === 'done') {
+      inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+    } else if (message !== undefined) {
+      await deliver(task, message)
+    }
+    return moved
+  }
+
+  function answerRequest(task: Task, comment: Comment, answer: CommentAnswer): Comment {
+    const answered = store.answerComment(comment.id, answer)
+    if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
+    return answered
+  }
+
+  function visitStart(task: Task): string {
+    return store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
+  }
+
+  function lastChangesRequested(task: Task): string {
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .flatMap((c) =>
+        c.gate && c.stage === task.stage && c.answer?.kind === 'changes-requested'
+          ? [c.answer.at]
+          : [],
+      )
+      .filter((at) => at >= since)
+      .reduce(latest, '')
+  }
+
+  function openGateRequest(task: Task): Comment | undefined {
+    return store
+      .listComments(task.id)
+      .find((c) => c.gate && c.stage === task.stage && c.answer === undefined)
+  }
+
+  async function sendBack(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    from: AgentStageId,
+    request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
+  ): Promise<OutcomeResult> {
+    const { workflow } = resolution
+    const to = request.to
+    const findings = request.findings.trim()
+    if (!workflow.stages.includes(to)) {
+      throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
+    }
+    if (workflow.order.indexOf(to) >= workflow.order.indexOf(from)) {
+      throw new RequestError(
+        409,
+        `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
+      )
+    }
+    const counted = lastChangesRequested(task) === ''
+    const limit = workflow.settings.stages[from]?.max_back
+    const count = store.sendBackCount(task.id, from)
+    if (counted && limit !== undefined && count >= limit) {
+      const times = `${count} ${count === 1 ? 'time' : 'times'}`
+      const request = store.postComment({
+        taskId: task.id,
+        kind: 'question',
+        author: { kind: 'ted' },
+        title: `${stageTitle(from)} wants to send this Task back to ${stageTitle(to)} again`,
+        body: `${stageTitle(from)} has sent this Task back ${times}, its limit (max_back: ${limit}). Its Findings this time:\n\n${findings}`,
+        choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
+      })
+      return {
+        task: publicTask(task.id),
+        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+        request,
+      }
+    }
+    store.recordSendBack({ taskId: task.id, from, to, findings, counted })
+    if (from === 'review') store.resetSendBacks(task.id, 'validate')
+    const moved = await move(task, resolution, to, backStageMessage(workflow, to, from, findings))
+    return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
+  }
+
   async function start(ref: string): Promise<Task> {
     const task = find(ref)
     const factory = factoryOf(task)
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
+    if (unmergedBlockers(task.id).length > 0) return store.setStartRequested(task.id, true)
     starting.add(task.id)
     try {
-      await ensureClone({ banners, reposDir }, factory)
+      if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await resolveWorkflow(factory, { fetch: false })
+      if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       store.queueTask(task.id, resolution.workflow.next('backlog'))
     } finally {
       starting.delete(task.id)
     }
     await pump()
     await beginning.get(task.id)
-    const { worktree: _, startRequested: __, ...current } = find(task.id)
-    return current
+    return publicTask(task.id)
   }
 
   async function launchQueued(taskId: string): Promise<void> {
     const task = find(taskId)
     const factory = factoryOf(task)
+    const repo = task.repos.find((r) => !r.removed)
+    if (repo) {
+      const resolution = await resolveWorkflow(factory, { fetch: false })
+      const env =
+        store.recordedSetup(task.id, repo.name)?.env ??
+        primaryRepoWorktree(resolution.workflow, factory).env
+      await launch(find(task.id), resolution, repo, env, undefined, { pickUp: pickUpNote(task) })
+      store.dequeue(task.id)
+      return
+    }
     {
       const clone = await ensureClone({ banners, reposDir }, factory)
       await git.fetch(clone)
@@ -664,13 +901,183 @@ export function createTasks(options: {
     }
   }
 
+  function pickUpNote(task: StoredTask): string {
+    const merged = store
+      .blockers(task.id)
+      .filter((b) => b.merged)
+      .map((b) => b.displayId)
+    const brief = store.latestBrief(task.id)
+    const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
+    const notes = store
+      .listComments(task.id)
+      .filter((c) => !brief || c.createdAt > brief.createdAt)
+      .map(
+        (c) => `- ${authors[c.author.kind]}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`,
+      )
+    return [
+      '# Picking up after a blocker',
+      `This Task waited for ${joinIds(merged)}, which ${merged.length === 1 ? 'has' : 'have'} merged. An earlier Run worked on it in this worktree and stopped to wait. Read the Task brief, the Comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
+      ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
+      ...(notes.length > 0
+        ? [`## ${brief ? 'Comments since the brief' : 'Comments'}\n\n${notes.join('\n')}`]
+        : []),
+    ].join('\n\n')
+  }
+
+  function cycleFrom(blockerId: string, taskId: string): string[] | undefined {
+    const seen = new Set<string>()
+    const walk = (id: string): string[] | undefined => {
+      if (id === taskId) return [id]
+      if (seen.has(id)) return undefined
+      seen.add(id)
+      for (const link of store.blockers(id)) {
+        const rest = walk(link.blockerId)
+        if (rest) return [id, ...rest]
+      }
+      return undefined
+    }
+    return walk(blockerId)
+  }
+
+  function unmergedBlockers(taskId: string) {
+    return store.blockers(taskId).filter((b) => !b.merged)
+  }
+
+  function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
+    return (
+      run.state === 'idle' &&
+      task.stage !== 'backlog' &&
+      task.stage !== 'done' &&
+      unmergedBlockers(task.id).some((b) => b.setByRunId === run.id)
+    )
+  }
+
+  async function stopForBlockers(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    const run = task && liveLead(task)
+    if (!task || !run || stoppingForBlockers.has(taskId) || !shouldStopForBlockers(task, run)) {
+      return
+    }
+    stoppingForBlockers.add(taskId)
+    try {
+      await runs.stop(run.id)
+      store.waitForBlockers(taskId)
+    } finally {
+      stoppingForBlockers.delete(taskId)
+    }
+    wake()
+  }
+
+  function wake(): void {
+    const queued = new Set(store.queue().map((q) => q.id))
+    for (const { id } of store.listTasks()) {
+      const task = store.getTask(id)
+      if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
+      if (unmergedBlockers(id).length > 0) continue
+      if (task.stage === 'backlog' && task.startRequested) {
+        inBackground(`start ${task.displayId}`, async () => {
+          await start(id)
+        })
+      } else if (task.waitsForBlockers && !liveLead(task)) {
+        store.requeueAfterBlockers(id)
+      }
+    }
+  }
+
+  function tellLead(blocker: StoredTask, run: Run): Promise<void> {
+    const id = blocker.displayId
+    return runs.send(
+      run.id,
+      `The human made this Task wait for ${id} (“${blocker.title}”). If this Task can’t go on until ${id} merges, run \`ted task block --by ${id}\`, write the Task brief with \`ted brief write\`, and end your turn: TED stops this Run and starts a fresh one when ${id} merges. If you can carry on, say why with \`ted comment\` and keep working.`,
+    )
+  }
+
+  function relaunch(taskId: string): void {
+    if (relaunching.has(taskId)) return
+    relaunching.add(taskId)
+    const release = hold(taskId)
+    inBackground(`continue ${taskId}`, () =>
+      resume(taskId).finally(() => {
+        relaunching.delete(taskId)
+        release()
+      }),
+    )
+  }
+
+  async function leadStopped(run: Run): Promise<void> {
+    if (run.taskId === undefined) return
+    const task = store.getTask(run.taskId)
+    if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
+      return
+    }
+    const [checked] = await health.check([run.agent])
+    if (checked?.state === 'ready') return
+    const now = store.getTask(task.id)
+    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
+    store.holdTaskRun({
+      taskId: task.id,
+      agent: run.agent,
+      ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
+    })
+  }
+
+  runs.observe({
+    authFailed(run) {
+      if (run.state !== 'finished') interrupted.add(run.id)
+      health.authFailed(run.agent)
+    },
+    finished(run) {
+      interrupted.delete(run.id)
+      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
+    },
+  })
+
+  health.onReady((agent) => {
+    void pump()
+    for (const runId of [...interrupted]) {
+      const run = store.getRun(runId)
+      if (run && run.state !== 'finished' && run.agent !== agent) continue
+      interrupted.delete(runId)
+      if (run && run.state !== 'finished') {
+        runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
+      }
+    }
+  })
+
+  const paused = store.agentPauses()
+  for (const run of store.listRuns()) {
+    if (run.state === 'finished' || paused[run.agent] === undefined) continue
+    const agent = agents.get(run.agent)
+    if (
+      store
+        .conversation(run.id)
+        .slice(-5)
+        .some(({ line }) => agent.authErrorFrom(line))
+    ) {
+      interrupted.add(run.id)
+    }
+  }
+
+  const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
+    if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
+      const taskId = event.run.taskId
+      setImmediate(() => {
+        if (!closed) inBackground('stop a blocked Task Lead', () => stopForBlockers(taskId))
+      })
+    }
+    if (event.type === 'task-updated' && event.task.stage === 'done') {
+      setImmediate(() => {
+        if (!closed) wake()
+      })
+    }
     if (
       event.type === 'run-updated' ||
       event.type === 'task-created' ||
@@ -681,6 +1088,10 @@ export function createTasks(options: {
     }
   })
   void pump()
+  wake()
+  for (const task of store.listTasks()) {
+    inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
+  }
 
   return {
     async create({
@@ -702,7 +1113,7 @@ export function createTasks(options: {
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
-        ? await resolveWorkflow(factory).catch((error: unknown) => {
+        ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
             failure = error
             return undefined
           })
@@ -725,7 +1136,7 @@ export function createTasks(options: {
           failure,
         )
       }
-      if (!resolution || blockers.length > 0) return task
+      if (!resolution || unmergedBlockers(task.id).length > 0) return task
       const hasBacklog = resolution.workflow.stages.includes('backlog')
       return hasBacklog && startNow !== true ? task : start(task.id)
     },
@@ -757,6 +1168,66 @@ export function createTasks(options: {
       return store.moveToBacklog(task.id)
     },
 
+    async block(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      await beginning.get(task.id)?.catch(() => undefined)
+      const blocker = find(by)
+      if (blocker.id === task.id) {
+        throw new RequestError(409, `${task.displayId} can’t block itself`)
+      }
+      if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+      const cycle = cycleFrom(blocker.id, task.id)
+      if (cycle) {
+        const ids = [task.id, ...cycle].map((id) => store.getTask(id)?.displayId ?? id)
+        throw new RequestError(
+          409,
+          `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
+        )
+      }
+      const current = find(task.id)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
+      if (existing && (runId === undefined || existing.setByRunId === runId)) {
+        return publicTask(task.id)
+      }
+      const unmerged = blocker.stage !== 'done'
+      const queued = store.queue().some((q) => q.id === task.id)
+      const midFlow = current.repos.some((r) => !r.removed)
+      const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
+      const updated = store.addBlocker(task.id, blocker.id, {
+        ...(runId !== undefined && { runId }),
+        ...(then !== undefined && { then }),
+      })
+      const run = liveLead(current)
+      if (unmerged && run && caller.kind === 'daemon' && !existing) await tellLead(blocker, run)
+      return updated
+    },
+
+    unblock(ref, caller, by) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const links = store.blockers(task.id)
+      const blocker = by === undefined ? undefined : find(by)
+      if (blocker && !links.some((l) => l.blockerId === blocker.id)) {
+        throw new RequestError(404, `${task.displayId} isn’t blocked by ${blocker.displayId}`)
+      }
+      const wasBlocked = links.some((l) => !l.merged)
+      const runId = caller.kind === 'run' ? caller.runId : undefined
+      for (const link of links) {
+        if (!blocker || link.blockerId === blocker.id) {
+          store.removeBlocker(task.id, link.blockerId, runId)
+        }
+      }
+      const current = find(task.id)
+      if (caller.kind === 'daemon' && wasBlocked && unmergedBlockers(task.id).length === 0) {
+        if (current.stage === 'backlog' && current.startRequested) {
+          store.setStartRequested(task.id, false)
+        } else if (current.waitsForBlockers && !liveLead(current)) {
+          store.requeueAfterBlockers(task.id)
+        }
+      }
+      return publicTask(task.id)
+    },
+
     slots,
 
     subscribe(listener) {
@@ -764,9 +1235,135 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    comment(ref, caller, body) {
+    comment(ref, caller, { body, choices = [] }) {
       const { task, runId } = ownTask(ref, caller)
-      return store.postComment({ taskId: task.id, body, authorRunId: runId })
+      return store.postComment({
+        taskId: task.id,
+        body,
+        author: { kind: 'run', runId },
+        ...(choices.length > 0 && { kind: 'question', choices }),
+      })
+    },
+
+    writeBrief(ref, caller, text) {
+      const { task, runId } = ownTask(ref, caller)
+      if (task.leadRunId !== runId) {
+        throw new RequestError(403, 'only the Task Lead writes the Task brief')
+      }
+      if (!hasBriefHeadings(text)) {
+        throw new RequestError(
+          400,
+          `the Task brief needs these headings, in order: ${briefHeadings.join(', ')}`,
+        )
+      }
+      return store.writeBrief({ taskId: task.id, text, runId })
+    },
+
+    brief(ref, caller) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const brief = store.latestBrief(task.id)
+      if (!brief) throw new RequestError(404, `${task.displayId} has no Task brief yet`)
+      return brief
+    },
+
+    inbox() {
+      const tasks = new Map(store.listTasks().map((t) => [t.id, t]))
+      const rank = (task: Task) => priorities.indexOf(task.priority)
+      return store
+        .listOpenRequests()
+        .flatMap((request) => {
+          const task = tasks.get(request.taskId)
+          return task ? [{ request, task }] : []
+        })
+        .sort(
+          (a, b) =>
+            rank(a.task) - rank(b.task) || a.request.createdAt.localeCompare(b.request.createdAt),
+        )
+    },
+
+    async answer(id, request) {
+      const comment = store.getComment(id)
+      if (!comment) throw new RequestError(404, `no Comment ${id}`)
+      if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
+      const task = find(comment.taskId)
+      const text = request.text?.trim() ?? ''
+      if (comment.gate) {
+        if (request.action === 'request-changes') {
+          if (text === '') throw new RequestError(400, 'Request changes needs your comment')
+        } else if (request.action !== 'approve') {
+          throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
+        }
+      } else if (comment.kind !== 'question') {
+        throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
+      } else if (request.action !== 'answer') {
+        throw new RequestError(400, 'answer a question with a choice or your own words')
+      } else if (request.choice !== undefined && !comment.choices?.includes(request.choice)) {
+        throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
+      } else if (request.choice === undefined && text === '') {
+        throw new RequestError(400, 'pick a choice or write an answer')
+      }
+      return holding(task, async () => {
+        const current = store.getComment(id)
+        if (current?.answer?.kind === 'withdrawn') {
+          throw new RequestError(409, 'this request was withdrawn')
+        }
+        if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+        const at = new Date().toISOString()
+        if (request.action === 'request-changes') {
+          const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
+          await deliver(
+            task,
+            [
+              `The human asked for changes at the ${gateName(comment)}:`,
+              text,
+              `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+            ].join('\n\n'),
+          )
+          return answered
+        }
+        if (request.action === 'approve') {
+          const now = find(task.id)
+          const resolution = await resolveWorkflow(factoryOf(now))
+          const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+          const answered = answerRequest(task, comment, {
+            kind: 'approved',
+            at,
+            ...(text !== '' && { text }),
+          })
+          const approved =
+            text === ''
+              ? `The human approved the ${gateName(comment)}.`
+              : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+          await move(
+            now,
+            resolution,
+            next,
+            next === 'done'
+              ? undefined
+              : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
+          )
+          return answered
+        }
+        const choice = request.choice
+        const aboutModel = [...asked.values()].includes(comment.id)
+        if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
+        const answered = answerRequest(task, comment, {
+          kind: 'answered',
+          at,
+          ...(choice !== undefined && { choice }),
+          ...(text !== '' && { text }),
+        })
+        if (aboutModel) return answered
+        await deliver(
+          task,
+          [
+            `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
+            ...(choice !== undefined ? [choice] : []),
+            ...(text !== '' ? [text] : []),
+          ].join('\n\n'),
+        )
+        return answered
+      })
     },
 
     setActivity(ref, caller, text) {
@@ -774,55 +1371,104 @@ export function createTasks(options: {
       return store.setActivity(task.id, text, runId)
     },
 
-    async reportOutcome(ref, caller, _outcome) {
+    async reportOutcome(ref, caller, outcome) {
       const { task, runId } = ownTask(ref, caller)
       if (task.leadRunId !== runId) {
         throw new RequestError(403, 'only the Task Lead reports outcomes')
       }
-      if (task.stage === 'backlog' || task.stage === 'done' || advancing.has(task.id)) {
+      if (task.stage === 'backlog' || task.stage === 'done') {
         throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
       }
-      advancing.add(task.id)
-      try {
-        const resolution = await resolveWorkflow(factoryOf(task))
-        const next = resolution.workflow.next(task.stage) as AgentStageId | 'done'
-        const moved = store.changeStage(task.id, next, entryFor(resolution, next))
-        if (next === 'done') {
-          inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
-        } else {
-          await runs.send(runId, nextStageMessage(resolution.workflow, next))
+      return holding(task, async () => {
+        const current = find(task.id)
+        const stage = current.stage as AgentStageId
+        if (outcome.outcome === 'ask') {
+          const request = store.postComment({
+            taskId: task.id,
+            kind: 'question',
+            body: outcome.question,
+            author: { kind: 'run', runId },
+            ...(outcome.choices && outcome.choices.length > 0 && { choices: outcome.choices }),
+          })
+          return {
+            task: publicTask(task.id),
+            message: 'Asked the human. TED sends you their answer.',
+            request,
+          }
         }
-        return moved
-      } finally {
-        advancing.delete(task.id)
-      }
+        const resolution = await resolveWorkflow(factoryOf(current))
+        const { workflow } = resolution
+        if (outcome.outcome === 'back') return sendBack(current, resolution, stage, outcome)
+        if (outcome.skip === true) {
+          if (!skippableStages.includes(stage)) {
+            throw new RequestError(
+              409,
+              `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
+            )
+          }
+          const since = visitStart(current)
+          if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
+            throw new RequestError(
+              409,
+              `${stageTitle(stage)} has already posted its Gate request, so it can’t skip itself`,
+            )
+          }
+          store.postComment({
+            taskId: task.id,
+            body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
+              workflow.settings.stages[stage]?.gate === true ? ' Its Gate was skipped too.' : ''
+            }`,
+            author: { kind: 'ted' },
+          })
+        }
+        const gate = workflow.settings.stages[stage]?.gate === true && outcome.skip !== true
+        if (!gate) {
+          const next = workflow.next(stage) as AgentStageId | 'done'
+          const moved = await move(
+            current,
+            resolution,
+            next,
+            next === 'done' ? undefined : nextStageMessage(workflow, next),
+          )
+          return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
+        }
+        const name = `${stageTitle(stage)} Gate`
+        if (openGateRequest(current)) {
+          throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
+        }
+        const brief = store.latestBrief(task.id)
+        const since = latest(visitStart(current), lastChangesRequested(current))
+        if (!brief || brief.createdAt < since) {
+          throw new RequestError(
+            409,
+            `write the Task brief with \`ted brief write\` before passing the ${name}`,
+          )
+        }
+        const request = store.postComment({
+          taskId: task.id,
+          kind: stage === 'design' ? 'review' : 'signoff',
+          title: briefGoal(brief.text) ?? name,
+          body: brief.text,
+          author: { kind: 'run', runId },
+          gate: gateButtons(workflow, stage),
+        })
+        return {
+          task: publicTask(task.id),
+          message: `Waiting for the human at the ${name}. TED sends you their answer.`,
+          request,
+        }
+      })
     },
 
     setLead(ref, lead) {
       const task = store.setTaskLead(find(ref).id, lead)
       inBackground('apply the Task Lead setting', () => applyLead(task.id))
+      const held = store.heldRuns().find((h) => h.taskId === task.id)
+      if (held && held.agent !== lead.agent) void pump()
       return task
     },
 
-    async useDefaultModel(ref) {
-      const task = find(ref)
-      const run = liveLead(task)
-      if (run?.problem !== 'model-unavailable' || applying.has(task.id)) {
-        throw new RequestError(409, `${task.displayId}’s Task Lead isn’t waiting on its model`)
-      }
-      applying.add(task.id)
-      try {
-        await restartLead(run, {
-          ...(run.model !== undefined && { model: run.model }),
-          ...(run.effort !== undefined && { effort: run.effort }),
-          usesDefaultModel: true,
-        })
-      } finally {
-        applying.delete(task.id)
-      }
-      const { worktree: _, ...current } = find(task.id)
-      return current
-    },
+    useDefaultModel,
 
     async setupLog(ref, name) {
       const task = find(ref)
@@ -830,6 +1476,11 @@ export function createTasks(options: {
         throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
       }
       return redactSecrets(await readFile(commandLog(task, 'setup', name), 'utf8').catch(() => ''))
+    },
+
+    wake(factoryId) {
+      if (factoryId !== undefined) caps.delete(factoryId)
+      void pump()
     },
 
     async close() {
@@ -843,6 +1494,58 @@ export function createTasks(options: {
   }
 }
 
+const skippableStages: readonly StageId[] = ['clarify', 'design']
+const useDefaultChoice = 'Use the default model'
+
+function latest(a: string, b: string): string {
+  return a > b ? a : b
+}
+
+function gateName(comment: Comment): string {
+  return `${stageTitle(comment.stage ?? '')} Gate`
+}
+
+function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
+  if (stage === 'merge') return { approveLabel: 'Merge' }
+  if (stage !== 'review') return { approveLabel: 'Approve' }
+  if (!workflow.stages.includes('merge')) {
+    return {
+      approveLabel: 'Approve',
+      caption: 'Merge is off for this Factory. You’ll merge on GitHub.',
+    }
+  }
+  return { approveLabel: workflow.settings.stages.merge?.gate ? 'Approve' : 'Approve and merge' }
+}
+
+const headingLine = /^#{1,6}\s+(.*?)\s*#*\s*$/
+
+function headings(text: string): { title: string; line: number }[] {
+  return text.split('\n').flatMap((line, i) => {
+    const match = headingLine.exec(line.trim())
+    return match?.[1] ? [{ title: match[1].toLowerCase(), line: i }] : []
+  })
+}
+
+function hasBriefHeadings(text: string): boolean {
+  let next = 0
+  for (const { title } of headings(text)) {
+    if (title === briefHeadings[next]?.toLowerCase()) next++
+  }
+  return next === briefHeadings.length
+}
+
+function briefGoal(text: string): string | undefined {
+  const lines = text.split('\n')
+  const found = headings(text)
+  const goal = found.find((h) => h.title === 'goal')
+  if (!goal) return undefined
+  const end = found.find((h) => h.line > goal.line)?.line ?? lines.length
+  return firstLine(lines.slice(goal.line + 1, end).join('\n')) || undefined
+}
+
+const continueMessage =
+  'TED paused you because your agent couldn’t run (signed out, not installed or too old). It can run again now. Carry on where you left off.'
+
 function firstLine(text: string): string {
   return (
     text
@@ -850,6 +1553,11 @@ function firstLine(text: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function joinIds(ids: readonly string[]): string {
+  if (ids.length <= 1) return ids[0] ?? ''
+  return `${ids.slice(0, -1).join(', ')} and ${ids.at(-1)}`
 }
 
 function oneLine(text: string): string {

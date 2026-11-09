@@ -8,8 +8,10 @@
     "./task": "./src/task.ts",
     "./run": "./src/run.ts",
     "./banner": "./src/banner.ts",
+    "./health": "./src/health.ts",
     "./integrations": "./src/integrations.ts",
     "./linear": "./src/linear.ts",
-    "./settings": "./src/settings.ts"
+    "./settings": "./src/settings.ts",
+    "./factory": "./src/factory.ts"
   }
 }

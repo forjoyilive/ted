@@ -11,7 +11,13 @@ import {
 } from '@ted/daemon/launch'
 import {
   type Activity,
+  type AgentKind,
+  type AnswerRequest,
+  agentKinds,
   type Banner,
+  type BannerActionInput,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
@@ -61,6 +67,9 @@ import { dotPng, trayIconPng } from './tray-icon.ts'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listInbox: (client) => client.listInbox(),
+  answerRequest: (client, commentId, answer) =>
+    client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
@@ -71,6 +80,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  blockTask: (client, taskId, by) => client.blockTask(String(taskId), String(by)),
+  unblockTask: (client, taskId, by) => client.unblockTask(String(taskId), String(by)),
   getSlots: (client) => client.getSlots(),
   uploadAttachment: (client, name, mediaType, bytes) => {
     if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
@@ -80,18 +91,21 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     )
   },
   setupLog: (client, taskId, repo) => client.setupLog(String(taskId), String(repo)),
-  locateLocalFolder: async (client, key) => {
+  chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
-      title: 'Locate the local folder',
+      title: String(title),
       properties: ['openDirectory'],
     }
     const chosen = window
       ? await dialog.showOpenDialog(window, options)
       : await dialog.showOpenDialog(options)
     const [folder] = chosen.filePaths
-    if (chosen.canceled || folder === undefined) return undefined
-    return client.setLocalFolder(String(key), folder)
+    return chosen.canceled ? undefined : folder
   },
+  homeFolder: async () => homedir(),
+  checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
+  createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
+  retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
@@ -126,7 +140,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   listBanners: (client) => client.listBanners(),
   dismissBanner: (client, id) => client.dismissBanner(String(id)),
-  actOnBanner: (client, id) => client.actOnBanner(String(id)),
+  actOnBanner: (client, id, input) =>
+    client.actOnBanner(String(id), input as BannerActionInput | undefined),
+  agentHealth: (client) => client.agentHealth(),
+  checkAgentHealth: (client) => client.checkAgentHealth(),
+  fixAgent: (client, agent) => {
+    const kind = agentKinds.find((k) => k === agent)
+    if (!kind) throw new Error('unknown agent')
+    return client.fixAgent(kind satisfies AgentKind)
+  },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
   runFix: (client, request) => client.runFix(request as RunFixRequest),

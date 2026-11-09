@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { constants } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -65,4 +65,23 @@ export async function findBin(name: string, env: NodeJS.ProcessEnv): Promise<str
     if (found) return candidate
   }
   return undefined
+}
+
+export function findBinSync(name: string, env: NodeJS.ProcessEnv): string | undefined {
+  if (name.includes('/')) return isExecutableFile(name) ? path.resolve(name) : undefined
+  for (const dir of (env.PATH ?? '').split(path.delimiter)) {
+    if (!path.isAbsolute(dir)) continue
+    const candidate = path.join(dir, name)
+    if (isExecutableFile(candidate)) return candidate
+  }
+  return undefined
+}
+
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK)
+    return statSync(file).isFile()
+  } catch {
+    return false
+  }
 }

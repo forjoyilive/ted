@@ -1,20 +1,28 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AgentHealth,
+  AgentKind,
+  AnswerRequest,
   Attachment,
   BackupsSummary,
   Banner,
+  BannerActionInput,
+  CheckRepoRequest,
   Comment,
+  CreateFactoryRequest,
   CreateTaskRequest,
   DaemonEvent,
   DataStatus,
   Diagnostics,
   Factory,
+  InboxItem,
   IntegrationsHealth,
   LinearLookup,
   LinearStatus,
   LogText,
   MachineSettings,
   Profile,
+  RepoCheck,
   RestoreBackupResult,
   Run,
   RunFixRequest,
@@ -47,6 +55,9 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  answerRequest: (commentId: string, answer: AnswerRequest) =>
+    window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
@@ -59,6 +70,10 @@ export const ted = {
     window.ted.request('createTask', input) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  blockTask: (taskId: string, by: string) =>
+    window.ted.request('blockTask', taskId, by) as Promise<Task>,
+  unblockTask: (taskId: string, by: string) =>
+    window.ted.request('unblockTask', taskId, by) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
@@ -66,8 +81,15 @@ export const ted = {
     window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
-  locateLocalFolder: (key: string) =>
-    window.ted.request('locateLocalFolder', key) as Promise<Factory | undefined>,
+  chooseFolder: (title: string) =>
+    window.ted.request('chooseFolder', title) as Promise<string | undefined>,
+  homeFolder: () => window.ted.request('homeFolder') as Promise<string>,
+  checkRepo: (request: CheckRepoRequest) =>
+    window.ted.request('checkRepo', request) as Promise<RepoCheck>,
+  createFactory: (request: CreateFactoryRequest) =>
+    window.ted.request('createFactory', request) as Promise<Factory>,
+  retryClone: (factoryId: string) =>
+    window.ted.request('retryClone', factoryId) as Promise<Factory>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
@@ -89,7 +111,11 @@ export const ted = {
   showTedFolder: () => window.ted.request('showTedFolder') as Promise<void>,
   listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
-  actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
+  actOnBanner: (id: string, input?: BannerActionInput) =>
+    window.ted.request('actOnBanner', id, input) as Promise<void>,
+  agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
+  checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
+  fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
@@ -105,4 +131,9 @@ export const ted = {
   lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
   openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
+}
+
+export function readableError(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message : String(failure)
+  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
 }

@@ -6,6 +6,9 @@ import { createAttachments } from './attachments.ts'
 import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
 import { ensureClone } from './factories.ts'
+import { cloneFailedProblem, createFactories } from './factory-setup.ts'
+import { createAgentHealth } from './health/agent-health.ts'
+import { createEnvironment } from './health/environment.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
@@ -14,7 +17,7 @@ import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { listen } from './server.ts'
-import { createTasks } from './tasks/tasks.ts'
+import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import { createWorkflows } from './workflow/workflows.ts'
 
@@ -26,6 +29,9 @@ export interface DaemonOptions {
   idleExit?: { afterMs: number; onIdle: () => void }
   keepaliveMs?: number
   onDataStatus?: (status: DataStatus) => void
+  checkAgentsOnStart?: boolean
+  healthIntervalMs?: number
+  fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   linear?: { apiUrl?: string; keyring?: Keyring }
   onShutdown?: () => void
@@ -60,30 +66,48 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     lock.release()
     throw error
   })
+  const given = options.integrations ?? {}
+  const environment = createEnvironment({ loginShell: given.loginShell ?? false })
+  const environmentRead = environment.reload()
   const agents = createAgents({
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
+    env: environment.current,
   })
+  const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
   const attachments = createAttachments(paths.attachments)
   const data = createData({
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     async startServices(store, emit) {
+      await environmentRead
       const runs = await startRunManager({
         home: paths.home,
         store,
         agents,
         tokens: runTokens,
+        env: environment.current,
         ...(idle && { idle }),
       })
       const banners = createBanners({ store })
-      const given = options.integrations ?? {}
+      const health = createAgentHealth({
+        agents,
+        environment,
+        store,
+        banners,
+        home: paths.home,
+        runEnv: () => runs.environment(),
+        openTerminal,
+        emit,
+        ...(options.healthIntervalMs !== undefined && { intervalMs: options.healthIntervalMs }),
+        ...(options.fixPollMs !== undefined && { fixPollMs: options.fixPollMs }),
+      })
       const integrations = createIntegrations({
         store,
         banners,
         emit,
-        openTerminal: given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp }),
+        openTerminal,
         loginShell: given.loginShell ?? false,
         ...(given.ghBin !== undefined && { ghBin: given.ghBin }),
         ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
@@ -97,11 +121,27 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         reposDir: paths.repos,
       })
-      banners.onAction('clone-failed', async ({ factoryId }) => {
+      let started: Tasks | undefined
+      const factories = createFactories({
+        store,
+        banners,
+        gh: integrations.gh,
+        workflows,
+        reposDir: paths.repos,
+        emit,
+        login: () =>
+          integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
+        onCloned: (factory) => started?.wake(factory.id),
+        ...(idle && { idle }),
+      })
+      banners.onAction(cloneFailedProblem, async ({ factoryId }) => {
         const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
-        if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+        if (!factory) return
+        if (factory.clonedAt === undefined) await factories.retry(factory.id)
+        else await ensureClone({ banners, reposDir: paths.repos }, factory)
       })
       for (const factory of store.listFactories()) {
+        if (factory.clonedAt === undefined) continue
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       const tasks = createTasks({
@@ -112,19 +152,30 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         worktreesDir: paths.worktrees,
         agents,
+        health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
         logsDir: paths.logs,
+        isCloned: (factoryId) => factories.isCloned(factoryId),
         ...(idle && { idle }),
       })
+      started = tasks
+      factories.start()
+      if (options.checkAgentsOnStart) {
+        health.check().catch((error: unknown) => console.error('agent health check failed:', error))
+      }
       return {
         runs,
         tasks,
         banners,
         workflows,
+        health,
         integrations,
+        factories,
         async close() {
+          health.close()
           integrations.close()
+          await factories.close()
           await tasks.close()
           await runs.close()
         },

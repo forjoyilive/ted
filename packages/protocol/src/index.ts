@@ -8,6 +8,7 @@ export {
 export {
   type Banner,
   type BannerAction,
+  type BannerActionInput,
   type BannerPlace,
   type BannerRef,
   type BannerSeverity,
@@ -43,7 +44,37 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export type { DaemonEvent } from './events.ts'
-export type { AddFactoryRequest, Factory, SetLocalFolderRequest } from './factory.ts'
+export {
+  type AddFactoryRequest,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
+  type Factory,
+  type FactoryRepo,
+  keyProblem,
+  type LocalFolder,
+  type NewFactoryRepo,
+  type RepoCheck,
+  type RepoCloneState,
+  type RepoFix,
+  type RepoProblem,
+  type RepoProblemKind,
+  type RepoSetup,
+  type RepoSource,
+  repoNamePattern,
+  type SetLocalFolderRequest,
+  suggestFactoryName,
+  suggestKey,
+  suggestRepoName,
+} from './factory.ts'
+export {
+  type AgentHealth,
+  type AgentHealthState,
+  agentDisplayNames,
+  agentHealthStates,
+  agentProblem,
+  pausedReason,
+  runsPaused,
+} from './health.ts'
 export {
   type FixCommand,
   type GitHealth,
@@ -97,17 +128,26 @@ export {
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export {
   type AgentStageId,
+  type AnswerRequest,
   type Attachment,
   agentStageIds,
+  type BlockTaskRequest,
+  briefHeadings,
   type ClarifyDepth,
   type Comment,
+  type CommentAnswer,
+  type CommentAuthor,
+  type CommentKind,
   type CopySkip,
   type CreateTaskRequest,
   clarifyDepths,
+  commentKinds,
   type Effort,
   efforts,
   type GitHubWait,
+  type InboxItem,
   type Outcome,
+  type OutcomeResult,
   type PostCommentRequest,
   type Priority,
   priorities,
@@ -116,6 +156,7 @@ export {
   type SetTaskLeadRequest,
   type StageId,
   type Task,
+  type TaskBrief,
   type TaskDefaults,
   type TaskLead,
   type TaskMarker,
@@ -126,6 +167,7 @@ export {
   type TrackStage,
   type TrackState,
   type WorktreeCommandOutcome,
+  type WriteBriefRequest,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

@@ -16,6 +16,9 @@ import {
   bannerOrder,
   type ClarifyDepth,
   type Comment,
+  type CommentAnswer,
+  type CommentAuthor,
+  type CommentKind,
   type ConversationEntry,
   type CopySkip,
   type DaemonEvent,
@@ -32,6 +35,7 @@ import {
   type StageEntry,
   type StageId,
   type Task,
+  type TaskBrief,
   type TaskLead,
   type TaskRepo,
   type TaskSource,
@@ -44,19 +48,25 @@ import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../tasks/
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
+  agentPauses,
   banners,
   comments,
   conversationEntries,
   events,
   factories,
+  factoryRepos,
+  heldRuns,
   localFolders,
   machineSettings,
   machineSettingValues,
   runs,
   schema,
+  sendBackResets,
+  sendBacks,
   stageEntries,
   taskAttachments,
   taskBlockers,
+  taskBriefs,
   taskQueue,
   taskRepos,
   taskSources,
@@ -80,14 +90,49 @@ export interface RunFlags {
   usesDefaultModel?: boolean
 }
 
-export interface StoredFactory extends Factory {
+export interface StoredFactoryRepo {
+  repo: string
+  name: string
   cloneUrl: string
+}
+
+export interface StoredFactory extends Omit<Factory, 'repos' | 'cloned' | 'setup' | 'localFolder'> {
+  cloneUrl: string
+  repos: StoredFactoryRepo[]
+  clonedAt?: string
+}
+
+export function basicFactory({ cloneUrl: _, clonedAt, repos, ...factory }: StoredFactory): Factory {
+  return {
+    ...factory,
+    repos: repos.map(({ repo, name }) => ({ repo, name })),
+    cloned: clonedAt !== undefined,
+  }
+}
+
+export interface NewFactory {
+  key: string
+  name: string
+  repos: StoredFactoryRepo[]
+  defaultBranch: string
+  showTutorial: boolean
 }
 
 export interface StoredTask extends Task {
   worktree?: string
   startRequested: boolean
+  waitsForBlockers: boolean
 }
+
+export interface BlockerLink {
+  blockerId: string
+  displayId: string
+  merged: boolean
+  setByRunId?: string
+  at: string
+}
+
+export type AfterBlocking = 'backlog' | 'wait'
 
 export interface NewTask {
   title: string
@@ -136,8 +181,28 @@ export interface AcceptedLayer {
   acceptedAt: string
 }
 
+export interface NewComment {
+  taskId: string
+  body: string
+  author: CommentAuthor
+  kind?: CommentKind
+  title?: string
+  choices?: string[]
+  gate?: NonNullable<Comment['gate']>
+}
+
+export interface HeldRun {
+  taskId: string
+  agent: AgentKind
+  sessionId?: string
+}
+
 export interface TedStore {
-  addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
+  addFactory(
+    input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
+  ): StoredFactory
+  createFactory(input: NewFactory): StoredFactory
+  factoryCloned(factoryId: string): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
   createTask(input: NewTask): Promise<Task>
@@ -168,15 +233,39 @@ export interface TedStore {
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
   queue(): QueuedTask[]
+  dequeue(taskId: string): Task
+  blockers(taskId: string): BlockerLink[]
+  addBlocker(
+    taskId: string,
+    blockerId: string,
+    options?: { runId?: string; then?: AfterBlocking },
+  ): Task
+  removeBlocker(taskId: string, blockerId: string, runId?: string): Task
+  setStartRequested(taskId: string, startRequested: boolean): Task
+  waitForBlockers(taskId: string): Task
+  requeueAfterBlockers(taskId: string): Task
   changeStage(taskId: string, stage: StageId, entry?: NewStageEntry): Task
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setActivity(taskId: string, text: string, runId?: string): Task
-  postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
-  postTedComment(input: { taskId: string; kind: Comment['kind']; body: string }): Comment
+  postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  getComment(id: string): Comment | undefined
+  answerComment(id: string, answer: CommentAnswer): Comment
+  listOpenRequests(): Comment[]
+  writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
+  latestBrief(taskId: string): TaskBrief | undefined
+  recordSendBack(input: {
+    taskId: string
+    from: StageId
+    to: StageId
+    findings: string
+    counted: boolean
+  }): void
+  resetSendBacks(taskId: string, stage: StageId): void
+  sendBackCount(taskId: string, stage: StageId): number
   subscribe(listener: (event: DaemonEvent) => void): () => void
   startRun(input: {
     id: string
@@ -202,6 +291,12 @@ export interface TedStore {
   clearBanner(id: string): void
   getBanner(id: string): Banner | undefined
   listBanners(): Banner[]
+  pauseAgent(agent: AgentKind, reason: string | undefined): void
+  agentPauses(): Partial<Record<AgentKind, string>>
+  holdTaskRun(held: HeldRun): void
+  releaseTaskRun(taskId: string): void
+  heldRuns(): HeldRun[]
+  pausedRunCount(agent: AgentKind): number
   exportEventlog(): { fileName: string; data: Uint8Array }
   close(): Promise<void>
 }
@@ -243,7 +338,22 @@ export async function openStore({
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
-  const listFactories = (): StoredFactory[] => [...store.query(allFactories)]
+  const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
+  const listFactories = (): StoredFactory[] => {
+    const repos = store.query(allFactoryRepos)
+    return store.query(allFactories).map(({ clonedAt, ...row }) => ({
+      ...row,
+      repos: repos
+        .filter((r) => r.factoryId === row.id)
+        .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
+      ...(clonedAt !== null && { clonedAt }),
+    }))
+  }
+  const requireFactory = (id: string) => {
+    const found = listFactories().find((f) => f.id === id)
+    if (!found) throw new Error(`no Factory ${id}`)
+    return found
+  }
   const factoryKey = (factoryId: string) =>
     factoryId === placeholderFactory.id
       ? placeholderFactory.key
@@ -304,10 +414,22 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
-  const blockersOf = (taskId: string) =>
-    store
-      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
-      .map((row) => row.blockerId)
+  const blockerRows = (taskId: string) =>
+    store.query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+
+  const blockersOf = (taskId: string) => blockerRows(taskId).map((row) => row.blockerId)
+
+  const blockerLinks = (taskId: string): BlockerLink[] =>
+    blockerRows(taskId).map((row) => {
+      const blocker = taskRow(row.blockerId)
+      return {
+        blockerId: row.blockerId,
+        displayId: blocker ? `${factoryKey(blocker.factoryId)}-${blocker.number}` : row.blockerId,
+        merged: blocker?.stage === 'done',
+        ...(row.setByRunId !== null && { setByRunId: row.setByRunId }),
+        at: row.at,
+      }
+    })
 
   const attachmentsOf = (taskId: string): Attachment[] =>
     store
@@ -334,6 +456,11 @@ export async function openStore({
   const entryRows = (taskId: string) =>
     store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
 
+  const pauses = (): Partial<Record<AgentKind, string>> =>
+    Object.fromEntries(store.query(queryDb(agentPauses)).map((row) => [row.agent, row.reason]))
+
+  const heldRow = (taskId: string) => store.query(queryDb(heldRuns.where({ taskId }))).at(0)
+
   const toTask = ({
     branch,
     worktree,
@@ -342,6 +469,7 @@ export async function openStore({
     leadAgent,
     leadModel,
     leadEffort,
+    waitsForBlockers,
     ...row
   }: typeof tasks.Type): StoredTask => {
     const stage = row.stage as StageId
@@ -357,11 +485,19 @@ export async function openStore({
         ? [`${factoryKey(blocker.factoryId)}-${blocker.number}`]
         : []
     })
+    const paused = pauses()
+    const held = heldRow(row.id)
     const place = queue().findIndex((q) => q.id === row.id) + 1
+    const pausedReason =
+      (held && paused[held.agent as AgentKind]) ??
+      live.map((r) => paused[r.agent as AgentKind]).find((reason) => reason !== undefined) ??
+      (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const facts: TaskFacts = {
       stage,
       ...(place > 0 && { queue: { place } }),
       runs: live.map((r) => r.state as RunState),
+      openRequests: openRequestRows(row.id).length,
+      ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
@@ -381,6 +517,7 @@ export async function openStore({
         },
       }),
       blockedBy,
+      waitsForBlockers,
       repos,
       attachments: attachmentsOf(row.id),
       ...(source && { source }),
@@ -395,11 +532,24 @@ export async function openStore({
       track: track(stage, entries),
       runs: live
         .sort((a, b) => Number(b.id === lead?.id) - Number(a.id === lead?.id))
-        .map((r) => ({ id: r.id, agent: r.agent as AgentKind, state: r.state as RunState })),
+        .map((r) => {
+          const reason = paused[r.agent as AgentKind]
+          return {
+            id: r.id,
+            agent: r.agent as AgentKind,
+            state: r.state as RunState,
+            ...(reason !== undefined && { paused: reason }),
+          }
+        }),
     }
   }
 
-  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
+  const toPublicTask = ({
+    worktree: _,
+    startRequested: __,
+    waitsForBlockers: ___,
+    ...task
+  }: StoredTask): Task => task
 
   const toRun = ({
     readOffset: _,
@@ -422,11 +572,48 @@ export async function openStore({
     ...(taskId !== null && { taskId }),
   })
 
-  const toComment = ({ authorRunId, ...row }: typeof comments.Type): Comment => ({
+  const toComment = ({
+    authorKind,
+    authorRunId,
+    stage,
+    title,
+    choices,
+    gate,
+    answer,
+    ...row
+  }: typeof comments.Type): Comment => ({
     ...row,
-    kind: row.kind as Comment['kind'],
-    author: authorRunId === null ? { kind: 'ted' } : { kind: 'run', runId: authorRunId },
+    kind: row.kind as CommentKind,
+    author:
+      authorKind === 'run' && authorRunId !== null
+        ? { kind: 'run', runId: authorRunId }
+        : { kind: authorKind === 'ted' ? 'ted' : 'human' },
+    ...(stage !== null && { stage: stage as StageId }),
+    ...(title !== null && { title }),
+    ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+    ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
+    ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
   })
+
+  const openRequestRows = (taskId?: string) =>
+    store
+      .query(
+        queryDb(
+          (taskId === undefined ? comments : comments.where({ taskId })).orderBy(
+            'createdAt',
+            'asc',
+          ),
+        ),
+      )
+      .filter((row) => row.kind !== 'note' && row.answer === null)
+
+  const toBrief = ({ runId, stage, id: _, ...row }: typeof taskBriefs.Type): TaskBrief => ({
+    ...row,
+    stage: stage as StageId,
+    ...(runId !== null && { runId }),
+  })
+  const briefRows = (taskId: string) =>
+    store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
     events.taskStageEnteredV2({
@@ -461,6 +648,21 @@ export async function openStore({
     for (const listener of listeners) listener(event)
   }
 
+  const getComment = (id: string) => {
+    const row = store.query(queryDb(comments.where({ id }))).at(0)
+    return row && toComment(row)
+  }
+  const requireComment = (id: string) => {
+    const comment = getComment(id)
+    if (!comment) throw new Error(`no Comment ${id}`)
+    return comment
+  }
+  const emitComment = (id: string) => {
+    const comment = requireComment(id)
+    emit({ type: 'comment-updated', comment })
+    return comment
+  }
+
   const updatedTask = (taskId: string): Task => {
     const row = taskRow(taskId)
     if (!row) throw new Error(`no Task ${taskId}`)
@@ -489,14 +691,16 @@ export async function openStore({
 
   const activity = (): Activity => {
     const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    const held = store.query(queryDb(heldRuns)).length
     return {
       waitingOnYou: active.filter((run) => run.state === 'waiting').length,
       runs: {
         working: active.filter((run) => run.state === 'working').length,
-        active: active.length,
+        active: active.length + held,
         queued: 0,
       },
       automationsOn: 0,
+      factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
     }
   }
   let lastActivity = activity()
@@ -532,9 +736,24 @@ export async function openStore({
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       store.commit(events.factoryAdded(row))
-      const { cloneUrl: _, ...factory } = row
-      emit({ type: 'factory-added', factory })
-      return row
+      const added = requireFactory(row.id)
+      emit({ type: 'factory-added', factory: basicFactory(added) })
+      return added
+    },
+    createFactory({ repos, ...input }) {
+      const id = randomUUID()
+      store.commit(
+        events.factoryAddedV2({ ...input, id, repos, createdAt: new Date().toISOString() }),
+      )
+      const added = requireFactory(id)
+      emit({ type: 'factory-added', factory: basicFactory(added) })
+      noteActivity()
+      return added
+    },
+    factoryCloned(factoryId) {
+      store.commit(events.factoryCloned({ factoryId, at: new Date().toISOString() }))
+      noteActivity()
+      return requireFactory(factoryId)
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
@@ -569,7 +788,9 @@ export async function openStore({
           startRequested,
           createdAt: at,
         }),
-        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...blockedBy.map((blockerId) =>
+          events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
+        ),
         ...attachments.map((attachment) =>
           events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
         ),
@@ -625,6 +846,59 @@ export async function openStore({
       return task
     },
     queue,
+    dequeue(taskId) {
+      store.commit(events.taskDequeued({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    blockers: blockerLinks,
+    addBlocker(taskId, blockerId, { runId, then } = {}) {
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskBlockerAddedV2({ taskId, blockerId, runId: runId ?? null, at }),
+        ...(then === 'backlog'
+          ? [
+              events.taskMovedToBacklog({ taskId, at }),
+              events.taskStartRequestChanged({ taskId, startRequested: true, at }),
+            ]
+          : []),
+        ...(then === 'wait' ? [events.taskWaitingForBlockers({ taskId, at })] : []),
+      )
+      const task = updatedTask(taskId)
+      if (then !== undefined) updatedQueue(taskId)
+      return task
+    },
+    removeBlocker(taskId, blockerId, runId) {
+      store.commit(
+        events.taskBlockerRemoved({
+          taskId,
+          blockerId,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    setStartRequested(taskId, startRequested) {
+      store.commit(
+        events.taskStartRequestChanged({ taskId, startRequested, at: new Date().toISOString() }),
+      )
+      return updatedTask(taskId)
+    },
+    waitForBlockers(taskId) {
+      store.commit(events.taskWaitingForBlockers({ taskId, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    requeueAfterBlockers(taskId) {
+      const rank = Math.max(0, ...queue().map((q) => q.rank)) + 1
+      store.commit(events.taskRequeuedAfterBlockers({ taskId, rank, at: new Date().toISOString() }))
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
     worktreeSetupStarted(taskId, name, { command, timeoutMs, env }) {
       store.commit(
         events.taskWorktreeSetupStarted({
@@ -678,10 +952,18 @@ export async function openStore({
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
+      const withdrawn = openRequestRows(taskId).filter(
+        (row) => row.gate !== null && row.stage !== stage,
+      )
+      const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       store.commit(
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
+        ...withdrawn.map(({ id }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
       )
+      for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (stage === 'done') {
         for (const { taskId: waiting } of store.query(
@@ -738,29 +1020,93 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
-    postTedComment({ taskId, kind, body }) {
-      const row = { id: randomUUID(), taskId, kind, body, createdAt: new Date().toISOString() }
-      store.commit(events.tedCommentPosted(row))
-      const comment = toComment({ ...row, authorRunId: null })
+    postComment({ taskId, body, author, kind = 'note', title, choices, gate }) {
+      const id = randomUUID()
+      store.commit(
+        events.commentPostedV2({
+          id,
+          taskId,
+          kind,
+          body,
+          authorKind: author.kind,
+          authorRunId: author.kind === 'run' ? author.runId : null,
+          stage: taskRow(taskId)?.stage ?? null,
+          title: title ?? null,
+          choices: choices ?? null,
+          gate: gate === undefined ? null : JSON.stringify(gate),
+          createdAt: new Date().toISOString(),
+        }),
+      )
+      const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
-      return comment
-    },
-    postComment({ taskId, body, authorRunId }) {
-      const row = {
-        id: randomUUID(),
-        taskId,
-        kind: 'note',
-        body,
-        authorRunId,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.commentPosted(row))
-      const comment = toComment(row)
-      emit({ type: 'comment-posted', comment })
+      if (kind !== 'note') updatedTask(taskId)
       return comment
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    getComment,
+    answerComment(id, answer) {
+      store.commit(events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
+      const comment = emitComment(id)
+      updatedTask(comment.taskId)
+      return comment
+    },
+    listOpenRequests: () => openRequestRows().map(toComment),
+    writeBrief({ taskId, text, runId }) {
+      const row = taskRow(taskId)
+      if (!row) throw new Error(`no Task ${taskId}`)
+      const version = (briefRows(taskId).at(-1)?.version ?? 0) + 1
+      const id = randomUUID()
+      store.commit(
+        events.taskBriefWritten({
+          id,
+          taskId,
+          version,
+          text,
+          stage: row.stage,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      const brief = briefRows(taskId).at(-1)
+      if (!brief) throw new Error(`no brief for ${taskId}`)
+      return toBrief(brief)
+    },
+    latestBrief(taskId) {
+      const row = briefRows(taskId).at(-1)
+      return row && toBrief(row)
+    },
+    recordSendBack({ taskId, from, to, findings, counted }) {
+      store.commit(
+        events.taskSentBack({
+          id: randomUUID(),
+          taskId,
+          from,
+          to,
+          findings,
+          counted,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    resetSendBacks(taskId, stage) {
+      store.commit(
+        events.sendBackCountReset({
+          id: randomUUID(),
+          taskId,
+          stage,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    sendBackCount(taskId, stage) {
+      const since = store
+        .query(queryDb(sendBackResets.where({ taskId, stage }).orderBy('at', 'asc')))
+        .at(-1)?.at
+      return store
+        .query(queryDb(sendBacks.where({ taskId, fromStage: stage, counted: true })))
+        .filter((row) => since === undefined || row.at > since).length
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -903,6 +1249,59 @@ export async function openStore({
     },
     getBanner,
     listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
+    pauseAgent(agent, reason) {
+      const current = pauses()[agent]
+      if (current === reason) return
+      const at = new Date().toISOString()
+      store.commit(
+        reason === undefined
+          ? events.agentResumed({ agent, at })
+          : events.agentPaused({ agent, reason, at }),
+      )
+      const affected = new Set([
+        ...store
+          .query(queryDb(runs.where({ agent })))
+          .filter((r) => r.state !== 'finished' && r.taskId !== null)
+          .map((r) => r.taskId as string),
+        ...store.query(queryDb(heldRuns.where({ agent }))).map((h) => h.taskId),
+        ...queue()
+          .filter((q) => taskRow(q.id)?.leadAgent === agent)
+          .map((q) => q.id),
+      ])
+      for (const taskId of affected) updatedTask(taskId)
+    },
+    agentPauses: pauses,
+    holdTaskRun({ taskId, agent, sessionId }) {
+      const current = heldRow(taskId)
+      if (current && current.agent === agent && (current.sessionId ?? undefined) === sessionId) {
+        return
+      }
+      store.commit(
+        events.taskRunHeld({
+          taskId,
+          agent,
+          sessionId: sessionId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+      noteActivity()
+    },
+    releaseTaskRun(taskId) {
+      if (!heldRow(taskId)) return
+      store.commit(events.taskRunReleased({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+      noteActivity()
+    },
+    heldRuns: () =>
+      store.query(queryDb(heldRuns.orderBy('at', 'asc'))).map((row) => ({
+        taskId: row.taskId,
+        agent: row.agent as AgentKind,
+        ...(row.sessionId !== null && { sessionId: row.sessionId }),
+      })),
+    pausedRunCount: (agent) =>
+      store.query(queryDb(runs.where({ agent }))).filter((r) => r.state !== 'finished').length +
+      store.query(queryDb(heldRuns.where({ agent }))).length,
     exportEventlog: () => ({
       fileName: eventlogName,
       data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),

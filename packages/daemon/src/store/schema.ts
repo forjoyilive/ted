@@ -10,7 +10,21 @@ export const factories = State.SQLite.table({
     repo: State.SQLite.text(),
     cloneUrl: State.SQLite.text(),
     defaultBranch: State.SQLite.text(),
+    showTutorial: State.SQLite.boolean({ default: false }),
+    clonedAt: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const factoryRepos = State.SQLite.table({
+  name: 'factoryRepos',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    position: State.SQLite.integer(),
+    repo: State.SQLite.text(),
+    name: State.SQLite.text(),
+    cloneUrl: State.SQLite.text(),
   },
 })
 
@@ -28,6 +42,7 @@ export const tasks = State.SQLite.table({
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
     startRequested: State.SQLite.boolean({ default: false }),
+    waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
@@ -52,6 +67,7 @@ export const taskBlockers = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     taskId: State.SQLite.text(),
     blockerId: State.SQLite.text(),
+    setByRunId: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -118,8 +134,50 @@ export const comments = State.SQLite.table({
     taskId: State.SQLite.text(),
     kind: State.SQLite.text(),
     body: State.SQLite.text(),
+    authorKind: State.SQLite.text({ default: 'run' }),
     authorRunId: State.SQLite.text({ nullable: true }),
+    stage: State.SQLite.text({ nullable: true }),
+    title: State.SQLite.text({ nullable: true }),
+    choices: State.SQLite.text({ nullable: true }),
+    gate: State.SQLite.text({ nullable: true }),
+    answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskBriefs = State.SQLite.table({
+  name: 'taskBriefs',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    version: State.SQLite.integer(),
+    text: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    runId: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
+export const sendBacks = State.SQLite.table({
+  name: 'sendBacks',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    fromStage: State.SQLite.text(),
+    toStage: State.SQLite.text(),
+    findings: State.SQLite.text(),
+    counted: State.SQLite.boolean(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const sendBackResets = State.SQLite.table({
+  name: 'sendBackResets',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -209,6 +267,25 @@ export const localFolders = State.SQLite.table({
   },
 })
 
+export const agentPauses = State.SQLite.table({
+  name: 'agentPauses',
+  columns: {
+    agent: State.SQLite.text({ primaryKey: true }),
+    reason: State.SQLite.text(),
+    since: State.SQLite.text(),
+  },
+})
+
+export const heldRuns = State.SQLite.table({
+  name: 'heldRuns',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    agent: State.SQLite.text(),
+    sessionId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 const stageEnteredFields = {
   id: Schema.String,
   taskId: Schema.String,
@@ -241,6 +318,24 @@ export const events = {
       createdAt: Schema.String,
     }),
   }),
+  factoryAddedV2: Events.synced({
+    name: 'v2.FactoryAdded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      key: Schema.String,
+      name: Schema.String,
+      repos: Schema.Array(
+        Schema.Struct({ repo: Schema.String, name: Schema.String, cloneUrl: Schema.String }),
+      ),
+      defaultBranch: Schema.String,
+      showTutorial: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  factoryCloned: Events.synced({
+    name: 'v1.FactoryCloned',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
   taskCreated: Events.synced({
     name: 'v1.TaskCreated',
     schema: Schema.Struct({
@@ -271,6 +366,40 @@ export const events = {
   taskBlockerAdded: Events.synced({
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
+  }),
+  taskBlockerAddedV2: Events.synced({
+    name: 'v2.TaskBlockerAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskBlockerRemoved: Events.synced({
+    name: 'v1.TaskBlockerRemoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      blockerId: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskStartRequestChanged: Events.synced({
+    name: 'v1.TaskStartRequestChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      startRequested: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  taskWaitingForBlockers: Events.synced({
+    name: 'v1.TaskWaitingForBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskRequeuedAfterBlockers: Events.synced({
+    name: 'v1.TaskRequeuedAfterBlockers',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
@@ -335,6 +464,59 @@ export const events = {
       body: Schema.String,
       authorRunId: Schema.String,
       createdAt: Schema.String,
+    }),
+  }),
+  commentPostedV2: Events.synced({
+    name: 'v2.CommentPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      kind: Schema.String,
+      body: Schema.String,
+      authorKind: Schema.String,
+      authorRunId: Schema.NullOr(Schema.String),
+      stage: Schema.NullOr(Schema.String),
+      title: Schema.NullOr(Schema.String),
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  commentAnswered: Events.synced({
+    name: 'v1.CommentAnswered',
+    schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
+  }),
+  taskBriefWritten: Events.synced({
+    name: 'v1.TaskBriefWritten',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      version: Schema.Number,
+      text: Schema.String,
+      stage: Schema.String,
+      runId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskSentBack: Events.synced({
+    name: 'v1.TaskSentBack',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      counted: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  sendBackCountReset: Events.synced({
+    name: 'v1.SendBackCountReset',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      at: Schema.String,
     }),
   }),
   runStarted: Events.synced({
@@ -460,6 +642,27 @@ export const events = {
     name: 'v1.BannerCleared',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
+  agentPaused: Events.synced({
+    name: 'v1.AgentPaused',
+    schema: Schema.Struct({ agent: Schema.String, reason: Schema.String, at: Schema.String }),
+  }),
+  agentResumed: Events.synced({
+    name: 'v1.AgentResumed',
+    schema: Schema.Struct({ agent: Schema.String, at: Schema.String }),
+  }),
+  taskRunHeld: Events.synced({
+    name: 'v1.TaskRunHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskRunReleased: Events.synced({
+    name: 'v1.TaskRunReleased',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -511,13 +714,57 @@ export const events = {
 
 const materializers = counted(
   State.SQLite.materializers(events, {
-    'v1.FactoryAdded': (factory) => factories.insert(factory),
+    'v1.FactoryAdded': (factory) => [
+      factories.insert({ ...factory, clonedAt: factory.createdAt }),
+      factoryRepos.insert({
+        id: `${factory.id}:0`,
+        factoryId: factory.id,
+        position: 0,
+        repo: factory.repo,
+        name: factory.repo.split('/').at(-1) ?? factory.repo,
+        cloneUrl: factory.cloneUrl,
+      }),
+    ],
+    'v2.FactoryAdded': ({ repos, ...factory }) => [
+      factories.insert({
+        ...factory,
+        repo: repos[0]?.repo ?? '',
+        cloneUrl: repos[0]?.cloneUrl ?? '',
+        clonedAt: null,
+      }),
+      ...repos.map((repo, position) =>
+        factoryRepos.insert({
+          ...repo,
+          id: `${factory.id}:${position}`,
+          factoryId: factory.id,
+          position,
+        }),
+      ),
+    ],
+    'v1.FactoryCloned': ({ factoryId, at }) =>
+      factories.update({ clonedAt: at }).where({ id: factoryId }),
     'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
     'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
       taskBlockers
         .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
         .onConflict('id', 'ignore'),
+    'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
+      taskBlockers
+        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
+        .onConflict('id', 'replace'),
+    'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
+      taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+    'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
+      tasks.update({ startRequested }).where({ id: taskId }),
+    'v1.TaskWaitingForBlockers': ({ taskId }) => [
+      taskQueue.delete().where({ taskId }),
+      tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
+    ],
+    'v1.TaskRequeuedAfterBlockers': ({ taskId, rank, at }) => [
+      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+      tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
+    ],
     'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
       taskAttachments
         .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
@@ -535,7 +782,14 @@ const materializers = counted(
       taskQueue.delete().where({ taskId }),
       tasks.update({ stage: 'backlog' }).where({ id: taskId }),
     ],
-    'v1.CommentPosted': (comment) => comments.insert(comment),
+    'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
+    'v2.CommentPosted': ({ choices, ...comment }) =>
+      comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
+    'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
+    'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
+    'v1.TaskSentBack': ({ from, to, ...row }) =>
+      sendBacks.insert({ ...row, fromStage: from, toStage: to }),
+    'v1.SendBackCountReset': (reset) => sendBackResets.insert(reset),
     'v1.RunStarted': (run) =>
       runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
     'v2.RunStarted': (run) => runs.insert({ ...run, state: 'working', readOffset: 0 }),
@@ -550,7 +804,8 @@ const materializers = counted(
       tasks
         .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
         .where({ id: taskId }),
-    'v1.TedCommentPosted': (comment) => comments.insert({ ...comment, authorRunId: null }),
+    'v1.TedCommentPosted': (comment) =>
+      comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
     'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
       runs.update({ readOffset: toOffset }).where({ id: runId }),
       ...entries.map(({ offset, line }) =>
@@ -619,12 +874,18 @@ const materializers = counted(
     'v1.BannerDismissed': ({ id, until }) =>
       banners.update({ dismissedUntil: until }).where({ id }),
     'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
+    'v1.AgentPaused': ({ agent, reason, at }) =>
+      agentPauses.insert({ agent, reason, since: at }).onConflict('agent', 'replace'),
+    'v1.AgentResumed': ({ agent }) => agentPauses.delete().where({ agent }),
+    'v1.TaskRunHeld': (held) => heldRuns.insert(held).onConflict('taskId', 'replace'),
+    'v1.TaskRunReleased': ({ taskId }) => heldRuns.delete().where({ taskId }),
   }),
 )
 
 const state = State.SQLite.makeState({
   tables: {
     factories,
+    factoryRepos,
     tasks,
     taskQueue,
     taskBlockers,
@@ -633,6 +894,9 @@ const state = State.SQLite.makeState({
     runs,
     conversationEntries,
     comments,
+    taskBriefs,
+    sendBacks,
+    sendBackResets,
     stageEntries,
     workflowLayers,
     taskRepos,
@@ -640,6 +904,8 @@ const state = State.SQLite.makeState({
     machineSettings,
     machineSettingValues,
     banners,
+    agentPauses,
+    heldRuns,
   },
   materializers,
 })

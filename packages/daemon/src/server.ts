@@ -6,8 +6,15 @@ import { stripVTControlCharacters } from 'node:util'
 import {
   type AddFactoryRequest,
   type AgentKind,
+  type AgentStageId,
+  type AnswerRequest,
   agentKinds,
+  agentStageIds,
   appearances,
+  type BannerActionInput,
+  type BlockTaskRequest,
+  type CheckRepoRequest,
+  type CreateFactoryRequest,
   type CreateTaskRequest,
   clarifyDepths,
   type DaemonEvent,
@@ -15,10 +22,12 @@ import {
   efforts,
   integrationFixes,
   type MachineSettings,
+  type NewFactoryRepo,
   type PostCommentRequest,
   priorities,
   quitChoices,
   type ReportOutcomeRequest,
+  type RepoSource,
   type RestoreBackupRequest,
   type RunFixRequest,
   type SetActivityRequest,
@@ -26,6 +35,7 @@ import {
   type StartDevRunRequest,
   type TaskLead,
   terminalFontSizes,
+  type WriteBriefRequest,
   workingRunLimits,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
@@ -33,7 +43,7 @@ import type { Attachments } from './attachments.ts'
 import type { Data, Services } from './data.ts'
 import { collectDiagnostics, readDaemonLog, readRunOutput, report } from './diagnostics.ts'
 import { RequestError as HttpError } from './errors.ts'
-import { addFactory, listFactories, setLocalFolder } from './factories.ts'
+import { addFactory } from './factories.ts'
 import type { IdleTimer } from './idle.ts'
 import type { Linear } from './linear/linear.ts'
 import { readProfile } from './profile.ts'
@@ -166,6 +176,25 @@ const routes: Route[] = [
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
   },
   {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/blockers$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<BlockTaskRequest> | null
+      const by = typeof body?.by === 'string' ? body.by.trim() : ''
+      if (by === '') throw new HttpError(400, 'by is required')
+      return [200, await tasks.block(ref, caller, by)]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
+    runToken: true,
+    async handle({ params: [ref = '', by], caller }, { tasks }) {
+      return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
+    },
+  },
+  {
     method: 'GET',
     path: /^\/slots$/,
     handle: async (_, { tasks }) => [200, await tasks.slots()],
@@ -210,16 +239,52 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories$/,
-    handle: async (_, { store }) => [200, await listFactories(store)],
+    handle: async (_, { factories }) => [200, await factories.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CreateFactoryRequest> | null
+      const repos = Array.isArray(body?.repos) ? body.repos.map(newRepo) : []
+      return [
+        201,
+        await factories.create({
+          name: typeof body?.name === 'string' ? body.name : '',
+          key: typeof body?.key === 'string' ? body.key.trim() : '',
+          repos,
+          showTutorial: body?.showTutorial === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/check-repo$/,
+    async handle({ req }, { factories }) {
+      const body = (await readJson(req)) as Partial<CheckRepoRequest> | null
+      return [
+        200,
+        await factories.checkRepo({
+          source: repoSource(body?.source),
+          primary: body?.primary === true,
+        }),
+      ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/retry-clone$/,
+    handle: async ({ params: [id = ''] }, { factories }) => [200, await factories.retry(id)],
   },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/local-folder$/,
-    async handle({ req, params: [key = ''] }, { store }) {
+    async handle({ req, params: [key = ''] }, { factories }) {
       const body = (await readJson(req)) as Partial<SetLocalFolderRequest> | null
       const folder = typeof body?.path === 'string' ? body.path : ''
       if (folder === '') throw new HttpError(400, 'path is required')
-      return [200, await setLocalFolder(store, key, folder)]
+      return [200, await factories.setLocalFolder(key, folder)]
     },
   },
   {
@@ -230,7 +295,37 @@ const routes: Route[] = [
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       if (text === '') throw new HttpError(400, 'body is required')
-      return [201, tasks.comment(ref, caller, text)]
+      const choices = choiceList(body?.choices)
+      return [201, tasks.comment(ref, caller, { body: text, ...(choices && { choices }) })]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/brief$/,
+    runToken: true,
+    handle: async ({ params: [ref = ''], caller }, { tasks }) => [200, tasks.brief(ref, caller)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/brief$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Partial<WriteBriefRequest> | null
+      const text = typeof body?.text === 'string' ? body.text.trim() : ''
+      if (text === '') throw new HttpError(400, 'text is required')
+      return [201, tasks.writeBrief(ref, caller, `${text}\n`)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/inbox$/,
+    handle: async (_, { tasks }) => [200, tasks.inbox()],
+  },
+  {
+    method: 'POST',
+    path: /^\/comments\/([^/]+)\/answer$/,
+    async handle({ req, params: [id = ''] }, { tasks }) {
+      return [200, await tasks.answer(id, answerRequest(await readJson(req)))]
     },
   },
   {
@@ -252,9 +347,8 @@ const routes: Route[] = [
     path: /^\/tasks\/([^/]+)\/outcome$/,
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
-      const body = (await readJson(req)) as Partial<ReportOutcomeRequest> | null
-      if (body?.outcome !== 'advance') throw new HttpError(400, 'outcome must be advance')
-      return [200, await tasks.reportOutcome(ref, caller, body.outcome)]
+      const outcome = outcomeRequest(await readJson(req))
+      return [200, await tasks.reportOutcome(ref, caller, outcome)]
     },
   },
   {
@@ -320,9 +414,30 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ params: [id = ''] }, { banners }) {
-      await banners.act(id)
+    async handle({ req, params: [id = ''] }, { banners }) {
+      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
+      const folder = typeof body?.folder === 'string' ? body.folder : undefined
+      await banners.act(id, folder === undefined ? {} : { folder })
       return [200, {}]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/agents\/health$/,
+    handle: async (_, { health }) => [200, health.list()],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/health\/check$/,
+    handle: async (_, { health }) => [200, await health.check(agentKinds, { reloadEnv: true })],
+  },
+  {
+    method: 'POST',
+    path: /^\/agents\/([^/]+)\/fix$/,
+    async handle({ params: [agent = ''] }, { health }) {
+      const kind = agentKinds.find((k) => k === agent)
+      if (!kind) throw new HttpError(404, 'no such agent')
+      return [200, await health.fix(kind)]
     },
   },
   {
@@ -390,19 +505,18 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/dev\/factories$/,
-    async handle({ req }, { store, reposDir, workflows }) {
+    async handle({ req }, { store, reposDir, workflows, factories }) {
       const body = (await readJson(req)) as Partial<AddFactoryRequest> | null
       const repo = typeof body?.repo === 'string' ? body.repo.trim() : ''
       const key = typeof body?.key === 'string' ? body.key.trim() : ''
       if (repo === '' || key === '') throw new HttpError(400, 'repo and key are required')
       const localFolder = typeof body?.localFolder === 'string' ? body.localFolder : undefined
-      return [
-        201,
-        await addFactory(
-          { store, reposDir, workflows },
-          { repo, key, ...(localFolder !== undefined && { localFolder }) },
-        ),
-      ]
+      const added = await addFactory(
+        { store, reposDir, workflows },
+        { repo, key, ...(localFolder !== undefined && { localFolder }) },
+      )
+      await factories.checkLocalFolders()
+      return [201, await factories.get(added.id)]
     },
   },
   {
@@ -685,6 +799,72 @@ function sourceUrl(text: string | undefined): string | undefined {
   return trimmed
 }
 
+const maxChoices = 6
+const maxChoiceLength = 200
+
+function choiceList(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) {
+    throw new HttpError(400, 'choices must be a list of strings')
+  }
+  const choices = (value as string[]).map(oneLine).filter((c) => c !== '')
+  if (choices.length > maxChoices) {
+    throw new HttpError(400, `a question has at most ${maxChoices} choices`)
+  }
+  if (choices.some((c) => [...c].length > maxChoiceLength)) {
+    throw new HttpError(400, `a choice is limited to ${maxChoiceLength} characters`)
+  }
+  return choices.length > 0 ? choices : undefined
+}
+
+function outcomeRequest(body: unknown): ReportOutcomeRequest {
+  const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  if (request.outcome === 'advance') {
+    return { outcome: 'advance', ...(request.skip === true && { skip: true }) }
+  }
+  if (request.outcome === 'back') {
+    const to = request.to
+    if (typeof to !== 'string' || !agentStageIds.includes(to as AgentStageId)) {
+      throw new HttpError(400, `to must be one of ${agentStageIds.join(', ')}`)
+    }
+    const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
+    if (findings === '') throw new HttpError(400, '`back` needs Findings')
+    return { outcome: 'back', to: to as AgentStageId, findings }
+  }
+  if (request.outcome === 'ask') {
+    const question = typeof request.question === 'string' ? request.question.trim() : ''
+    if (question === '') throw new HttpError(400, 'question is required')
+    const choices = choiceList(request.choices)
+    return { outcome: 'ask', question, ...(choices && { choices }) }
+  }
+  throw new HttpError(400, 'outcome must be advance, back or ask')
+}
+
+function answerRequest(body: unknown): AnswerRequest {
+  const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
+  const text = typeof request.text === 'string' ? request.text : undefined
+  if (request.text !== undefined && text === undefined) {
+    throw new HttpError(400, 'text must be a string')
+  }
+  if (request.action === 'approve') {
+    return { action: 'approve', ...(text !== undefined && { text }) }
+  }
+  if (request.action === 'request-changes') {
+    return { action: 'request-changes', text: text ?? '' }
+  }
+  if (request.action === 'answer') {
+    if (request.choice !== undefined && typeof request.choice !== 'string') {
+      throw new HttpError(400, 'choice must be a string')
+    }
+    return {
+      action: 'answer',
+      ...(typeof request.choice === 'string' && { choice: request.choice }),
+      ...(text !== undefined && { text }),
+    }
+  }
+  throw new HttpError(400, 'action must be approve, request-changes or answer')
+}
+
 function oneLine(text: string): string {
   return [...stripVTControlCharacters(text)]
     .map((c) => (isControl(c) ? ' ' : c))
@@ -744,6 +924,27 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (typeof value !== 'boolean') throw new HttpError(400, 'showTrayIcon must be true or false')
     return value
   },
+}
+
+function repoSource(given: unknown): RepoSource {
+  const source = (typeof given === 'object' && given !== null ? given : {}) as Record<
+    string,
+    unknown
+  >
+  if (typeof source.folder === 'string') return { folder: source.folder }
+  return { remote: typeof source.remote === 'string' ? source.remote : '' }
+}
+
+function newRepo(given: unknown): NewFactoryRepo {
+  const repo = (typeof given === 'object' && given !== null ? given : {}) as Record<string, unknown>
+  return { source: repoSource(repo.source), name: typeof repo.name === 'string' ? repo.name : '' }
+}
+
+async function readOptionalJson(req: http.IncomingMessage): Promise<unknown> {
+  if (req.headers['content-length'] === '0' || req.headers['content-type'] === undefined) {
+    return readJson(req).catch(() => null)
+  }
+  return readJson(req)
 }
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {

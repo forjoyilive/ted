@@ -127,7 +127,11 @@ export function RunIcons({
   return (
     <span className={stacked ? styles.stacked : styles.runs}>
       {shown.map((run) => (
-        <RunIcon key={run.id} agent={run.agent} state={iconStates[run.state]} />
+        <RunIcon
+          key={run.id}
+          agent={run.agent}
+          state={run.paused !== undefined ? 'paused' : iconStates[run.state]}
+        />
       ))}
       {runs.length > shown.length && (
         <span className={styles.more}>+{runs.length - shown.length}</span>

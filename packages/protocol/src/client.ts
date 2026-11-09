@@ -1,5 +1,5 @@
 import type { Activity, OpenAppResult } from './activity.ts'
-import type { Banner } from './banner.ts'
+import type { Banner, BannerActionInput } from './banner.ts'
 import type { DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -9,19 +9,31 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
-import type { AddFactoryRequest, Factory } from './factory.ts'
+import type {
+  AddFactoryRequest,
+  CheckRepoRequest,
+  CreateFactoryRequest,
+  Factory,
+  RepoCheck,
+} from './factory.ts'
+import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
-import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
+import type { AgentKind, Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type {
+  AnswerRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
-  Outcome,
+  InboxItem,
+  OutcomeResult,
+  PostCommentRequest,
+  ReportOutcomeRequest,
   SetTaskLeadRequest,
   Task,
+  TaskBrief,
   TaskDefaults,
 } from './task.ts'
 import type { StageEntry } from './workflow.ts'
@@ -61,6 +73,15 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
   }
 
+  blockTask(ref: string, by: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/blockers`, { by })
+  }
+
+  unblockTask(ref: string, by?: string): Promise<Task> {
+    const route = `/tasks/${encodeURIComponent(ref)}/blockers`
+    return this.#request('DELETE', by === undefined ? route : `${route}/${encodeURIComponent(by)}`)
+  }
+
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
   }
@@ -85,16 +106,33 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
   }
 
-  postComment(ref: string, body: string): Promise<Comment> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
+  postComment(ref: string, comment: string | PostCommentRequest): Promise<Comment> {
+    const body = typeof comment === 'string' ? { body: comment } : comment
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, body)
+  }
+
+  listInbox(): Promise<InboxItem[]> {
+    return this.#request('GET', '/inbox')
+  }
+
+  answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
+  }
+
+  writeBrief(ref: string, text: string): Promise<TaskBrief> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/brief`, { text })
+  }
+
+  getBrief(ref: string): Promise<TaskBrief> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/brief`)
   }
 
   setActivity(ref: string, text: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/activity`, { text })
   }
 
-  reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
+  reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
   }
 
   listFactories(): Promise<Factory[]> {
@@ -165,8 +203,20 @@ export class DaemonClient {
     return this.#request('POST', `/banners/${encodeURIComponent(id)}/dismiss`)
   }
 
-  actOnBanner(id: string): Promise<void> {
-    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`)
+  actOnBanner(id: string, input?: BannerActionInput): Promise<void> {
+    return this.#request('POST', `/banners/${encodeURIComponent(id)}/action`, input)
+  }
+
+  agentHealth(): Promise<AgentHealth[]> {
+    return this.#request('GET', '/agents/health')
+  }
+
+  checkAgentHealth(): Promise<AgentHealth[]> {
+    return this.#request('POST', '/agents/health/check')
+  }
+
+  fixAgent(agent: AgentKind): Promise<AgentHealth> {
+    return this.#request('POST', `/agents/${encodeURIComponent(agent)}/fix`)
   }
 
   getIntegrations(): Promise<IntegrationsHealth> {
@@ -211,6 +261,18 @@ export class DaemonClient {
 
   openApp(): Promise<OpenAppResult> {
     return this.#request('POST', '/app/open')
+  }
+
+  checkRepo(input: CheckRepoRequest): Promise<RepoCheck> {
+    return this.#request('POST', '/factories/check-repo', input)
+  }
+
+  createFactory(input: CreateFactoryRequest): Promise<Factory> {
+    return this.#request('POST', '/factories', input)
+  }
+
+  retryClone(factoryId: string): Promise<Factory> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/retry-clone`)
   }
 
   addFactory(input: AddFactoryRequest): Promise<Factory> {
