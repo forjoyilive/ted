@@ -13,6 +13,7 @@ import {
 import {
   type Activity,
   type AgentKind,
+  type AgentStageId,
   type AnswerRequest,
   agentKinds,
   type Banner,
@@ -209,6 +210,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   library: (client) => client.library(),
   previewLibrary: (client, changes) => client.previewLibrary(changes as LibraryChanges),
   saveLibrary: (client, request) => client.saveLibrary(request as SaveLibraryRequest),
+  drift: (client) => client.drift(),
+  mergeInherited: (client, factoryId, stage) =>
+    client.mergeInherited(String(factoryId), stage as AgentStageId),
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
   tryCheck: (client, factoryId, request) =>
     client.tryCheck(String(factoryId), request as CheckTryRequest),

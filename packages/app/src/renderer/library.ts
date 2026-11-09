@@ -23,6 +23,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
     repos: [],
     stages,
     stageFiles,
+    keepStageFiles: [],
     checks: [],
     agents,
     permissions: 'auto',
@@ -32,16 +33,17 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
 }
 
 export function libraryChanges(draft: SettingsDraft, loaded: SettingsDraft): LibraryChanges {
-  const { stages, stageFiles } = settingsChanges(draft, loaded)
+  const { stages, stageFiles, keepStageFiles } = settingsChanges(draft, loaded)
   return {
     ...(stages !== undefined && { stages }),
     ...(stageFiles !== undefined && { stageFiles }),
+    ...(keepStageFiles !== undefined && { keepStageFiles }),
   }
 }
 
 export function unsavedLibrary(draft: SettingsDraft, loaded: SettingsDraft): number {
-  const { stages, stageFiles } = libraryChanges(draft, loaded)
-  let count = Object.keys(stageFiles ?? {}).length
+  const { stages, stageFiles, keepStageFiles } = libraryChanges(draft, loaded)
+  let count = Object.keys(stageFiles ?? {}).length + (keepStageFiles?.length ?? 0)
   for (const stage of Object.values(stages ?? {})) count += Object.keys(stage ?? {}).length
   return count
 }

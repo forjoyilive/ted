@@ -6,6 +6,7 @@ import type {
   Comment,
   DataStatus,
   DescriptionVersion,
+  DriftCounts,
   Factory,
   InboxItem,
   MachineSettings,
@@ -306,6 +307,31 @@ export function useSlots(): RunSlots | undefined {
   }, [epoch])
 
   return slots
+}
+
+export function useDrift(): DriftCounts | undefined {
+  const [drift, setDrift] = useState<DriftCounts>()
+  const { epoch } = useConnection()
+
+  useEffect(() => {
+    void epoch
+    let live = false
+    const unsubscribe = ted.onEvent((event) => {
+      if (event.type === 'drift-changed') {
+        live = true
+        setDrift(event.drift)
+      }
+    })
+    void ted.drift().then(
+      (loaded) => {
+        if (!live) setDrift(loaded)
+      },
+      () => undefined,
+    )
+    return unsubscribe
+  }, [epoch])
+
+  return drift
 }
 
 export function useDataStatus(): DataStatus | undefined {

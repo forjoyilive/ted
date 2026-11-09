@@ -2,6 +2,7 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   AgentKind,
+  AgentStageId,
   AnswerRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
@@ -25,6 +26,7 @@ import type {
   DeleteTaskRequest,
   DescriptionVersion,
   Diagnostics,
+  DriftCounts,
   EditTaskRequest,
   Factory,
   FactoryBoard,
@@ -191,6 +193,9 @@ export const ted = {
     window.ted.request('previewLibrary', changes) as Promise<LibraryPreview>,
   saveLibrary: (request: SaveLibraryRequest) =>
     window.ted.request('saveLibrary', request) as Promise<LibraryView>,
+  drift: () => window.ted.request('drift') as Promise<DriftCounts>,
+  mergeInherited: (factoryId: string, stage: AgentStageId) =>
+    window.ted.request('mergeInherited', factoryId, stage) as Promise<Task>,
   tryCheck: (factoryId: string, request: CheckTryRequest) =>
     window.ted.request('tryCheck', factoryId, request) as Promise<CheckTry>,
   stopCheckTry: (factoryId: string, name: string) =>

@@ -1,6 +1,6 @@
 import { agentRoles, type LibraryChanges } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
-import { agentChoice, record, stageFiles, stageSettings } from './factories.ts'
+import { agentChoice, keepStageFiles, record, stageFiles, stageSettings } from './factories.ts'
 import { type Route, readJson } from './route.ts'
 
 export const libraryRoutes: Route[] = [
@@ -8,6 +8,11 @@ export const libraryRoutes: Route[] = [
     method: 'GET',
     path: /^\/library$/,
     handle: async (_, { library }) => [200, await library.view()],
+  },
+  {
+    method: 'GET',
+    path: /^\/drift$/,
+    handle: async (_, { workflows }) => [200, workflows.drift()],
   },
   {
     method: 'POST',
@@ -35,6 +40,9 @@ function libraryChanges(given: unknown): LibraryChanges {
   const changes: LibraryChanges = {}
   if (body.stages !== undefined) changes.stages = stageSettings(body.stages)
   if (body.stageFiles !== undefined) changes.stageFiles = stageFiles(body.stageFiles)
+  if (body.keepStageFiles !== undefined) {
+    changes.keepStageFiles = keepStageFiles(body.keepStageFiles)
+  }
   if (body.agents !== undefined) {
     const agents = record(body.agents)
     changes.agents = {}

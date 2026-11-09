@@ -1,4 +1,4 @@
-import type { AgentHealth, Banner, ListFilters, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, DriftCounts, ListFilters, Task } from '@ted/protocol'
 import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -14,13 +14,14 @@ import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
 import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
-import { Sidebar } from './components/Sidebar.tsx'
+import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
   useAnswered,
   useBanners,
   useConnection,
+  useDrift,
   useFactoryList,
   useInbox,
   useSettings,
@@ -83,6 +84,31 @@ function planFooter(health: readonly AgentHealth[]) {
   return chips.length > 0 ? { planChips: chips } : {}
 }
 
+function factoryBadges(
+  waiting: Readonly<Record<string, FactoryBadges>>,
+  stopping: ReadonlySet<string>,
+  drift: DriftCounts | undefined,
+): Record<string, FactoryBadges> {
+  const ids = new Set([
+    ...Object.keys(waiting),
+    ...stopping,
+    ...Object.keys(drift?.factories ?? {}),
+  ])
+  return Object.fromEntries(
+    [...ids].map((id) => {
+      const drifted = drift?.factories[id] ?? 0
+      return [
+        id,
+        {
+          ...waiting[id],
+          ...(stopping.has(id) && { stopsWork: true }),
+          ...(drifted > 0 && { drift: drifted }),
+        },
+      ]
+    }),
+  )
+}
+
 const stubTitles = { search: 'Search' }
 
 function isTyping(target: EventTarget | null): boolean {
@@ -107,6 +133,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const settings = useSettings()
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
+  const drift = useDrift()
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
@@ -469,6 +496,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               factories={factories}
               inboxCount={inboxCount}
               stopsWork={sectionsStoppingWork(banners)}
+              counts={{ library: drift?.library ?? 0 }}
               dispatch={dispatch}
             />
           </div>
@@ -485,15 +513,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
           inboxCount={inboxCount}
-          badges={{
-            ...waiting,
-            ...Object.fromEntries(
-              [...factoriesStoppingWork(banners)].map((id) => [
-                id,
-                { ...waiting[id], stopsWork: true },
-              ]),
-            ),
-          }}
+          badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),

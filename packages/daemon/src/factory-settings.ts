@@ -11,6 +11,7 @@ import {
   agentStageIds,
   type CheckView,
   type ClarifyDepth,
+  type DiffLine,
   type Effort,
   type FactorySettingsChanges,
   type FactorySettingsView,
@@ -24,8 +25,10 @@ import {
   type SaveSettingsResult,
   type SettingsPreview,
   type SettingsSource,
+  type StageDrift,
   type StageId,
   type StageRowView,
+  type Task,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
@@ -46,6 +49,7 @@ import {
   readPullRequests,
 } from './tasks/merge.ts'
 import { parsePullRequestUrl } from './tasks/pull-requests.ts'
+import type { CreateTaskInput } from './tasks/tasks.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
 import {
   type CheckedLayer,
@@ -55,6 +59,7 @@ import {
   maxFactoryRepos,
   type WorkflowSettings,
 } from './workflow/check.ts'
+import { driftView, type FoundDrift, findDrift } from './workflow/drift.ts'
 import {
   applyChanges,
   defaultName,
@@ -70,6 +75,7 @@ export interface FactorySettings {
   view(factoryId: string): Promise<FactorySettingsView>
   preview(factoryId: string, changes: FactorySettingsChanges): Promise<SettingsPreview>
   save(factoryId: string, request: SaveSettingsRequest): Promise<SaveSettingsResult>
+  mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task>
 }
 
 export interface FactorySettingsOptions {
@@ -81,6 +87,7 @@ export interface FactorySettingsOptions {
   factories: Pick<Factories, 'checkRepo' | 'approveRepos'>
   checkTries: Pick<CheckTries, 'list'>
   installed: (agent: AgentKind) => boolean
+  createTask: (input: CreateTaskInput) => Promise<Task>
   mergeTries?: number
   mergeWaitMs?: number
 }
@@ -226,6 +233,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       }
       after[file] = text
     }
+    for (const id of changes.keepStageFiles ?? []) {
+      const from = inherited.stageFile(id)
+      if (typeof after[`stages/${id}.md`] === 'string' && from && basedOn[id] === undefined) {
+        basedOn[id] = stageFileHash(from.text)
+      }
+    }
     if (changes.notes !== undefined) {
       if (changes.notes.trim() === '') delete after['notes.md']
       else after['notes.md'] = changes.notes
@@ -260,11 +273,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const own = checkLayer({ kind: 'factory', files: base.files })
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
+    const drifts = findDrift(base.inherited, own)
     const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
       const inOrder = agent === undefined || full.order.includes(agent)
+      const drift = drifts.find((d) => d.stage === id)
       const file = agent ? full.stageFile(agent) : undefined
       const from = agent ? inherited.stageFile(agent) : undefined
       const factoryFile = agent ? own.stageFiles[agent] : undefined
@@ -281,6 +296,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         ...(from &&
           from.layer !== 'factory' && { inherited: { layer: from.layer, text: from.text } }),
         ...(basedOn !== undefined && { basedOn }),
+        ...(drift && { drift: driftView(drift, (hash) => store.seenStageFileText(hash)) }),
       }
     })
   }
@@ -575,6 +591,26 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         saving.delete(factory.id)
       }
     },
+
+    async mergeInherited(factoryId, stage) {
+      const factory = find(factoryId)
+      const base = await load(factory, true)
+      const own = checkLayer({ kind: 'factory', files: base.files })
+      const drift = findDrift(base.inherited, own).find((d) => d.stage === stage)
+      if (!drift) {
+        throw new RequestError(409, `${stage}.md has no inherited changes to merge`)
+      }
+      const view = driftView(drift, (hash) => store.seenStageFileText(hash))
+      return options.createTask({
+        title: `Merge inherited changes into ${stage}.md`,
+        description: mergeDescription(drift, view),
+        factory: factory.key,
+        priority: 'none',
+        clarifyDepth: 'none',
+        forcedGates: ['review'],
+        start: true,
+      })
+    },
   }
 }
 
@@ -627,6 +663,44 @@ function pullRequestBody(effects: string[], bypass: boolean): string {
     '---',
     'Opened by TED.',
   ].join('\n\n')
+}
+
+function mergeDescription(drift: FoundDrift, view: StageDrift): string {
+  const file = `${drift.stage}.md`
+  const source = drift.layer === 'ted' ? `TED’s default ${file}` : `The Library’s ${file}`
+  const changes =
+    view.diffOf === 'inherited'
+      ? [
+          '## Inherited changes',
+          `What changed in ${source} since this Factory’s copy was made:`,
+          fenced('diff', diffText(view.diff)),
+        ]
+      : [
+          '## Inherited file now',
+          `TED doesn’t have the version this copy was made from, so this is the whole of ${source} as it is now:`,
+          fenced('markdown', drift.inherited),
+        ]
+  return [
+    `${source} changed after this Factory overrode it. The override, .ted/stages/${file}, is based on ${drift.basedOn}; the inherited file is now ${drift.current}.`,
+    `Fold the inherited changes into .ted/stages/${file}, keeping this Factory’s own changes, then set \`stages.${drift.stage}.based_on\` in .ted/workflow.yaml to \`${drift.current}\`. Change nothing else in .ted/.`,
+    'Design has nothing to do for this Task: skip it.',
+    ...changes,
+    `## Current override (.ted/stages/${file})`,
+    fenced('markdown', drift.own),
+  ].join('\n\n')
+}
+
+function diffText(lines: readonly DiffLine[]): string {
+  const marks = { same: ' ', added: '+', removed: '-' } as const
+  return lines
+    .map((line) => (line.kind === 'gap' ? `@@ ${line.text} @@` : `${marks[line.kind]}${line.text}`))
+    .join('\n')
+}
+
+function fenced(language: string, text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
+  const fence = '`'.repeat(Math.max(3, longest + 1))
+  return `${fence}${language}\n${text.replace(/\n$/, '')}\n${fence}`
 }
 
 function fileOrder(a: string, b: string): number {

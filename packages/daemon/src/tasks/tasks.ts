@@ -80,7 +80,7 @@ import type {
 } from '../store/index.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
-import { boardStages, type ResolvedWorkflow } from '../workflow/resolve.ts'
+import { boardStages, type ResolvedWorkflow, withForcedGates } from '../workflow/resolve.ts'
 import {
   backStageMessage,
   loopCheckInstructions,
@@ -351,6 +351,14 @@ export function createTasks(options: {
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
     return remember(factory.id, await workflows.resolve(factory, options))
+  }
+
+  async function taskWorkflow(
+    task: StoredTask,
+    options?: { fetch?: boolean },
+  ): Promise<WorkflowResolution> {
+    const resolution = await resolveWorkflow(factoryOf(task), options)
+    return { ...resolution, workflow: withForcedGates(resolution.workflow, task.forcedGates) }
   }
 
   async function capOf(factoryId: string): Promise<number | undefined> {
@@ -683,7 +691,7 @@ export function createTasks(options: {
     checking.add(taskId)
     try {
       const task = find(taskId)
-      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      const resolution = await taskWorkflow(task, { fetch: false })
       const { workflow } = resolution
       const instructions = message ?? nextStageMessage(workflow, 'validate')
       const started = await beginChecks(task, resolution, 'validate')
@@ -950,7 +958,7 @@ export function createTasks(options: {
     const deliverable = run !== undefined || canStartFresh(task)
     const mode =
       task.stage === 'merge'
-        ? mergeMode(task, (await resolveWorkflow(factoryOf(task), { fetch: false })).workflow)
+        ? mergeMode(task, (await taskWorkflow(task, { fetch: false })).workflow)
         : undefined
     const both = mode === undefined || mode === 'off'
     const choice = { ci: both, conflict: both }
@@ -1146,7 +1154,7 @@ export function createTasks(options: {
       store.mergeStoppedPartway(taskId, split)
     }
     const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
-    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const { stages } = resolution.workflow
     const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
     if (!stages.includes(to)) {
@@ -1178,7 +1186,7 @@ export function createTasks(options: {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
     if (advancing.has(taskId)) return 'busy'
-    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     await holding(task, async () => {
       const current = find(taskId)
       if (current.stage === 'merge') await move(current, resolution, 'done', undefined)
@@ -1630,7 +1638,7 @@ export function createTasks(options: {
     const task = find(taskId)
     if (advancing.has(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
-    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
@@ -1825,7 +1833,7 @@ export function createTasks(options: {
     find: (ref) => find(ref),
     async leadFor(task) {
       if (task.lead) return task.lead
-      return leadFrom((await resolveWorkflow(factoryOf(task), { fetch: false })).workflow.settings)
+      return leadFrom((await taskWorkflow(task, { fetch: false })).workflow.settings)
     },
     reviewerFor: (task) => reviewerFor(task),
     async envFor(task, repo) {
@@ -1834,7 +1842,7 @@ export function createTasks(options: {
       return repoEntry(await entriesOf(factoryOf(task)), repo)?.env ?? {}
     },
     async permissionsFor(task) {
-      const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+      const resolution = await taskWorkflow(task, { fetch: false })
       return resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto'
     },
     clonePathFor: (repo) => clonePath(reposDir, repo),
@@ -1845,7 +1853,7 @@ export function createTasks(options: {
   })
 
   async function reviewerFor(task: StoredTask): Promise<ReviewerChoice> {
-    const { settings } = (await resolveWorkflow(factoryOf(task), { fetch: false })).workflow
+    const { settings } = (await taskWorkflow(task, { fetch: false })).workflow
     const lead = task.lead ?? leadFrom(settings)
     const setting = settings.reviewer
     const tuned = {
@@ -2128,7 +2136,7 @@ export function createTasks(options: {
   async function freshLead(task: StoredTask, run: Run): Promise<void> {
     const factory = factoryOf(task)
     if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
-    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
     await runs.stop(run.id)
     await launch(task, resolution, env)
@@ -2798,12 +2806,12 @@ export function createTasks(options: {
     }
     if (held ? leadLive : task.leadRunId) return
     if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
-      const resolution = await workflows.resolve(factoryOf(task), { fetch: false })
+      const resolution = await taskWorkflow(task, { fetch: false })
       const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
       return launch(task, resolution, env, undefined, { resumeSession: held.sessionId })
     }
     const factory = factoryOf(task)
-    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
     const interrupted = interruptedSetups(task)
     if (interrupted.length > 0) return setUpAndLaunch(task, resolution, interrupted, env)
@@ -3235,7 +3243,7 @@ export function createTasks(options: {
           : 'the loop check didn’t finish'
     const run = store.getRun(check.runId)
     if (run && run.state !== 'finished') await runs.stop(run.id).catch(() => undefined)
-    const resolution = await resolveWorkflow(factoryOf(find(check.taskId)), { fetch: false })
+    const resolution = await taskWorkflow(find(check.taskId), { fetch: false })
     const { workflow } = resolution
     store.finishLoopCheck(check.runId, verdict, reason)
     const task = find(check.taskId)
@@ -3330,7 +3338,7 @@ export function createTasks(options: {
     if (!ask?.loop) return undefined
     const current = find(task.id)
     if (current.stage !== 'validate') return undefined
-    const resolution = await resolveWorkflow(factoryOf(current))
+    const resolution = await taskWorkflow(current)
     const { workflow } = resolution
     const next = workflow.next('validate') as AgentStageId | 'done'
     const choices = loopChoices(workflow)
@@ -3527,7 +3535,7 @@ export function createTasks(options: {
     const task = find(taskId)
     await Promise.all(task.runs.map((run) => runs.stop(run.id)))
     if (!task.repos.some((r) => !r.removed) && !task.worktree) return
-    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     await finish(find(taskId), resolution)
   }
 
@@ -3541,7 +3549,7 @@ export function createTasks(options: {
     starting.add(task.id)
     try {
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
-      const resolution = await resolveWorkflow(factory, { fetch: false })
+      const resolution = await taskWorkflow(task, { fetch: false })
       if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       store.queueTask(task.id, resolution.workflow.next('backlog'))
     } finally {
@@ -3556,7 +3564,7 @@ export function createTasks(options: {
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
-      const resolution = await resolveWorkflow(factory, { fetch: false })
+      const resolution = await taskWorkflow(task, { fetch: false })
       const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
       const pickUp = freshRunNote(task)
       const interrupted = interruptedSetups(task)
@@ -3572,7 +3580,7 @@ export function createTasks(options: {
       return
     }
     if (task.repos.length > 0) return reopenWorktree(task)
-    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
     const stage = resolution.workflow.next('backlog') as AgentStageId
     const chosen = chosenEntries(
@@ -3619,7 +3627,7 @@ export function createTasks(options: {
 
   async function reopenWorktree(task: StoredTask): Promise<void> {
     const factory = factoryOf(task)
-    const resolution = await resolveWorkflow(factory, { fetch: false })
+    const resolution = await taskWorkflow(task, { fetch: false })
     const chosen = chosenEntries(task.chosenRepos, factoryRepos(resolution.workflow, factory))
     const fallback = task.branch ?? task.repos[0]?.branch
     if (fallback === undefined) return
@@ -4448,7 +4456,7 @@ export function createTasks(options: {
       const text = comment.trim()
       const lead =
         original.lead ??
-        leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+        leadFrom((await taskWorkflow(original, { fetch: false })).workflow.settings)
       const task = await store.createTask({
         title: firstLine(text) || `Follow-up to ${original.displayId}`,
         description: text,
@@ -4739,7 +4747,7 @@ export function createTasks(options: {
         }
         if (request.action === 'approve') {
           const now = find(task.id)
-          const resolution = await resolveWorkflow(factoryOf(now))
+          const resolution = await taskWorkflow(now)
           const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
           const answered = answerRequest(task, comment, {
             kind: 'approved',
@@ -4857,7 +4865,7 @@ export function createTasks(options: {
             request,
           }
         }
-        const resolution = await resolveWorkflow(factoryOf(current))
+        const resolution = await taskWorkflow(current)
         const { workflow } = resolution
         const changesAsked =
           (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
@@ -5011,7 +5019,7 @@ export function createTasks(options: {
       }
       checking.add(task.id)
       try {
-        const resolution = await resolveWorkflow(factoryOf(task), { fetch: false })
+        const resolution = await taskWorkflow(task, { fetch: false })
         const listed = resolution.workflow.settings.stages.validate?.checks ?? []
         if (
           only !== undefined &&

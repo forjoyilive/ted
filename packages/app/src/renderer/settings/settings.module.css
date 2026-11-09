@@ -453,3 +453,10 @@
   font-size: var(--text-12-5);
   line-height: 1.45;
 }
+
+.sidebarCount {
+  margin-left: auto;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+}

@@ -25,6 +25,7 @@ import { RequestError } from './errors.ts'
 import type { TedStore } from './store/index.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles } from './workflow/check.ts'
+import { driftView, findDrift } from './workflow/drift.ts'
 import { applyChanges } from './workflow/edit.ts'
 import {
   contentVersion,
@@ -108,6 +109,12 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       }
       after[file] = text
     }
+    for (const id of changes.keepStageFiles ?? []) {
+      const from = defaults.stageFile(id)
+      if (typeof after[`stages/${id}.md`] === 'string' && from && basedOn[id] === undefined) {
+        basedOn[id] = stageFileHash(from.text)
+      }
+    }
     const touchesYaml =
       Object.keys(basedOn).length > 0 ||
       Object.keys(changes.stages ?? {}).length > 0 ||
@@ -130,6 +137,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const own = library(base.files)
     const defaults = resolveWorkflow([base.defaults])
     const full = resolveWorkflow([base.defaults, own])
+    const drifts = findDrift([base.defaults], own)
     const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
     return ids.map((id) => {
       const stage = full.settings.stages[id]
@@ -138,6 +146,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       const libraryFile = agent ? own.stageFiles[agent] : undefined
       const defaultText = agent ? defaults.stageFile(agent)?.text : undefined
       const basedOn = own.settings.stages[id]?.based_on
+      const drift = drifts.find((d) => d.stage === id)
       return {
         id,
         inOrder,
@@ -149,6 +158,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
         ...(libraryFile !== undefined && { libraryFile }),
         ...(defaultText !== undefined && { defaultText }),
         ...(basedOn !== undefined && { basedOn }),
+        ...(drift && { drift: driftView(drift, (hash) => store.seenStageFileText(hash)) }),
       }
     })
   }

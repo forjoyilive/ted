@@ -68,6 +68,7 @@ export interface FactorySettingsChanges {
   repos: RepoSettingsInput[]
   stages?: Partial<Record<StageId, StageSettingsInput>>
   stageFiles?: Partial<Record<AgentStageId, string | null>>
+  keepStageFiles?: AgentStageId[]
   checks?: CheckInput[]
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
   permissions?: PermissionMode
@@ -86,6 +87,21 @@ export interface StageRowView {
   factoryFile?: string
   inherited?: { layer: LayerKind; text: string }
   basedOn?: string
+  drift?: StageDrift
+}
+
+export interface StageDrift {
+  basedOn: string
+  current: string
+  layer: LayerKind
+  changedIn?: string
+  diffOf: 'inherited' | 'yours'
+  diff: DiffLine[]
+}
+
+export interface DriftCounts {
+  factories: Record<string, number>
+  library: number
 }
 
 export interface AgentRowView {
@@ -249,6 +265,7 @@ function command(given: WorktreeCommandInput | undefined) {
 export interface LibraryChanges {
   stages?: Partial<Record<StageId, StageSettingsInput>>
   stageFiles?: Partial<Record<AgentStageId, string | null>>
+  keepStageFiles?: AgentStageId[]
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
 }
 
@@ -263,6 +280,7 @@ export interface LibraryStageRow {
   libraryFile?: string
   defaultText?: string
   basedOn?: string
+  drift?: StageDrift
 }
 
 export interface LibraryAgentRow {

@@ -10,6 +10,7 @@ interface SettingsShellProps {
   factories: readonly Factory[]
   inboxCount: number
   stopsWork?: Partial<Record<SettingsSectionId, boolean>>
+  counts?: Partial<Record<SettingsSectionId, number>>
   dispatch: (action: NavigationAction) => void
 }
 
@@ -19,6 +20,7 @@ export function SettingsShell({
   factories,
   inboxCount,
   stopsWork = {},
+  counts = {},
   dispatch,
 }: SettingsShellProps) {
   const current = settingsSections.find((s) => s.id === section) ?? settingsSections[0]
@@ -52,6 +54,7 @@ export function SettingsShell({
           >
             <span className={styles.sidebarLabel}>{label}</span>
             {stopsWork[id] && <DotIcon className={styles.stopsWork} />}
+            {(counts[id] ?? 0) > 0 && <span className={styles.sidebarCount}>{counts[id]}</span>}
           </button>
         ))}
 
