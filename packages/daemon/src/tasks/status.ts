@@ -1,4 +1,5 @@
 import type {
+  BlockerEnded,
   CommentBox,
   GitHubWait,
   RunState,
@@ -20,6 +21,7 @@ export interface TaskFacts {
   checking?: { name: string; index: number; total: number }
   stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
   blockedBy?: readonly string[]
+  blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
   github?: GitHubWait
   needsPlanning?: boolean
@@ -43,7 +45,13 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   if (facts.stopped) return { kind: 'stopped', at: facts.stopped.at }
   if (facts.stage === 'backlog') return undefined
   const blocker = facts.blockedBy?.[0]
-  if (blocker !== undefined && facts.runs.length === 0) return { kind: 'blocked', by: blocker }
+  if (blocker !== undefined && facts.runs.length === 0) {
+    return {
+      kind: 'blocked',
+      by: blocker,
+      ...(facts.blockerEnded !== undefined && { ended: facts.blockerEnded }),
+    }
+  }
   if (facts.queue) return { kind: 'queued', ...facts.queue }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
@@ -67,6 +75,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
 }
 
 export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): CommentBox {
+  if (facts.archived) return 'archived'
   if (facts.stage === 'done') return 'done'
   if (status?.kind === 'failed') return 'failed'
   if (status?.kind === 'stopped') return 'stopped'
@@ -80,7 +89,13 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
   return [
     ...(facts.needsPlanning ? [{ kind: 'needs-planning' } as const] : []),
     ...(blocker !== undefined && status?.kind !== 'blocked'
-      ? [{ kind: 'blocked-by', by: blocker } as const]
+      ? [
+          {
+            kind: 'blocked-by' as const,
+            by: blocker,
+            ...(facts.blockerEnded !== undefined && { ended: facts.blockerEnded }),
+          },
+        ]
       : []),
   ]
 }
@@ -101,6 +116,9 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `Queued · ${ordinal(facts.queue.place)}`
   }
   const blocker = facts.blockedBy?.[0]
+  if (blocker !== undefined && facts.blockerEnded !== undefined) {
+    return `Blocked by ${facts.blockerEnded} ${blocker}`
+  }
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog') return 'Not started'
   return undefined

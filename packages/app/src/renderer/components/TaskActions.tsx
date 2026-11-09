@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { ArchiveDialog, archiveTaskEvent, DeleteDialog } from './ArchiveDialogs.tsx'
 import { Tooltip } from './Help.tsx'
 import { ChevronIcon } from './icons.tsx'
 import styles from './TaskActions.module.css'
@@ -106,7 +107,7 @@ function clarifyAhead(task: Task): boolean {
 
 export function TaskActionsMenu({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
-  const [confirmArchive, setConfirmArchive] = useState(false)
+  const [dialog, setDialog] = useState<'archive' | 'delete'>()
   const [error, setError] = useState<string>()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -129,10 +130,16 @@ export function TaskActionsMenu({ task }: { task: Task }) {
   }, [open])
 
   useEffect(() => {
-    if (!open) setConfirmArchive(false)
-  }, [open])
+    const onArchive = (event: Event) => {
+      if (event instanceof CustomEvent && event.detail === task.id && !task.archived) {
+        setOpen(false)
+        setDialog('archive')
+      }
+    }
+    window.addEventListener(archiveTaskEvent, onArchive)
+    return () => window.removeEventListener(archiveTaskEvent, onArchive)
+  }, [task.id, task.archived])
 
-  if (task.archived) return null
   const action = statusAction(task)
   const linear = task.source?.linear
 
@@ -140,6 +147,70 @@ export function TaskActionsMenu({ task }: { task: Task }) {
     setOpen(false)
     setError(undefined)
     work().catch((failure: unknown) => setError(readableError(failure)))
+  }
+
+  const choose = (which: 'archive' | 'delete') => {
+    setOpen(false)
+    setError(undefined)
+    setDialog(which)
+  }
+
+  const dialogs = (
+    <>
+      {dialog === 'archive' && <ArchiveDialog task={task} onClose={() => setDialog(undefined)} />}
+      {dialog === 'delete' && (
+        <DeleteDialog
+          task={task}
+          onClose={() => setDialog(undefined)}
+          onArchiveInstead={() => setDialog('archive')}
+        />
+      )}
+    </>
+  )
+
+  const deleteItem = (
+    <button type="button" role="menuitem" className={styles.item} onClick={() => choose('delete')}>
+      <span className={styles.label}>Delete…</span>
+    </button>
+  )
+
+  if (task.archived) {
+    return (
+      <div ref={ref} className={styles.anchor}>
+        <button
+          type="button"
+          className={styles.more}
+          aria-label="Task actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => {
+            setError(undefined)
+            setOpen((o) => !o)
+          }}
+        >
+          <MoreIcon />
+        </button>
+        {open && (
+          <div className={styles.menu} role="menu" aria-label="Task actions">
+            <button
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => act(() => ted.unarchiveTask(task.id))}
+            >
+              <span className={styles.label}>Unarchive</span>
+            </button>
+            {deleteItem}
+          </div>
+        )}
+        {error !== undefined && !open && (
+          <p className={styles.error} role="alert">
+            {error}
+          </p>
+        )}
+        {dialogs}
+      </div>
+    )
   }
 
   return (
@@ -239,16 +310,13 @@ export function TaskActionsMenu({ task }: { task: Task }) {
           <button
             type="button"
             role="menuitem"
-            className={`${styles.item} ${confirmArchive ? styles.danger : ''}`}
-            onClick={() =>
-              confirmArchive ? act(() => ted.archiveTask(task.id)) : setConfirmArchive(true)
-            }
+            className={styles.item}
+            onClick={() => choose('archive')}
           >
-            <span className={styles.label}>
-              {confirmArchive ? `Archive ${task.displayId}` : 'Archive…'}
-            </span>
-            {confirmArchive && <span className={styles.hint}>Click again to archive</span>}
+            <span className={styles.label}>Archive…</span>
+            <span className={styles.hint}>⌘⌫</span>
           </button>
+          {deleteItem}
         </div>
       )}
       {error !== undefined && !open && (
@@ -256,6 +324,7 @@ export function TaskActionsMenu({ task }: { task: Task }) {
           {error}
         </p>
       )}
+      {dialogs}
     </div>
   )
 }

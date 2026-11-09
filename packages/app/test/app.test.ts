@@ -1500,6 +1500,85 @@ describe('Working Runs', () => {
   })
 })
 
+describe('Archive, Unarchive and Delete', () => {
+  async function blockerAndBlocked() {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await addFactory(origin, 'NB')
+    await ted('task', 'create', '--factory', 'NB', 'Fix the search crash')
+    await ted('task', 'create', '--factory', 'NB', 'Highlight search matches')
+    await ted('task', 'block', 'NB-2', '--by', 'NB-1')
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'Fix the search crash').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByRole('heading', { name: 'Fix the search crash' }).waitFor()
+    return { window, thread, header: thread.locator('header') }
+  }
+
+  test('⌘⌫ archives with Keep it blocked, the Task opens read-only, and Unarchive brings it back', async () => {
+    const { window, thread, header } = await blockerAndBlocked()
+
+    await window.keyboard.press('ControlOrMeta+Backspace')
+    const dialog = window.getByRole('dialog', { name: 'Archive NB-1?' })
+    await dialog.getByText('1 Task is blocked by NB-1').waitFor()
+    await dialog.getByText('Highlight search matches').waitFor()
+    expect(await dialog.getByRole('radio', { name: 'Unblock it' }).isChecked()).toBe(true)
+    await dialog.getByRole('radio', { name: 'Keep it blocked' }).check()
+    await dialog.getByRole('button', { name: 'Archive' }).click()
+    await dialog.waitFor({ state: 'detached' })
+
+    await thread.getByText(/^Archived \d+ \w+$/).waitFor()
+    await header.getByText('· Archived before it started').waitFor()
+    await thread.getByText('Archived Tasks are read-only. Unarchive to comment.').waitFor()
+    expect(await thread.getByRole('textbox', { name: 'Comment' }).count()).toBe(0)
+    await waitUntil(async () => {
+      const tasks = await (await daemonClient()).listTasks().catch(() => [])
+      return tasks.find((t) => t.displayId === 'NB-2')?.activity === 'Blocked by archived NB-1'
+    }, 'NB-2 to read “Blocked by archived NB-1”')
+
+    await header.getByRole('button', { name: 'Task actions' }).click()
+    const menu = header.getByRole('menu', { name: 'Task actions' })
+    expect(await menu.getByRole('menuitem').allTextContents()).toEqual(['Unarchive', 'Delete…'])
+    await window.keyboard.press('Escape')
+
+    await thread.getByRole('button', { name: 'Unarchive' }).click()
+    await thread.getByRole('textbox', { name: 'Comment' }).waitFor()
+    expect(
+      await thread.getByText('Archived Tasks are read-only. Unarchive to comment.').count(),
+    ).toBe(0)
+  })
+
+  test('Delete from the Task actions menu offers Archive instead, and removes the Task', async () => {
+    const { window, header } = await blockerAndBlocked()
+    const deleteItem = async () => {
+      await header.getByRole('button', { name: 'Task actions' }).click()
+      await header
+        .getByRole('menu', { name: 'Task actions' })
+        .getByRole('menuitem', { name: 'Delete…' })
+        .click()
+      return window.getByRole('dialog', { name: 'Delete NB-1?' })
+    }
+
+    const dialog = await deleteItem()
+    await dialog.getByText(/This can’t be undone\.$/).waitFor()
+    await dialog.getByText('1 Task is blocked by NB-1').waitFor()
+    await dialog.getByRole('button', { name: 'Archive instead' }).click()
+    await window.getByRole('dialog', { name: 'Archive NB-1?' }).waitFor()
+    await window.keyboard.press('Escape')
+
+    await (await deleteItem()).getByRole('button', { name: 'Delete NB-1' }).click()
+
+    await waitUntil(
+      async () => (await taskRow(window, 'Fix the search crash').count()) === 0,
+      'NB-1 to leave the List',
+    )
+    const client = await daemonClient()
+    const tasks = await client.listTasks()
+    expect(tasks.map((t) => t.displayId)).toEqual(['NB-2'])
+    expect(tasks[0]?.blockedBy).toEqual([])
+  })
+})
+
 describe('Stop and Resume', () => {
   async function workingTask(steps: unknown[], daemonEnv: Record<string, string> = {}) {
     extraEnv = daemonEnv

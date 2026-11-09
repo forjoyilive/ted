@@ -6,6 +6,7 @@ import type {
   Factory,
   RunState,
   Task,
+  TaskEnding,
   ThreadEvent,
 } from '@ted/protocol'
 import { useEffect, useState } from 'react'
@@ -37,7 +38,7 @@ import {
 } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
-import { clarifyDepthText, formatSize, priorityLabels } from '../task-fields.ts'
+import { clarifyDepthText, formatSize, leadSummary, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
@@ -291,6 +292,7 @@ export function TaskThread({
           {backLink}
         </button>
       )}
+      {task.archived && <ArchivedBar task={task} />}
       <header className={styles.taskHeader}>
         <div className={styles.headerRow}>
           <span className={styles.taskMeta}>{`${task.displayId}  ·  Created by you`}</span>
@@ -321,8 +323,12 @@ export function TaskThread({
             onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
           />
           <span className={styles.stageName}>{stageName(task.stage)}</span>
-          {task.activity !== undefined && (
-            <span className={styles.activity}>· {task.activity}</span>
+          {task.archived ? (
+            <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
+          ) : (
+            task.activity !== undefined && (
+              <span className={styles.activity}>· {task.activity}</span>
+            )
           )}
         </div>
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
@@ -435,6 +441,46 @@ export function TaskThread({
   )
 }
 
+function archivedFrom(ended: TaskEnding): string {
+  if (ended.kind === 'never-started') return 'Archived before it started'
+  if (ended.kind === 'merged') return 'Archived from Done'
+  return `Archived from ${stageName(ended.stage)}`
+}
+
+function ArchivedBar({ task }: { task: Task }) {
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const at = task.archived?.at
+  return (
+    <div className={styles.archivedBar}>
+      <span>
+        {`Archived ${at ? new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}`}
+      </span>
+      <span aria-hidden>·</span>
+      <button
+        type="button"
+        className={styles.archivedAction}
+        disabled={busy}
+        onClick={() => {
+          setBusy(true)
+          setError(undefined)
+          ted
+            .unarchiveTask(task.id)
+            .catch((failure: unknown) => setError(readableError(failure)))
+            .finally(() => setBusy(false))
+        }}
+      >
+        Unarchive
+      </button>
+      {error !== undefined && (
+        <span className={styles.archivedError} role="alert">
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export function TaskDetails({
   task,
   tasks,
@@ -457,7 +503,15 @@ export function TaskDetails({
         <dd>{priorityLabels[task.priority]}</dd>
         <dt>Task Lead</dt>
         <dd>
-          <TaskLeadField key={task.id} task={task} />
+          {task.archived ? (
+            task.lead ? (
+              leadSummary(task.lead)
+            ) : (
+              'Default'
+            )
+          ) : (
+            <TaskLeadField key={task.id} task={task} />
+          )}
         </dd>
         <dt>Clarify depth</dt>
         <dd>{clarifyDepthText(task)}</dd>
@@ -465,7 +519,13 @@ export function TaskDetails({
           <>
             <dt>Blocked by</dt>
             <dd>
-              <BlockedByField key={task.id} task={task} tasks={tasks} />
+              {task.archived ? (
+                task.blockedBy
+                  .map((id) => tasks.find((t) => t.id === id)?.displayId ?? 'a deleted Task')
+                  .join(', ') || '—'
+              ) : (
+                <BlockedByField key={task.id} task={task} tasks={tasks} />
+              )}
             </dd>
           </>
         )}

@@ -25,6 +25,7 @@ export interface PullRequests {
   push(task: PullRequestTask, targets: PullRequestTarget[], mode: 'first' | 'again'): Promise<void>
   ready(task: PullRequestTask, targets: PullRequestTarget[]): Promise<void>
   close(taskId: string): Promise<void>
+  reopen(taskId: string): Promise<void>
 }
 
 export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRequests {
@@ -183,6 +184,26 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
         } catch (error) {
           console.error(
             `couldn’t close pull request ${repo.repo}#${pr.number}:`,
+            redactSecrets(error instanceof Error ? error.message : String(error)),
+          )
+        }
+      }
+    },
+
+    async reopen(taskId) {
+      for (const repo of store.getTask(taskId)?.repos ?? []) {
+        const pr = repo.pullRequest
+        if (pr?.state !== 'closed') continue
+        try {
+          await gh.run(['pr', 'reopen', String(pr.number), '--repo', repo.repo])
+          const view = await gh
+            .run(['pr', 'view', String(pr.number), '--repo', repo.repo, '--json', 'isDraft'])
+            .catch(() => '{}')
+          const draft = (JSON.parse(view) as { isDraft?: unknown }).isDraft !== false
+          store.pullRequestReopened(taskId, repo.name, draft ? 'draft' : 'ready')
+        } catch (error) {
+          console.error(
+            `couldn’t reopen pull request ${repo.repo}#${pr.number}; its branch may be gone:`,
             redactSecrets(error instanceof Error ? error.message : String(error)),
           )
         }

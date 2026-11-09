@@ -81,7 +81,8 @@ if (args[0] === '--version') {
   }
   if (args[1] === 'create') process.stdout.write(`https://github.com/${repo}/pull/${number}\n`)
   else if (args[1] === 'list') process.stdout.write('[]\n')
-  else if (!['ready', 'edit', 'close'].includes(args[1] ?? '')) {
+  else if (args[1] === 'view') process.stdout.write('{"isDraft":false}\n')
+  else if (!['ready', 'edit', 'close', 'reopen'].includes(args[1] ?? '')) {
     process.stderr.write(`stub gh: unknown command ${args.join(' ')}\n`)
     process.exit(1)
   }

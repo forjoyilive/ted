@@ -143,6 +143,26 @@ export async function addWorktree(
   await git(repo, 'worktree', 'add', '--no-track', '-b', input.branch, input.path, input.from)
 }
 
+export async function restoreWorktree(
+  repo: string,
+  input: { path: string; branch: string; from: string },
+): Promise<void> {
+  await git(repo, 'worktree', 'prune')
+  const has = (ref: string) =>
+    git(repo, 'show-ref', '--verify', '--quiet', ref).then(
+      () => true,
+      () => false,
+    )
+  if (await has(`refs/heads/${input.branch}`)) {
+    await git(repo, 'worktree', 'add', input.path, input.branch)
+    return
+  }
+  const from = (await has(`refs/remotes/origin/${input.branch}`))
+    ? `origin/${input.branch}`
+    : input.from
+  await git(repo, 'worktree', 'add', '--no-track', '-b', input.branch, input.path, from)
+}
+
 export async function remoteUrl(repo: string): Promise<string> {
   return git(repo, 'remote', 'get-url', 'origin')
 }

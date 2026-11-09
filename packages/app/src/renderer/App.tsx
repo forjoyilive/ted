@@ -11,6 +11,7 @@ import {
   settingsStopsWork,
 } from './banners.ts'
 import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
+import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
@@ -181,6 +182,18 @@ export function App() {
       if (!task || !action) return
       event.preventDefault()
       runStatusAction(action.kind, task).catch((error: unknown) => console.error(error))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, runsOpen, task])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || runsOpen || !task || task.archived) return
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (event.key !== 'Backspace' || isTyping(event.target)) return
+      event.preventDefault()
+      window.dispatchEvent(new CustomEvent(archiveTaskEvent, { detail: task.id }))
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)

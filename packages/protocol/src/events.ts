@@ -13,6 +13,7 @@ import type { Comment, Task } from './task.ts'
 export type DaemonEvent =
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
+  | { type: 'task-deleted'; taskId: string }
   | { type: 'comment-posted'; comment: Comment }
   | { type: 'comment-updated'; comment: Comment }
   | { type: 'check-run-updated'; checkRun: CheckRun }
