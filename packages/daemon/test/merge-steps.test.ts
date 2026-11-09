@@ -19,6 +19,7 @@ const target: MergeTarget = {
 
 const pr = (over: Partial<RemotePullRequest> = {}): RemotePullRequest => ({
   id: 'PR_12',
+  title: 'Fix it',
   state: 'OPEN',
   isDraft: false,
   headRefOid: 'abc',

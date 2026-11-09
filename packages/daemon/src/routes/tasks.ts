@@ -8,6 +8,7 @@ import {
   type BlockedChoice,
   type BlockTaskRequest,
   blockedChoices,
+  type CancelMergeRequest,
   type CreateTaskRequest,
   clarifyDepths,
   type Effort,
@@ -279,6 +280,16 @@ export const taskRoutes: Route[] = [
           ...(supersedes !== undefined && { supersedes }),
         }),
       ]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/cancel-merge$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const body = (await readJson(req)) as Partial<CancelMergeRequest> | null
+      const text = typeof body?.comment === 'string' ? body.comment.trim() : ''
+      if (text === '') throw new HttpError(400, 'comment is required')
+      return [201, await tasks.cancelMerge(ref, text)]
     },
   },
   {
@@ -621,10 +632,15 @@ function outcomeRequest(body: unknown): ReportOutcomeRequest {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const judged = judgments(request.judged)
   if (request.outcome === 'advance') {
+    const changes = typeof request.changes === 'string' ? oneLine(request.changes) : ''
+    if ([...changes].length > 300) {
+      throw new HttpError(400, 'the changes summary is limited to 300 characters')
+    }
     return {
       outcome: 'advance',
       ...(request.skip === true && { skip: true }),
       ...(judged && { judged }),
+      ...(changes !== '' && { changes }),
     }
   }
   if (request.outcome === 'back') {

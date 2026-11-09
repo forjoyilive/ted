@@ -57,6 +57,7 @@ import type {
   AnswerRequest,
   ArchiveTaskRequest,
   Attachment,
+  CancelMergeRequest,
   Comment,
   CreateTaskRequest,
   DeleteTaskRequest,
@@ -173,6 +174,11 @@ export class DaemonClient {
   resumeTask(ref: string, comment?: string): Promise<Task> {
     const body: ResumeTaskRequest = comment === undefined ? {} : { comment }
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/resume`, body)
+  }
+
+  cancelMerge(ref: string, comment: string): Promise<Comment> {
+    const body: CancelMergeRequest = { comment }
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cancel-merge`, body)
   }
 
   moveTask(ref: string, request: MoveTaskRequest): Promise<Task> {

@@ -79,6 +79,8 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  cancelMerge: (taskId: string, comment: string) =>
+    window.ted.request('cancelMerge', taskId, comment) as Promise<Comment>,
   postComment: (taskId: string, body: string) =>
     window.ted.request('postComment', taskId, body) as Promise<Comment>,
   markCommentsRead: (taskId: string) =>

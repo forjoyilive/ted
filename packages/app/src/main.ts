@@ -88,6 +88,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body) => client.postComment(String(taskId), String(body)),
+  cancelMerge: (client, taskId, comment) => client.cancelMerge(String(taskId), String(comment)),
   markCommentsRead: (client, taskId) => client.markCommentsRead(String(taskId)),
   listThreadEvents: (client, taskId) => client.listThreadEvents(String(taskId)),
   listInbox: (client) => client.listInbox(),
