@@ -103,6 +103,11 @@
   text-align: left;
 }
 
+.later {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
 .choice:hover:not(:disabled) {
   border-color: var(--accent-default);
   background: var(--accent-subtle);

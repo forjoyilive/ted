@@ -259,6 +259,12 @@ export {
   type StatusFilter,
 } from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export {
+  type ProposalPlan,
+  type ProposalPlanRow,
+  planProposal,
+  proposalCycle,
+} from './proposal.ts'
 export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
   type AgentKind,
@@ -399,6 +405,12 @@ export {
   type PermissionAsk,
   type PostCommentRequest,
   type Priority,
+  type Proposal,
+  type ProposalChoice,
+  type ProposalCreated,
+  type ProposalInput,
+  type ProposalRow,
+  type ProposalRowInput,
   type PullRequestPreview,
   priorities,
   type ReportOutcomeRequest,
@@ -417,7 +429,10 @@ export {
   type SetTaskLeadRequest,
   type SetTaskReposRequest,
   type SignOffChanges,
+  type SizeCheck,
+  type SizeCheckInput,
   type StageId,
+  sizeChoices,
   type TalkedThrough,
   type Task,
   type TaskArchive,

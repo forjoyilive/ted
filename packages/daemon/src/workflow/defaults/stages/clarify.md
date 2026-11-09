@@ -10,7 +10,22 @@ The Task is already clear: a small, specific change with one obvious reading. Po
 
 ## Steps
 
-1. Check the Task’s size first. If it won’t fit in one pull request per repo, say so in a note, explain where you would split it, and wait for the human.
+1. Check the Task’s size first. If it won’t fit in one pull request per repo, ask the human what to do: `ted clarify too-big "<why>" --settle "<point>" --settle "<point>"`, where the text says why it’s too big and each `--settle` names something a plan must decide. End your turn. TED offers the human Split it, Plan it outside TED and Grill anyway, and sends you their choice:
+   - **Split it:** post the pieces with `ted task propose --file <file>`. The file is JSON: a short `title`, an optional `summary`, and `tasks`, one row per piece, each with a `title`, a one-line `scope`, an optional `description`, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. Row 1 is this Task: when the human approves, it narrows to row 1 and carries on through Clarify, so it can’t be blocked. The other rows become new Tasks in Backlog. For example:
+
+     ```json
+     {
+       "title": "Offline editing for notes, in three Tasks",
+       "tasks": [
+         { "title": "Local note cache", "scope": "Notes save to a local cache first.", "priority": "high" },
+         { "title": "Sync queue with retry", "scope": "Send offline edits in order on reconnect.", "priority": "high", "blockedBy": [1] },
+         { "title": "Offline badge", "scope": "A badge while edits wait to sync.", "priority": "low" }
+       ]
+     }
+     ```
+
+   - **Plan it outside TED:** TED posts your reason and what a plan must settle, moves the Task to Backlog and stops your Run.
+   - **Grill anyway:** the Task stays whole and TED sets the depth to grilling.
 2. Unless the human already chose a Clarify depth, pick one and say why in one line: `ted clarify depth <none|few|grilling> "<why>"`.
    - **None** when nothing is unclear. Run `ted outcome advance`.
    - **Few** when a handful of simple questions would settle it. Ask them all in one round.

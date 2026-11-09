@@ -19,7 +19,11 @@ import {
   type FollowUpRequest,
   isModelName,
   type PostCommentRequest,
+  type ProposalChoice,
+  type ProposalInput,
+  type ProposalRowInput,
   priorities,
+  proposalCycle,
   type ResumeTaskRequest,
   type RoundInput,
   type RoundQuestion,
@@ -27,6 +31,7 @@ import {
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetTaskReposRequest,
+  type SizeCheckInput,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
@@ -406,18 +411,30 @@ export const taskRoutes: Route[] = [
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       const round = body?.round === undefined ? undefined : roundInput(body.round)
+      const proposal = body?.proposal === undefined ? undefined : proposalInput(body.proposal)
+      const sizeCheck = body?.sizeCheck === undefined ? undefined : sizeCheckInput(body.sizeCheck)
       const files = await attachmentList(body?.attachments, attachments)
-      if (text === '' && !round && files.length === 0) {
+      if ([round, proposal, sizeCheck].filter((x) => x !== undefined).length > 1) {
+        throw new HttpError(400, 'send one of round, proposal or sizeCheck')
+      }
+      if (text === '' && !round && !proposal && !sizeCheck && files.length === 0) {
         throw new HttpError(400, 'body is required')
       }
       if (
         files.length > 0 &&
-        (round || body?.choices !== undefined || body?.supersedes !== undefined)
+        (round ||
+          proposal ||
+          sizeCheck ||
+          body?.choices !== undefined ||
+          body?.supersedes !== undefined)
       ) {
         throw new HttpError(400, 'only a note can carry attachments')
       }
-      if (round && body?.choices !== undefined) {
-        throw new HttpError(400, 'a round has its choices on each question')
+      if ((round || proposal || sizeCheck) && body?.choices !== undefined) {
+        throw new HttpError(
+          400,
+          round ? 'a round has its choices on each question' : 'this request has fixed choices',
+        )
       }
       const choices = choiceList(body?.choices)
       const supersedes = body?.supersedes
@@ -430,6 +447,8 @@ export const taskRoutes: Route[] = [
           body: text,
           ...(choices && { choices }),
           ...(round && { round }),
+          ...(proposal && { proposal }),
+          ...(sizeCheck && { sizeCheck }),
           ...(supersedes !== undefined && { supersedes }),
           ...(files.length > 0 && { attachments: files }),
         }),
@@ -794,6 +813,135 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
   return { question: text, ...(options && { choices: options }), recommended: pick }
 }
 
+const maxProposalRows = 20
+
+const maxScopeLength = 300
+
+const maxPieceDescriptionLength = 20_000
+
+function proposalInput(value: unknown): ProposalInput {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'a proposal must be an object')
+  }
+  const { title, summary, tasks } = value as Record<string, unknown>
+  const heading = typeof title === 'string' ? oneLine(title) : ''
+  if (heading === '') throw new HttpError(400, 'a proposal needs a title')
+  if ([...heading].length > maxChoiceLength) {
+    throw new HttpError(400, `a proposal’s title is limited to ${maxChoiceLength} characters`)
+  }
+  if (summary !== undefined && typeof summary !== 'string') {
+    throw new HttpError(400, 'a proposal’s summary must be text')
+  }
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    throw new HttpError(400, 'a proposal needs at least one row in tasks')
+  }
+  if (tasks.length > maxProposalRows) {
+    throw new HttpError(400, `a proposal has at most ${maxProposalRows} rows`)
+  }
+  const rows = tasks.map((item: unknown, i) => proposalRow(item, i + 1, tasks.length))
+  const cycle = proposalCycle(rows.map((r) => r.blockedBy ?? []))
+  if (cycle) throw new HttpError(400, `rows ${cycle.join(' → ')} block each other`)
+  return {
+    title: heading,
+    ...(typeof summary === 'string' && summary.trim() !== '' && { summary: summary.trim() }),
+    tasks: rows,
+  }
+}
+
+function proposalRow(item: unknown, row: number, count: number): ProposalRowInput {
+  const { title, scope, description, priority, blockedBy } = (item ?? {}) as Record<string, unknown>
+  const name = typeof title === 'string' ? oneLine(title) : ''
+  if (name === '') throw new HttpError(400, `row ${row} needs a title`)
+  if ([...name].length > maxChoiceLength) {
+    throw new HttpError(400, `row ${row}’s title is limited to ${maxChoiceLength} characters`)
+  }
+  const line = typeof scope === 'string' ? oneLine(scope) : ''
+  if (line === '') throw new HttpError(400, `row ${row} needs a one-line scope`)
+  if ([...line].length > maxScopeLength) {
+    throw new HttpError(400, `row ${row}’s scope is limited to ${maxScopeLength} characters`)
+  }
+  if (description !== undefined && typeof description !== 'string') {
+    throw new HttpError(400, `row ${row}’s description must be text`)
+  }
+  const details = typeof description === 'string' ? description.trim() : ''
+  if (details.length > maxPieceDescriptionLength) {
+    throw new HttpError(
+      400,
+      `row ${row}’s description is limited to ${maxPieceDescriptionLength} characters`,
+    )
+  }
+  const level = priority === undefined ? undefined : priorities.find((p) => p === priority)
+  if (priority !== undefined && !level) {
+    throw new HttpError(400, `row ${row}’s priority must be ${priorities.join(', ')}`)
+  }
+  if (
+    blockedBy !== undefined &&
+    (!Array.isArray(blockedBy) || !blockedBy.every((b) => Number.isInteger(b)))
+  ) {
+    throw new HttpError(400, `row ${row}’s blockedBy must list row numbers`)
+  }
+  const blockers = [...new Set((blockedBy ?? []) as number[])]
+  for (const blocker of blockers) {
+    if (blocker === row) throw new HttpError(400, `row ${row} can’t block itself`)
+    if (blocker < 1 || blocker > count) {
+      throw new HttpError(
+        400,
+        `row ${row} is blocked by row ${blocker}, which isn’t in the proposal`,
+      )
+    }
+  }
+  return {
+    title: name,
+    scope: line,
+    ...(details !== '' && { description: details }),
+    ...(level !== undefined && { priority: level }),
+    ...(blockers.length > 0 && { blockedBy: blockers }),
+  }
+}
+
+const maxSettle = 12
+
+function sizeCheckInput(value: unknown): SizeCheckInput {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'sizeCheck must be an object')
+  }
+  const { why, settle } = value as Record<string, unknown>
+  const reason = typeof why === 'string' ? why.trim() : ''
+  if (reason === '') throw new HttpError(400, 'say why the Task is too big')
+  if (reason.length > maxQuestionLength * 4) {
+    throw new HttpError(400, `the reason is limited to ${maxQuestionLength * 4} characters`)
+  }
+  if (!Array.isArray(settle) || !settle.every((s) => typeof s === 'string')) {
+    throw new HttpError(400, 'settle must list what a plan needs to settle')
+  }
+  const points = (settle as string[]).map(oneLine).filter((s) => s !== '')
+  if (points.length === 0) throw new HttpError(400, 'say what a plan needs to settle')
+  if (points.length > maxSettle) {
+    throw new HttpError(400, `list at most ${maxSettle} things a plan needs to settle`)
+  }
+  if (points.some((p) => [...p].length > maxQuestionLength)) {
+    throw new HttpError(400, `each point is limited to ${maxQuestionLength} characters`)
+  }
+  return { why: reason, settle: points }
+}
+
+function proposalChoice(value: unknown): ProposalChoice {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, 'proposal must be an object')
+  }
+  const { skip, startUnblocked } = value as Record<string, unknown>
+  if (skip !== undefined && (!Array.isArray(skip) || !skip.every((r) => Number.isInteger(r)))) {
+    throw new HttpError(400, 'skip must list row numbers')
+  }
+  if (startUnblocked !== undefined && typeof startUnblocked !== 'boolean') {
+    throw new HttpError(400, 'startUnblocked must be true or false')
+  }
+  return {
+    ...(skip !== undefined && { skip: [...new Set(skip as number[])] }),
+    ...(startUnblocked !== undefined && { startUnblocked }),
+  }
+}
+
 async function outcomeRequest(body: unknown, attachments: Attachments): Promise<OutcomeInput> {
   const request = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>
   const judged = judgments(request.judged)
@@ -980,7 +1128,11 @@ function answerRequest(body: unknown): AnswerRequest {
     throw new HttpError(400, 'text must be a string')
   }
   if (request.action === 'approve') {
-    return { action: 'approve', ...(text !== undefined && { text }) }
+    return {
+      action: 'approve',
+      ...(text !== undefined && { text }),
+      ...(request.proposal !== undefined && { proposal: proposalChoice(request.proposal) }),
+    }
   }
   if (request.action === 'request-changes') {
     return { action: 'request-changes', text: text ?? '' }

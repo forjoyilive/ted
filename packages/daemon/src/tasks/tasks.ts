@@ -34,6 +34,7 @@ import type {
   MoveTaskRequest,
   OutcomeResult,
   Priority,
+  ProposalInput,
   ReportOutcomeRequest,
   RepoSetupReport,
   RoundInput,
@@ -42,6 +43,7 @@ import type {
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
+  SizeCheckInput,
   SlotHolder,
   StageId,
   StartSubAgentRequest,
@@ -59,7 +61,14 @@ import type {
   ValidateJudgments,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
-import { briefHeadings, clarifyDepths, clarifyIsOver, parseLinearUrl } from '@ted/protocol'
+import {
+  briefHeadings,
+  clarifyDepths,
+  clarifyIsOver,
+  parseLinearUrl,
+  planProposal,
+  sizeChoices,
+} from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
@@ -181,6 +190,17 @@ import {
   roundAnswers,
 } from './rounds.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
+import {
+  afterPlanningWhy,
+  grillAnywayMessage,
+  planInChatLater,
+  planOutsideNote,
+  proposalChangesMessage,
+  sizeCheckTitle,
+  splitApprovedMessage,
+  splitApprovedSummary,
+  splitChosenMessage,
+} from './split.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
@@ -190,7 +210,14 @@ export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: 
 export interface CreateTaskInput
   extends Omit<
     NewTask,
-    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf' | 'automation'
+    | 'title'
+    | 'factoryId'
+    | 'startRequested'
+    | 'blockedBy'
+    | 'source'
+    | 'followUpOf'
+    | 'splitFrom'
+    | 'automation'
   > {
   title?: string
   source?: string
@@ -256,6 +283,8 @@ export interface Tasks {
       body: string
       choices?: string[]
       round?: RoundInput
+      proposal?: ProposalInput
+      sizeCheck?: SizeCheckInput
       supersedes?: string
       attachments?: Attachment[]
     },
@@ -300,6 +329,8 @@ export interface Tasks {
   mergesInFlight(): number
   close(): Promise<void>
 }
+
+type ProposalCreatedRow = { row: number; id: string; displayId: string }
 
 const slugLength = 40
 
@@ -2837,6 +2868,283 @@ export function createTasks(options: {
     })
   }
 
+  function openRequestOf(task: Task, test: (c: Comment) => boolean): Comment | undefined {
+    return store.listComments(task.id).find((c) => test(c) && c.answer === undefined)
+  }
+
+  function supersedable(
+    task: StoredTask,
+    runId: string,
+    supersedes: string,
+    test: (c: Comment) => boolean,
+    what: string,
+  ): Comment {
+    const old = store.getComment(supersedes)
+    if (!old || old.taskId !== task.id) {
+      throw new RequestError(404, `no request ${supersedes} on ${task.displayId}`)
+    }
+    if (!test(old)) throw new RequestError(400, `a ${what} can replace only a ${what}`)
+    if (!postedBy(old, task, runId)) {
+      throw new RequestError(403, 'a Run can supersede only its own requests')
+    }
+    if (old.answer) throw new RequestError(409, 'that request has already been answered')
+    return old
+  }
+
+  async function postSizeCheck(
+    task: StoredTask,
+    runId: string,
+    input: SizeCheckInput,
+    supersedes: string | undefined,
+  ): Promise<Comment> {
+    if (task.stage !== 'clarify') {
+      throw new RequestError(
+        409,
+        `the size check is for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
+      )
+    }
+    const isSizeCheck = (c: Comment) => c.sizeCheck !== undefined
+    return holding(task, async () => {
+      const old =
+        supersedes === undefined
+          ? undefined
+          : supersedable(task, runId, supersedes, isSizeCheck, 'size check')
+      if (!old && openRequestOf(task, isSizeCheck)) {
+        throw new RequestError(409, 'the size check is already waiting on the human')
+      }
+      const comment = {
+        taskId: task.id,
+        kind: 'question' as const,
+        title: sizeCheckTitle,
+        body: input.why,
+        author: { kind: 'run' as const, runId },
+        choices: Object.values(sizeChoices),
+        sizeCheck: { settle: input.settle },
+      }
+      return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
+    })
+  }
+
+  async function postProposal(
+    task: StoredTask,
+    runId: string,
+    input: ProposalInput,
+    supersedes: string | undefined,
+  ): Promise<Comment> {
+    if (task.stage !== 'clarify') {
+      throw new RequestError(
+        409,
+        `a split is proposed at Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
+      )
+    }
+    if (input.tasks.length < 2) {
+      throw new RequestError(
+        400,
+        'a split needs at least two rows: row 1 is this Task, and the rest become new Tasks',
+      )
+    }
+    if ((input.tasks[0]?.blockedBy ?? []).length > 0) {
+      throw new RequestError(
+        400,
+        'row 1 is this Task, which carries on now, so it can’t be blocked',
+      )
+    }
+    const isProposal = (c: Comment) => c.kind === 'proposal'
+    return holding(task, async () => {
+      const old =
+        supersedes === undefined
+          ? undefined
+          : supersedable(task, runId, supersedes, isProposal, 'proposal')
+      const open = old ? undefined : openRequestOf(task, isProposal)
+      if (open) {
+        throw new RequestError(
+          409,
+          `your proposal is still waiting on the human; if it’s out of date, replace it with \`ted task propose --supersedes ${open.id} --file <file>\``,
+        )
+      }
+      const comment = {
+        taskId: task.id,
+        kind: 'proposal' as const,
+        title: input.title,
+        body: input.summary ?? '',
+        author: { kind: 'run' as const, runId },
+        proposal: {
+          firstPiece: { id: task.id, displayId: task.displayId },
+          rows: input.tasks.map((row) => ({
+            title: row.title,
+            scope: row.scope,
+            ...(row.description !== undefined && { description: row.description }),
+            priority: row.priority ?? task.priority,
+            blockedBy: row.blockedBy ?? [],
+          })),
+        },
+      }
+      return old ? store.supersedeComment(old.id, comment) : store.postComment(comment)
+    })
+  }
+
+  function unanswered(comment: Comment): void {
+    const current = store.getComment(comment.id)
+    if (current?.answer?.kind === 'withdrawn') {
+      throw new RequestError(409, 'this request was withdrawn')
+    }
+    if (current?.answer?.kind === 'superseded') {
+      throw new RequestError(409, 'this request was replaced by a newer one')
+    }
+    if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+  }
+
+  async function answerProposal(
+    task: StoredTask,
+    comment: Comment,
+    request: AnswerRequest,
+  ): Promise<Comment> {
+    const proposal = comment.proposal
+    if (!proposal) throw new RequestError(409, 'this proposal has no rows')
+    const text = 'text' in request ? (request.text?.trim() ?? '') : ''
+    if (request.action === 'request-changes') {
+      if (text === '') throw new RequestError(400, 'Request changes needs your comment')
+      return holding(task, async () => {
+        unanswered(comment)
+        const at = new Date().toISOString()
+        const answered = answerRequest(task, comment, { kind: 'changes-requested', at, text })
+        await deliverAnswer(task, comment, proposalChangesMessage(text))
+        return answered
+      })
+    }
+    if (request.action !== 'approve') {
+      throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
+    }
+    const skip = [...(request.proposal?.skip ?? [])].sort((a, b) => a - b)
+    const outside = skip.find((row) => row < 1 || row > proposal.rows.length)
+    if (outside !== undefined) throw new RequestError(400, `the proposal has no row ${outside}`)
+    if (proposal.firstPiece && skip.includes(1)) {
+      throw new RequestError(400, 'row 1 is this Task, so it’s always kept')
+    }
+    const plan = planProposal(proposal, skip)
+    if (plan.creates === 0) throw new RequestError(400, 'check at least one row to create')
+    const startUnblocked = request.proposal?.startUnblocked === true
+    const first = proposal.rows[0]
+    const result = await holding(task, async () => {
+      unanswered(comment)
+      const current = find(task.id)
+      if (current.archived) throw new RequestError(409, `${task.displayId} is archived`)
+      const ids = new Map<number, string>()
+      if (proposal.firstPiece) ids.set(1, task.id)
+      const created: ProposalCreatedRow[] = []
+      for (const row of plan.order) {
+        const planned = plan.rows[row - 1]
+        const piece = proposal.rows[row - 1]
+        if (!planned || !piece) continue
+        const blockedBy = planned.blockedBy.flatMap((b) => {
+          const id = ids.get(b)
+          return id === undefined ? [] : [id]
+        })
+        const made = await store.createTask({
+          title: piece.title,
+          description: piece.description ?? piece.scope,
+          priority: piece.priority,
+          factoryId: current.factoryId,
+          ...(current.lead && { lead: current.lead }),
+          blockedBy,
+          startRequested: blockedBy.length > 0,
+          splitFrom: task.id,
+        })
+        ids.set(row, made.id)
+        created.push({ row, id: made.id, displayId: made.displayId })
+      }
+      created.sort((a, b) => a.row - b.row)
+      const narrowed =
+        proposal.firstPiece && first
+          ? { title: first.title, description: first.description ?? first.scope }
+          : undefined
+      if (narrowed) {
+        store.taskSplit(task.id, {
+          pieceIds: created.map((c) => c.id),
+          narrowedTo: narrowed.title,
+          description: narrowed.description,
+        })
+        if (first && first.priority !== current.priority) {
+          store.setPriority(task.id, first.priority)
+        }
+      }
+      const outcome = { tasks: created, skipped: skip, startUnblocked }
+      const answered = answerRequest(task, comment, {
+        kind: 'approved',
+        at: new Date().toISOString(),
+        ...(text !== '' && { text }),
+        created: outcome,
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        splitApprovedMessage({
+          displayId: task.displayId,
+          proposal,
+          created: outcome,
+          ...(narrowed && { narrowed }),
+          text,
+        }),
+      )
+      return { answered, created }
+    })
+    if (startUnblocked) {
+      for (const piece of result.created) {
+        if (!plan.unblocked.includes(piece.row)) continue
+        await start(piece.id).catch((error: unknown) => {
+          console.error(`couldn’t start ${piece.displayId}:`, error)
+        })
+      }
+    }
+    wake()
+    return store.getComment(comment.id) ?? result.answered
+  }
+
+  async function answerSizeCheck(
+    task: StoredTask,
+    comment: Comment,
+    choice: string,
+    text: string,
+  ): Promise<Comment> {
+    if (choice === sizeChoices.chat) planInChat(task, comment)
+    return holding(task, async () => {
+      unanswered(comment)
+      const at = new Date().toISOString()
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (choice === sizeChoices.split) {
+        await deliverAnswer(task, comment, splitChosenMessage(text))
+      } else if (choice === sizeChoices.grill) {
+        store.setClarifyDepth(task.id, { depth: 'grilling', by: 'human' })
+        await deliverAnswer(task, comment, grillAnywayMessage(text))
+      } else {
+        planOutside(find(task.id), comment)
+      }
+      return store.getComment(comment.id) ?? answered
+    })
+  }
+
+  function planInChat(_task: StoredTask, _comment: Comment): never {
+    throw new RequestError(409, planInChatLater)
+  }
+
+  function planOutside(task: StoredTask, comment: Comment): void {
+    const runId =
+      liveLead(task)?.id ?? (comment.author.kind === 'run' ? comment.author.runId : undefined)
+    if (runId === undefined || !comment.sizeCheck) return
+    store.postComment({
+      taskId: task.id,
+      body: planOutsideNote(comment.body, comment.sizeCheck),
+      author: { kind: 'run', runId },
+    })
+    store.needsPlanning(task.id, runId)
+    inBackground(`move ${task.displayId} to Backlog for planning`, () => clearing(task.id))
+  }
+
   async function humanComment(
     task: StoredTask,
     body: string,
@@ -3867,10 +4175,18 @@ export function createTasks(options: {
     if (unmergedBlockers(task.id).length > 0) return store.setStartRequested(task.id, true)
     starting.add(task.id)
     try {
+      await clearingAway.get(task.id)?.catch(() => undefined)
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await taskWorkflow(task, { fetch: false })
       if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
-      store.queueTask(task.id, resolution.workflow.next('backlog'))
+      const planned = find(task.id).markers.some((m) => m.kind === 'needs-planning')
+      const stage = resolution.workflow.next('backlog')
+      if (planned) {
+        const again = resolution.workflow.stages.includes('clarify') ? 'clarify' : stage
+        store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId))
+      } else {
+        store.queueTask(task.id, stage)
+      }
     } finally {
       starting.delete(task.id)
     }
@@ -4001,6 +4317,12 @@ export function createTasks(options: {
       return fromTheBrief(task, {
         heading: 'Picking up after activity on GitHub',
         why: freshRunReason(gitHubSummary(notices)),
+      })
+    }
+    if (last?.name === 'v1.TaskStartedAfterPlanning') {
+      return fromTheBrief(task, {
+        heading: 'Picking up after planning outside TED',
+        why: afterPlanningWhy,
       })
     }
     if (last?.name === 'v1.TaskResumed') {
@@ -4655,6 +4977,13 @@ export function createTasks(options: {
       inBackground(`finish archiving ${task.displayId}`, () => clearing(task.id))
       continue
     }
+    if (
+      task.markers.some((m) => m.kind === 'needs-planning') &&
+      (task.runs.length > 0 || task.repos.some((r) => !r.removed))
+    ) {
+      inBackground(`move ${task.displayId} to Backlog for planning`, () => clearing(task.id))
+      continue
+    }
     if (heldAtStart.has(task.id)) continue
     if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
@@ -5022,10 +5351,20 @@ export function createTasks(options: {
       return saved
     },
 
-    async comment(ref, caller, { body, choices = [], round, supersedes, attachments = [] }) {
+    async comment(
+      ref,
+      caller,
+      { body, choices = [], round, proposal, sizeCheck, supersedes, attachments = [] },
+    ) {
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
         if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
+        if (proposal !== undefined) {
+          throw new RequestError(403, 'only the Task Lead proposes a split')
+        }
+        if (sizeCheck !== undefined) {
+          throw new RequestError(403, 'only the Task Lead asks the size check')
+        }
         if (supersedes !== undefined) {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
@@ -5044,7 +5383,13 @@ export function createTasks(options: {
       const { task, runId } = ownTask(ref, caller)
       checkOwnFiles(task, attachments)
       if (task.leadRunId !== runId) {
-        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
+        if (
+          choices.length > 0 ||
+          round !== undefined ||
+          proposal !== undefined ||
+          sizeCheck !== undefined ||
+          supersedes !== undefined
+        ) {
           throw new RequestError(
             403,
             'a sub-agent can post only plain notes; tell the Task Lead what to ask in your final message',
@@ -5052,6 +5397,8 @@ export function createTasks(options: {
         }
       }
       if (round !== undefined) return postRound(task, runId, round, supersedes)
+      if (proposal !== undefined) return postProposal(task, runId, proposal, supersedes)
+      if (sizeCheck !== undefined) return postSizeCheck(task, runId, sizeCheck, supersedes)
       if (supersedes === undefined) {
         return store.postComment({
           taskId: task.id,
@@ -5067,6 +5414,12 @@ export function createTasks(options: {
       }
       if (old.kind === 'note') throw new RequestError(400, 'a note isn’t a request')
       if (old.kind === 'round') throw new RequestError(400, 'replace a round with another round')
+      if (old.kind === 'proposal') {
+        throw new RequestError(400, 'replace a proposal with `ted task propose --supersedes`')
+      }
+      if (old.sizeCheck) {
+        throw new RequestError(400, 'replace a size check with `ted clarify too-big --supersedes`')
+      }
       if (old.gate) throw new RequestError(409, 'a Gate request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
@@ -5188,6 +5541,7 @@ export function createTasks(options: {
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
       if (comment.kind === 'round') return answerRound(task, comment, request)
+      if (comment.kind === 'proposal') return answerProposal(task, comment, request)
       if (request.action === 'answer-round' || request.action === 'accept-recommended') {
         throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
       }
@@ -5207,6 +5561,14 @@ export function createTasks(options: {
         throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
+      }
+      if (
+        comment.sizeCheck &&
+        comment.answer === undefined &&
+        request.action === 'answer' &&
+        request.choice !== undefined
+      ) {
+        return answerSizeCheck(task, comment, request.choice, text)
       }
       if (isCiStuck(comment) && comment.answer === undefined && request.action === 'answer') {
         return answerCiStuck(task, comment, request.choice, text)
@@ -5965,6 +6327,9 @@ function flat(text: string): string {
 function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
+  if (answer.kind === 'approved' && answer.created && comment.proposal) {
+    return splitApprovedSummary(comment.proposal, answer.created, answer.text)
+  }
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`
   if (answer.kind === 'changes-requested') return `asked for changes: ${answer.text}`

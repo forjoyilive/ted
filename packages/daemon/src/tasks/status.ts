@@ -132,6 +132,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `Blocked by ${facts.blockerEnded} ${blocker}`
   }
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
+  if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside TED'
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
 }

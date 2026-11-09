@@ -29,6 +29,7 @@ export function silentReason(ms: number): string {
 export function asksForFreshRun(entry: LoggedEvent): boolean {
   return (
     entry.name === 'v1.TaskResumed' ||
+    entry.name === 'v1.TaskStartedAfterPlanning' ||
     entry.name === 'v1.TaskRequeuedAfterBlockers' ||
     entry.name === 'v1.TaskRetried' ||
     entry.name === 'v1.GitHubActivityQueued' ||

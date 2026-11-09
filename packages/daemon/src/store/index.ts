@@ -47,6 +47,7 @@ import {
   type MergeMethod,
   type PermissionMode,
   type Priority,
+  type Proposal,
   type PullRequestPreview,
   type Round,
   type Run,
@@ -55,6 +56,7 @@ import {
   type RunProblem,
   type RunState,
   type SendBack,
+  type SizeCheck,
   type StageEntry,
   type StageId,
   type Task,
@@ -257,6 +259,7 @@ export interface NewTask {
   followUpOf?: string
   forcedGates?: AgentStageId[]
   changesSettings?: boolean
+  splitFrom?: string
   automation?: { automationId: string; firingId: string }
 }
 
@@ -352,6 +355,8 @@ export interface NewComment {
   title?: string
   choices?: string[]
   round?: Round
+  proposal?: Proposal
+  sizeCheck?: SizeCheck
   gate?: NonNullable<Comment['gate']>
   attachments?: readonly Attachment[]
   lineComments?: readonly string[]
@@ -486,6 +491,12 @@ export interface TedStore {
   localFolder(repo: string): string | undefined
   queueTask(taskId: string, stage: StageId): Task
   moveToBacklog(taskId: string): Task
+  needsPlanning(taskId: string, runId: string): Task
+  startAfterPlanning(taskId: string, stage: StageId, entry: NewStageEntry): Task
+  taskSplit(
+    taskId: string,
+    input: { pieceIds: string[]; narrowedTo: string; description: string },
+  ): void
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
   editTask(taskId: string, edit: { title?: string; description?: string }): Task
@@ -1047,6 +1058,8 @@ export async function openStore({
     followUpOf,
     forcedGates,
     changesSettings,
+    splitFrom,
+    needsPlanningAt,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1123,6 +1136,7 @@ export async function openStore({
       ...(checkingNow && { checking: checkingNow }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
+      ...(needsPlanningAt !== null && { needsPlanning: true }),
     }
     const status = taskStatus(facts)
     const shown = taskActivity(facts)
@@ -1172,6 +1186,8 @@ export async function openStore({
     const source = sourceOf(row.id)
     const original =
       followUpOf === null ? undefined : (taskRow(followUpOf) ?? deletedRow(followUpOf))
+    const splitOriginal =
+      splitFrom === null ? undefined : (taskRow(splitFrom) ?? deletedRow(splitFrom))
     const merged =
       stage === 'done'
         ? {
@@ -1243,13 +1259,23 @@ export async function openStore({
       createdBy:
         followUpOf !== null
           ? 'follow-up'
-          : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
-            ? 'automation'
-            : 'human',
+          : splitFrom !== null
+            ? 'split'
+            : store.query(queryDb(automationTasks.where({ taskId: row.id }))).length > 0
+              ? 'automation'
+              : 'human',
       ...(followUpOf !== null && {
         followUpOf: {
           id: followUpOf,
           displayId: original ? `${factoryKey(original.factoryId)}-${original.number}` : followUpOf,
+        },
+      }),
+      ...(splitFrom !== null && {
+        splitFrom: {
+          id: splitFrom,
+          displayId: splitOriginal
+            ? `${factoryKey(splitOriginal.factoryId)}-${splitOriginal.number}`
+            : splitFrom,
         },
       }),
       ...(merged && { merged }),
@@ -1311,6 +1337,8 @@ export async function openStore({
     title,
     choices,
     round,
+    proposal,
+    sizeCheck,
     gate,
     answer,
     deliveredRunId,
@@ -1343,6 +1371,8 @@ export async function openStore({
           ...(talkDoneAt !== null && { doneAt: talkDoneAt }),
         },
       }),
+    ...(proposal !== null && { proposal: JSON.parse(proposal) as Proposal }),
+    ...(sizeCheck !== null && { sizeCheck: JSON.parse(sizeCheck) as SizeCheck }),
     ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
     ...(permission !== null && { permission: publicPermission(permission) }),
     ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
@@ -1541,6 +1571,36 @@ export async function openStore({
         ...(c.answer === null ? [] : [(JSON.parse(c.answer) as CommentAnswer).at]),
       ])
       .reduce<string | undefined>((a, b) => (a === undefined || b > a ? b : a), undefined)
+  const requireTaskRow = (taskId: string) => {
+    const row = taskRow(taskId)
+    if (!row) throw new Error(`no Task ${taskId}`)
+    return row
+  }
+
+  const taskEdited = (
+    taskId: string,
+    edit: { title?: string; description?: string },
+    at: string,
+  ) => {
+    const row = requireTaskRow(taskId)
+    const title = edit.title !== undefined && edit.title !== row.title ? edit.title : null
+    const description =
+      edit.description !== undefined && edit.description !== row.description
+        ? edit.description
+        : null
+    if (title === null && description === null) return undefined
+    const latest = descriptionRows(taskId).at(-1)
+    return events.taskEdited({
+      taskId,
+      title,
+      description,
+      version: description === null ? null : (latest?.version ?? 1) + 1,
+      previous: description === null || latest ? null : row.description,
+      previousAt: description === null || latest ? null : row.createdAt,
+      at,
+    })
+  }
+
   const nextRank = () => Math.max(0, ...store.query(allTasks).map((t) => t.rank ?? t.number)) + 1
   const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
   const listTasks = () => store.query(allTasks).map(toTask)
@@ -1578,6 +1638,8 @@ export async function openStore({
       title,
       choices,
       round,
+      proposal,
+      sizeCheck,
       gate,
       attachments = [],
       design,
@@ -1599,9 +1661,16 @@ export async function openStore({
       createdAt,
     }
     const event =
-      round === undefined
-        ? events.commentPostedV2(fields)
-        : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
+      proposal !== undefined || sizeCheck !== undefined
+        ? events.commentPostedV4({
+            ...fields,
+            round: round === undefined ? null : JSON.stringify(round),
+            proposal: proposal === undefined ? null : JSON.stringify(proposal),
+            sizeCheck: sizeCheck === undefined ? null : JSON.stringify(sizeCheck),
+          })
+        : round === undefined
+          ? events.commentPostedV2(fields)
+          : events.commentPostedV3({ ...fields, round: JSON.stringify(round) })
     const files = attachments.map(({ hash, name, size, mediaType }, position) =>
       events.commentAttachmentAdded({
         commentId: id,
@@ -1791,6 +1860,7 @@ export async function openStore({
       followUpOf,
       forcedGates = [],
       changesSettings = false,
+      splitFrom,
       automation,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
@@ -1844,6 +1914,9 @@ export async function openStore({
               events.taskFollowedUp({ taskId: followUpOf, followUpId: id, at }),
             ]
           : []),
+        ...(splitFrom !== undefined
+          ? [events.taskSplitFrom({ taskId: id, originalId: splitFrom, at })]
+          : []),
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
       )
       const row = taskRow(id)
@@ -1889,6 +1962,39 @@ export async function openStore({
       updatedQueue(taskId)
       return task
     },
+    needsPlanning(taskId, runId) {
+      const at = new Date().toISOString()
+      const withdrawn = openRequestRows(taskId)
+      const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: 'backlog' }
+      commit(
+        events.taskNeedsPlanning({ taskId, runId, at }),
+        ...withdrawn.map(({ id }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
+      )
+      for (const { id } of withdrawn) emitComment(id)
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    startAfterPlanning(taskId, stage, entry) {
+      const at = new Date().toISOString()
+      const rank = nextRank()
+      commit(
+        events.taskRanked({ taskId, rank, at }),
+        events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
+        stageEntered(taskId, stage, entry, at),
+      )
+      const task = updatedTask(taskId)
+      updatedQueue(taskId)
+      return task
+    },
+    taskSplit(taskId, { pieceIds, narrowedTo, description }) {
+      const at = new Date().toISOString()
+      const edited = taskEdited(taskId, { title: narrowedTo, description }, at)
+      commit(...(edited ? [edited] : []), events.taskSplit({ taskId, pieceIds, narrowedTo, at }))
+      updatedTask(taskId)
+    },
     rankTask(taskId, rank, priority) {
       const at = new Date().toISOString()
       const changed = taskRow(taskId)?.priority !== priority
@@ -1901,27 +2007,9 @@ export async function openStore({
       return task
     },
     editTask(taskId, edit) {
-      const row = taskRow(taskId)
-      if (!row) throw new Error(`no Task ${taskId}`)
-      const title = edit.title !== undefined && edit.title !== row.title ? edit.title : null
-      const description =
-        edit.description !== undefined && edit.description !== row.description
-          ? edit.description
-          : null
-      if (title === null && description === null) return toPublicTask(toTask(row))
-      const versions = descriptionRows(taskId)
-      const latest = versions.at(-1)
-      commit(
-        events.taskEdited({
-          taskId,
-          title,
-          description,
-          version: description === null ? null : (latest?.version ?? 1) + 1,
-          previous: description === null || latest ? null : row.description,
-          previousAt: description === null || latest ? null : row.createdAt,
-          at: new Date().toISOString(),
-        }),
-      )
+      const event = taskEdited(taskId, edit, new Date().toISOString())
+      if (!event) return toPublicTask(toTask(requireTaskRow(taskId)))
+      commit(event)
       return updatedTask(taskId)
     },
     descriptionVersions(taskId) {
