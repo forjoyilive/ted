@@ -52,7 +52,8 @@ export function createGh(options: GhOptions): Gh {
   async function run(args: readonly string[], runOptions: GhRunOptions = {}): Promise<string> {
     checkAllowed(args)
     const host = runOptions.host ?? defaultHost
-    const limit = limits.get(host)
+    const usesApi = args[0] !== 'auth'
+    const limit = usesApi ? limits.get(host) : undefined
     if (limit && now() < limit.retryAt) {
       throw new GhError('rate-limit', `GitHub rate limit on ${host}`)
     }
@@ -69,11 +70,11 @@ export function createGh(options: GhOptions): Gh {
         ...(runOptions.input !== undefined && { input: runOptions.input }),
         timeoutMs: runOptions.timeoutMs ?? 60_000,
       })
-      if (limits.delete(host)) options.rateLimit?.cleared(host)
+      if (usesApi && limits.delete(host)) options.rateLimit?.cleared(host)
       return stdout
     } catch (error) {
       const failure = classify(error, args)
-      if (failure.kind === 'rate-limit') {
+      if (failure.kind === 'rate-limit' && usesApi) {
         const backoffMs = limit ? Math.min(limit.backoffMs * 2, maxBackoffMs) : firstBackoffMs
         const next = {
           since: limit?.since ?? now(),

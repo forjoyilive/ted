@@ -258,7 +258,12 @@ function HostRow({
         tone="warn"
         title={host.host}
         chip="Missing workflow scope"
-        controls={host.fix && <FixButtons fix={host.fix} kind="gh-refresh" onFix={onFix} />}
+        controls={
+          <>
+            {host.fix && <FixButtons fix={host.fix} kind="gh-refresh" onFix={onFix} />}
+            {checkButton}
+          </>
+        }
         lines={
           <>
             <p className={styles.detail}>{signedIn}</p>
@@ -279,7 +284,12 @@ function HostRow({
         tone="stop"
         title={host.host}
         chip="Signed out"
-        controls={host.fix && <FixButtons fix={host.fix} kind="gh-login" onFix={onFix} />}
+        controls={
+          <>
+            {host.fix && <FixButtons fix={host.fix} kind="gh-login" onFix={onFix} />}
+            {checkButton}
+          </>
+        }
         lines={
           <>
             <p className={styles.detail}>
@@ -343,9 +353,12 @@ function CliRow({
       title="GitHub CLI"
       chip={tooOld ? 'Too old' : 'Not installed'}
       controls={
-        cli.fix && (
-          <FixButtons fix={cli.fix} kind={tooOld ? 'gh-update' : 'gh-install'} onFix={onFix} />
-        )
+        <>
+          {cli.fix && (
+            <FixButtons fix={cli.fix} kind={tooOld ? 'gh-update' : 'gh-install'} onFix={onFix} />
+          )}
+          {checkButton}
+        </>
       }
       lines={
         <>
@@ -381,7 +394,12 @@ function GitRow({
         tone="stop"
         title="Git"
         chip="Not installed"
-        controls={git.fix && <FixButtons fix={git.fix} kind="git-install" onFix={onFix} />}
+        controls={
+          <>
+            {git.fix && <FixButtons fix={git.fix} kind="git-install" onFix={onFix} />}
+            {checkButton}
+          </>
+        }
         lines={
           <>
             <p className={styles.detail}>TED needs Git to clone repos and make worktrees.</p>
@@ -402,7 +420,10 @@ function GitRow({
         title={title}
         chip="No name or email"
         controls={
-          <Button onClick={() => void ted.copyText(commands.join('\n'))}>Copy commands</Button>
+          <>
+            <Button onClick={() => void ted.copyText(commands.join('\n'))}>Copy commands</Button>
+            {checkButton}
+          </>
         }
         lines={
           <>

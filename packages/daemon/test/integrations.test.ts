@@ -299,6 +299,20 @@ describe('GitHub health', () => {
     expect(store.listBanners()).toEqual([])
   })
 
+  test('a health check that works doesn’t reset an API rate limit', async () => {
+    let now = new Date('2026-11-08T14:00:00')
+    const { integrations } = start({ now: () => now })
+    await setGh({ api: { result: 'rate-limit' } })
+    await expect(integrations.gh.api('/user')).rejects.toMatchObject({ kind: 'rate-limit' })
+
+    now = new Date('2026-11-08T14:10:00')
+    await integrations.check()
+    now = new Date('2026-11-08T14:16:00')
+    await expect(integrations.gh.api('/user')).rejects.toMatchObject({ kind: 'rate-limit' })
+
+    expect(store.listBanners().map((b) => b.id)).toEqual(['github-rate-limit:app:github.com'])
+  })
+
   test('graphql sends the query and variables on stdin to the host’s gh', async () => {
     const { integrations } = start()
     await setGh({ api: { result: 'ok', body: { data: { viewer: { login: 'nabha' } } } } })
