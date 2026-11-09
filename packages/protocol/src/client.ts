@@ -21,12 +21,17 @@ import type { Run, RunWithConversation, StartDevRunRequest } from './run.ts'
 import type { MachineSettings, Profile } from './settings.ts'
 import type { RunSlots } from './slots.ts'
 import type {
+  AnswerRequest,
   Attachment,
   Comment,
   CreateTaskRequest,
-  Outcome,
+  InboxItem,
+  OutcomeResult,
+  PostCommentRequest,
+  ReportOutcomeRequest,
   SetTaskLeadRequest,
   Task,
+  TaskBrief,
   TaskDefaults,
 } from './task.ts'
 import type { StageEntry } from './workflow.ts'
@@ -90,16 +95,33 @@ export class DaemonClient {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
   }
 
-  postComment(ref: string, body: string): Promise<Comment> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, { body })
+  postComment(ref: string, comment: string | PostCommentRequest): Promise<Comment> {
+    const body = typeof comment === 'string' ? { body: comment } : comment
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/comments`, body)
+  }
+
+  listInbox(): Promise<InboxItem[]> {
+    return this.#request('GET', '/inbox')
+  }
+
+  answerRequest(commentId: string, answer: AnswerRequest): Promise<Comment> {
+    return this.#request('POST', `/comments/${encodeURIComponent(commentId)}/answer`, answer)
+  }
+
+  writeBrief(ref: string, text: string): Promise<TaskBrief> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/brief`, { text })
+  }
+
+  getBrief(ref: string): Promise<TaskBrief> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/brief`)
   }
 
   setActivity(ref: string, text: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/activity`, { text })
   }
 
-  reportOutcome(ref: string, outcome: Outcome): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, { outcome })
+  reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
   }
 
   listFactories(): Promise<Factory[]> {
@@ -236,7 +258,7 @@ export class DaemonClient {
 
   async subscribe(
     onEvent: (event: DaemonEvent) => void,
-    { app = false }: { app?: boolean } = {},
+    { app = false, onClose }: { app?: boolean; onClose?: () => void } = {},
   ): Promise<Subscription> {
     const controller = new AbortController()
     const route = app ? '/events?app=1' : '/events'
@@ -245,15 +267,24 @@ export class DaemonClient {
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
 
     const ready = Promise.withResolvers<void>()
+    let opened = false
+    const open = () => {
+      opened = true
+      ready.resolve()
+    }
     void (async () => {
       let buffer = ''
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
-        buffer = dispatch(buffer + value, onEvent, ready.resolve)
+        buffer = dispatch(buffer + value, onEvent, open)
       }
       ready.reject(new DaemonUnreachableError('the daemon closed the event stream'))
-    })().catch(ready.reject)
+    })()
+      .catch(ready.reject)
+      .finally(() => {
+        if (opened && !controller.signal.aborted) onClose?.()
+      })
     await ready.promise
 
     return { close: () => controller.abort() }

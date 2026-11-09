@@ -16,6 +16,9 @@ import {
   bannerOrder,
   type ClarifyDepth,
   type Comment,
+  type CommentAnswer,
+  type CommentAuthor,
+  type CommentKind,
   type ConversationEntry,
   type CopySkip,
   type DaemonEvent,
@@ -32,6 +35,7 @@ import {
   type StageEntry,
   type StageId,
   type Task,
+  type TaskBrief,
   type TaskLead,
   type TaskRepo,
   type TrackStage,
@@ -54,9 +58,12 @@ import {
   machineSettingValues,
   runs,
   schema,
+  sendBackResets,
+  sendBacks,
   stageEntries,
   taskAttachments,
   taskBlockers,
+  taskBriefs,
   taskQueue,
   taskRepos,
   tasks,
@@ -158,6 +165,16 @@ export interface AcceptedLayer {
   acceptedAt: string
 }
 
+export interface NewComment {
+  taskId: string
+  body: string
+  author: CommentAuthor
+  kind?: CommentKind
+  title?: string
+  choices?: string[]
+  gate?: NonNullable<Comment['gate']>
+}
+
 export interface TedStore {
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
@@ -200,9 +217,22 @@ export interface TedStore {
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
   setActivity(taskId: string, text: string, runId?: string): Task
-  postComment(input: { taskId: string; body: string; authorRunId: string }): Comment
-  postTedComment(input: { taskId: string; kind: Comment['kind']; body: string }): Comment
+  postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  getComment(id: string): Comment | undefined
+  answerComment(id: string, answer: CommentAnswer): Comment
+  listOpenRequests(): Comment[]
+  writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
+  latestBrief(taskId: string): TaskBrief | undefined
+  recordSendBack(input: {
+    taskId: string
+    from: StageId
+    to: StageId
+    findings: string
+    counted: boolean
+  }): void
+  resetSendBacks(taskId: string, stage: StageId): void
+  sendBackCount(taskId: string, stage: StageId): number
   subscribe(listener: (event: DaemonEvent) => void): () => void
   startRun(input: {
     id: string
@@ -386,6 +416,7 @@ export async function openStore({
       stage,
       ...(place > 0 && { queue: { place } }),
       runs: live.map((r) => r.state as RunState),
+      openRequests: openRequestRows(row.id).length,
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
@@ -444,11 +475,48 @@ export async function openStore({
     ...(taskId !== null && { taskId }),
   })
 
-  const toComment = ({ authorRunId, ...row }: typeof comments.Type): Comment => ({
+  const toComment = ({
+    authorKind,
+    authorRunId,
+    stage,
+    title,
+    choices,
+    gate,
+    answer,
+    ...row
+  }: typeof comments.Type): Comment => ({
     ...row,
-    kind: row.kind as Comment['kind'],
-    author: authorRunId === null ? { kind: 'ted' } : { kind: 'run', runId: authorRunId },
+    kind: row.kind as CommentKind,
+    author:
+      authorKind === 'run' && authorRunId !== null
+        ? { kind: 'run', runId: authorRunId }
+        : { kind: authorKind === 'ted' ? 'ted' : 'human' },
+    ...(stage !== null && { stage: stage as StageId }),
+    ...(title !== null && { title }),
+    ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+    ...(gate !== null && { gate: JSON.parse(gate) as NonNullable<Comment['gate']> }),
+    ...(answer !== null && { answer: JSON.parse(answer) as CommentAnswer }),
   })
+
+  const openRequestRows = (taskId?: string) =>
+    store
+      .query(
+        queryDb(
+          (taskId === undefined ? comments : comments.where({ taskId })).orderBy(
+            'createdAt',
+            'asc',
+          ),
+        ),
+      )
+      .filter((row) => row.kind !== 'note' && row.answer === null)
+
+  const toBrief = ({ runId, stage, id: _, ...row }: typeof taskBriefs.Type): TaskBrief => ({
+    ...row,
+    stage: stage as StageId,
+    ...(runId !== null && { runId }),
+  })
+  const briefRows = (taskId: string) =>
+    store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
     events.taskStageEnteredV2({
@@ -481,6 +549,21 @@ export async function openStore({
   const listeners = new Set<(event: DaemonEvent) => void>()
   const emit = (event: DaemonEvent) => {
     for (const listener of listeners) listener(event)
+  }
+
+  const getComment = (id: string) => {
+    const row = store.query(queryDb(comments.where({ id }))).at(0)
+    return row && toComment(row)
+  }
+  const requireComment = (id: string) => {
+    const comment = getComment(id)
+    if (!comment) throw new Error(`no Comment ${id}`)
+    return comment
+  }
+  const emitComment = (id: string) => {
+    const comment = requireComment(id)
+    emit({ type: 'comment-updated', comment })
+    return comment
   }
 
   const updatedTask = (taskId: string): Task => {
@@ -702,10 +785,18 @@ export async function openStore({
     localFolder: (repo) => store.query(queryDb(localFolders.where({ repo }))).at(0)?.path,
     changeStage(taskId, stage, entry) {
       const at = new Date().toISOString()
+      const withdrawn = openRequestRows(taskId).filter(
+        (row) => row.gate !== null && row.stage !== stage,
+      )
+      const answer: CommentAnswer = { kind: 'withdrawn', at, movedTo: stage }
       store.commit(
         events.taskStageChanged({ taskId, stage, at }),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
+        ...withdrawn.map(({ id }) =>
+          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+        ),
       )
+      for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (stage === 'done') {
         for (const { taskId: waiting } of store.query(
@@ -762,29 +853,93 @@ export async function openStore({
       )
       return updatedTask(taskId)
     },
-    postTedComment({ taskId, kind, body }) {
-      const row = { id: randomUUID(), taskId, kind, body, createdAt: new Date().toISOString() }
-      store.commit(events.tedCommentPosted(row))
-      const comment = toComment({ ...row, authorRunId: null })
+    postComment({ taskId, body, author, kind = 'note', title, choices, gate }) {
+      const id = randomUUID()
+      store.commit(
+        events.commentPostedV2({
+          id,
+          taskId,
+          kind,
+          body,
+          authorKind: author.kind,
+          authorRunId: author.kind === 'run' ? author.runId : null,
+          stage: taskRow(taskId)?.stage ?? null,
+          title: title ?? null,
+          choices: choices ?? null,
+          gate: gate === undefined ? null : JSON.stringify(gate),
+          createdAt: new Date().toISOString(),
+        }),
+      )
+      const comment = requireComment(id)
       emit({ type: 'comment-posted', comment })
-      return comment
-    },
-    postComment({ taskId, body, authorRunId }) {
-      const row = {
-        id: randomUUID(),
-        taskId,
-        kind: 'note',
-        body,
-        authorRunId,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.commentPosted(row))
-      const comment = toComment(row)
-      emit({ type: 'comment-posted', comment })
+      if (kind !== 'note') updatedTask(taskId)
       return comment
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    getComment,
+    answerComment(id, answer) {
+      store.commit(events.commentAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
+      const comment = emitComment(id)
+      updatedTask(comment.taskId)
+      return comment
+    },
+    listOpenRequests: () => openRequestRows().map(toComment),
+    writeBrief({ taskId, text, runId }) {
+      const row = taskRow(taskId)
+      if (!row) throw new Error(`no Task ${taskId}`)
+      const version = (briefRows(taskId).at(-1)?.version ?? 0) + 1
+      const id = randomUUID()
+      store.commit(
+        events.taskBriefWritten({
+          id,
+          taskId,
+          version,
+          text,
+          stage: row.stage,
+          runId: runId ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      const brief = briefRows(taskId).at(-1)
+      if (!brief) throw new Error(`no brief for ${taskId}`)
+      return toBrief(brief)
+    },
+    latestBrief(taskId) {
+      const row = briefRows(taskId).at(-1)
+      return row && toBrief(row)
+    },
+    recordSendBack({ taskId, from, to, findings, counted }) {
+      store.commit(
+        events.taskSentBack({
+          id: randomUUID(),
+          taskId,
+          from,
+          to,
+          findings,
+          counted,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    resetSendBacks(taskId, stage) {
+      store.commit(
+        events.sendBackCountReset({
+          id: randomUUID(),
+          taskId,
+          stage,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    sendBackCount(taskId, stage) {
+      const since = store
+        .query(queryDb(sendBackResets.where({ taskId, stage }).orderBy('at', 'asc')))
+        .at(-1)?.at
+      return store
+        .query(queryDb(sendBacks.where({ taskId, fromStage: stage, counted: true })))
+        .filter((row) => since === undefined || row.at > since).length
+    },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)

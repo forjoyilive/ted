@@ -131,3 +131,40 @@
 .fold:hover .foldToggle {
   color: var(--text-primary);
 }
+
+.caret {
+  margin-left: 4px;
+  font-size: var(--text-10);
+}
+
+.menu {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 236px;
+  padding: 4px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+  box-shadow: 0 6px 20px var(--shadow-popover);
+}
+
+.menuItem {
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  outline: none;
+  background: var(--accent-subtle);
+}

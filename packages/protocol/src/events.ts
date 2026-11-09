@@ -12,6 +12,7 @@ export type DaemonEvent =
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
   | { type: 'comment-posted'; comment: Comment }
+  | { type: 'comment-updated'; comment: Comment }
   | { type: 'run-updated'; run: Run }
   | { type: 'factory-added'; factory: Factory }
   | { type: 'factory-updated'; factory: Factory }

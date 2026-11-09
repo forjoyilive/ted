@@ -1,4 +1,6 @@
+import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  AnswerRequest,
   Attachment,
   BackupsSummary,
   Banner,
@@ -11,6 +13,7 @@ import type {
   DataStatus,
   Diagnostics,
   Factory,
+  InboxItem,
   IntegrationsHealth,
   LogText,
   MachineSettings,
@@ -28,7 +31,10 @@ import type {
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 
-export type TedEvent = DaemonEvent | { type: 'menu-command'; command: MenuCommand }
+export type TedEvent =
+  | DaemonEvent
+  | { type: 'menu-command'; command: MenuCommand }
+  | { type: 'connection'; connection: DaemonConnection }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -45,6 +51,9 @@ export const ted = {
   listTasks: () => window.ted.request('listTasks') as Promise<Task[]>,
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
+  listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
+  answerRequest: (commentId: string, answer: AnswerRequest) =>
+    window.ted.request('answerRequest', commentId, answer) as Promise<Comment>,
   getRun: (runId: string) => window.ted.request('getRun', runId) as Promise<Run>,
   setTaskLead: (taskId: string, lead: TaskLead) =>
     window.ted.request('setTaskLead', taskId, lead) as Promise<Task>,
@@ -96,6 +105,9 @@ export const ted = {
   dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
   actOnBanner: (id: string, input?: BannerActionInput) =>
     window.ted.request('actOnBanner', id, input) as Promise<void>,
+  connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
+  restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
+  copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,
   getIntegrations: () => window.ted.request('getIntegrations') as Promise<IntegrationsHealth>,
   checkIntegrations: () => window.ted.request('checkIntegrations') as Promise<IntegrationsHealth>,
   runFix: (request: RunFixRequest) =>

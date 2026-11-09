@@ -6,7 +6,7 @@ Decide how to build the change before building it.
 
 ## Skip when
 
-The change is small and the approach is obvious. Post a one-line note saying Design had nothing to decide, then report the outcome.
+The change is small and the approach is obvious. Post a one-line note saying Design had nothing to decide, then run `ted outcome advance --skip`.
 
 ## Steps
 

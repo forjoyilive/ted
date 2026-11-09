@@ -2,9 +2,16 @@ import { existsSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { withDaemon } from '@ted/daemon/launch'
+import {
+  crashReport,
+  type DaemonConnection,
+  type DaemonSupervisor,
+  daemonRestartDelaysMs,
+  superviseDaemon,
+} from '@ted/daemon/launch'
 import {
   type Activity,
+  type AnswerRequest,
   type Banner,
   type BannerActionInput,
   type CheckRepoRequest,
@@ -19,6 +26,7 @@ import {
   type RestoreBackupRequest,
   type RunFixRequest,
   tedHome,
+  tedVersion,
 } from '@ted/protocol'
 import {
   app,
@@ -56,6 +64,9 @@ import { dotPng, trayIconPng } from './tray-icon.ts'
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
+  listInbox: (client) => client.listInbox(),
+  answerRequest: (client, commentId, answer) =>
+    client.answerRequest(String(commentId), answer as AnswerRequest),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
   setTaskLead: (client, taskId, lead) =>
     client.setTaskLead(String(taskId), lead as Parameters<DaemonClient['setTaskLead']>[1]),
@@ -161,6 +172,12 @@ async function choosePicture(): Promise<string | undefined> {
 const platform = process.platform as Platform
 const hiddenWindow = process.env.TED_HIDDEN_WINDOW === '1'
 
+const restartDelaysMs = process.env.TED_RESTART_DELAYS_MS?.split(',').map(Number) ?? [
+  ...daemonRestartDelaysMs,
+]
+const keepsStopping = 'TED’s background process keeps stopping'
+
+let supervisor: DaemonSupervisor | undefined
 let client: DaemonClient | undefined
 let window: BrowserWindow | undefined
 let tray: Tray | undefined
@@ -287,6 +304,7 @@ function keepRunningInBackground(): void {
 
 async function quitCompletely(): Promise<void> {
   quitting = true
+  supervisor?.close()
   await client?.shutdown().catch((error: unknown) => console.error(error))
   app.quit()
 }
@@ -357,18 +375,54 @@ async function loadState(): Promise<void> {
   refresh()
 }
 
+async function loadStateWhenReady(): Promise<void> {
+  if ((await client?.getDataStatus())?.state === 'ready') await loadState()
+}
+
+function onConnection(connection: DaemonConnection): void {
+  sendToRenderer({ type: 'connection', connection })
+  if (connection.state === 'connected') {
+    client = supervisor?.client
+    loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
+  } else if (connection.state === 'stopped' && !hiddenWindow) {
+    new Notification({ title: 'TED', body: keepsStopping }).show()
+  }
+}
+
 async function start(): Promise<void> {
-  const connected = await withDaemon(tedHome(), async (client) => {
-    await client.subscribe(forward, { app: true })
-    return client
+  const supervised = await superviseDaemon(tedHome(), {
+    app: true,
+    restartDelaysMs,
+    onEvent: forward,
+    onConnection,
   })
-  client = connected
-  if ((await connected.getDataStatus()).state === 'ready') await loadState()
+  supervisor = supervised
+  client = supervised.client
+  await loadStateWhenReady()
+
+  const appRequests: Record<string, () => Promise<unknown>> = {
+    connection: async () => supervised.connection,
+    restartDaemon: () => supervised.restart(),
+    async copyCrashReport() {
+      const { connection } = supervised
+      await clipboard.writeText(
+        await crashReport(tedHome(), {
+          version: tedVersion,
+          crashes: connection.state === 'stopped' ? connection.crashes : [],
+        }),
+      )
+    },
+  }
 
   ipcMain.handle('ted:request', (_event, name: string, ...args: unknown[]) => {
+    const appRequest = Object.hasOwn(appRequests, name) ? appRequests[name] : undefined
+    if (appRequest) return appRequest()
     const request = Object.hasOwn(requests, name) ? requests[name] : undefined
     if (!request) throw new Error(`unknown request ${name}`)
-    return request(connected, ...args)
+    if (supervised.connection.state !== 'connected') {
+      throw new Error('TED’s background process isn’t running')
+    }
+    return request(supervised.client, ...args)
   })
 
   if (hiddenWindow) app.dock?.hide()
@@ -377,6 +431,7 @@ async function start(): Promise<void> {
     event.preventDefault()
     void requestQuit()
   })
+  app.on('will-quit', () => supervised.close())
   app.on('window-all-closed', () => undefined)
   app.on('activate', showWindow)
   app.on('second-instance', showWindow)
