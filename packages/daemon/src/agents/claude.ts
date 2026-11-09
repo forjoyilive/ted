@@ -218,7 +218,7 @@ export function claudeAgent(binary: string): Agent {
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
-        env: withoutKeys(env, removedEnv, billing),
+        env: { ...withoutKeys(env, removedEnv, billing), CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
         input: prompt === '' ? '' : userMessage(prompt),
         files: { 'settings.json': JSON.stringify({ hooks }, null, 2) },
         sessionId,

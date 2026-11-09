@@ -34,6 +34,7 @@ const sandbox: Record<PermissionMode, string[]> = {
 const environmentPolicy = [
   'shell_environment_policy.inherit="all"',
   'shell_environment_policy.ignore_default_excludes=true',
+  `shell_environment_policy.exclude=${JSON.stringify(removedEnv)}`,
 ]
 
 const stateByMethod: Record<string, RunState> = {

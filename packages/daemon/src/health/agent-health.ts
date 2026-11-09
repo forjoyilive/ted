@@ -291,6 +291,11 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   function probe(kind: AgentKind): void {
     const limit = limits.get(kind)
     if (!limit || closed) return
+    if (compose(kind)?.state !== 'usage-limit') {
+      limit.timer = setTimeout(() => probe(kind), probeAfterMs)
+      limit.timer.unref()
+      return
+    }
     const tried = [...probeListeners].some((listener) => listener(kind))
     if (!tried) {
       clearLimit(kind)
@@ -300,9 +305,12 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     limit.timer.unref()
   }
 
-  function limited(kind: AgentKind, resetsAt?: string): void {
+  function limited(kind: AgentKind, reported?: string): void {
     if (closed) return
     const current = limits.get(kind)
+    const known = current?.resetsAt
+    const resetsAt =
+      reported ?? (known !== undefined && Date.parse(known) > Date.now() ? known : undefined)
     if (current) clearTimeout(current.timer)
     const resetsIn = resetsAt === undefined ? undefined : Date.parse(resetsAt) - Date.now()
     const timer =

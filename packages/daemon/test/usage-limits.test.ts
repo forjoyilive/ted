@@ -186,6 +186,51 @@ describe('Usage limits', () => {
     )
   })
 
+  test('a later limit message with no reset time keeps the reset time already known', async () => {
+    const client = await start()
+    const go = path.join(scratch, 'go')
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600
+    await startTask(
+      client,
+      steps(limitEvent('rejected', { resetsAt }), { waitFor: go }, limitReached, { endTurn: true }),
+    )
+    await waitUntil(
+      async () => (await healthOf(client, 'claude'))?.limitResetsAt,
+      'the known reset time',
+    )
+    await writeFile(go, '')
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    expect((await healthOf(client, 'claude'))?.limitResetsAt).toBe(
+      new Date(resetsAt * 1000).toISOString(),
+    )
+  })
+
+  test('no Run is tried while another pause, like being offline, also applies', async () => {
+    const client = await start()
+    const task = await startTask(
+      client,
+      steps({ everyMessage: [{ say: 'back at it' }, { endTurn: true }] }, limitReached, {
+        endTurn: true,
+      }),
+    )
+    const runId = await leadRunOf(client, task.id)
+    await waitUntil(
+      async () => (await healthOf(client, 'claude'))?.state === 'usage-limit' || undefined,
+      'Claude to be at its usage limit',
+    )
+    online = false
+    await waitUntil(
+      async () => (await healthOf(client, 'claude'))?.state === 'offline' || undefined,
+      'Claude to be offline',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    expect(
+      (await linesOf(client, runId)).some((line) => line.includes('Carry on where you left off')),
+    ).toBe(false)
+    online = true
+    await continued(client, runId)
+  })
+
   test('the Codex usage limit pauses only Codex Tasks; Claude Tasks move ahead', async () => {
     const client = await start()
     const resetsAt = Math.floor(Date.now() / 1000) + 3600

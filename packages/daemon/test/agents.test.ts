@@ -202,4 +202,15 @@ describe('usage, credentials and cost', () => {
     expect(codex.environment(env, 'subscription').CODEX_API_KEY).toBeUndefined()
     expect(codex.launch({ ...run, env, billing: 'api-key' }).env.CODEX_API_KEY).toBe('c')
   })
+
+  test('an API key reaches the agent process but not the commands it runs', () => {
+    const env = { PATH: '/bin', ANTHROPIC_API_KEY: 'k', CODEX_API_KEY: 'c' }
+    const codexArgs = codex.launch({ ...run, env, billing: 'api-key' }).args
+    expect(codexArgs).toContain(
+      'shell_environment_policy.exclude=["CODEX_API_KEY","OPENAI_API_KEY"]',
+    )
+    const claudeLaunch = claude.launch({ ...run, env, billing: 'api-key' })
+    expect(claudeLaunch.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+    expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1')
+  })
 })
