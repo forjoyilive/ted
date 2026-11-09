@@ -1060,6 +1060,47 @@ describe('daemon crashes', () => {
     await footer.getByRole('button', { name: '1 of 7 Runs working' }).waitFor()
   })
 
+  test('after reconnecting, the Inbox shows a request raised while the app was away', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const briefFile = path.join(home, 'brief.md')
+    await writeFile(
+      briefFile,
+      [
+        '## Goal\n\nLet notes be edited offline.',
+        '## Decisions so far\n\n- Keep both edits on a clash.',
+        '## Current state\n\nThe approach is written up.',
+        '## Open questions\n\nNone.',
+        '## Next step\n\nBuild it.\n',
+      ].join('\n\n'),
+    )
+    const gate = [
+      { run: ['ted', 'brief', 'write', '--file', briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ]
+    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      JSON.stringify({ steps: [{ everyMessage: gate }, ...gate] }),
+    )
+    const window = await launchApp({ TED_RESTART_DELAYS_MS: '8000,0,0' })
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.waitFor()
+
+    await killDaemon()
+    await reconnecting(window).waitFor()
+    await ted('task', 'start', 'NB-1')
+    await expect
+      .poll(async () => (await (await daemonClient()).listInbox()).length, { timeout: 20_000 })
+      .toBe(1)
+
+    await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })
+    await inbox.getByRole('button').filter({ hasText: 'Design review' }).waitFor()
+  })
+
   test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
     await app?.evaluate(({ clipboard }) => {
