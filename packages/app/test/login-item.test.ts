@@ -81,6 +81,18 @@ describe('Start at login on macOS', () => {
     expect(await createLoginItem(system({}, mac)).apply(true)).toBe('unavailable')
   })
 
+  test('reads the current status from macOS without registering again', async () => {
+    const mac: FakeMac = { calls: [], status: 'requires-approval', openAtLogin: false }
+    const item = createLoginItem(system({}, mac))
+    await item.apply(true)
+
+    mac.status = 'enabled'
+    mac.calls = []
+
+    expect(await item.state()).toBe('on')
+    expect(mac.calls).toEqual([['get', agent]])
+  })
+
   test('before macOS 13 there is no LaunchAgent to register', async () => {
     const mac: FakeMac = { calls: [], status: 'enabled', openAtLogin: false }
 
@@ -124,6 +136,13 @@ describe('Start at login on Linux', () => {
     expect(text).not.toContain('1.0')
   })
 
+  test('reads on or off from whether the entry is there', async () => {
+    const item = createLoginItem(linux())
+    expect(await item.state()).toBe('off')
+    await item.apply(true)
+    expect(await item.state()).toBe('on')
+  })
+
   test('removes the entry when turned off, and turning off twice is fine', async () => {
     const item = createLoginItem(linux())
     await item.apply(true)
@@ -148,7 +167,9 @@ describe('where Start at login can’t work', () => {
   test('a copy run from source never touches the OS', async () => {
     const mac: FakeMac = { calls: [], status: 'enabled', openAtLogin: false }
 
-    expect(await createLoginItem(system({ packaged: false }, mac)).apply(true)).toBe('unavailable')
+    const item = createLoginItem(system({ packaged: false }, mac))
+    expect(await item.apply(true)).toBe('unavailable')
+    expect(await item.state()).toBe('unavailable')
     expect(mac.calls).toEqual([])
   })
 
@@ -162,7 +183,9 @@ describe('recording instead of registering', () => {
     const log = path.join(dir, 'login.log')
     const item = recordLoginItem(log, 'requires-approval')
 
+    expect(await item.state()).toBe('off')
     expect(await item.apply(true)).toBe('requires-approval')
+    expect(await item.state()).toBe('requires-approval')
     expect(await item.apply(false)).toBe('off')
     expect(await readFile(log, 'utf8')).toBe('on\noff\n')
   })

@@ -60,7 +60,6 @@ import {
 import {
   createLoginItem,
   type LoginItem,
-  type LoginItemState,
   recordLoginItem,
   startsInBackground,
 } from './login-item.ts'
@@ -195,7 +194,6 @@ let state: MenuState = { activity: noActivity, banners: [] }
 let settings: MachineSettings = defaultMachineSettings
 let bannerTimer: NodeJS.Timeout | undefined
 let loginItem: LoginItem | undefined
-let loginItemState: LoginItemState = 'unavailable'
 let loginItemApplied: boolean | undefined
 let loginItemWork: Promise<void> = Promise.resolve()
 
@@ -214,8 +212,7 @@ function applyLoginItem(enabled: boolean): Promise<void> {
   loginItemWork = loginItemWork
     .then(async () => {
       if (!loginItem) return
-      loginItemState = await loginItem.apply(enabled)
-      sendToRenderer({ type: 'login-item', state: loginItemState })
+      sendToRenderer({ type: 'login-item', state: await loginItem.apply(enabled) })
     })
     .catch((error: unknown) => console.error('Start at login failed:', error))
   return loginItemWork
@@ -452,7 +449,7 @@ async function start(): Promise<void> {
     connection: async () => supervised.connection,
     loginItem: async () => {
       await loginItemWork
-      return loginItemState
+      return loginItem?.state() ?? 'unavailable'
     },
     openLoginItemsSettings: async () => {
       if (platform === 'darwin') await shell.openExternal(loginItemsPane)

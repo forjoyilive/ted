@@ -1,4 +1,4 @@
-import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 export type LoginItemState = 'on' | 'off' | 'requires-approval' | 'unavailable'
@@ -25,6 +25,7 @@ export interface LoginItemSystem {
 
 export interface LoginItem {
   apply(enabled: boolean): Promise<LoginItemState>
+  state(): Promise<LoginItemState>
 }
 
 const agent = { type: 'agentService', serviceName: macLoginService } as const
@@ -36,11 +37,14 @@ const macStates: Record<string, LoginItemState> = {
   'not-found': 'unavailable',
 }
 
-function applyOnMac(system: LoginItemSystem, enabled: boolean): LoginItemState {
-  if (system.macVersion < 13) return 'unavailable'
-  system.setLoginItemSettings({ openAtLogin: enabled, ...agent })
+function macState(system: LoginItemSystem): LoginItemState {
   const { status } = system.getLoginItemSettings(agent)
   return macStates[status ?? ''] ?? 'unavailable'
+}
+
+function applyOnMac(system: LoginItemSystem, enabled: boolean): LoginItemState {
+  system.setLoginItemSettings({ openAtLogin: enabled, ...agent })
+  return macState(system)
 }
 
 function quoteExecArg(value: string): string {
@@ -63,8 +67,10 @@ export function desktopEntry(executable: string): string {
   ].join('\n')
 }
 
+const autostartFile = (system: LoginItemSystem) => path.join(system.autostartDir, 'ted.desktop')
+
 async function applyOnLinux(system: LoginItemSystem, enabled: boolean): Promise<LoginItemState> {
-  const file = path.join(system.autostartDir, 'ted.desktop')
+  const file = autostartFile(system)
   if (!enabled) {
     await rm(file, { force: true })
     return 'off'
@@ -76,23 +82,44 @@ async function applyOnLinux(system: LoginItemSystem, enabled: boolean): Promise<
   return 'on'
 }
 
+function supported(system: LoginItemSystem): 'darwin' | 'linux' | undefined {
+  if (!system.packaged) return undefined
+  if (system.platform === 'darwin') return system.macVersion >= 13 ? 'darwin' : undefined
+  return system.platform === 'linux' ? 'linux' : undefined
+}
+
 export function createLoginItem(system: LoginItemSystem): LoginItem {
   return {
     async apply(enabled) {
-      if (!system.packaged) return 'unavailable'
-      if (system.platform === 'darwin') return applyOnMac(system, enabled)
-      if (system.platform === 'linux') return applyOnLinux(system, enabled)
+      const platform = supported(system)
+      if (platform === 'darwin') return applyOnMac(system, enabled)
+      if (platform === 'linux') return applyOnLinux(system, enabled)
+      return 'unavailable'
+    },
+    async state() {
+      const platform = supported(system)
+      if (platform === 'darwin') return macState(system)
+      if (platform === 'linux') {
+        return access(autostartFile(system)).then(
+          () => 'on',
+          () => 'off',
+        )
+      }
       return 'unavailable'
     },
   }
 }
 
 export function recordLoginItem(file: string, state?: string): LoginItem {
+  let current: LoginItemState = 'off'
   return {
     async apply(enabled) {
       await appendFile(file, `${enabled ? 'on' : 'off'}\n`)
-      if (!enabled) return 'off'
-      return macStates[state ?? ''] ?? 'on'
+      current = enabled ? (macStates[state ?? ''] ?? 'on') : 'off'
+      return current
+    },
+    async state() {
+      return current
     },
   }
 }
