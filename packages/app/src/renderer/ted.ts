@@ -35,11 +35,13 @@ import type {
   TaskLead,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
+import type { LoginItemState } from '../login-item.ts'
 
 export type TedEvent =
   | DaemonEvent
   | { type: 'menu-command'; command: MenuCommand }
   | { type: 'connection'; connection: DaemonConnection }
+  | { type: 'login-item'; state: LoginItemState }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -120,6 +122,8 @@ export const ted = {
   agentHealth: () => window.ted.request('agentHealth') as Promise<AgentHealth[]>,
   checkAgentHealth: () => window.ted.request('checkAgentHealth') as Promise<AgentHealth[]>,
   fixAgent: (agent: AgentKind) => window.ted.request('fixAgent', agent) as Promise<AgentHealth>,
+  loginItem: () => window.ted.request('loginItem') as Promise<LoginItemState>,
+  openLoginItemsSettings: () => window.ted.request('openLoginItemsSettings') as Promise<void>,
   connection: () => window.ted.request('connection') as Promise<DaemonConnection>,
   restartDaemon: () => window.ted.request('restartDaemon') as Promise<void>,
   copyCrashReport: () => window.ted.request('copyCrashReport') as Promise<void>,

@@ -18,6 +18,8 @@ export interface MachineSettings {
   maxWorkingRuns: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
+  startAtLogin: boolean
+  stayAwake: boolean
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -28,6 +30,8 @@ export const defaultMachineSettings: MachineSettings = {
   maxWorkingRuns: 6,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
+  startAtLogin: true,
+  stayAwake: true,
 }
 
 export interface Profile {

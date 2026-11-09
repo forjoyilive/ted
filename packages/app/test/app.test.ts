@@ -1,5 +1,14 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -1468,6 +1477,69 @@ describe('running in the background', () => {
     await expect
       .poll(async () => (await daemonClient()).getSettings())
       .toMatchObject({ quitWithWorkRunning: 'keep-running' })
+  })
+
+  const switchNamed = (window: Page, name: string) => window.getByRole('switch', { name })
+  const startAtLogin = 'Start TED in the background when you log in'
+  const stayAwake = 'Stay Awake while Runs are working'
+  const loginLog = () => path.join(home, 'login-item.log')
+  const loginLines = () =>
+    readFile(loginLog(), 'utf8').then(
+      (text) => text.split('\n').filter(Boolean),
+      () => [],
+    )
+
+  test('Start at login and Stay Awake are on by default and switch off in General', async () => {
+    const window = await launchApp({ TED_LOGIN_ITEM_LOG: loginLog() })
+    await expect.poll(loginLines).toEqual(['on'])
+    await openSettings(window)
+
+    const checked = (name: string) => () => switchNamed(window, name).getAttribute('aria-checked')
+    await expect.poll(checked(startAtLogin)).toBe('true')
+    await expect.poll(checked(stayAwake)).toBe('true')
+
+    await switchNamed(window, startAtLogin).click()
+    await switchNamed(window, stayAwake).click()
+
+    await expect
+      .poll(async () => (await daemonClient()).getSettings())
+      .toMatchObject({ startAtLogin: false, stayAwake: false })
+    await expect.poll(loginLines).toEqual(['on', 'off'])
+    await expect.poll(checked(startAtLogin)).toBe('false')
+  })
+
+  test('when macOS asks for approval, the row says so and opens Login Items', async () => {
+    const window = await launchApp({
+      TED_LOGIN_ITEM_LOG: loginLog(),
+      TED_LOGIN_ITEM_STATUS: 'requires-approval',
+    })
+    await app?.evaluate(({ shell }) => {
+      const opened: string[] = []
+      Object.assign(globalThis, { opened })
+      shell.openExternal = async (url: string) => {
+        opened.push(url)
+      }
+    })
+    await openSettings(window)
+
+    await window.getByText('Allow TED in System Settings → Login Items').waitFor()
+    await window.getByRole('button', { name: 'Open System Settings' }).click()
+
+    await expect
+      .poll(() => app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
+  })
+
+  test('started with --background, TED runs with no window', async () => {
+    app = await electron.launch({
+      executablePath: electronPath,
+      args: [appDir, '--background'],
+      env: env(),
+    })
+    await expect.poll(() => readDaemonInfo(home), { timeout: 20_000 }).toBeDefined()
+    await expect.poll(menuLabels).toEqual(expect.arrayContaining(['Quit TED completely']))
+
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(0)
   })
 
   test('opening TED again while it runs hands over to the running app', async () => {

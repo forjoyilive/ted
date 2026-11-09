@@ -62,6 +62,7 @@ const config: Configuration = {
     hardenedRuntime: signs,
     entitlements: path.join(buildDir, 'entitlements.mac.plist'),
     entitlementsInherit: path.join(buildDir, 'entitlements.mac.plist'),
+    extraFiles: [{ from: path.join(buildDir, 'mac', 'LaunchAgents'), to: 'Library/LaunchAgents' }],
     ...(!signs && { identity: '-' }),
   },
   linux: {
