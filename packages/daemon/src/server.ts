@@ -440,6 +440,11 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/factories\/([^/]+)\/board$/,
+    handle: async ({ params: [id = ''] }, { tasks }) => [200, await tasks.board(id)],
+  },
+  {
+    method: 'GET',
     path: /^\/settings$/,
     handle: async (_, { store }) => [200, store.settings()],
   },

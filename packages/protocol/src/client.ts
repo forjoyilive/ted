@@ -43,7 +43,7 @@ import type {
   TaskDefaults,
   ThreadEvent,
 } from './task.ts'
-import type { StageEntry } from './workflow.ts'
+import type { FactoryBoard, StageEntry } from './workflow.ts'
 
 export class DaemonUnreachableError extends Error {}
 
@@ -177,6 +177,10 @@ export class DaemonClient {
 
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
+  }
+
+  factoryBoard(factoryId: string): Promise<FactoryBoard> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/board`)
   }
 
   taskDefaults(factoryId: string): Promise<TaskDefaults> {

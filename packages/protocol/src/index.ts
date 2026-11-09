@@ -208,4 +208,11 @@ export {
   type WriteBriefRequest,
 } from './task.ts'
 export { tedVersion } from './version.ts'
-export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'
+export type {
+  BoardStage,
+  FactoryBoard,
+  LayerKind,
+  LayerUse,
+  StageEntry,
+  WorkflowProblem,
+} from './workflow.ts'
