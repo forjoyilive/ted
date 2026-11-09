@@ -132,6 +132,37 @@ describe('a Task Lead that dies', () => {
   })
 })
 
+describe('resuming takes a working slot', () => {
+  test('a dead Task Lead waits for a free slot before its session is resumed', async () => {
+    const client = await startTed()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const task = await startTask(client, steps({ endTurn: true }))
+    const gate = path.join(scratch, 'gate')
+    const other = await client.ok<Task>('POST', '/tasks', {
+      title: steps({ waitFor: gate }, { endTurn: true }),
+      factory: 'NB',
+      start: true,
+    })
+    await waitFor(client, other, (t) => t.runs[0]?.state === 'working', 'to be working')
+
+    const count = await killAgent()
+
+    await waitUntil(
+      async () =>
+        (await threadEvents(client, task)).some((e) => e.text.endsWith('resuming the session')),
+      'the failure to be recorded',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(await agentStarts()).toHaveLength(count)
+    expect((await getTask(client, task.id)).runs).toEqual([])
+
+    await writeFile(gate, '')
+    await startsAfter(count)
+    const after = await waitFor(client, task, (t) => t.runs.length === 1, 'to run again')
+    expect(after.leadRunId).toBe(task.leadRunId)
+  })
+})
+
 describe('when TED can’t resume', () => {
   test('a failed resume starts a fresh Run from the brief, shown as a new Run', async () => {
     const client = await startTed()
@@ -282,7 +313,13 @@ describe('Failed', () => {
 async function failTwice(client: Client, task: Task): Promise<Task> {
   const count = await killAgent()
   await startsAfter(count)
-  await waitFor(client, task, (t) => t.runs.length === 1, 'to run again')
+  await waitUntil(
+    async () =>
+      (await client.getRun(task.leadRunId ?? '')).conversation.some((e) =>
+        e.line.includes('TED resumed your session'),
+      ),
+    'the resumed session to answer',
+  )
   await killAgent()
   return waitFor(client, task, (t) => t.status?.kind === 'failed', 'to be Failed')
 }

@@ -66,6 +66,7 @@ export interface RunManager {
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
   send(runId: string, text: string): Promise<void>
+  lastHeard(runId: string): number | undefined
   answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
   stop(runId: string): Promise<void>
   observe(observer: RunObserver): void
@@ -86,6 +87,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const following = new Map<string, Promise<void>>()
   const stopRequested = new Set<string>()
+  const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
   let closed = false
   let shuttingDown = false
@@ -182,6 +184,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const accepted: string[] = []
     let exit: Extract<HostRecord, { t: 'exit' }> | undefined
     const startedWith = generation.count
+    if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
+      heard.set(runId, Date.now())
+    }
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
         entries.push({
@@ -259,7 +264,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     })
     if (accepted.length > 0) tellAccepted(runId, accepted)
     if (authFailed) tell('authFailed', runId)
-    if (state === 'finished') tell('finished', runId)
+    if (state === 'finished') {
+      heard.delete(runId)
+      tell('finished', runId)
+    }
     return state === 'finished'
   }
 
@@ -434,6 +442,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       return restarted
     },
+    lastHeard: (runId) => heard.get(runId),
     async send(runId, text) {
       const input = runFiles(path.join(runsDir, runId)).input
       const run = store.getRun(runId)

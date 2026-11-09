@@ -188,6 +188,7 @@ export function createTasks(options: {
   const silent = new Map<string, string>()
   const pausedAt = new Map<string, number>()
   const recovering = new Set<string>()
+  const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -277,15 +278,35 @@ export function createTasks(options: {
     })
   }
 
+  function revivesReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return [...awaitingRevive].flatMap((taskId) => {
+      const pending = pendingRevive(taskId)
+      if (!pending) {
+        awaitingRevive.delete(taskId)
+        return []
+      }
+      if (paused[pending.run.agent] !== undefined || holds.has(taskId)) return []
+      return [{ id: taskId, kind: 'task' as const, rank: -1, factoryId: pending.task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
     if (store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0) return
-    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    if (queued.length === 0 && held.length === 0 && revives.length === 0) return
+    const { use } = await slotUse(
+      [...revives, ...held, ...queued].flatMap((q) => q.factoryId ?? []),
+    )
     const heldIds = new Set(held.map((h) => h.id))
-    for (const entry of startsNow<QueueEntry>([...held, ...ready()], use)) {
-      if (heldIds.has(entry.id)) relaunch(entry.id)
+    const reviveIds = new Set(revives.map((r) => r.id))
+    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+      if (reviveIds.has(entry.id)) {
+        awaitingRevive.delete(entry.id)
+        inBackground('resume a Task Lead session', () => reviveLead(entry.id))
+      } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
@@ -1524,12 +1545,29 @@ export function createTasks(options: {
         ask: failedAsk(run.agent, first ? log.slice(log.indexOf(first)) : [], reason, ended, now),
       }),
     })
-    if (recovery === 'resume') await reviveLead(task, run, reason)
-    else void pump()
+    if (recovery === 'resume') awaitingRevive.add(task.id)
+    void pump()
   }
 
-  async function reviveLead(task: StoredTask, run: Run, reason: string): Promise<void> {
-    const release = hold(task.id)
+  function pendingRevive(
+    taskId: string,
+  ): { task: StoredTask; run: Run; reason: string } | undefined {
+    const task = store.getTask(taskId)
+    if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
+    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    const last = store.taskLog(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
+    if (last?.data.recovery !== 'resume') return undefined
+    const run = store.getRun(String(last.data.runId))
+    if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
+    if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
+    return { task, run, reason: String(last.data.reason) }
+  }
+
+  async function reviveLead(taskId: string): Promise<void> {
+    const release = hold(taskId)
+    const pending = pendingRevive(taskId)
+    if (!pending) return release()
+    const { task, run, reason } = pending
     try {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
@@ -1571,7 +1609,7 @@ export function createTasks(options: {
       }
       const heard = [store.lastOutputAt(run.id), run.revivedAt, run.startedAt]
         .flatMap((at) => (at === undefined ? [] : [Date.parse(at)]))
-        .concat(pausedAt.get(run.id) ?? [])
+        .concat(pausedAt.get(run.id) ?? [], runs.lastHeard(run.id) ?? [])
       if (now - Math.max(...heard) < stallAfterMs) continue
       silent.set(run.id, silentReason(stallAfterMs))
       inBackground('stop a silent Task Lead', () => runs.stop(run.id))
@@ -1775,6 +1813,10 @@ export function createTasks(options: {
   }
 
   for (const task of store.listTasks()) {
+    if (pendingRevive(task.id)) {
+      awaitingRevive.add(task.id)
+      continue
+    }
     const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
     if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
       inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
