@@ -117,7 +117,13 @@ export function StatusChip({
   return (
     <span className={`${styles.chip} ${styles[tone]}`}>
       {glyph && (
-        <svg className={styles.glyph} width="10" height="10" viewBox="0 0 10 10" aria-hidden>
+        <svg
+          className={glyph === 'working' ? `${styles.glyph} ${styles.spinning}` : styles.glyph}
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          aria-hidden
+        >
           <Glyph glyph={glyph} />
         </svg>
       )}

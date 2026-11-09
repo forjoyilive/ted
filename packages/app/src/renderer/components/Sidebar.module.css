@@ -257,9 +257,50 @@
   outline-offset: -2px;
 }
 
+.factoryName {
+  padding-left: 26px;
+}
+
+.caret {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
+  transform: translateY(-50%);
+}
+
+.caret:hover {
+  background: var(--surface-hover);
+}
+
+.caret:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .chevron {
   flex-shrink: 0;
   color: var(--text-muted);
+  transition: transform 120ms ease;
+}
+
+.chevronClosed {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
 }
 
 .failedDot {
