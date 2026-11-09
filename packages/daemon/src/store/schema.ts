@@ -37,6 +37,15 @@ export const tasks = State.SQLite.table({
   },
 })
 
+export const taskQueue = State.SQLite.table({
+  name: 'taskQueue',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    rank: State.SQLite.real(),
+    queuedAt: State.SQLite.text(),
+  },
+})
+
 export const taskBlockers = State.SQLite.table({
   name: 'taskBlockers',
   columns: {
@@ -290,6 +299,23 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskQueued: Events.synced({
+    name: 'v1.TaskQueued',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stage: Schema.String,
+      rank: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  taskDequeued: Events.synced({
+    name: 'v1.TaskDequeued',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  taskMovedToBacklog: Events.synced({
+    name: 'v1.TaskMovedToBacklog',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -514,6 +540,15 @@ const materializers = counted(
     'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
       tasks.update({ stage, branch, worktree }).where({ id: taskId }),
     'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
+    'v1.TaskQueued': ({ taskId, stage, rank, at }) => [
+      taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+      tasks.update({ stage }).where({ id: taskId }),
+    ],
+    'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
+    'v1.TaskMovedToBacklog': ({ taskId }) => [
+      taskQueue.delete().where({ taskId }),
+      tasks.update({ stage: 'backlog' }).where({ id: taskId }),
+    ],
     'v1.CommentPosted': (comment) => comments.insert(comment),
     'v1.RunStarted': (run) =>
       runs.insert({ ...run, taskId: null, state: 'working', readOffset: 0 }),
@@ -610,6 +645,7 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     tasks,
+    taskQueue,
     taskBlockers,
     taskAttachments,
     runs,

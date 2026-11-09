@@ -19,4 +19,5 @@ The full health (version, path, account, fix command, paused Run count) lives in
 - A new agent kind adds a `health` spec and `authErrorFrom`; nothing else changes.
 - Starting a Run goes through `Tasks`, which asks `health.ready` first; `/dev/runs` does not.
 - The credential check (KRI-113) sets the `wrong-credential` state; the pause, banner and resume already handle it.
-- No queue, working-Run limit or no-output clock exists yet, so “Paused Runs don’t count toward the limit” and “the clock stops” have nothing to act on until those land.
+- The queue (ADR 0030) skips Queued Tasks whose Task Lead’s kind is paused, so the other kind moves ahead; those Tasks show “Paused · <reason>” with “Queued · 2nd” as the activity line. Runs of a paused kind don’t take a working slot. “N Runs paused” counts held Task Leads and open Runs, not Queued Tasks.
+- No no-output clock exists yet, so “the clock stops” has nothing to act on until it lands.

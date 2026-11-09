@@ -26,6 +26,7 @@ import {
   type StartDevRunRequest,
   type TaskLead,
   terminalFontSizes,
+  workingRunLimits,
 } from '@ted/protocol'
 import type { Agents } from './agents/index.ts'
 import type { Attachments } from './attachments.ts'
@@ -156,6 +157,16 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/backlog$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, tasks.moveToBacklog(ref)],
+  },
+  {
+    method: 'GET',
+    path: /^\/slots$/,
+    handle: async (_, { tasks }) => [200, await tasks.slots()],
   },
   {
     method: 'PUT',
@@ -679,6 +690,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   developerMode(value) {
     if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
+    return value
+  },
+  maxWorkingRuns(value) {
+    const { min, max } = workingRunLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxWorkingRuns must be a whole number from ${min} to ${max}`)
+    }
     return value
   },
   quitWithWorkRunning(value) {

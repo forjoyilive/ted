@@ -113,6 +113,12 @@
   padding: 32px 48px 48px;
 }
 
+.pageTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .pageTitle {
   margin: 0;
   font-size: var(--text-22);
@@ -383,4 +389,56 @@
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.stepper {
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-card);
+}
+
+.step {
+  padding: 4px 10px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--text-14);
+  line-height: 1.45;
+}
+
+.step:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.step:disabled {
+  color: var(--text-faint);
+}
+
+.step:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.stepValue {
+  min-width: 1ch;
+  padding: 4px 12px;
+  border-right: 1px solid var(--border-strong);
+  border-left: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.nowLine {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
 }

@@ -49,6 +49,7 @@ describe('machine settings in the store', () => {
       terminalFontSize: 13,
       profilePicture: null,
       developerMode: false,
+      maxWorkingRuns: 6,
       quitWithWorkRunning: 'ask',
       showTrayIcon: true,
     })
@@ -64,6 +65,7 @@ describe('machine settings in the store', () => {
         terminalFontSize: 16,
         profilePicture: picture,
         developerMode: true,
+        maxWorkingRuns: 6,
       })
       second.updateSettings({ profilePicture: null })
       expect(second.settings().profilePicture).toBeNull()
@@ -201,6 +203,7 @@ describe('settings and Factories over the daemon API', () => {
       terminalFontSize: 20,
       profilePicture: picture,
       developerMode: true,
+      maxWorkingRuns: 6,
     })
     await ted.updateSettings({ terminalFontSize: 10, profilePicture: null })
     expect(await ted.getSettings()).toMatchObject({ terminalFontSize: 10, profilePicture: null })

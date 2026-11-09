@@ -128,9 +128,15 @@ describe('Agent health', () => {
     })
   })
 
-  test('a signed-out agent pauses its Tasks; Fix opens sign-in and the Task continues by itself', async () => {
+  test('a signed-out agent pauses its queued Tasks; Fix opens sign-in and the Task continues by itself', async () => {
     await setStub('claude', { signedIn: false })
     const client = await start({ codex: true })
+    const banner = await waitUntil(() => agentBanner(client, 'claude'), 'the Claude banner')
+    expect(banner).toMatchObject({
+      severity: 'stops-work',
+      text: 'Claude Code is signed out',
+      action: { label: 'Fix', section: 'agents' },
+    })
 
     const claudeTask = await startTask(client, steps({ say: 'hello' }))
     const paused = await waitUntil(async () => {
@@ -138,16 +144,8 @@ describe('Agent health', () => {
       return t?.status?.kind === 'paused' ? t : undefined
     }, 'the Claude Task to pause')
     expect(paused.status).toEqual({ kind: 'paused', reason: 'Claude Code is signed out' })
+    expect(paused.activity).toBe('Queued · 1st')
     expect(paused.leadRunId).toBeUndefined()
-
-    const banner = await waitUntil(() => agentBanner(client, 'claude'), 'the Claude banner')
-    expect(banner).toMatchObject({
-      severity: 'stops-work',
-      text: 'Claude Code is signed out · 1 Run paused',
-      action: { label: 'Fix' },
-    })
-    expect((await healthOf(client, 'claude'))?.pausedRuns).toBe(1)
-    expect((await client.ok<{ runs: { active: number } }>('GET', '/activity')).runs.active).toBe(1)
 
     const codexTask = await startTask(client, steps({ say: 'hi' }), 'codex')
     await waitUntil(async () => (await getTask(client, codexTask.id))?.leadRunId, 'the Codex Run')
@@ -187,6 +185,12 @@ describe('Agent health', () => {
       return t?.status?.kind === 'paused' ? t : undefined
     }, 'the Task to pause')
     expect(held.status).toEqual({ kind: 'paused', reason: 'Claude Code is signed out' })
+    const banner = await waitUntil(async () => {
+      const b = await agentBanner(client, 'claude')
+      return b?.text.endsWith('1 Run paused') ? b : undefined
+    }, 'the banner to count the held Run')
+    expect(banner.text).toBe('Claude Code is signed out · 1 Run paused')
+    expect((await client.ok<{ runs: { active: number } }>('GET', '/activity')).runs.active).toBe(1)
 
     await setStub('claude', { signedIn: true })
     const checked = await client.ok<AgentHealth[]>('POST', '/agents/health/check')

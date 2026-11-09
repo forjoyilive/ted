@@ -18,6 +18,7 @@ import type {
   Run,
   RunFixRequest,
   RunFixResult,
+  RunSlots,
   StageEntry,
   Task,
   TaskDefaults,
@@ -52,6 +53,9 @@ export const ted = {
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
+  startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
+  moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
+  getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>

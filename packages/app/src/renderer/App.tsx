@@ -1,6 +1,6 @@
 import type { AgentHealth, Banner, Task } from '@ted/protocol'
 import { runsPaused } from '@ted/protocol/health'
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
 import styles from './App.module.css'
 import {
@@ -11,7 +11,15 @@ import {
 } from './banners.ts'
 import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useAgentHealth, useBanners, useFactories, useSettings, useTasks } from './data.ts'
+import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
+import {
+  useAgentHealth,
+  useBanners,
+  useFactories,
+  useSettings,
+  useSlots,
+  useTasks,
+} from './data.ts'
 import { FactoryBanners } from './FactoryBanners.tsx'
 import {
   backLink,
@@ -22,6 +30,7 @@ import {
   settingsSectionIds,
 } from './navigation.ts'
 import { SettingsShell } from './settings/SettingsShell.tsx'
+import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { Inbox, Stub } from './views/OtherViews.tsx'
@@ -68,6 +77,9 @@ export function App() {
   const factories = useFactories()
   const settings = useSettings()
   const settingsOpen = navigation.settings !== undefined
+  const slots = useSlots()
+  const [runsOpen, setRunsOpen] = useState(false)
+  const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const openNewTask = () => setNewTaskOpen(true)
   const inboxCount = 0
@@ -108,6 +120,18 @@ export function App() {
       }),
     [],
   )
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (newTaskOpen || settingsOpen || runsOpen || event.metaKey || event.ctrlKey) return
+      if (event.altKey || event.shiftKey || event.key !== 's' || isTyping(event.target)) return
+      if (task?.stage !== 'backlog') return
+      event.preventDefault()
+      ted.startTask(task.id).catch((error: unknown) => console.error(error))
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [newTaskOpen, settingsOpen, runsOpen, task])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (newTaskOpen || settingsOpen || event.altKey || event.shiftKey) return
@@ -196,6 +220,7 @@ export function App() {
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
         const view = {
           title: name,
+          capLine: factoryCapLine(slots, screen.factoryId),
           tasks: inFactory,
           factories,
           onOpen: openTask,
@@ -242,10 +267,26 @@ export function App() {
           [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
         )}
         settingsProblem={settingsStopsWork(banners)}
-        footer={pausedFooter(agentHealth)}
+        footer={{
+          ...(slots !== undefined && { runs: runsLine(slots) }),
+          ...pausedFooter(agentHealth),
+        }}
+        runsOpen={runsOpen}
+        onOpenRuns={() => setRunsOpen((open) => !open)}
         dispatch={dispatch}
         onNewTask={openNewTask}
       />
+      {runsOpen && slots && (
+        <WorkingRunsPopover
+          slots={slots}
+          factories={factories}
+          onClose={closeRuns}
+          onOpenList={() => {
+            setRunsOpen(false)
+            dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
+          }}
+        />
+      )}
       <main className={styles.main}>
         <FactoryBanners />
         {bannerStack('Problems', appWideBanners(banners))}

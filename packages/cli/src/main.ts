@@ -137,7 +137,11 @@ try {
   } else if (group === 'task' && command === 'start' && rest.length === 1) {
     const ref = rest[0] ?? ''
     const task = await withDaemon(home, (client) => client.startTask(ref))
-    console.log(`Started ${task.displayId} on branch ${task.branch}`)
+    console.log(
+      task.status?.kind === 'queued'
+        ? `Queued ${task.displayId} · ${'place' in task.status ? `${ordinal(task.status.place)} in line for a slot` : task.status.hold}`
+        : `Started ${task.displayId} on branch ${task.branch}`,
+    )
   } else if (group === 'backup' && command === 'list' && rest.length === 0) {
     const { backups } = await withDaemon(home, (client) => client.listBackups())
     console.log(
@@ -445,4 +449,10 @@ function printable(text: string): string {
 function isControl(char: string): boolean {
   const code = char.codePointAt(0) ?? 0
   return (code < 0x20 && char !== '\t' && char !== '\n') || (code >= 0x7f && code <= 0x9f)
+}
+
+function ordinal(n: number): string {
+  const tens = n % 100
+  const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')
+  return `${n}${suffix}`
 }

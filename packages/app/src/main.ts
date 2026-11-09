@@ -63,6 +63,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
+  startTask: (client, taskId) => client.startTask(String(taskId)),
+  moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
+  getSlots: (client) => client.getSlots(),
   uploadAttachment: (client, name, mediaType, bytes) => {
     if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
     return client.uploadAttachment(
