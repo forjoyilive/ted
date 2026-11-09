@@ -1,4 +1,12 @@
-import type { AgentStageId, Comment, Factory, Task, ThreadEvent } from '@ted/protocol'
+import type {
+  AgentStageId,
+  Comment,
+  ConversationTab,
+  Factory,
+  RunState,
+  Task,
+  ThreadEvent,
+} from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { CodeSection } from '../CodeSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
@@ -7,9 +15,10 @@ import { Button } from '../components/Button.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { AnsweredCard, OpenRequestLine, RequestCard } from '../components/RequestCard.tsx'
+import { RunChat, runMeta } from '../components/RunChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
-import { useComments, useStageEntries, useThreadEvents } from '../data.ts'
+import { useComments, useStageEntries, useTaskRuns, useThreadEvents } from '../data.ts'
 import { inStage } from '../stage-filter.ts'
 import { clarifyDepthLabels, formatSize, priorityLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -55,11 +64,131 @@ type ThreadItem =
   | { kind: 'comment'; comment: Comment; createdAt: string }
   | { kind: 'event'; event: ThreadEvent; createdAt: string }
 
-function EventRow({ event }: { event: ThreadEvent }) {
+function EventRow({
+  event,
+  onOpenRun,
+}: {
+  event: ThreadEvent
+  onOpenRun: (runId: string) => void
+}) {
+  const { runId } = event
   return (
     <EventLine tone={event.tone} text={event.text} at={event.at}>
       {event.findings !== undefined && <Findings text={event.findings} />}
+      {runId !== undefined && (
+        <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
+          View message
+        </button>
+      )}
     </EventLine>
+  )
+}
+
+const tabDotStates: Record<RunState, string> = {
+  working: 'working',
+  waiting: 'waiting',
+  idle: 'idle',
+  finished: 'finished',
+}
+
+function ConversationTabs({
+  tabs,
+  shown,
+  onShow,
+  onClose,
+}: {
+  tabs: readonly ConversationTab[]
+  shown: string | undefined
+  onShow: (runId: string | undefined) => void
+  onClose: (runId: string) => void
+}) {
+  if (tabs.length === 0) return null
+  return (
+    <div className={styles.tabs} role="tablist" aria-label="Thread and Conversations">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={shown === undefined}
+        className={styles.tab}
+        onClick={() => onShow(undefined)}
+      >
+        Thread
+      </button>
+      {tabs.map((tab) => (
+        <span key={tab.runId} className={styles.tabWrap} data-selected={shown === tab.runId}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={shown === tab.runId}
+            className={styles.tab}
+            onClick={() => onShow(tab.runId)}
+          >
+            <span
+              className={styles.tabDot}
+              data-state={tabDotStates[tab.state]}
+              role="img"
+              aria-label={tab.state}
+            />
+            {tab.name}
+          </button>
+          <button
+            type="button"
+            className={styles.tabClose}
+            aria-label={`Close ${tab.name}`}
+            onClick={() => onClose(tab.runId)}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+export function TaskPanes({
+  task,
+  tasks,
+  factories,
+  backLink,
+  requestId,
+  onBack,
+  onOpenTask,
+}: {
+  task: Task
+  tasks: readonly Task[]
+  factories: readonly Factory[]
+  backLink: string | undefined
+  requestId?: string | undefined
+  onBack: () => void
+  onOpenTask: (ref: string) => void
+}) {
+  const [shown, setShown] = useState<{ taskId: string; runId: string | undefined }>()
+  const shownRun = shown?.taskId === task.id ? shown.runId : undefined
+  const visibleRun = task.tabs.some((t) => t.runId === shownRun) ? shownRun : undefined
+  const show = (runId: string | undefined) => setShown({ taskId: task.id, runId })
+  const openRun = (runId: string) => {
+    show(runId)
+    void ted.openRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+  }
+  const closeRun = (runId: string) => {
+    if (visibleRun === runId) show(undefined)
+    void ted.closeRunTab(task.id, runId).catch((error: unknown) => console.error(error))
+  }
+  return (
+    <>
+      <TaskThread
+        task={task}
+        backLink={backLink}
+        requestId={requestId}
+        onBack={onBack}
+        onOpenTask={onOpenTask}
+        shownRun={visibleRun}
+        onShowRun={show}
+        onOpenRun={openRun}
+        onCloseRun={closeRun}
+      />
+      <TaskDetails task={task} tasks={tasks} factories={factories} onOpenRun={openRun} />
+    </>
   )
 }
 
@@ -69,12 +198,20 @@ export function TaskThread({
   requestId,
   onBack,
   onOpenTask,
+  shownRun,
+  onShowRun,
+  onOpenRun,
+  onCloseRun,
 }: {
   task: Task
   backLink: string | undefined
   requestId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
+  shownRun: string | undefined
+  onShowRun: (runId: string | undefined) => void
+  onOpenRun: (runId: string) => void
+  onCloseRun: (runId: string) => void
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
@@ -139,57 +276,70 @@ export function TaskThread({
         </div>
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
-      {stage !== undefined && (
-        <p className={styles.filterNote}>
-          Showing {stageName(stage)} only ·{' '}
-          <button type="button" className={styles.linkButton} onClick={() => setFilter(undefined)}>
-            Show all
-          </button>
-        </p>
-      )}
-      <ol className={styles.thread}>
-        {shown.map((item) => {
-          if (item.kind === 'event') return <EventRow key={item.event.id} event={item.event} />
-          const { comment } = item
-          if (comment.kind === 'note' && comment.author.kind === 'ted') {
-            return (
-              <EventLine
-                key={comment.id}
-                tone="quiet"
-                text={comment.body.replace(/\s+/g, ' ')}
-                at={comment.createdAt}
-              />
-            )
-          }
-          if (comment.kind === 'note') {
-            return <NoteRow key={comment.id} task={task} comment={comment} />
-          }
-          if (comment.answer !== undefined) {
-            return (
-              <li key={comment.id} className={styles.requestItem}>
-                <AnsweredCard request={comment} task={task} />
-              </li>
-            )
-          }
-          if (comment.id === pinned?.id) return null
-          return (
-            <li key={comment.id} className={styles.requestItem}>
-              <OpenRequestLine
-                request={comment}
-                onPin={() => setChosen({ from: requestId, id: comment.id })}
-              />
-            </li>
-          )
-        })}
-      </ol>
-      {pinned ? (
-        <div className={styles.pinned}>
-          <RequestCard key={pinned.id} request={pinned} task={task} />
-        </div>
+      <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
+      {shownRun !== undefined ? (
+        <RunChat key={shownRun} runId={shownRun} />
       ) : (
-        <div className={styles.pinned}>
-          <CommentBox key={task.id} task={task} />
-        </div>
+        <>
+          {stage !== undefined && (
+            <p className={styles.filterNote}>
+              Showing {stageName(stage)} only ·{' '}
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => setFilter(undefined)}
+              >
+                Show all
+              </button>
+            </p>
+          )}
+          <ol className={styles.thread}>
+            {shown.map((item) => {
+              if (item.kind === 'event') {
+                return <EventRow key={item.event.id} event={item.event} onOpenRun={onOpenRun} />
+              }
+              const { comment } = item
+              if (comment.kind === 'note' && comment.author.kind === 'ted') {
+                return (
+                  <EventLine
+                    key={comment.id}
+                    tone="quiet"
+                    text={comment.body.replace(/\s+/g, ' ')}
+                    at={comment.createdAt}
+                  />
+                )
+              }
+              if (comment.kind === 'note') {
+                return <NoteRow key={comment.id} task={task} comment={comment} />
+              }
+              if (comment.answer !== undefined) {
+                return (
+                  <li key={comment.id} className={styles.requestItem}>
+                    <AnsweredCard request={comment} task={task} />
+                  </li>
+                )
+              }
+              if (comment.id === pinned?.id) return null
+              return (
+                <li key={comment.id} className={styles.requestItem}>
+                  <OpenRequestLine
+                    request={comment}
+                    onPin={() => setChosen({ from: requestId, id: comment.id })}
+                  />
+                </li>
+              )
+            })}
+          </ol>
+          {pinned ? (
+            <div className={styles.pinned}>
+              <RequestCard key={pinned.id} request={pinned} task={task} />
+            </div>
+          ) : (
+            <div className={styles.pinned}>
+              <CommentBox key={task.id} task={task} />
+            </div>
+          )}
+        </>
       )}
     </section>
   )
@@ -199,10 +349,12 @@ export function TaskDetails({
   task,
   tasks,
   factories,
+  onOpenRun,
 }: {
   task: Task
   tasks: readonly Task[]
   factories: readonly Factory[]
+  onOpenRun: (runId: string) => void
 }) {
   return (
     <aside className={styles.detailsPane} aria-label="Task details">
@@ -250,7 +402,36 @@ export function TaskDetails({
         )}
       </dl>
       <CodeSection task={task} />
+      <RunsSection task={task} onOpenRun={onOpenRun} />
     </aside>
+  )
+}
+
+function RunsSection({ task, onOpenRun }: { task: Task; onOpenRun: (runId: string) => void }) {
+  const runs = useTaskRuns(task.id)
+  if (runs.length === 0) return null
+  return (
+    <section className={styles.runsSection} aria-label="Runs">
+      <h2 className={styles.sectionHeading}>Runs</h2>
+      <ul className={styles.runList}>
+        {runs.map((run) => (
+          <li key={run.id}>
+            <button type="button" className={styles.runRow} onClick={() => onOpenRun(run.id)}>
+              <AgentAvatar agent={run.agent} />
+              <span className={styles.runText}>
+                <span className={styles.runName}>
+                  {run.current || run.state !== 'finished' ? run.name : `Earlier ${run.name}`}
+                </span>
+                <span className={styles.runMeta}>{runMeta(run)}</span>
+              </span>
+              <span className={styles.runState} data-state={run.state}>
+                {run.state}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   )
 }
 

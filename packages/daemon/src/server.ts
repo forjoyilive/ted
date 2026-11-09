@@ -32,9 +32,9 @@ import {
   type RepoSource,
   type RestoreBackupRequest,
   type RunFixRequest,
+  type SendRunMessageRequest,
   type SetActivityRequest,
   type SetLocalFolderRequest,
-  type SendRunMessageRequest,
   type StartDevRunRequest,
   type TaskLead,
   terminalFontSizes,
@@ -575,10 +575,7 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/runs\/([^/]+)\/chat$/,
-    handle: async ({ params: [id = ''] }, { conversations }) => [
-      200,
-      await conversations.chat(id),
-    ],
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.chat(id)],
   },
   {
     method: 'POST',
@@ -601,18 +598,12 @@ const routes: Route[] = [
   {
     method: 'POST',
     path: /^\/runs\/([^/]+)\/stop$/,
-    handle: async ({ params: [id = ''] }, { conversations }) => [
-      200,
-      await conversations.stop(id),
-    ],
+    handle: async ({ params: [id = ''] }, { conversations }) => [200, await conversations.stop(id)],
   },
   {
     method: 'GET',
     path: /^\/tasks\/([^/]+)\/runs$/,
-    handle: async ({ params: [ref = ''] }, { conversations }) => [
-      200,
-      conversations.taskRuns(ref),
-    ],
+    handle: async ({ params: [ref = ''] }, { conversations }) => [200, conversations.taskRuns(ref)],
   },
   {
     method: 'PUT',

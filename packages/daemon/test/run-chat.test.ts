@@ -87,7 +87,9 @@ const getTask = async (client: Client, id: string) => {
 }
 
 async function startTask(client: Client, title: string) {
-  await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n' })
+  await commitToOrigin(scratch, {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+  })
   await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB', start: true })
   return waitUntil(async () => {
@@ -162,7 +164,10 @@ describe('Run chat', () => {
 
   test('a message goes only to that Run, isn’t a Comment, and leaves a thread line for the Task Lead', async () => {
     const client = await startTed()
-    const task = await startTask(client, steps({ everyMessage: [{ endTurn: true }] }, { endTurn: true }))
+    const task = await startTask(
+      client,
+      steps({ everyMessage: [{ endTurn: true }] }, { endTurn: true }),
+    )
     const runId = task.leadRunId ?? ''
     const before = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
 

@@ -70,7 +70,13 @@ export function claudeChat(entries: readonly ConversationEntry[], cwd: string): 
       list(record(message.message).content).forEach((block, index) => {
         const part = record(block)
         if (part.type === 'text' && str(part.text).trim() !== '') {
-          chat.put({ kind: 'agent', key: `${offset}:${index}`, text: str(part.text), done: true, ...when })
+          chat.put({
+            kind: 'agent',
+            key: `${offset}:${index}`,
+            text: str(part.text),
+            done: true,
+            ...when,
+          })
         } else if (part.type === 'tool_use') {
           const name = str(part.name) || 'Tool'
           chat.put({

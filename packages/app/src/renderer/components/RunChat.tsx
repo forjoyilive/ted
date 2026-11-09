@@ -2,7 +2,7 @@
 // and ChatTimelineItems.tsx (collapsible tool-call rows with +/− counts, the running state, and
 // the human bubble). TED changed: rewritten for TED’s CSS Modules and RunChat items, with no
 // grouping of calls, an Edit row that expands to its diff, and a Run bar and composer of its own.
-import type { ChatDiff, ChatItem, RunChat as Chat, RunSummary } from '@ted/protocol'
+import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useRunChat } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
@@ -10,8 +10,8 @@ import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { ChevronIcon } from './icons.tsx'
-import { agentNames } from './RunIcon.tsx'
 import styles from './RunChat.module.css'
+import { agentNames } from './RunIcon.tsx'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
@@ -29,7 +29,9 @@ function elapsed(from: string, now: number): string {
   const seconds = Math.max(0, Math.round((now - Date.parse(from)) / 1000))
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
-  return minutes < 60 ? `${minutes}m ${seconds % 60}s` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+  return minutes < 60
+    ? `${minutes}m ${seconds % 60}s`
+    : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
 function tokenCount(tokens: number): string {
@@ -50,13 +52,7 @@ export function runMeta(run: RunSummary): string {
     .join(' · ')
 }
 
-function RunBar({
-  run,
-  onStopTask,
-}: {
-  run: RunSummary
-  onStopTask: (() => void) | undefined
-}) {
+function RunBar({ run, onStopTask }: { run: RunSummary; onStopTask: (() => void) | undefined }) {
   const now = useNow()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -159,17 +155,15 @@ function Counts({ additions, deletions }: { additions: number; deletions: number
   )
 }
 
+const numbered = <T,>(value: T, n: number) => ({ ...value, n })
+
 function Diff({ diff, showPath }: { diff: ChatDiff; showPath: boolean }) {
   const marks = { context: ' ', added: '+', removed: '-' } as const
   return (
     <div className={styles.diff}>
       {showPath && <div className={styles.diffPath}>{diff.path}</div>}
-      {diff.lines.map((line, index) => (
-        <div
-          // biome-ignore lint/suspicious/noArrayIndexKey: diff lines have no identity of their own
-          key={index}
-          className={`${styles.diffLine} ${styles[line.kind]}`}
-        >
+      {diff.lines.map(numbered).map(({ n, ...line }) => (
+        <div key={n} className={`${styles.diffLine} ${styles[line.kind]}`}>
           <span className={styles.diffMark}>{marks[line.kind]}</span>
           <span>{line.text}</span>
         </div>
@@ -207,13 +201,8 @@ function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now
     >
       {(diffs.length > 0 || item.output !== undefined) && (
         <>
-          {diffs.map((diff, index) => (
-            <Diff
-              // biome-ignore lint/suspicious/noArrayIndexKey: one tool call’s diffs keep their order
-              key={index}
-              diff={diff}
-              showPath={diffs.length > 1 || diff.path !== item.title}
-            />
+          {diffs.map(numbered).map(({ n, ...diff }) => (
+            <Diff key={n} diff={diff} showPath={diffs.length > 1 || diff.path !== item.title} />
           ))}
           {diffs.length === 0 && item.output !== undefined && (
             <pre className={styles.output}>{item.output}</pre>
@@ -338,9 +327,7 @@ function Composer({ run }: { run: RunSummary }) {
         className={styles.box}
         aria-label="Message to this Run"
         placeholder={
-          live
-            ? `Message the ${run.name}’s Run…`
-            : 'This Run has finished. Its chat is read-only.'
+          live ? `Message the ${run.name}’s Run…` : 'This Run has finished. Its chat is read-only.'
         }
         disabled={!live}
         value={text}

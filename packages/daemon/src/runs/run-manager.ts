@@ -142,7 +142,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const accepted: string[] = []
     for (const { offset, record } of batch.records) {
       if (record.t === 'out') {
-        entries.push({ offset, line: record.line, ...(record.at !== undefined && { at: record.at }) })
+        entries.push({
+          offset,
+          line: record.line,
+          ...(record.at !== undefined && { at: record.at }),
+        })
         const text = agent.acceptedTextFrom(record.line)
         if (text !== undefined) accepted.push(text)
         state = agent.stateFrom(record.line) ?? state

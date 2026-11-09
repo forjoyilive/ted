@@ -67,7 +67,13 @@ export function chatItems(input: {
     })
   }
   if (rest !== '') {
-    items.push({ kind: 'prompt', id: 'prompt', text: rest, lines: lineCount(rest), at: run.startedAt })
+    items.push({
+      kind: 'prompt',
+      id: 'prompt',
+      text: rest,
+      lines: lineCount(rest),
+      at: run.startedAt,
+    })
   }
   const unmatched = [...messages]
   let promptSeen = run.prompt === ''
@@ -80,7 +86,13 @@ export function chatItems(input: {
       const index = unmatched.findIndex((m) => m.text.trim() === entry.text.trim())
       const message = index === -1 ? undefined : unmatched.splice(index, 1)[0]
       if (message) {
-        items.push({ kind: 'human', id: message.id, text: message.text, at: message.at, sent: true })
+        items.push({
+          kind: 'human',
+          id: message.id,
+          text: message.text,
+          at: message.at,
+          sent: true,
+        })
       } else {
         items.push({
           kind: 'ted',

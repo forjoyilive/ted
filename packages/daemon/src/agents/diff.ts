@@ -82,8 +82,16 @@ export function diffPatch(
 ): ChatDiff {
   if (!patch.includes('@@')) {
     const lines = splitLines(patch)
-    if (status === 'added') return finish(path, lines.map((text) => ({ kind: 'added', text })))
-    if (status === 'deleted') return finish(path, lines.map((text) => ({ kind: 'removed', text })))
+    if (status === 'added')
+      return finish(
+        path,
+        lines.map((text) => ({ kind: 'added', text })),
+      )
+    if (status === 'deleted')
+      return finish(
+        path,
+        lines.map((text) => ({ kind: 'removed', text })),
+      )
     return finish(path, [])
   }
   const lines: ChatDiffLine[] = []
