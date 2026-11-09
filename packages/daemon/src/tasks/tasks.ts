@@ -21,7 +21,6 @@ import type {
   EditTaskRequest,
   Effort,
   FactoryBoard,
-  FollowUpRequest,
   GitHubWait,
   InboxItem,
   LinearIssue,
@@ -38,6 +37,7 @@ import type {
   SetClarifyDepthRequest,
   SetTaskReposRequest,
   SignOffChanges,
+  SlotHolder,
   StageId,
   StartSubAgentRequest,
   SubAgent,
@@ -153,7 +153,7 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import { type QueueEntry, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -172,6 +172,7 @@ import {
   roundAnswerSummary,
   roundAnswers,
 } from './rounds.ts'
+import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
@@ -181,10 +182,11 @@ export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: 
 export interface CreateTaskInput
   extends Omit<
     NewTask,
-    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf'
+    'title' | 'factoryId' | 'startRequested' | 'blockedBy' | 'source' | 'followUpOf' | 'automation'
   > {
   title?: string
   source?: string
+  followUp?: string
   factory?: string
   blockedBy?: string[]
   attachments?: Attachment[]
@@ -192,23 +194,24 @@ export interface CreateTaskInput
 }
 
 export interface Tasks {
-  create(input: CreateTaskInput): Promise<Task>
-  cancelMerge(ref: string, comment: string): Promise<Comment>
+  create(input: CreateTaskInput, caller?: Caller): Promise<Task>
+  cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   defaults(factoryId: string): Promise<TaskDefaults>
   board(factoryId: string): Promise<FactoryBoard>
   start(ref: string): Promise<Task>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
-  resume(ref: string, input?: { comment?: string }): Promise<Task>
+  resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
   setPriority(ref: string, priority: Priority): Task
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   archiveDone(factory: string): ArchiveDoneResult
-  followUp(ref: string, request: FollowUpRequest): Promise<Task>
+  followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   unarchive(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
+  removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -216,8 +219,15 @@ export interface Tasks {
   comment(
     ref: string,
     caller: Caller,
-    input: { body: string; choices?: string[]; round?: RoundInput; supersedes?: string },
+    input: {
+      body: string
+      choices?: string[]
+      round?: RoundInput
+      supersedes?: string
+      attachments?: Attachment[]
+    },
   ): Promise<Comment>
+  upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
   setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
@@ -241,6 +251,7 @@ export interface Tasks {
   waitForSubAgent(runId: string, caller: Caller, timeoutMs: number): Promise<SubAgentWait>
   sendSubAgent(runId: string, caller: Caller, text: string): Promise<SubAgent>
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
+  addQueueSource(source: QueueSource): () => void
   close(): Promise<void>
 }
 
@@ -263,6 +274,7 @@ export function createTasks(options: {
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
+  env?: () => NodeJS.ProcessEnv
   nudgeAfterMs?: number
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
@@ -292,6 +304,18 @@ export function createTasks(options: {
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
   const sendingComments = new Set<string>()
+  const runUploads = new Set<string>()
+  const commentText = (comment: Comment): string => {
+    const files = comment.attachments ?? []
+    return [
+      comment.body,
+      ...(files.length > 0
+        ? [`Attached files:\n${files.map((a) => `- ${a.name}: ${attachmentFile(a)}`).join('\n')}`]
+        : []),
+    ]
+      .filter((part) => part !== '')
+      .join('\n\n')
+  }
   const stoppingByHand = new Set<string>()
   const nudgeTimers = new Map<string, NodeJS.Timeout>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
@@ -314,6 +338,7 @@ export function createTasks(options: {
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
   const deleting = new Set<string>()
+  const removingFactories = new Set<string>()
   const merging = new Set<string>()
   const mergeInFlight = new Map<string, Promise<unknown>>()
   const rebaseAsked = new Map<string, { from: string; to: string }>()
@@ -329,6 +354,7 @@ export function createTasks(options: {
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
     })
+  const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
@@ -399,17 +425,26 @@ export function createTasks(options: {
     for (const { task, slots } of holders) {
       byFactory[task.factoryId] = (byFactory[task.factoryId] ?? 0) + slots
     }
+    const others = sources.flatMap((source) => source.holders())
+    for (const { factoryId, runs } of others) {
+      byFactory[factoryId] = (byFactory[factoryId] ?? 0) + runs
+    }
     const capsNow: Record<string, number | undefined> = {}
-    for (const id of new Set([...factoryIds, ...holders.map((h) => h.task.factoryId)])) {
+    for (const id of new Set([
+      ...factoryIds,
+      ...holders.map((h) => h.task.factoryId),
+      ...others.map((h) => h.factoryId),
+    ])) {
       capsNow[id] = await capOf(id)
     }
     const use: SlotUse = {
       limit: store.settings().maxWorkingRuns,
-      working: holders.reduce((sum, h) => sum + h.slots, 0),
+      working:
+        holders.reduce((sum, h) => sum + h.slots, 0) + others.reduce((sum, h) => sum + h.runs, 0),
       byFactory,
       caps: capsNow,
     }
-    return { use, holders, all }
+    return { use, holders, others, all }
   }
 
   const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
@@ -417,6 +452,13 @@ export function createTasks(options: {
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+      ...sources.flatMap((source) =>
+        source
+          .queued()
+          .filter(
+            (q) => source.runnable(q.id) && (q.factoryId === undefined || cloned(q.factoryId)),
+          ),
+      ),
     ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
 
   function subAgentRunnable(id: string): boolean {
@@ -459,12 +501,16 @@ export function createTasks(options: {
     )
     const heldIds = new Set(held.map((h) => h.id))
     const reviveIds = new Set(revives.map((r) => r.id))
+    const sourceOf = new Map(
+      sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
+    )
     for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
       if (reviveIds.has(entry.id)) {
         awaitingRevive.delete(entry.id)
         inBackground('resume a Task Lead session', () => reviveLead(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
+      else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
@@ -497,11 +543,20 @@ export function createTasks(options: {
 
   async function slots(): Promise<RunSlots> {
     const factoryIds = store.listFactories().map((f) => f.id)
-    const { use, holders, all } = await slotUse(factoryIds)
+    const { use, holders, others, all } = await slotUse(factoryIds)
     const byId = new Map(all.map((t) => [t.id, t]))
     const requests = new Map(store.subAgentRequests().map((r) => [r.id, r]))
-    const ordered = queueOrder<QueueEntry>([...subAgents.queued(), ...store.queue()])
-    const queue = ordered.flatMap((entry): RunSlots['queue'] => {
+    const sourceOf = new Map(
+      sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
+    )
+    const ordered = queueOrder<QueueEntry>([
+      ...subAgents.queued(),
+      ...store.queue(),
+      ...sources.flatMap((source) => source.queued()),
+    ])
+    const queue = ordered.flatMap((entry, i): RunSlots['queue'] => {
+      const described = sourceOf.get(entry.id)?.describe(entry.id, i + 1)
+      if (described) return [described]
       const request = requests.get(entry.id)
       const task = byId.get(request?.taskId ?? entry.id)
       if (!task) return []
@@ -535,16 +590,20 @@ export function createTasks(options: {
       limit: use.limit,
       working: use.working,
       queued: queue.length,
-      holders: holders.map(({ task, runs, subAgentRuns, settingUp }) => ({
-        kind: 'task' as const,
-        taskId: task.id,
-        displayId: task.displayId,
-        title: task.title,
-        factoryId: task.factoryId,
-        runs,
-        subAgents: subAgentRuns,
-        settingUp,
-      })),
+      holders: holders
+        .map(
+          ({ task, runs, subAgentRuns, settingUp }): SlotHolder => ({
+            kind: 'task' as const,
+            taskId: task.id,
+            displayId: task.displayId,
+            title: task.title,
+            factoryId: task.factoryId,
+            runs,
+            subAgents: subAgentRuns,
+            settingUp,
+          }),
+        )
+        .concat(others),
       queue,
       factories: factoryIds.flatMap((factoryId) => {
         const cap = use.caps[factoryId]
@@ -600,7 +659,7 @@ export function createTasks(options: {
     path.join(logsDir, 'worktrees', `${task.displayId}-${name}-${kind}.log`)
 
   const commandEnv = (task: Task, env: Record<string, string>): NodeJS.ProcessEnv =>
-    worktreeCommandEnv(env, { TED_TASK: task.displayId })
+    worktreeCommandEnv(env, { TED_TASK: task.displayId }, options.env?.() ?? process.env)
 
   const checkDir = (task: Task, checkRunId: string) =>
     path.join(logsDir, 'checks', task.displayId, checkRunId)
@@ -1510,7 +1569,11 @@ export function createTasks(options: {
     })
   }
 
-  async function cancelMerge(ref: string, text: string): Promise<Comment> {
+  async function cancelMerge(
+    ref: string,
+    text: string,
+    attachments: Attachment[] = [],
+  ): Promise<Comment> {
     await untilFree(find(ref).id)
     const task = find(ref)
     if (!store.mergePending(task.id)) {
@@ -1520,7 +1583,12 @@ export function createTasks(options: {
       if (!store.mergePending(task.id)) {
         throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
       }
-      const comment = store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
+      const comment = store.postComment({
+        taskId: task.id,
+        body: text,
+        author: { kind: 'human' },
+        attachments,
+      })
       store.mergeCanceled(task.id, comment.id)
       return comment
     })
@@ -2562,7 +2630,10 @@ export function createTasks(options: {
     withBrief: boolean,
   ): string | undefined {
     const items = [
-      ...comments.map((c) => ({ at: c.createdAt, line: `- ${c.createdAt}: ${flat(c.body)}` })),
+      ...comments.map((c) => ({
+        at: c.createdAt,
+        line: `- ${c.createdAt}: ${flat(commentText(c))}`,
+      })),
       ...answers.flatMap((c) => {
         const answer = answerText(c)
         return answer === undefined
@@ -2595,7 +2666,7 @@ export function createTasks(options: {
   async function sendComment(runId: string, comment: Comment): Promise<void> {
     sendingComments.add(comment.id)
     try {
-      await runs.send(runId, humanMessage(comment.body))
+      await runs.send(runId, humanMessage(commentText(comment)))
       store.commentsDelivered([comment.id], runId)
     } catch (error) {
       console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
@@ -2691,8 +2762,17 @@ export function createTasks(options: {
     })
   }
 
-  async function humanComment(task: StoredTask, body: string): Promise<Comment> {
-    const posted = store.postComment({ taskId: task.id, body, author: { kind: 'human' } })
+  async function humanComment(
+    task: StoredTask,
+    body: string,
+    attachments: readonly Attachment[],
+  ): Promise<Comment> {
+    const posted = store.postComment({
+      taskId: task.id,
+      body,
+      author: { kind: 'human' },
+      attachments,
+    })
     const run = liveLead(find(task.id))
     if (!run) return posted
     await sendComment(run.id, posted)
@@ -2708,7 +2788,7 @@ export function createTasks(options: {
           c.author.kind === 'human' &&
           c.delivered?.runId === run.id &&
           c.readAt === undefined &&
-          texts.some((text) => flat(text).includes(flat(c.body))),
+          texts.some((text) => flat(text).includes(flat(commentText(c)))),
       )
     store.commentsRead(read.map((c) => c.id))
   }
@@ -3498,16 +3578,54 @@ export function createTasks(options: {
       await pullRequestQueue.get(task.id)
       const last = find(task.id)
       const runIds = store.taskRunList(task.id).map((r) => r.id)
+      const files = store.taskFiles(task.id)
       store.deleteTask(task.id)
       await store.persisted()
-      await removeFiles(last, runIds)
+      await removeFiles(last, runIds, files)
     } finally {
       deleting.delete(task.id)
     }
     wake()
   }
 
-  async function removeFiles(task: StoredTask, runIds: readonly string[]): Promise<void> {
+  async function removeFactoryTasks(
+    factoryId: string,
+    { closePullRequests }: { closePullRequests: boolean },
+  ): Promise<void> {
+    removingFactories.add(factoryId)
+    try {
+      for (;;) {
+        const inFactory = store.listTasks().filter((t) => t.factoryId === factoryId)
+        if (inFactory.length === 0) return
+        const left = inFactory.filter((t) => !deleting.has(t.id))
+        if (left.length === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          continue
+        }
+        for (const { id } of left) {
+          if (deleting.has(id) || !store.getTask(id)) continue
+          if (closePullRequests) {
+            const task = find(id)
+            if (task.archived) pullRequestWork(id, 'close')
+            else {
+              settleDependents(id, 'unblock')
+              archiveNow(find(id), true)
+            }
+          }
+          await remove(id, { blocked: 'unblock' })
+        }
+      }
+    } catch (error) {
+      removingFactories.delete(factoryId)
+      throw error
+    }
+  }
+
+  async function removeFiles(
+    task: StoredTask,
+    runIds: readonly string[],
+    files: readonly Attachment[],
+  ): Promise<void> {
     const gone = (root: string, name: string) =>
       removeInside(root, name).catch((error: unknown) =>
         console.error(`couldn’t remove ${name} for deleted ${task.displayId}:`, error),
@@ -3523,9 +3641,9 @@ export function createTasks(options: {
       ),
     )
     await gone(worktreesDir, task.displayId)
-    const stillUsed = new Set(store.listTasks().flatMap((t) => t.attachments.map((a) => a.hash)))
+    const stillUsed = store.filesInUse()
     await Promise.all(
-      task.attachments
+      files
         .filter((a) => !stillUsed.has(a.hash))
         .map((a) => {
           const file = attachmentFile(a)
@@ -3727,6 +3845,84 @@ export function createTasks(options: {
         ? [`## ${brief ? 'Comments since the brief' : 'Comments'}\n\n${notes.join('\n')}`]
         : []),
     ].join('\n\n')
+  }
+
+  function automationCaller(caller: Caller) {
+    if (caller.kind !== 'run') return undefined
+    const firing = store.automations.firing(caller.runId)
+    const automation = firing && store.automations.get(firing.automationId)
+    const factory = automation && store.getFactory(automation.factoryId)
+    if (!firing || !automation || !factory) {
+      throw new RequestError(
+        403,
+        'Only an Automation Run creates Tasks with `ted task create`. Ask the human to create it.',
+      )
+    }
+    if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
+    return {
+      factoryKey: factory.key,
+      link: { automationId: automation.id, firingId: firing.id },
+    }
+  }
+
+  async function createFollowUp(
+    ref: string,
+    input: {
+      title?: string
+      description?: string
+      sourceUrl?: string
+      factoryId?: string
+      automation?: { automationId: string; firingId: string }
+    },
+  ): Promise<Task> {
+    const original = find(ref)
+    if (input.factoryId !== undefined && original.factoryId !== input.factoryId) {
+      throw new RequestError(409, `${original.displayId} is in another Factory`)
+    }
+    if (original.archived) {
+      throw new RequestError(409, `${original.displayId} is archived; it can’t be followed up`)
+    }
+    if (original.stage !== 'done') {
+      throw new RequestError(
+        409,
+        `${original.displayId} isn’t Done; only a Done Task can be followed up`,
+      )
+    }
+    const url = original.source?.url ?? input.sourceUrl
+    if (
+      input.sourceUrl !== undefined &&
+      original.source !== undefined &&
+      sourceKey(input.sourceUrl) !== sourceKey(original.source.url)
+    ) {
+      throw new RequestError(
+        400,
+        `a Follow-up shares ${original.displayId}’s source, ${original.source.url}`,
+      )
+    }
+    const refuseOpen = () => {
+      if (url === undefined) return
+      const clash = sourceClash(store.listTasks(), original.factoryId, url)
+      if (clash?.kind === 'open') throw new RequestError(409, clashMessage(clash))
+    }
+    refuseOpen()
+    const lead =
+      original.lead ??
+      leadFrom((await resolveWorkflow(factoryOf(original), { fetch: false })).workflow.settings)
+    const text = input.description?.trim() ?? ''
+    refuseOpen()
+    const task = await store.createTask({
+      title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
+      description: text,
+      priority: original.priority,
+      lead,
+      factoryId: original.factoryId,
+      ...(original.source
+        ? { source: original.source }
+        : url !== undefined && { source: taskSource(url, undefined) }),
+      followUpOf: original.id,
+      ...(input.automation && { automation: input.automation }),
+    })
+    return start(task.id)
   }
 
   function followUpNote(task: StoredTask): string | undefined {
@@ -4007,7 +4203,10 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function resumeByHand(ref: string, { comment }: { comment?: string } = {}): Promise<Task> {
+  async function resumeByHand(
+    ref: string,
+    { comment, attachments = [] }: { comment?: string; attachments?: Attachment[] } = {},
+  ): Promise<Task> {
     const task = live(ref)
     if (!task.stopped && task.status?.kind !== 'failed') {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
@@ -4016,7 +4215,9 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} is still stopping; try again`)
     }
     const text = comment?.trim() ?? ''
-    if (text !== '') store.postComment({ taskId: task.id, body: text, author: { kind: 'human' } })
+    if (text !== '' || attachments.length > 0) {
+      store.postComment({ taskId: task.id, body: text, author: { kind: 'human' }, attachments })
+    }
     const waitForBlockers = unmergedBlockers(task.id).length > 0
     if (task.status?.kind === 'failed') {
       const at = new Date().toISOString()
@@ -4302,23 +4503,50 @@ export function createTasks(options: {
   }
 
   return {
-    async create({
-      title,
-      factory: key,
-      blockedBy = [],
-      start: startNow,
-      lead,
-      source: sourceUrl,
-      ...fields
-    }) {
+    async create(
+      {
+        title,
+        factory: givenKey,
+        blockedBy = [],
+        start: startNow,
+        lead,
+        source: sourceUrl,
+        followUp,
+        ...fields
+      },
+      caller = { kind: 'app' },
+    ) {
+      const automation = automationCaller(caller)
+      const key = automation?.factoryKey ?? givenKey
+      if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
+        throw new RequestError(
+          403,
+          `this Automation creates Tasks only in ${automation.factoryKey}, its own Factory`,
+        )
+      }
+      const factory =
+        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
+      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      if (followUp !== undefined) {
+        return createFollowUp(followUp, {
+          ...(title !== undefined && { title }),
+          ...(fields.description !== undefined && { description: fields.description }),
+          ...(sourceUrl !== undefined && { sourceUrl }),
+          ...(factory && { factoryId: factory.id }),
+          ...(automation && { automation: automation.link }),
+        })
+      }
+      const refuseTracked = () => {
+        if (sourceUrl === undefined || !factory || caller.kind === 'app') return
+        const clash = sourceClash(store.listTasks(), factory.id, sourceUrl)
+        if (clash) throw new RequestError(409, clashMessage(clash))
+      }
+      refuseTracked()
       const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
       const name =
         title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
       const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
-      const factory =
-        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
-      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
       let failure: unknown
       const resolution = factory
         ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
@@ -4326,6 +4554,10 @@ export function createTasks(options: {
             return undefined
           })
         : undefined
+      refuseTracked()
+      if (factory && removingFactories.has(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
@@ -4336,6 +4568,7 @@ export function createTasks(options: {
         blockedBy: blockers,
         startRequested: startNow === true,
         ...(factory && { factoryId: factory.id }),
+        ...(automation && { automation: automation.link }),
       })
       if (!factory) return task
       if (!resolution) {
@@ -4439,6 +4672,7 @@ export function createTasks(options: {
 
     unarchive,
     delete: remove,
+    removeFactoryTasks,
 
     archiveDone(key) {
       const factory = store.listFactories().find((f) => f.key === key || f.id === key)
@@ -4451,7 +4685,7 @@ export function createTasks(options: {
       return { archived: done.length }
     },
 
-    async followUp(ref, { comment = '' }) {
+    async followUp(ref, { comment = '', attachments = [] }) {
       const original = find(ref)
       if (original.archived) {
         throw new RequestError(409, `${original.displayId} is archived; unarchive it to follow up`)
@@ -4474,6 +4708,7 @@ export function createTasks(options: {
         factoryId: original.factoryId,
         ...(original.source && { source: original.source }),
         followUpOf: original.id,
+        ...(attachments.length > 0 && { attachments }),
       })
       return start(task.id)
     },
@@ -4535,7 +4770,15 @@ export function createTasks(options: {
       return () => listeners.delete(listener)
     },
 
-    async comment(ref, caller, { body, choices = [], round, supersedes }) {
+    async upload(ref, caller, save) {
+      if (caller.kind !== 'run') return save()
+      const { task } = ownTask(ref, caller)
+      const saved = await save()
+      runUploads.add(`${task.id}:${saved.hash}`)
+      return saved
+    },
+
+    async comment(ref, caller, { body, choices = [], round, supersedes, attachments = [] }) {
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
         if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
@@ -4552,9 +4795,19 @@ export function createTasks(options: {
             `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
           )
         }
-        return humanComment(task, body)
+        return humanComment(task, body, attachments)
       }
       const { task, runId } = ownTask(ref, caller)
+      const known = new Set(store.taskFiles(task.id).map((a) => a.hash))
+      const foreign = attachments.find(
+        (a) => !known.has(a.hash) && !runUploads.has(`${task.id}:${a.hash}`),
+      )
+      if (foreign) {
+        throw new RequestError(
+          403,
+          `${foreign.name} isn’t on ${task.displayId}; attach your own files with ted comment --attach`,
+        )
+      }
       if (task.leadRunId !== runId) {
         if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
           throw new RequestError(
@@ -4570,6 +4823,7 @@ export function createTasks(options: {
           body,
           author: { kind: 'run', runId },
           ...(choices.length > 0 && { kind: 'question', choices }),
+          attachments,
         })
       }
       const old = store.getComment(supersedes)
@@ -4722,7 +4976,7 @@ export function createTasks(options: {
         if (request.action === 'answer' && request.choice === retryChoice) {
           await resumeByHand(task.id, { comment: text })
         } else {
-          await humanComment(find(task.id), text)
+          await humanComment(find(task.id), text, [])
         }
         return store.getComment(id) ?? comment
       }
@@ -5099,6 +5353,11 @@ export function createTasks(options: {
     waitForSubAgent: (runId, caller, timeoutMs) => subAgents.wait(runId, caller, timeoutMs),
     sendSubAgent: (runId, caller, text) => subAgents.send(runId, caller, text),
     stopSubAgent: (runId, caller) => subAgents.stop(runId, caller),
+    addQueueSource(source) {
+      sources.push(source)
+      void pump()
+      return () => void pump()
+    },
 
     async close() {
       closed = true

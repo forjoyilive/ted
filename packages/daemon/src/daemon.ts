@@ -4,17 +4,19 @@ import path from 'node:path'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
 import { createAttachments } from './attachments.ts'
+import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
+import { createEnvironment } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { RequestError } from './errors.ts'
 import { ensureClone } from './factories.ts'
+import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
 import { createAgentHealth } from './health/agent-health.ts'
-import { createEnvironment } from './health/environment.ts'
 import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
 import { createIntegrations } from './integrations.ts'
@@ -30,7 +32,7 @@ import { startRunManager } from './runs/run-manager.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { listen } from './server.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
-import { createStorage } from './storage.ts'
+import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
@@ -63,6 +65,13 @@ export interface DaemonOptions {
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
+  automations?: DaemonAutomationsOptions
+}
+
+export interface DaemonAutomationsOptions {
+  now?: () => number
+  checkEveryMs?: number
+  graceMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -194,7 +203,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         banners,
         emit,
         openTerminal,
-        loginShell: given.loginShell ?? false,
+        environment,
         ...(ghBin !== undefined && { ghBin }),
         ...(given.gitBin !== undefined && { gitBin: given.gitBin }),
         ...(given.checkEveryMs !== undefined && { checkEveryMs: given.checkEveryMs }),
@@ -214,6 +223,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined
+      let storage: Storage | undefined
       const factories = createFactories({
         store,
         banners,
@@ -224,6 +234,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         login: () =>
           integrations.current()?.github.hosts.find((h) => h.host === 'github.com')?.login,
         onCloned: (factory) => started?.wake(factory.id),
+        onReposRemoved: (repos) =>
+          void storage?.removeUnusedClones(repos).catch((error: unknown) => {
+            console.error('couldn’t remove the clones of removed repos:', error)
+          }),
         ...(idle && { idle }),
       })
       syncRepos = async (factory, settings) => {
@@ -240,6 +254,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         scratchDir: paths.scratch,
         emit,
+        env: environment.current,
         ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
       })
       const factorySettings = createFactorySettings({
@@ -296,13 +311,30 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
+        env: environment.current,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
       })
-      wake = () => tasks.wake()
+      const automationOptions = options.automations ?? {}
+      const automations = createAutomations({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        banners,
+        workflows,
+        queue: tasks,
+        ...(idle && { idle }),
+        ...automationOptions,
+      })
+      wake = () => {
+        tasks.wake()
+        automations.check()
+      }
       disk.start()
       const backupless = [paths.worktrees, paths.repos, paths.simulators, paths.scratch]
       const excludeFromBackups =
@@ -324,7 +356,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       void prune()
       const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
       pruneTimer.unref()
-      const storage = createStorage({
+      storage = createStorage({
         home: paths.home,
         store,
         disk,
@@ -332,6 +364,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
       started = tasks
+      const factoryRemovals = createFactoryRemovals({
+        store,
+        banners,
+        tasks,
+        automations,
+        factories,
+        checkTries,
+        storage: () => storage,
+      })
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const conversations = createConversations({
@@ -352,6 +393,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        automations,
         runs,
         conversations,
         tasks,
@@ -363,9 +405,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         storage,
         factories,
         factorySettings,
+        factoryRemovals,
         checkTries,
         library,
         async close() {
+          automations.close()
           libraryWatch.close()
           versionRestarts.close()
           await checkTries.close()

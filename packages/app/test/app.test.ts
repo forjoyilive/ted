@@ -231,6 +231,73 @@ describe('TED app', () => {
       .toBe(true)
   })
 
+  test('files in Comments: an agent’s image and HTML show in the thread; the human drops and pastes files', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    await addFactory(origin, 'NB')
+    const shot = path.join(home, 'shot.png')
+    const report = path.join(home, 'report.html')
+    await writeFile(shot, Buffer.from(onePixelPng, 'base64'))
+    await writeFile(report, '<h1>Report</h1><script>document.title = "ran"</script>')
+    const attach = ['ted', 'comment', '--attach', shot, '--attach', report, 'Here is the screen']
+    await ted(
+      'task',
+      'create',
+      '--factory',
+      'NB',
+      '--start',
+      JSON.stringify({ steps: [{ run: attach }, { endTurn: true }] }),
+    )
+    const window = await launchApp()
+    await openAllTasks(window)
+    await taskRow(window, 'NB-1').click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+
+    await thread.getByRole('img', { name: 'shot.png' }).waitFor()
+    const frame = thread.locator('iframe[title="report.html"]')
+    await frame.waitFor()
+    expect(await frame.getAttribute('sandbox')).toBe('')
+    await frame.contentFrame().getByRole('heading', { name: 'Report' }).waitFor()
+    expect(
+      await frame.evaluate((f: HTMLIFrameElement) => {
+        try {
+          return f.contentDocument?.title ?? 'no access'
+        } catch {
+          return 'no access'
+        }
+      }),
+    ).toBe('no access')
+
+    const box = thread.getByRole('textbox', { name: 'Comment' })
+    const dropped = await window.evaluateHandle((png) => {
+      const data = new DataTransfer()
+      const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0))
+      data.items.add(new File([bytes], 'dropped.png', { type: 'image/png' }))
+      return data
+    }, onePixelPng)
+    await box.dispatchEvent('drop', { dataTransfer: dropped })
+    await thread.getByRole('listitem').filter({ hasText: 'dropped.png' }).waitFor()
+    await box.evaluate((element) => {
+      const data = new DataTransfer()
+      data.items.add(new File(['pasted words'], 'notes.txt', { type: 'text/plain' }))
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }))
+    })
+    await thread.getByRole('listitem').filter({ hasText: 'notes.txt' }).waitFor()
+    await box.fill('Compare with this.')
+    await box.press('ControlOrMeta+Enter')
+
+    await thread.getByRole('img', { name: 'dropped.png' }).waitFor()
+    await expect.poll(() => box.inputValue()).toBe('')
+    const client = await daemonClient()
+    const sent = await waitUntil(async () => {
+      const found = (await client.listComments('NB-1')).find((c) => c.body === 'Compare with this.')
+      return found?.readAt !== undefined ? found : undefined
+    }, 'the Task Lead to read the Comment')
+    expect(sent.attachments?.map((a) => a.name)).toEqual(['dropped.png', 'notes.txt'])
+  })
+
   test('a Run opens in a Conversation tab with its chat, takes messages, and the tab persists', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     await commitToOrigin(path.join(home, 'origin'), {
@@ -2684,7 +2751,9 @@ describe('List and All Tasks', () => {
       .dragTo(main.locator('tr[data-task="NB-2"]'), { targetPosition: { x: 400, y: 4 } })
 
     await main.locator('tr[data-task="MS-1"]').getByText('1st', { exact: true }).waitFor()
-    expect((await client.getSlots()).queue.map((q) => q.displayId)).toEqual(['MS-1', 'NB-2'])
+    expect(
+      (await client.getSlots()).queue.map((q) => (q.kind === 'automation' ? q.name : q.displayId)),
+    ).toEqual(['MS-1', 'NB-2'])
 
     await main.getByRole('button', { name: 'Clear Status is Queued' }).click()
     await main.getByText('machine-wide queue, in start order').waitFor({ state: 'detached' })
@@ -3207,5 +3276,135 @@ describe('Library settings', () => {
       async () =>
         (await readFile(path.join(home, 'library', 'workflow.yaml'), 'utf8')) === 'version: 1\n',
     )
+  })
+})
+
+describe('Factory row menu', () => {
+  const row = (window: Page, name: string) =>
+    sidebar(window).getByRole('article', { name, exact: true })
+  const rowNames = (window: Page) =>
+    sidebar(window)
+      .getByRole('article')
+      .evaluateAll((rows) => rows.map((r) => r.getAttribute('aria-label')))
+
+  test('Rename edits the name in place: Enter saves and Esc cancels', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    await row(window, 'notebook').click({ button: 'right' })
+    const menu = window.getByRole('menu', { name: 'Factory actions' })
+    expect(await menu.getByRole('menuitem').allTextContents()).toEqual([
+      'New Task',
+      'Rename…',
+      'Move up',
+      'Move down',
+      'Factory settings',
+      'Open on GitHub',
+      'Remove Factory…',
+    ])
+    expect(await menu.getByRole('menuitem', { name: 'Move up' }).isDisabled()).toBe(true)
+    await menu.getByRole('menuitem', { name: 'Rename…' }).click()
+    const field = sidebar(window).getByRole('textbox', { name: 'Rename notebook' })
+    await field.fill('Throwaway')
+    await field.press('Escape')
+    await row(window, 'notebook').waitFor()
+
+    await row(window, 'notebook').getByRole('button', { name: 'Factory actions' }).click()
+    await window.getByRole('menuitem', { name: 'Rename…' }).click()
+    await field.fill('Notebook app')
+    await field.press('Enter')
+    await row(window, 'Notebook app').waitFor()
+    const client = await daemonClient()
+    const renamed = (await client.listFactories()).find((f) => f.key === 'NB')
+    expect(renamed?.name).toBe('Notebook app')
+  })
+
+  test('Move down changes the order, and ⌘1 follows it', async () => {
+    await twoFactories()
+    const window = await launchApp()
+    await row(window, 'notebook').waitFor()
+    expect(await rowNames(window)).toEqual(['notebook', 'site'])
+
+    await row(window, 'notebook').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Move down' }).click()
+    await waitFor(async () => (await rowNames(window)).join() === 'site,notebook')
+
+    await window.keyboard.press('ControlOrMeta+1')
+    const site = row(window, 'site').getByRole('button', { name: 'site', exact: true })
+    await waitFor(async () => (await site.getAttribute('aria-expanded')) === 'true')
+    await window.keyboard.press('ControlOrMeta+2')
+    const notebook = row(window, 'notebook').getByRole('button', { name: 'notebook', exact: true })
+    await waitFor(async () => (await notebook.getAttribute('aria-expanded')) === 'true')
+  })
+
+  test('Remove Factory needs the typed key, then the Factory and its Tasks are gone', async () => {
+    await twoFactories()
+    await ted('task', 'create', '--factory', 'MS', 'Fix the footer')
+    const window = await launchApp()
+    await row(window, 'site').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Remove Factory…' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Remove Factory site?' })
+    await dialog
+      .getByText('Deletes 1 Task with their Comments, Runs and Conversations from TED.')
+      .waitFor()
+    const remove = dialog.getByRole('button', { name: 'Remove Factory' })
+    expect(await remove.isDisabled()).toBe(true)
+    await dialog.getByLabel('Type MS to confirm').fill('NB')
+    expect(await remove.isDisabled()).toBe(true)
+    await dialog.getByLabel('Type MS to confirm').fill('MS')
+    await remove.click()
+    await dialog.waitFor({ state: 'detached' })
+    await row(window, 'site').waitFor({ state: 'detached' })
+    const client = await daemonClient()
+    expect((await client.listFactories()).map((f) => f.key)).toEqual(['NB'])
+    expect(await client.listTasks()).toEqual([])
+  })
+
+  test('Remove from Factory is refused while an open Task uses the repo, and otherwise greys the card until Save', async () => {
+    await makeOriginRepo(path.join(home, 'origin'))
+    const widgets = path.join(home, 'origin', 'acme', 'widgets.git')
+    await run('git', [
+      'clone',
+      '--bare',
+      '-q',
+      widgets,
+      path.join(home, 'origin', 'acme', 'api.git'),
+    ])
+    await githubReady(['acme/widgets', 'acme/api'], {
+      'repos/acme/widgets/contents/.ted?ref=main': { body: [] },
+    })
+    const window = await launchApp()
+    const client = await daemonClient()
+    const factory = await client.createFactory({
+      name: 'Widgets',
+      key: 'WD',
+      repos: [
+        { source: { remote: 'acme/widgets' }, name: 'widgets' },
+        { source: { remote: 'acme/api' }, name: 'api' },
+      ],
+      showTutorial: false,
+    })
+    await waitFor(
+      async () => (await client.listFactories()).find((f) => f.id === factory.id)?.cloned === true,
+    )
+    const task = await client.createTask({ title: 'Offline notes', factory: 'WD' })
+    await client.setTaskRepos(task.id, { set: ['widgets', 'api'] })
+
+    await row(window, 'Widgets').click({ button: 'right' })
+    await window.getByRole('menuitem', { name: 'Factory settings' }).click()
+    const api = window.getByRole('article', { name: 'acme/api' })
+    await api.getByRole('button', { name: 'More for acme/api' }).click()
+    await window.getByRole('menuitem', { name: 'Remove from Factory…' }).click()
+    const refused = window.getByRole('dialog', { name: 'acme/api can’t be removed yet' })
+    await refused.getByText('WD-1').waitFor()
+    await refused.getByRole('button', { name: 'OK' }).click()
+
+    await client.archiveTask(task.id, {})
+    await api.getByRole('button', { name: 'More for acme/api' }).click()
+    await window.getByRole('menuitem', { name: 'Remove from Factory…' }).click()
+    await api.getByText('Removed when you save').waitFor()
+    await window.getByText('1 unsaved change to .ted/workflow.yaml').waitFor()
+    await api.getByRole('button', { name: 'Undo' }).click()
+    await api.getByText('Removed when you save').waitFor({ state: 'detached' })
+    await api.getByRole('button', { name: 'More for acme/api' }).waitFor()
   })
 })

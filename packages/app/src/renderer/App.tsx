@@ -1,4 +1,4 @@
-import type { AgentHealth, Banner, DriftCounts, ListFilters, Task } from '@ted/protocol'
+import type { AgentHealth, Banner, DriftCounts, Factory, ListFilters, Task } from '@ted/protocol'
 import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -13,7 +13,10 @@ import {
 import { keepsStoppingBanner, keepsStoppingMenu } from './ConnectionNotice.tsx'
 import { archiveTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
+import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
+import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { SearchPalette } from './components/SearchPalette.tsx'
 import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
@@ -109,8 +112,6 @@ function factoryBadges(
   )
 }
 
-const stubTitles = { search: 'Search' }
-
 function isTyping(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLElement &&
@@ -136,7 +137,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const drift = useDrift()
   const [runsOpen, setRunsOpen] = useState(false)
   const closeRuns = useCallback(() => setRunsOpen(false), [])
-  const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
+  const [removing, setRemoving] = useState<Factory>()
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [findAt, setFindAt] = useState<string>()
+  const panes = useRef<HTMLDivElement>(null)
+  const place = JSON.stringify([navigation.screen, navigation.taskId, navigation.settings])
   const [addFactoryOpen, setAddFactoryOpen] = useState(false)
   const addFactoryPending = useRef(addFactoryFirst)
   useEffect(() => {
@@ -145,8 +151,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setAddFactoryOpen(true)
   }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
-  const dialogOpen = newTaskOpen || addFactoryOpen
-  const openNewTask = () => setNewTaskOpen(true)
+  const dialogOpen =
+    newTaskOpen !== undefined || addFactoryOpen || paletteOpen || removing !== undefined
+  const openNewTask = (factoryId?: string) =>
+    setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
   const inbox = useInbox()
   const inboxCount = inbox.length
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
@@ -188,9 +196,32 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (!offline) return
-    setNewTaskOpen(false)
+    setNewTaskOpen(undefined)
     setAddFactoryOpen(false)
+    setPaletteOpen(false)
   }, [offline])
+
+  const shownFactoryId =
+    navigation.screen.kind === 'factory' ? navigation.screen.factoryId : undefined
+  useEffect(() => {
+    if (!factoriesLoaded || shownFactoryId === undefined) return
+    if (!factories.some((f) => f.id === shownFactoryId)) {
+      dispatch({ type: 'open', screen: { kind: 'inbox' } })
+    }
+  }, [factories, factoriesLoaded, shownFactoryId])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (dialogOpen || settingsOpen || !(event.metaKey || event.ctrlKey)) return
+      if (event.altKey || event.shiftKey || !/^[1-9]$/.test(event.key)) return
+      const factory = factories[Number(event.key) - 1]
+      if (!factory) return
+      event.preventDefault()
+      dispatch({ type: 'open-factory', factoryId: factory.id })
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, settingsOpen, factories])
 
   useEffect(() => {
     if (!offline) return
@@ -263,11 +294,30 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         : event.key === 'c' && !isTyping(event.target)
       if (!newTask) return
       event.preventDefault()
-      setNewTaskOpen(true)
+      setNewTaskOpen({})
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [dialogOpen, settingsOpen])
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      const key = event.key.toLowerCase()
+      if (key === 'k') {
+        if (newTaskOpen !== undefined || addFactoryOpen) return
+        if (!paletteOpen && document.querySelector('dialog[open]')) return
+        event.preventDefault()
+        setPaletteOpen((open) => !open)
+      } else if (key === 'f') {
+        if (dialogOpen || document.querySelector('dialog[open]')) return
+        event.preventDefault()
+        setFindAt(place)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [dialogOpen, paletteOpen, newTaskOpen, addFactoryOpen, place])
+
   const openTaskByRef = (ref: string) => {
     const found = tasks.find((t) => t.displayId === ref || t.id === ref)
     if (found) openTask(found)
@@ -297,7 +347,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   onMenuCommand.current = (command) => {
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
-    if (command.kind === 'new-task') setNewTaskOpen(true)
+    if (command.kind === 'new-task') openNewTask()
     if (command.kind === 'open-task') {
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }
@@ -388,7 +438,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             settings={settings}
             onOpen={openTask}
             onOpenTask={openTaskByRef}
-            onNewTask={openNewTask}
+            onNewTask={() => openNewTask()}
           />
         )
       case 'factory': {
@@ -401,7 +451,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           tasks: inFactory,
           factories,
           onOpen: openTask,
-          onNewTask: openNewTask,
+          onNewTask: () => openNewTask(),
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () =>
@@ -460,13 +510,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               onOpenGitHubSettings={() =>
                 dispatch({ type: 'open-settings', section: 'integrations' })
               }
+              onRemoveFactory={() => setRemoving(factory)}
             />
           )
         }
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
-      default:
-        return <Stub title={stubTitles[screen.kind]} />
     }
   }
 
@@ -476,6 +525,74 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     ) : (
       <Offline when={offline}>{bannerStack('Problems', appWideBanners(banners))}</Offline>
     )
+
+  const palette = paletteOpen && (
+    <SearchPalette
+      context={{
+        task: settingsOpen ? undefined : task,
+        factories,
+        dispatch,
+        newTask: (description) => setNewTaskOpen(description === undefined ? {} : { description }),
+        addFactory: () => setAddFactoryOpen(true),
+      }}
+      factoryId={currentFactoryId(navigation, tasks)}
+      onOpenTask={(taskId, factoryId) => {
+        if (settingsOpen) dispatch({ type: 'close-settings' })
+        dispatch({ type: 'open-task', taskId, factoryId })
+      }}
+      onOpenFactory={(factoryId) => dispatch({ type: 'open-factory', factoryId })}
+      onClose={() => setPaletteOpen(false)}
+    />
+  )
+
+  const find = findAt === place && <FindBar scope={panes} onClose={() => setFindAt(undefined)} />
+
+  const dialogs = (
+    <>
+      {addFactoryOpen && (
+        <AddFactoryDialog
+          factories={factories}
+          onClose={() => setAddFactoryOpen(false)}
+          onAdded={(added) => {
+            setAddFactoryOpen(false)
+            dispatch({
+              type: 'open',
+              screen: { kind: 'factory', factoryId: added.id, view: 'board' },
+            })
+          }}
+          onOpenFactory={(factoryId) => {
+            setAddFactoryOpen(false)
+            dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
+          }}
+          onOpenGitHubSettings={() => {
+            setAddFactoryOpen(false)
+            dispatch({ type: 'open-settings', section: 'integrations' })
+          }}
+        />
+      )}
+      {newTaskOpen && (
+        <NewTaskDialog
+          factories={factories}
+          tasks={tasks}
+          factoryId={newTaskOpen.factoryId ?? currentFactoryId(navigation, tasks)}
+          {...(newTaskOpen.description !== undefined && {
+            initialDescription: newTaskOpen.description,
+          })}
+          onClose={() => setNewTaskOpen(undefined)}
+        />
+      )}
+      {removing && (
+        <RemoveFactoryDialog
+          factory={removing}
+          onClose={() => setRemoving(undefined)}
+          onRemoved={() => {
+            setRemoving(undefined)
+            dispatch({ type: 'open', screen: { kind: 'inbox' } })
+          }}
+        />
+      )}
+    </>
+  )
 
   const frame = (content: ReactNode) => (
     <div className={styles.window}>
@@ -489,7 +606,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <div className={styles.main}>
         {problems}
         <Offline when={offline}>
-          <div className={styles.panes}>
+          <div ref={panes} className={styles.panes}>
+            {find}
             <SettingsShell
               section={navigation.settings.section}
               settings={settings}
@@ -501,6 +619,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             />
           </div>
         </Offline>
+        {palette}
+        {dialogs}
       </div>,
     )
   }
@@ -533,7 +653,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onOpenRuns={() => setRunsOpen((open) => !open)}
           dispatch={dispatch}
           onNewTask={openNewTask}
+          onSearch={() => setPaletteOpen(true)}
           onAddFactory={() => setAddFactoryOpen(true)}
+          onRemoveFactory={setRemoving}
         />
         {runsOpen && slots && (
           <WorkingRunsPopover
@@ -555,38 +677,14 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <main className={styles.main}>
         {problems}
         <Offline when={offline}>
-          <div className={styles.panes}>{main()}</div>
+          <div ref={panes} className={styles.panes}>
+            {find}
+            {main()}
+          </div>
         </Offline>
       </main>
-      {addFactoryOpen && (
-        <AddFactoryDialog
-          factories={factories}
-          onClose={() => setAddFactoryOpen(false)}
-          onAdded={(added) => {
-            setAddFactoryOpen(false)
-            dispatch({
-              type: 'open',
-              screen: { kind: 'factory', factoryId: added.id, view: 'board' },
-            })
-          }}
-          onOpenFactory={(factoryId) => {
-            setAddFactoryOpen(false)
-            dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
-          }}
-          onOpenGitHubSettings={() => {
-            setAddFactoryOpen(false)
-            dispatch({ type: 'open-settings', section: 'integrations' })
-          }}
-        />
-      )}
-      {newTaskOpen && (
-        <NewTaskDialog
-          factories={factories}
-          tasks={tasks}
-          factoryId={currentFactoryId(navigation, tasks)}
-          onClose={() => setNewTaskOpen(false)}
-        />
-      )}
+      {palette}
+      {dialogs}
     </>,
   )
 }

@@ -19,6 +19,24 @@ export {
   responseMacHeader,
   signRequest,
 } from './app-auth.ts'
+export type {
+  AnswerAutomationRequest,
+  Automation,
+  AutomationDetail,
+  AutomationInput,
+  AutomationNow,
+  AutomationRequest,
+  AutomationResult,
+  AutomationRun,
+  AutomationTaskLink,
+  AutomationTemplate,
+  AutomationTemplateId,
+  AutomationTrigger,
+  CreateAutomationRequest,
+  EditAutomationRequest,
+  SchedulePreview,
+} from './automation.ts'
+export { automationTemplateIds } from './automation.ts'
 export {
   type Banner,
   type BannerAction,
@@ -89,15 +107,19 @@ export {
   type CheckRepoRequest,
   type CreateFactoryRequest,
   type Factory,
+  type FactoryRemoval,
   type FactoryRepo,
   keyProblem,
   type LocalFolder,
   type NewFactoryRepo,
+  type RemoveFactoryRequest,
+  type ReorderFactoriesRequest,
   type RepoCheck,
   type RepoCloneState,
   type RepoFix,
   type RepoProblem,
   type RepoProblemKind,
+  type RepoRemoval,
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
@@ -105,6 +127,7 @@ export {
   suggestFactoryName,
   suggestKey,
   suggestRepoName,
+  type TaskRef,
 } from './factory.ts'
 export {
   type AgentChoiceInput,
@@ -240,6 +263,31 @@ export {
   type SubAgentWait,
 } from './run.ts'
 export {
+  type AutomationSchedule,
+  checkSchedule,
+  describeSchedule,
+  isTimeZone,
+  nextFirings,
+  scheduleFromExpression,
+  shortestIntervalMinutes,
+  type Weekday,
+  weekdays,
+} from './schedule.ts'
+export {
+  type AutomationHit,
+  type CommentHit,
+  type FactoryHit,
+  foldText,
+  matchesTerms,
+  type SearchField,
+  type SearchResults,
+  type SearchTaskState,
+  searchLimits,
+  searchTerms,
+  snippetAround,
+  type TaskHit,
+} from './search.ts'
+export {
   type Appearance,
   appearances,
   defaultMachineSettings,
@@ -269,6 +317,8 @@ export {
   type ArchiveDoneResult,
   type ArchiveTaskRequest,
   type Attachment,
+  type AttachmentBytes,
+  type AttachmentRef,
   agentStageIds,
   type BlockedChoice,
   type BlockerEnded,

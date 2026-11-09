@@ -1,10 +1,12 @@
 import type {
   AppInput,
+  CheckInput,
   CheckTry,
   Factory,
   FactorySettingsView,
   RepoCheck,
   RepoFix,
+  RepoRemoval,
   RepoSettingsInput,
   RepoSettingsView,
   RepoSource,
@@ -66,6 +68,7 @@ interface FactorySettingsProps {
   banners: ReactNode
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
+  onRemoveFactory: () => void
 }
 
 export function FactorySettings({
@@ -73,6 +76,7 @@ export function FactorySettings({
   banners,
   onOpenFactory,
   onOpenGitHubSettings,
+  onRemoveFactory,
 }: FactorySettingsProps) {
   const [view, setView] = useState<FactorySettingsView>()
   const [loadError, setLoadError] = useState<string>()
@@ -144,6 +148,27 @@ export function FactorySettings({
     onDraft((current) => ({ ...current, repos: change(current.repos) }))
   const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
     setRepos((current) => current.map((repo, i) => (i === index ? change(repo) : repo)))
+  const removeRepo = (was: string) =>
+    onDraft((current) => ({
+      ...current,
+      repos: current.repos.filter((r) => r.was !== was),
+      checks: current.checks.filter((c) => c.repo !== was),
+    }))
+  const undoRemove = (was: string) =>
+    onDraft((current) => {
+      const index = loaded.findIndex((r) => r.was === was)
+      const repo = loaded[index]
+      if (!repo) return current
+      const repos = [...current.repos]
+      repos.splice(Math.min(Math.max(index, 1), repos.length), 0, repo)
+      const checks: CheckInput[] = [
+        ...current.checks,
+        ...(base?.draft.checks ?? []).filter(
+          (c) => c.repo === was && !current.checks.some((d) => d.was === c.was),
+        ),
+      ]
+      return { ...current, repos, checks }
+    })
 
   async function afterSave(result: SaveSettingsResult) {
     setSaved(result)
@@ -199,7 +224,7 @@ export function FactorySettings({
           <div className={styles.column}>
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
             {view?.invalid && <InvalidNotice invalid={view.invalid} />}
-            <GeneralSection factory={factory} />
+            <GeneralSection factory={factory} onRemove={onRemoveFactory} />
             {loadError !== undefined && (
               <p className={styles.loadError} role="alert">
                 {loadError}
@@ -219,6 +244,9 @@ export function FactorySettings({
                   await load()
                 }}
                 onNewRepoFolder={(name, folder) => pendingFolders.current.set(name, folder)}
+                onRemoveRepo={removeRepo}
+                onUndoRemove={undoRemove}
+                factoryId={factory.id}
                 onOpenFactory={onOpenFactory}
                 onOpenGitHubSettings={onOpenGitHubSettings}
               />
@@ -321,7 +349,7 @@ function SectionHeading({
   )
 }
 
-function GeneralSection({ factory }: { factory: Factory }) {
+function GeneralSection({ factory, onRemove }: { factory: Factory; onRemove: () => void }) {
   const nameId = useId()
   const keyId = useId()
   const [name, setName] = useState(factory.name)
@@ -384,12 +412,7 @@ function GeneralSection({ factory }: { factory: Factory }) {
           </Help>
         </span>
         <span className={views.headerSpacer} />
-        <button
-          type="button"
-          className={styles.dangerButton}
-          disabled
-          title="Removing a Factory isn’t in this TED build yet."
-        >
+        <button type="button" className={styles.dangerButton} onClick={onRemove}>
           Remove Factory…
         </button>
       </div>
@@ -406,6 +429,9 @@ interface ReposSectionProps {
   onDraft: (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) => void
   onFolder: (repo: RepoSettingsView, folder: string | undefined) => Promise<void>
   onNewRepoFolder: (name: string, folder: string) => void
+  onRemoveRepo: (was: string) => void
+  onUndoRemove: (was: string) => void
+  factoryId: string
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
 }
@@ -419,11 +445,29 @@ function ReposSection({
   onDraft,
   onFolder,
   onNewRepoFolder,
+  onRemoveRepo,
+  onUndoRemove,
+  factoryId,
   onOpenFactory,
   onOpenGitHubSettings,
 }: ReposSectionProps) {
   const [dragging, setDragging] = useState<number>()
   const [adding, setAdding] = useState(false)
+  const [refused, setRefused] = useState<RepoRemoval>()
+  const [removeError, setRemoveError] = useState<string>()
+  const removed = loaded.filter((r) => r.was !== undefined && !draft.some((d) => d.was === r.was))
+  async function askToRemove(repo: RepoSettingsInput) {
+    const was = repo.was
+    if (was === undefined) return
+    setRemoveError(undefined)
+    try {
+      const check = await ted.repoRemoval(factoryId, was)
+      if (check.openTasks.length > 0) setRefused(check)
+      else onRemoveRepo(was)
+    } catch (failure) {
+      setRemoveError(readableError(failure))
+    }
+  }
   return (
     <section className={styles.section} aria-labelledby="repos">
       <SectionHeading
@@ -451,10 +495,33 @@ function ReposSection({
             }}
             onChange={(change) => onRepo(index, change)}
             onRemoveNew={() => onDraft((current) => current.filter((_, i) => i !== index))}
+            onRemove={() => void askToRemove(repo)}
             onFolder={shown ? (folder) => onFolder(shown, folder) : undefined}
           />
         )
       })}
+      {removed.map((repo) => (
+        <article
+          key={`removed-${repo.was}`}
+          className={`${styles.card} ${styles.removedCard}`}
+          aria-label={repo.repo}
+        >
+          <div className={styles.cardHead}>
+            <span className={styles.repoName}>{repo.repo}</span>
+            <span className={styles.removedChip}>Removed when you save</span>
+            <span className={views.headerSpacer} />
+            <Button size="small" onClick={() => repo.was !== undefined && onUndoRemove(repo.was)}>
+              Undo
+            </Button>
+          </div>
+        </article>
+      ))}
+      {removeError !== undefined && (
+        <p className={styles.loadError} role="alert">
+          {removeError}
+        </p>
+      )}
+      {refused && <RepoInUseDialog removal={refused} onClose={() => setRefused(undefined)} />}
       {adding ? (
         <AddRepo
           taken={draft}
@@ -495,6 +562,7 @@ interface RepoCardProps {
   onDrop: () => void
   onChange: (change: (repo: RepoSettingsInput) => RepoSettingsInput) => void
   onRemoveNew: () => void
+  onRemove: () => void
   onFolder: ((folder: string | undefined) => Promise<void>) | undefined
 }
 
@@ -514,6 +582,7 @@ function RepoCard({
   onDrop,
   onChange,
   onRemoveNew,
+  onRemove,
   onFolder,
 }: RepoCardProps) {
   const id = useId()
@@ -567,7 +636,7 @@ function RepoCard({
             <CloseIcon size={12} />
           </button>
         ) : (
-          !primary && <RepoMenu repo={repo.repo} />
+          !primary && <RepoMenu repo={repo.repo} onRemove={onRemove} />
         )}
       </div>
 
@@ -1060,7 +1129,47 @@ function AppEditor({
   )
 }
 
-function RepoMenu({ repo }: { repo: string }) {
+function RepoInUseDialog({ removal, onClose }: { removal: RepoRemoval; onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const headingId = useId()
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
+  const one = removal.openTasks.length === 1
+  return (
+    <dialog
+      ref={dialog}
+      className={styles.inUseDialog}
+      aria-labelledby={headingId}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <h2 id={headingId} className={styles.inUseHeading}>
+        {`${removal.repo} can’t be removed yet`}
+      </h2>
+      <p className={styles.inUseBody}>
+        {`${one ? 'An open Task has' : `${removal.openTasks.length} open Tasks have`} ${removal.repo} in ${one ? 'its' : 'their'} Repos field. Remove the repo from ${one ? 'it' : 'them'}, or finish or archive ${one ? 'it' : 'them'}, first.`}
+      </p>
+      <ul className={styles.inUseList}>
+        {removal.openTasks.map((task) => (
+          <li key={task.id} className={styles.inUseRow}>
+            <span className={styles.inUseId}>{task.displayId}</span>
+            <span className={styles.inUseTitle}>{task.title}</span>
+          </li>
+        ))}
+      </ul>
+      <div className={styles.inUseButtons}>
+        <Button variant="primary" onClick={onClose}>
+          OK
+        </Button>
+      </div>
+    </dialog>
+  )
+}
+
+function RepoMenu({ repo, onRemove }: { repo: string; onRemove: () => void }) {
   const [open, setOpen] = useState(false)
   const close = useCallback(() => setOpen(false), [])
   const ref = usePopover(open, close)
@@ -1093,8 +1202,10 @@ function RepoMenu({ repo }: { repo: string }) {
             type="button"
             role="menuitem"
             className={`${styles.menuItem} ${styles.menuDanger}`}
-            disabled
-            title="Removing a repo isn’t in this TED build yet."
+            onClick={() => {
+              close()
+              onRemove()
+            }}
           >
             Remove from Factory…
           </button>

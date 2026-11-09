@@ -892,7 +892,7 @@ export function PermissionsSection({
       <SectionHeading
         id="permissions"
         title="Permissions and limits"
-        help="Applies to every Run in this Factory: Task Leads, sub-agents, reviewers, Automations and Planning Runs."
+        help="Applies to Task Leads, sub-agents, reviewers and Planning Runs. Automations always run in Auto permissions."
       />
       <fieldset className={styles.radios}>
         <legend className={base.visuallyHidden}>Permission mode</legend>
@@ -930,7 +930,7 @@ export function PermissionsSection({
           <span>
             <strong>Bypass is on.</strong> Every Run in this Factory acts without asking: it can run
             any command, change any file and use the network on {machine}. Use it only when Runs
-            happen in an isolated machine or VM.
+            happen in an isolated machine or VM. Automations always run in Auto permissions.
           </span>
         </p>
       )}

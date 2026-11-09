@@ -827,3 +827,90 @@
 .mono::placeholder {
   font-family: var(--font-sans);
 }
+
+.removedCard {
+  opacity: 0.6;
+  background: var(--surface-sidebar);
+}
+
+.removedChip {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-tight);
+}
+
+.inUseDialog {
+  box-sizing: border-box;
+  width: 460px;
+  max-width: calc(100vw - 48px);
+  margin: auto;
+  padding: 20px;
+  border: none;
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 12px 32px var(--shadow-dialog);
+  font-size: var(--text-13);
+  line-height: var(--leading-body);
+}
+
+.inUseDialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inUseDialog::backdrop {
+  background: var(--surface-scrim);
+}
+
+.inUseHeading {
+  margin: 0;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+}
+
+.inUseBody {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.inUseList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-card);
+  list-style: none;
+}
+
+.inUseRow {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-12-5);
+}
+
+.inUseId {
+  color: var(--text-tertiary);
+}
+
+.inUseTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inUseButtons {
+  display: flex;
+  justify-content: flex-end;
+}

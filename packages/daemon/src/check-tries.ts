@@ -20,6 +20,7 @@ export interface CheckTries {
   list(factoryId: string): Promise<CheckTry[]>
   output(factoryId: string, name: string): Promise<CheckTryOutput>
   sweep(): Promise<void>
+  forget(factoryId: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -47,6 +48,7 @@ export function createCheckTries(options: {
   scratchDir: string
   emit: (event: DaemonEvent) => void
   maxAgeMs?: number
+  env?: () => NodeJS.ProcessEnv
 }): CheckTries {
   const { store, banners, workflows, reposDir, scratchDir, emit } = options
   const maxAgeMs = options.maxAgeMs ?? scratchMaxAgeMs
@@ -188,7 +190,7 @@ export function createCheckTries(options: {
       const result = await runWorktreeCommand({
         command: entry.setup,
         cwd: worktree,
-        env: worktreeCommandEnv(entry.env, {}),
+        env: worktreeCommandEnv(entry.env, {}, options.env?.() ?? process.env),
         log,
         signal,
       })
@@ -346,6 +348,24 @@ export function createCheckTries(options: {
       return { text: await readOutput(log), log }
     },
     sweep,
+    async forget(factoryId) {
+      const current = running.get(factoryId)
+      current?.abort.abort()
+      await current?.done.catch(() => undefined)
+      sweeping = sweeping
+        .then(async () => {
+          const state = await load(factoryId)
+          for (const worktree of state.worktrees) {
+            await removeWorktree(factoryId, worktree.name, worktree.repo)
+          }
+          states.delete(factoryId)
+          await removeInside(scratchDir, factoryId)
+        })
+        .catch((error: unknown) =>
+          console.error(`couldn’t remove the scratch worktrees of ${factoryId}:`, error),
+        )
+      await sweeping
+    },
     async close() {
       clearInterval(sweepTimer)
       for (const current of running.values()) current.abort.abort()

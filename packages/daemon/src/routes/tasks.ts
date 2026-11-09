@@ -3,6 +3,7 @@ import {
   type AgentKind,
   type AgentStageId,
   type AnswerRequest,
+  type Attachment,
   agentKinds,
   agentStageIds,
   type BlockedChoice,
@@ -56,14 +57,33 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks$/,
     fileToken: true,
-    async handle({ req }, { tasks, attachments }) {
-      return [201, await tasks.create(await createTaskInput(await readJson(req), attachments))]
+    runToken: true,
+    async handle({ req, caller }, { tasks, attachments }) {
+      return [
+        201,
+        await tasks.create(await createTaskInput(await readJson(req), attachments), caller),
+      ]
     },
   },
   {
     method: 'POST',
     path: /^\/attachments$/,
     handle: async ({ req }, { attachments }) => [201, await attachments.save(req)],
+  },
+  {
+    method: 'GET',
+    path: /^\/attachments\/([^/]+)\/([^/]+)$/,
+    async handle({ params: [hash = '', name = ''] }, { attachments }) {
+      return [200, await attachments.read({ hash, name })]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/attachments$/,
+    runToken: true,
+    async handle({ req, params: [ref = ''], caller }, { tasks, attachments }) {
+      return [201, await tasks.upload(ref, caller, () => attachments.save(req))]
+    },
   },
   {
     method: 'POST',
@@ -84,13 +104,20 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/resume$/,
-    async handle({ req, params: [ref = ''] }, { tasks }) {
+    async handle({ req, params: [ref = ''] }, { tasks, attachments }) {
       const body = (await readJson(req)) as Partial<ResumeTaskRequest> | null
       const comment = body?.comment
       if (comment !== undefined && typeof comment !== 'string') {
         throw new HttpError(400, 'comment must be text')
       }
-      return [200, await tasks.resume(ref, { ...(comment !== undefined && { comment }) })]
+      const files = await attachmentList(body?.attachments, attachments)
+      return [
+        200,
+        await tasks.resume(ref, {
+          ...(comment !== undefined && { comment }),
+          ...(files.length > 0 && { attachments: files }),
+        }),
+      ]
     },
   },
   {
@@ -174,13 +201,20 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/follow-up$/,
-    async handle({ req, params: [ref = ''] }, { tasks }) {
+    async handle({ req, params: [ref = ''] }, { tasks, attachments }) {
       const body = (await readOptionalJson(req)) as Partial<FollowUpRequest> | null
       const comment = body?.comment
       if (comment !== undefined && typeof comment !== 'string') {
         throw new HttpError(400, 'comment must be text')
       }
-      return [201, await tasks.followUp(ref, { ...(comment !== undefined && { comment }) })]
+      const files = await attachmentList(body?.attachments, attachments)
+      return [
+        201,
+        await tasks.followUp(ref, {
+          ...(comment !== undefined && { comment }),
+          ...(files.length > 0 && { attachments: files }),
+        }),
+      ]
     },
   },
   {
@@ -308,11 +342,20 @@ export const taskRoutes: Route[] = [
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/comments$/,
     runToken: true,
-    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+    async handle({ req, params: [ref = ''], caller }, { tasks, attachments }) {
       const body = (await readJson(req)) as Partial<PostCommentRequest> | null
       const text = typeof body?.body === 'string' ? body.body.trim() : ''
       const round = body?.round === undefined ? undefined : roundInput(body.round)
-      if (text === '' && !round) throw new HttpError(400, 'body is required')
+      const files = await attachmentList(body?.attachments, attachments)
+      if (text === '' && !round && files.length === 0) {
+        throw new HttpError(400, 'body is required')
+      }
+      if (
+        files.length > 0 &&
+        (round || body?.choices !== undefined || body?.supersedes !== undefined)
+      ) {
+        throw new HttpError(400, 'only a note can carry attachments')
+      }
       if (round && body?.choices !== undefined) {
         throw new HttpError(400, 'a round has its choices on each question')
       }
@@ -328,6 +371,7 @@ export const taskRoutes: Route[] = [
           ...(choices && { choices }),
           ...(round && { round }),
           ...(supersedes !== undefined && { supersedes }),
+          ...(files.length > 0 && { attachments: files }),
         }),
       ]
     },
@@ -335,11 +379,12 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/cancel-merge$/,
-    async handle({ req, params: [ref = ''] }, { tasks }) {
+    async handle({ req, params: [ref = ''] }, { tasks, attachments }) {
       const body = (await readJson(req)) as Partial<CancelMergeRequest> | null
       const text = typeof body?.comment === 'string' ? body.comment.trim() : ''
       if (text === '') throw new HttpError(400, 'comment is required')
-      return [201, await tasks.cancelMerge(ref, text)]
+      const files = await attachmentList(body?.attachments, attachments)
+      return [201, await tasks.cancelMerge(ref, text, files)]
     },
   },
   {
@@ -512,7 +557,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'a Task must be an object')
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
-  const text = (name: 'title' | 'description' | 'factory' | 'source') => {
+  const text = (name: 'title' | 'description' | 'factory' | 'source' | 'followUp') => {
     const value = request[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
@@ -534,6 +579,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
   const description = text('description')
   const factory = text('factory')
   const source = sourceUrl(text('source'))
+  const followUp = text('followUp')?.trim() || undefined
   const priority = oneOf('priority', request.priority, priorities)
   const clarifyDepth = oneOf('clarifyDepth', request.clarifyDepth, clarifyDepths)
   const lead = taskLead(request.lead)
@@ -541,19 +587,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     if (typeof ref !== 'string') throw new HttpError(400, 'blockedBy must list Task IDs')
     return ref
   })
-  const attached = await Promise.all(
-    (list('attachments', request.attachments) ?? []).map((item) => {
-      const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
-      if (typeof hash !== 'string' || typeof name !== 'string') {
-        throw new HttpError(400, 'an attachment needs a hash and a name')
-      }
-      return attachments.find({
-        hash,
-        name,
-        mediaType: typeof mediaType === 'string' ? mediaType : '',
-      })
-    }),
-  )
+  const attached = await attachmentList(request.attachments, attachments)
   if (request.start !== undefined && typeof request.start !== 'boolean') {
     throw new HttpError(400, 'start must be true or false')
   }
@@ -567,6 +601,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     ...(blockedBy !== undefined && { blockedBy }),
     ...(attached.length > 0 && { attachments: attached }),
     ...(source !== undefined && { source }),
+    ...(followUp !== undefined && { followUp }),
     ...(request.start !== undefined && { start: request.start }),
   }
 
@@ -794,4 +829,27 @@ function oneLine(text: string): string {
 function isControl(char: string): boolean {
   const code = char.codePointAt(0) ?? 0
   return code < 0x20 || (code >= 0x7f && code <= 0x9f) || code === 0x2028 || code === 0x2029
+}
+
+const maxAttachmentsPerRequest = 50
+
+async function attachmentList(value: unknown, attachments: Attachments): Promise<Attachment[]> {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new HttpError(400, 'attachments must be a list')
+  if (value.length > maxAttachmentsPerRequest) {
+    throw new HttpError(400, `attach at most ${maxAttachmentsPerRequest} files at once`)
+  }
+  return Promise.all(
+    value.map((item: unknown) => {
+      const { hash, name, mediaType } = (item ?? {}) as Record<string, unknown>
+      if (typeof hash !== 'string' || typeof name !== 'string') {
+        throw new HttpError(400, 'an attachment needs a hash and a name')
+      }
+      return attachments.find({
+        hash,
+        name,
+        mediaType: typeof mediaType === 'string' ? mediaType : '',
+      })
+    }),
+  )
 }

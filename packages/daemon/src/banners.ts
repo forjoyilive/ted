@@ -17,6 +17,7 @@ export interface Banners {
   raise(problem: RaiseBanner): Banner
   raiseUnsaved(problem: RaiseBanner): Banner
   clear(ref: BannerRef): void
+  clearFactory(factoryId: string): void
   list(): Banner[]
   dismiss(id: string): Banner
   act(id: string, input?: BannerActionInput): Promise<void>
@@ -63,6 +64,16 @@ export function createBanners({
       const id = bannerId(ref)
       if (unsaved.delete(id)) emit({ type: 'banner-cleared', id })
       else store.clearBanner(id)
+    },
+    clearFactory(factoryId) {
+      for (const banner of [...unsaved.values()]) {
+        if (banner.factoryId !== factoryId) continue
+        unsaved.delete(banner.id)
+        emit({ type: 'banner-cleared', id: banner.id })
+      }
+      for (const banner of store.listBanners()) {
+        if (banner.factoryId === factoryId) store.clearBanner(banner.id)
+      }
     },
     list: () => [...store.listBanners(), ...unsaved.values()].sort(bannerOrder),
     dismiss(id) {

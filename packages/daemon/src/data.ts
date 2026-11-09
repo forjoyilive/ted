@@ -8,11 +8,13 @@ import type {
   RestoreBackupResult,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
+import type { Automations } from './automations/automations.ts'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { DiskWatch } from './disk.ts'
 import { RequestError } from './errors.ts'
+import type { FactoryRemovals } from './factory-removal.ts'
 import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { AgentHealthMonitor } from './health/agent-health.ts'
@@ -29,6 +31,7 @@ import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
   store: TedStore
+  automations: Automations
   runs: RunManager
   tasks: Tasks
   banners: Banners
@@ -39,6 +42,7 @@ export interface Services {
   storage: Storage
   factories: Factories
   factorySettings: FactorySettings
+  factoryRemovals: FactoryRemovals
   checkTries: CheckTries
   library: LibrarySettings
   conversations: Conversations
