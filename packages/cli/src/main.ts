@@ -528,7 +528,7 @@ try {
     const followUp = options['follow-up']
     const sentryId = options['sentry-id']
     const task = await withDaemon(home, async (client) => {
-      if (source !== undefined && parseLinearUrl(source)) {
+      if (source !== undefined && parseLinearUrl(source) && !runTokenFrom(process.env)) {
         const lookup = await client.lookupLinear(source)
         if (lookup.state === 'no-key') {
           console.error(
