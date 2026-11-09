@@ -1,7 +1,13 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type BackupsSummary, type DataStatus, type Task, tedPaths } from '@ted/protocol'
+import {
+  type BackupsSummary,
+  type Banner,
+  type DataStatus,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -129,7 +135,7 @@ describe('store migrations', () => {
     const status = (await ted.call('GET', '/data-status')).body as DataStatus
     expect(status).toMatchObject({ state: 'failed', version: '1.1.0', total: 2 })
     if (status.state !== 'failed') throw new Error('not failed')
-    expect(status.error).toBe('v1.TaskCreated: Missing key at ["id"]')
+    expect(status.error).toBe('v2.TaskCreated: Missing key at ["id"]')
     expect(status.restore).toMatchObject({ kind: 'pre-update', dataFrom: '1.0.0' })
     const tasks = await ted.call('GET', '/tasks')
     expect(tasks.status).toBe(503)
@@ -281,7 +287,18 @@ describe('daily backups', () => {
     await writeFile(path.join(home, 'backups'), 'not a folder')
     const ted = await start('1.0.0')
 
-    const summary = (await ted.call('GET', '/backups')).body as BackupsSummary
-    expect(summary.dailyFailure?.reason).toBe(`${path.join(home, 'backups')} isn’t a folder`)
+    const banners = (await ted.call('GET', '/banners')).body as Banner[]
+    expect(banners).toMatchObject([
+      {
+        problem: 'daily-backup-failed',
+        severity: 'warning',
+        text: `Today’s backup failed: ${path.join(home, 'backups')} isn’t a folder`,
+        action: { label: 'Open', opens: { kind: 'settings' } },
+      },
+    ])
+    await stop()
+    await rm(path.join(home, 'backups'))
+    const later = await start('1.0.0')
+    expect((await later.call('GET', '/banners')).body).toEqual([])
   })
 })

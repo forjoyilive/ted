@@ -219,7 +219,7 @@ export function createBackups(options: {
 }
 
 function isHashName(file: string): boolean {
-  return /^[A-Za-z0-9]+$/.test(file)
+  return /^[A-Za-z0-9]+(\.[A-Za-z0-9]{1,10})?$/.test(file)
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')

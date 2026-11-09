@@ -2,26 +2,36 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type {
-  AgentKind,
-  Appearance,
-  Comment,
-  ConversationEntry,
-  DaemonEvent,
-  Factory,
-  LayerKind,
-  LayerUse,
-  MachineSettings,
-  Run,
-  RunState,
-  StageEntry,
-  StageId,
-  Task,
+import {
+  type AgentKind,
+  type Appearance,
+  type Attachment,
+  type Banner,
+  type BannerAction,
+  type BannerSeverity,
+  bannerOrder,
+  type ClarifyDepth,
+  type Comment,
+  type ConversationEntry,
+  type DaemonEvent,
+  type Effort,
+  type Factory,
+  type LayerKind,
+  type LayerUse,
+  type MachineSettings,
+  type Priority,
+  type Run,
+  type RunState,
+  type StageEntry,
+  type StageId,
+  type Task,
+  type TaskLead,
 } from '@ted/protocol'
 import { Effect } from 'effect'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { countMaterialized } from './progress.ts'
 import {
+  banners,
   comments,
   conversationEntries,
   events,
@@ -30,6 +40,8 @@ import {
   runs,
   schema,
   stageEntries,
+  taskAttachments,
+  taskBlockers,
   tasks,
   workflowLayers,
 } from './schema.ts'
@@ -49,6 +61,19 @@ export interface StoredFactory extends Factory {
 
 export interface StoredTask extends Task {
   worktree?: string
+  startRequested: boolean
+}
+
+export interface NewTask {
+  title: string
+  factoryId?: string
+  description?: string
+  priority?: Priority
+  clarifyDepth?: ClarifyDepth
+  lead?: TaskLead
+  startRequested?: boolean
+  blockedBy?: string[]
+  attachments?: Attachment[]
 }
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'>
@@ -63,7 +88,7 @@ export interface TedStore {
   addFactory(input: Omit<StoredFactory, 'id' | 'createdAt'>): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
-  createTask(input: { title: string; factoryId?: string }): Promise<Task>
+  createTask(input: NewTask): Promise<Task>
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   startTask(input: {
@@ -95,9 +120,16 @@ export interface TedStore {
   conversation(runId: string): ConversationEntry[]
   settings(): MachineSettings
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
+  raiseBanner(input: NewBanner): Banner
+  dismissBanner(id: string, until: string): Banner | undefined
+  clearBanner(id: string): void
+  getBanner(id: string): Banner | undefined
+  listBanners(): Banner[]
   exportEventlog(): { fileName: string; data: Uint8Array }
   close(): Promise<void>
 }
+
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export interface OpenProgress {
   done: number
@@ -141,10 +173,38 @@ export async function openStore({
   const leadRunId = (taskId: string) =>
     store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc'))).at(0)?.id
 
-  const toTask = ({ branch, worktree, ...row }: typeof tasks.Type): StoredTask => {
+  const blockersOf = (taskId: string) =>
+    store
+      .query(queryDb(taskBlockers.where({ taskId }).orderBy('at', 'asc')))
+      .map((row) => row.blockerId)
+
+  const attachmentsOf = (taskId: string): Attachment[] =>
+    store
+      .query(queryDb(taskAttachments.where({ taskId }).orderBy('at', 'asc')))
+      .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+
+  const toTask = ({
+    branch,
+    worktree,
+    leadAgent,
+    leadModel,
+    leadEffort,
+    ...row
+  }: typeof tasks.Type): StoredTask => {
     const lead = leadRunId(row.id)
     return {
       ...row,
+      priority: row.priority as Priority,
+      clarifyDepth: row.clarifyDepth as ClarifyDepth,
+      ...(leadAgent !== null && {
+        lead: {
+          agent: leadAgent as AgentKind,
+          ...(leadModel !== null && { model: leadModel }),
+          ...(leadEffort !== null && { effort: leadEffort as Effort }),
+        },
+      }),
+      blockedBy: blockersOf(row.id),
+      attachments: attachmentsOf(row.id),
       stage: row.stage as StageId,
       displayId: `${factoryKey(row.factoryId)}-${row.number}`,
       ...(branch !== null && { branch }),
@@ -153,7 +213,7 @@ export async function openStore({
     }
   }
 
-  const toPublicTask = ({ worktree: _, ...task }: StoredTask): Task => task
+  const toPublicTask = ({ worktree: _, startRequested: __, ...task }: StoredTask): Task => task
 
   const toRun = ({ readOffset: _, taskId, sessionId, ...row }: typeof runs.Type): Run => ({
     ...row,
@@ -213,6 +273,27 @@ export async function openStore({
     return row ? { appearance: row.appearance as Appearance } : { ...defaultSettings }
   }
 
+  const toBanner = (row: typeof banners.Type): Banner => ({
+    id: row.id,
+    problem: row.problem,
+    severity: row.severity as BannerSeverity,
+    ...(row.factoryId !== null && { factoryId: row.factoryId }),
+    text: row.text,
+    ...(row.action !== null && { action: JSON.parse(row.action) as BannerAction }),
+    raisedAt: row.raisedAt,
+    ...(row.dismissedUntil !== null && { dismissedUntil: row.dismissedUntil }),
+  })
+  const bannerRow = (id: string) => store.query(queryDb(banners.where({ id }))).at(0)
+  const getBanner = (id: string) => {
+    const row = bannerRow(id)
+    return row && toBanner(row)
+  }
+  const requireBanner = (id: string) => {
+    const banner = getBanner(id)
+    if (!banner) throw new Error(`no banner ${id}`)
+    return banner
+  }
+
   return {
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
@@ -223,18 +304,44 @@ export async function openStore({
     },
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
-    async createTask({ title, factoryId = placeholderFactory.id }) {
+    async createTask({
+      title,
+      factoryId = placeholderFactory.id,
+      description = '',
+      priority = 'none',
+      clarifyDepth = 'auto',
+      lead,
+      startRequested = false,
+      blockedBy = [],
+      attachments = [],
+    }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const number = Math.max(0, ...inFactory.map((t) => t.number)) + 1
-      const row = {
-        id: randomUUID(),
-        factoryId,
-        number,
-        title,
-        createdAt: new Date().toISOString(),
-      }
-      store.commit(events.taskCreated(row))
-      const task = toPublicTask(toTask({ ...row, stage: 'backlog', branch: null, worktree: null }))
+      const id = randomUUID()
+      const at = new Date().toISOString()
+      store.commit(
+        events.taskCreatedV2({
+          id,
+          factoryId,
+          number,
+          title,
+          description,
+          priority,
+          clarifyDepth,
+          leadAgent: lead?.agent ?? null,
+          leadModel: lead?.model ?? null,
+          leadEffort: lead?.effort ?? null,
+          startRequested,
+          createdAt: at,
+        }),
+        ...blockedBy.map((blockerId) => events.taskBlockerAdded({ taskId: id, blockerId, at })),
+        ...attachments.map((attachment) =>
+          events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+        ),
+      )
+      const row = taskRow(id)
+      if (!row) throw new Error(`no Task ${id}`)
+      const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
       return task
     },
@@ -342,6 +449,46 @@ export async function openStore({
       }
       return settings()
     },
+    raiseBanner({ id, problem, severity, factoryId, text, action }) {
+      const current = bannerRow(id)
+      const actionJson = action === undefined ? null : JSON.stringify(action)
+      if (
+        current &&
+        current.severity === severity &&
+        current.text === text &&
+        current.action === actionJson
+      ) {
+        return toBanner(current)
+      }
+      store.commit(
+        events.bannerRaised({
+          id,
+          problem,
+          severity,
+          factoryId: factoryId ?? null,
+          text,
+          action: actionJson,
+          at: new Date().toISOString(),
+        }),
+      )
+      const banner = requireBanner(id)
+      emit({ type: current ? 'banner-updated' : 'banner-raised', banner })
+      return banner
+    },
+    dismissBanner(id, until) {
+      if (!bannerRow(id)) return undefined
+      store.commit(events.bannerDismissed({ id, until, at: new Date().toISOString() }))
+      const banner = requireBanner(id)
+      emit({ type: 'banner-updated', banner })
+      return banner
+    },
+    clearBanner(id) {
+      if (!bannerRow(id)) return
+      store.commit(events.bannerCleared({ id, at: new Date().toISOString() }))
+      emit({ type: 'banner-cleared', id })
+    },
+    getBanner,
+    listBanners: () => store.query(queryDb(banners)).map(toBanner).sort(bannerOrder),
     exportEventlog: () => ({
       fileName: eventlogName,
       data: Effect.runSync(store[StoreInternalsSymbol].clientSession.leaderThread.getEventlogData),

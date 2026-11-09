@@ -5,7 +5,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { readDaemonInfo } from '@ted/protocol'
+import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -307,6 +307,50 @@ describe('ted dev factory and ted task start', () => {
 
   test('comment and outcome outside a Run need --task', async () => {
     await expect(ted(['comment', 'hello'])).rejects.toMatchObject({ code: 2 })
+  })
+})
+
+describe('ted status and ted doctor', () => {
+  test('status prints the daemon and says there are no problems', async () => {
+    const { stdout } = await ted(['status'])
+    const pid = await daemonPid()
+
+    expect(stdout).toContain(`TED’s background process is running (pid ${pid})`)
+    expect(stdout).toContain('No problems.')
+  })
+
+  test('status and doctor print every active banner, dismissed or not', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const client = new DaemonClient(info)
+    const [banner] = await client.listBanners()
+    await client.dismissBanner(banner?.id ?? '')
+
+    const status = (await ted(['status'])).stdout
+    expect(status).toContain('1 problem:')
+    expect(status).toMatch(
+      /Warning {2}widgets {2}No Checks set up · Validate relies on the agent alone {2}\[Open Factory settings\] {2}\(dismissed until /,
+    )
+
+    const doctor = await ted(['doctor'])
+    expect(doctor.stdout).toMatch(/✓ git \d/)
+    expect(doctor.stdout).toContain('No Checks set up · Validate relies on the agent alone')
+  })
+
+  test('doctor fails when a problem stops work', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    await ted(['dev', 'factory', 'add', origin, '--key', 'NB'])
+    await ted(['task', 'create', '--factory', 'NB', 'Anything'])
+    await rm(path.join(home, 'repos'), { recursive: true, force: true })
+    await rm(origin, { recursive: true, force: true })
+    await expect(ted(['task', 'start', 'NB-1'])).rejects.toMatchObject({ code: 1 })
+
+    await expect(ted(['doctor'])).rejects.toMatchObject({
+      code: 1,
+      stdout: expect.stringMatching(/Stops work {2}widgets {2}Couldn’t clone acme\/widgets/),
+    })
   })
 })
 

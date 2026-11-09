@@ -1,4 +1,17 @@
 export {
+  type Banner,
+  type BannerAction,
+  type BannerPlace,
+  type BannerRef,
+  type BannerSeverity,
+  bannerDismissMs,
+  bannerId,
+  bannerOrder,
+  bannerSeverities,
+  isShowing,
+  type RaiseBanner,
+} from './banner.ts'
+export {
   DaemonClient,
   DaemonRequestError,
   DaemonUnreachableError,
@@ -10,7 +23,6 @@ export {
   type BackupKind,
   type BackupsSummary,
   backupKinds,
-  type DailyBackupFailure,
   type DataStatus,
   downloadUrl,
   type RestoreBackupRequest,
@@ -31,14 +43,23 @@ export {
 export { type Appearance, appearances, type MachineSettings } from './settings.ts'
 export {
   type AgentStageId,
+  type Attachment,
   agentStageIds,
+  type ClarifyDepth,
   type Comment,
   type CreateTaskRequest,
+  clarifyDepths,
+  type Effort,
+  efforts,
   type Outcome,
   type PostCommentRequest,
+  type Priority,
+  priorities,
   type ReportOutcomeRequest,
   type StageId,
   type Task,
+  type TaskDefaults,
+  type TaskLead,
 } from './task.ts'
 export { tedVersion } from './version.ts'
 export type { LayerKind, LayerUse, StageEntry, WorkflowProblem } from './workflow.ts'

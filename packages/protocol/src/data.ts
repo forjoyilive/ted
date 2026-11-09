@@ -10,15 +10,9 @@ export interface Backup {
   dataFrom?: string
 }
 
-export interface DailyBackupFailure {
-  at: string
-  reason: string
-}
-
 export interface BackupsSummary {
   backups: Backup[]
   activeRuns: number
-  dailyFailure?: DailyBackupFailure
 }
 
 export interface RestoreBackupRequest {

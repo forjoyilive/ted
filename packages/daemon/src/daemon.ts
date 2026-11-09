@@ -2,7 +2,10 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { type DaemonInfo, type DataStatus, tedPaths } from '@ted/protocol'
 import { createAgents } from './agents/index.ts'
+import { createAttachments } from './attachments.ts'
+import { createBanners } from './banners.ts'
 import { createData } from './data.ts'
+import { ensureClone } from './factories.ts'
 import { startIdleTimer } from './idle.ts'
 import { acquireLock } from './lock.ts'
 import { loadRunTokens } from './run-token.ts'
@@ -39,6 +42,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.claudeBin !== undefined && { claudeBin: options.claudeBin }),
     ...(options.codexBin !== undefined && { codexBin: options.codexBin }),
   })
+  const attachments = createAttachments(paths.attachments)
   const data = createData({
     home: paths.home,
     version: options.version,
@@ -51,17 +55,35 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tokens: runTokens,
         ...(idle && { idle }),
       })
+      const banners = createBanners({ store })
+      const workflows = createWorkflows({
+        store,
+        banners,
+        libraryDir: paths.library,
+        reposDir: paths.repos,
+      })
+      banners.onAction('clone-failed', async ({ factoryId }) => {
+        const factory = factoryId === undefined ? undefined : store.getFactory(factoryId)
+        if (factory) await ensureClone({ banners, reposDir: paths.repos }, factory)
+      })
+      for (const factory of store.listFactories()) {
+        await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
+      }
       const tasks = createTasks({
         store,
         runs,
-        workflows: createWorkflows({ store, libraryDir: paths.library, reposDir: paths.repos }),
+        workflows,
+        banners,
         reposDir: paths.repos,
         worktreesDir: paths.worktrees,
-        leadAgent: () => agents.defaultLead(),
+        defaultLead: () => agents.defaultLead(),
+        attachmentFile: (attachment) => attachments.file(attachment),
       })
       return {
         runs,
         tasks,
+        banners,
+        workflows,
         async close() {
           await tasks.close()
           await runs.close()
@@ -77,6 +99,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     keepaliveMs: options.keepaliveMs ?? 30_000,
     agents,
     runTokens,
+    attachments,
     reposDir: paths.repos,
     ...(idle && { idle }),
   })

@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { withDaemon } from '@ted/daemon/launch'
 import {
+  type CreateTaskRequest,
   type DaemonClient,
   type DaemonEvent,
   downloadUrl,
@@ -14,6 +15,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   listFactories: (client) => client.listFactories(),
+  createTask: (client, input) => client.createTask(input as CreateTaskRequest),
+  taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
+  uploadAttachment: (client, name, mediaType, bytes) => {
+    if (!(bytes instanceof Uint8Array)) throw new Error('attachment bytes must be a Uint8Array')
+    return client.uploadAttachment(
+      { name: String(name), mediaType: String(mediaType) },
+      new Uint8Array(bytes),
+    )
+  },
   getSettings: (client) => client.getSettings(),
   updateSettings: (client, changes) => client.updateSettings(changes as Partial<MachineSettings>),
   getDataStatus: (client) => client.getDataStatus(),
@@ -23,6 +33,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   copyText: async (_, text) => clipboard.writeText(String(text)),
   downloadTed: () => shell.openExternal(downloadUrl),
   quit: async () => app.quit(),
+  listBanners: (client) => client.listBanners(),
+  dismissBanner: (client, id) => client.dismissBanner(String(id)),
+  actOnBanner: (client, id) => client.actOnBanner(String(id)),
 }
 
 let window: BrowserWindow | undefined

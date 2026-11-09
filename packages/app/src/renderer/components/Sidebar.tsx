@@ -22,8 +22,10 @@ interface SidebarProps {
   currentFactoryId: string | undefined
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
+  settingsProblem?: boolean
   footer?: SidebarFooter
   dispatch: (action: NavigationAction) => void
+  onNewTask: () => void
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
@@ -47,8 +49,10 @@ export function Sidebar({
   currentFactoryId,
   inboxCount,
   badges = {},
+  settingsProblem = false,
   footer = {},
   dispatch,
+  onNewTask,
 }: SidebarProps) {
   const open = (screen: Screen) => dispatch({ type: 'open', screen })
   const current = (screen: Screen) =>
@@ -63,12 +67,7 @@ export function Sidebar({
           <span className={styles.searchLabel}>Search</span>
           <span className={styles.shortcut}>⌘K</span>
         </button>
-        <button
-          type="button"
-          className={styles.newTask}
-          aria-label="New Task"
-          onClick={() => open({ kind: 'new-task' })}
-        >
+        <button type="button" className={styles.newTask} aria-label="New Task" onClick={onNewTask}>
           <PlusIcon />
         </button>
       </div>
@@ -106,7 +105,11 @@ export function Sidebar({
               <ChevronIcon open={expanded} className={styles.chevron} />
               <span className={styles.label}>{factory.name}</span>
               {badge.failed && <DotIcon className={styles.failedDot} />}
-              {badge.stopsWork && <WarningIcon className={styles.warning} />}
+              {badge.stopsWork && (
+                <span role="img" aria-label="A problem stops work" className={styles.warning}>
+                  <WarningIcon />
+                </span>
+              )}
               {(badge.waiting ?? 0) > 0 && <span className={styles.count}>{badge.waiting}</span>}
             </button>
             {expanded &&
@@ -146,6 +149,11 @@ export function Sidebar({
         {...current({ kind: 'settings' })}
       >
         <span className={styles.label}>Settings</span>
+        {settingsProblem && (
+          <span role="img" aria-label="A problem stops work" className={styles.failedDot}>
+            <DotIcon />
+          </span>
+        )}
         <span className={styles.shortcut}>⌘,</span>
       </button>
 

@@ -1,12 +1,16 @@
 import type {
+  Attachment,
   BackupsSummary,
+  Banner,
   Comment,
+  CreateTaskRequest,
   DaemonEvent,
   DataStatus,
   Factory,
   MachineSettings,
   RestoreBackupResult,
   Task,
+  TaskDefaults,
 } from '@ted/protocol'
 
 export interface TedBridge {
@@ -25,6 +29,12 @@ export const ted = {
   listComments: (taskId: string) =>
     window.ted.request('listComments', taskId) as Promise<Comment[]>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
+  createTask: (input: CreateTaskRequest) =>
+    window.ted.request('createTask', input) as Promise<Task>,
+  taskDefaults: (factoryId: string) =>
+    window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
+  uploadAttachment: (file: { name: string; mediaType: string }, bytes: Uint8Array) =>
+    window.ted.request('uploadAttachment', file.name, file.mediaType, bytes) as Promise<Attachment>,
   getSettings: () => window.ted.request('getSettings') as Promise<MachineSettings>,
   updateSettings: (changes: Partial<MachineSettings>) =>
     window.ted.request('updateSettings', changes) as Promise<MachineSettings>,
@@ -35,5 +45,8 @@ export const ted = {
   copyText: (text: string) => window.ted.request('copyText', text) as Promise<void>,
   downloadTed: () => window.ted.request('downloadTed') as Promise<void>,
   quit: () => window.ted.request('quit') as Promise<void>,
+  listBanners: () => window.ted.request('listBanners') as Promise<Banner[]>,
+  dismissBanner: (id: string) => window.ted.request('dismissBanner', id) as Promise<Banner>,
+  actOnBanner: (id: string) => window.ted.request('actOnBanner', id) as Promise<void>,
   onEvent: (listener: (event: DaemonEvent) => void) => window.ted.onEvent(listener),
 }

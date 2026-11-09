@@ -1,10 +1,18 @@
-import type { Task } from '@ted/protocol'
-import { useReducer } from 'react'
+import type { Banner, Task } from '@ted/protocol'
+import { useEffect, useReducer, useState } from 'react'
 import styles from './App.module.css'
-import { BackupBanner } from './components/BackupBanner.tsx'
+import {
+  appWideBanners,
+  factoriesStoppingWork,
+  factoryBanners,
+  settingsStopsWork,
+} from './banners.ts'
+import { BannerStack } from './components/BannerStack.tsx'
 import { Sidebar } from './components/Sidebar.tsx'
-import { useFactories, useTasks } from './data.ts'
+import { useBanners, useFactories, useTasks } from './data.ts'
 import { backLink, currentFactoryId, initialNavigation, navigate } from './navigation.ts'
+import { ted } from './ted.ts'
+import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { AppSettings, Inbox, Stub } from './views/OtherViews.tsx'
 import { TaskDetails, TaskThread } from './views/TaskThread.tsx'
 import { Board, factoryName, TaskList } from './views/TaskViews.tsx'
@@ -15,15 +23,65 @@ const factoryViewTitles = {
   settings: 'Factory settings',
 } as const
 
-const stubTitles = { search: 'Search', 'new-task': 'New Task', 'add-factory': 'Add Factory' }
+const stubTitles = { search: 'Search', 'add-factory': 'Add Factory' }
+
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+  )
+}
 
 export function App() {
   const [navigation, dispatch] = useReducer(navigate, initialNavigation)
   const tasks = useTasks()
   const factories = useFactories()
+  const banners = useBanners()
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
   const task = tasks.find((t) => t.id === navigation.taskId)
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const openNewTask = () => setNewTaskOpen(true)
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (newTaskOpen || event.altKey || event.shiftKey) return
+      const command = event.metaKey || event.ctrlKey
+      const newTask = command
+        ? event.key.toLowerCase() === 'n'
+        : event.key === 'c' && !isTyping(event.target)
+      if (!newTask) return
+      event.preventDefault()
+      setNewTaskOpen(true)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [newTaskOpen])
+
+  async function act(banner: Banner) {
+    const place = banner.action?.opens
+    if (!place) {
+      await ted.actOnBanner(banner.id).catch((error: unknown) => console.error(error))
+    } else if (place.kind === 'settings') {
+      dispatch({ type: 'open', screen: { kind: 'settings' } })
+    } else if (place.kind === 'factory-settings') {
+      dispatch({
+        type: 'open',
+        screen: { kind: 'factory', factoryId: place.factoryId, view: 'settings' },
+      })
+    } else {
+      dispatch({ type: 'open-task', taskId: place.taskId })
+    }
+  }
+
+  const bannerStack = (label: string, shown: Banner[]) => (
+    <BannerStack
+      label={label}
+      banners={shown}
+      onAction={act}
+      onDismiss={(banner) => void ted.dismissBanner(banner.id)}
+    />
+  )
 
   function main() {
     if (task) {
@@ -34,7 +92,7 @@ export function App() {
             backLink={backLink(navigation)}
             onBack={() => dispatch({ type: 'close-task' })}
           />
-          <TaskDetails task={task} factories={factories} />
+          <TaskDetails task={task} tasks={tasks} factories={factories} />
         </>
       )
     }
@@ -43,19 +101,31 @@ export function App() {
       case 'inbox':
         return <Inbox />
       case 'all-tasks':
-        return <TaskList title="All Tasks" tasks={tasks} factories={factories} onOpen={openTask} />
+        return (
+          <TaskList
+            title="All Tasks"
+            tasks={tasks}
+            factories={factories}
+            onOpen={openTask}
+            onNewTask={openNewTask}
+          />
+        )
       case 'settings':
         return <AppSettings />
       case 'factory': {
         const name = factoryName(factories, screen.factoryId)
         const inFactory = tasks.filter((t) => t.factoryId === screen.factoryId)
-        if (screen.view === 'board') {
-          return <Board title={name} tasks={inFactory} factories={factories} onOpen={openTask} />
+        const view = {
+          title: name,
+          tasks: inFactory,
+          factories,
+          onOpen: openTask,
+          onNewTask: openNewTask,
+          banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
-        if (screen.view === 'list') {
-          return <TaskList title={name} tasks={inFactory} factories={factories} onOpen={openTask} />
-        }
-        return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} />
+        if (screen.view === 'board') return <Board {...view} />
+        if (screen.view === 'list') return <TaskList {...view} />
+        return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
       default:
         return <Stub title={stubTitles[screen.kind]} />
@@ -69,12 +139,25 @@ export function App() {
         factories={factories}
         currentFactoryId={currentFactoryId(navigation, tasks)}
         inboxCount={0}
+        badges={Object.fromEntries(
+          [...factoriesStoppingWork(banners)].map((id) => [id, { stopsWork: true }]),
+        )}
+        settingsProblem={settingsStopsWork(banners)}
         dispatch={dispatch}
+        onNewTask={openNewTask}
       />
-      <div className={styles.column}>
-        <BackupBanner onOpen={() => dispatch({ type: 'open', screen: { kind: 'settings' } })} />
-        <main className={styles.main}>{main()}</main>
-      </div>
+      <main className={styles.main}>
+        {bannerStack('Problems', appWideBanners(banners))}
+        <div className={styles.panes}>{main()}</div>
+      </main>
+      {newTaskOpen && (
+        <NewTaskDialog
+          factories={factories}
+          tasks={tasks}
+          factoryId={currentFactoryId(navigation, tasks)}
+          onClose={() => setNewTaskOpen(false)}
+        />
+      )}
     </div>
   )
 }

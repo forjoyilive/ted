@@ -21,10 +21,40 @@ export const tasks = State.SQLite.table({
     factoryId: State.SQLite.text(),
     number: State.SQLite.integer(),
     title: State.SQLite.text(),
+    description: State.SQLite.text({ default: '' }),
+    priority: State.SQLite.text({ default: 'none' }),
+    clarifyDepth: State.SQLite.text({ default: 'auto' }),
+    leadAgent: State.SQLite.text({ nullable: true }),
+    leadModel: State.SQLite.text({ nullable: true }),
+    leadEffort: State.SQLite.text({ nullable: true }),
+    startRequested: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
+  },
+})
+
+export const taskBlockers = State.SQLite.table({
+  name: 'taskBlockers',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    blockerId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const taskAttachments = State.SQLite.table({
+  name: 'taskAttachments',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -96,6 +126,20 @@ export const workflowLayers = State.SQLite.table({
   },
 })
 
+export const banners = State.SQLite.table({
+  name: 'banners',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    problem: State.SQLite.text(),
+    severity: State.SQLite.text(),
+    factoryId: State.SQLite.text({ nullable: true }),
+    text: State.SQLite.text(),
+    action: State.SQLite.text({ nullable: true }),
+    raisedAt: State.SQLite.text(),
+    dismissedUntil: State.SQLite.text({ nullable: true }),
+  },
+})
+
 const runStartedFields = {
   id: Schema.String,
   agent: Schema.String,
@@ -126,6 +170,38 @@ export const events = {
       number: Schema.Number,
       title: Schema.String,
       createdAt: Schema.String,
+    }),
+  }),
+  taskCreatedV2: Events.synced({
+    name: 'v2.TaskCreated',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      number: Schema.Number,
+      title: Schema.String,
+      description: Schema.String,
+      priority: Schema.String,
+      clarifyDepth: Schema.String,
+      leadAgent: Schema.NullOr(Schema.String),
+      leadModel: Schema.NullOr(Schema.String),
+      leadEffort: Schema.NullOr(Schema.String),
+      startRequested: Schema.Boolean,
+      createdAt: Schema.String,
+    }),
+  }),
+  taskBlockerAdded: Events.synced({
+    name: 'v1.TaskBlockerAdded',
+    schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
+  }),
+  taskAttachmentAdded: Events.synced({
+    name: 'v1.TaskAttachmentAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
     }),
   }),
   taskStarted: Events.synced({
@@ -198,6 +274,26 @@ export const events = {
     name: 'v1.AppearanceChanged',
     schema: Schema.Struct({ appearance: Schema.String, at: Schema.String }),
   }),
+  bannerRaised: Events.synced({
+    name: 'v1.BannerRaised',
+    schema: Schema.Struct({
+      id: Schema.String,
+      problem: Schema.String,
+      severity: Schema.String,
+      factoryId: Schema.NullOr(Schema.String),
+      text: Schema.String,
+      action: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  bannerDismissed: Events.synced({
+    name: 'v1.BannerDismissed',
+    schema: Schema.Struct({ id: Schema.String, until: Schema.String, at: Schema.String }),
+  }),
+  bannerCleared: Events.synced({
+    name: 'v1.BannerCleared',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   runSessionIdentified: Events.synced({
     name: 'v1.RunSessionIdentified',
     schema: Schema.Struct({ runId: Schema.String, sessionId: Schema.String }),
@@ -208,6 +304,15 @@ const materializers = counted(
   State.SQLite.materializers(events, {
     'v1.FactoryAdded': (factory) => factories.insert(factory),
     'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+    'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
+    'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+      taskBlockers
+        .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
+        .onConflict('id', 'ignore'),
+    'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
+      taskAttachments
+        .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+        .onConflict('id', 'ignore'),
     'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
       tasks.update({ stage, branch, worktree }).where({ id: taskId }),
     'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),
@@ -231,6 +336,15 @@ const materializers = counted(
         .onConflict('layer', 'replace'),
     'v1.AppearanceChanged': ({ appearance }) =>
       machineSettings.insert({ id: 'machine', appearance }).onConflict('id', 'replace'),
+    'v1.BannerRaised': ({ at, ...banner }) => [
+      banners.insert({ ...banner, raisedAt: at, dismissedUntil: null }).onConflict('id', 'ignore'),
+      banners
+        .update({ severity: banner.severity, text: banner.text, action: banner.action })
+        .where({ id: banner.id }),
+    ],
+    'v1.BannerDismissed': ({ id, until }) =>
+      banners.update({ dismissedUntil: until }).where({ id }),
+    'v1.BannerCleared': ({ id }) => banners.delete().where({ id }),
   }),
 )
 
@@ -238,12 +352,15 @@ const state = State.SQLite.makeState({
   tables: {
     factories,
     tasks,
+    taskBlockers,
+    taskAttachments,
     runs,
     conversationEntries,
     comments,
     stageEntries,
     workflowLayers,
     machineSettings,
+    banners,
   },
   materializers,
 })

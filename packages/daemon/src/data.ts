@@ -3,28 +3,29 @@ import type {
   Backup,
   BackupsSummary,
   DaemonEvent,
-  DailyBackupFailure,
   DataStatus,
   RestoreBackupRequest,
   RestoreBackupResult,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
+import type { Banners } from './banners.ts'
 import { RequestError } from './errors.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
+import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
   store: TedStore
   runs: RunManager
   tasks: Tasks
+  banners: Banners
+  workflows: Workflows
 }
 
-export interface StartedServices {
-  runs: RunManager
-  tasks: Tasks
+export interface StartedServices extends Omit<Services, 'store'> {
   close(): Promise<void>
 }
 
@@ -48,6 +49,8 @@ export interface Data {
   close(): Promise<void>
 }
 
+const dailyBackupProblem = 'daily-backup-failed'
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export function majorMinor(version: string): string {
@@ -69,7 +72,6 @@ export function createData(options: DataOptions): Data {
   const firstOpen = Promise.withResolvers<void>()
   let opening: Promise<void> = firstOpen.promise
   let busy = false
-  let dailyFailure: DailyBackupFailure | undefined
   let dailyTimer: NodeJS.Timeout | undefined
   let lastProgressAt = 0
 
@@ -80,19 +82,20 @@ export function createData(options: DataOptions): Data {
   }
 
   async function takeDaily(): Promise<void> {
-    const store = services?.store
-    if (!store) return
+    const open = services
+    if (!open) return
     try {
-      await backups.takeDaily(store.exportEventlog())
-      if (dailyFailure) {
-        dailyFailure = undefined
-        emit({ type: 'daily-backup', failure: null })
-      }
+      await backups.takeDaily(open.store.exportEventlog())
+      open.banners.clear({ problem: dailyBackupProblem })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       console.error(`daily backup failed: ${reason}`)
-      dailyFailure = { at: now().toISOString(), reason }
-      emit({ type: 'daily-backup', failure: dailyFailure })
+      open.banners.raise({
+        problem: dailyBackupProblem,
+        severity: 'warning',
+        text: `Today’s backup failed: ${reason}`,
+        action: { label: 'Open', opens: { kind: 'settings', section: 'storage' } },
+      })
     }
   }
 
@@ -241,7 +244,6 @@ export function createData(options: DataOptions): Data {
       return {
         backups: await backups.list(),
         activeRuns: (await activeRuns()).length,
-        ...(dailyFailure && { dailyFailure }),
       }
     },
     async restore({ name, stopRuns = false }) {

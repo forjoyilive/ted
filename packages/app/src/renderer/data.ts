@@ -1,13 +1,14 @@
 import type {
+  Banner,
   Comment,
   DaemonEvent,
-  DailyBackupFailure,
   DataStatus,
   Factory,
   MachineSettings,
   Task,
 } from '@ted/protocol'
 import { useCallback, useEffect, useState } from 'react'
+import { nextReturn } from './banners.ts'
 import { ted } from './ted.ts'
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]): T[] {
@@ -94,20 +95,36 @@ export function useDataStatus(): DataStatus | undefined {
   return status
 }
 
-export function useDailyBackupFailure(): DailyBackupFailure | undefined {
-  const [failure, setFailure] = useState<DailyBackupFailure | null>()
+export function useBanners(): Banner[] {
+  const [banners, setBanners] = useState<Banner[]>([])
+  const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
+    let loading = true
+    const clearedWhileLoading = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'daily-backup') setFailure(event.failure)
+      if (event.type === 'banner-raised' || event.type === 'banner-updated') {
+        clearedWhileLoading.delete(event.banner.id)
+        setBanners((current) => mergeById(current, [event.banner]))
+      } else if (event.type === 'banner-cleared') {
+        if (loading) clearedWhileLoading.add(event.id)
+        setBanners((current) => current.filter((b) => b.id !== event.id))
+      }
     })
-    void ted
-      .listBackups()
-      .then(({ dailyFailure }) =>
-        setFailure((current) => (current === undefined ? (dailyFailure ?? null) : current)),
-      )
+    void ted.listBanners().then((loaded) => {
+      loading = false
+      const kept = loaded.filter((b) => !clearedWhileLoading.has(b.id))
+      setBanners((current) => mergeById(kept, current))
+    })
     return unsubscribe
   }, [])
 
-  return failure ?? undefined
+  useEffect(() => {
+    const at = nextReturn(banners, new Date(now))
+    if (at === undefined) return
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(at - Date.now() + 50, 2 ** 31 - 1))
+    return () => clearTimeout(timer)
+  }, [banners, now])
+
+  return banners
 }

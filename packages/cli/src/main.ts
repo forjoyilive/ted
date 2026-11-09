@@ -1,18 +1,25 @@
 #!/usr/bin/env node
+import { execFile } from 'node:child_process'
 import path from 'node:path'
-import { parseArgs, stripVTControlCharacters } from 'node:util'
+import { parseArgs, promisify, stripVTControlCharacters } from 'node:util'
 import { withDaemon } from '@ted/daemon/launch'
 import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
   agentKinds,
+  type Banner,
+  type Factory,
+  isShowing,
   type RunWithConversation,
+  readDaemonInfo,
   tedHome,
   tedPaths,
 } from '@ted/protocol'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
+  ted status                                 Show whether TED is running and every active problem
+  ted doctor                                 Run health checks and show every active problem
   ted comment [--task <id>] "<text>"         Post a note on the Task (reads stdin if no text)
   ted outcome advance [--task <id>]          End the current Stage and move the Task on
   ted task create [--factory <key>] "<title>"  Create a Task
@@ -75,6 +82,10 @@ try {
     throw new UsageError('')
   } else if (group === 'help' && command === undefined) {
     console.log(usage)
+  } else if (group === 'status' && command === undefined) {
+    await status()
+  } else if (group === 'doctor' && command === undefined) {
+    await doctor()
   } else if (group === 'comment') {
     const ref = taskRef()
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
@@ -191,6 +202,61 @@ function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+async function problems(): Promise<{ pid: number | undefined; banners: string[]; stops: boolean }> {
+  const { banners, factories } = await withDaemon(home, async (client) => ({
+    banners: await client.listBanners(),
+    factories: await client.listFactories(),
+  }))
+  const pid = (await readDaemonInfo(home))?.pid
+  return {
+    pid,
+    banners: formatBanners(banners, factories),
+    stops: banners.some((b) => b.severity === 'stops-work'),
+  }
+}
+
+async function status(): Promise<void> {
+  const { pid, banners } = await problems()
+  console.log(`TED’s background process is running (pid ${pid ?? 'unknown'})`)
+  console.log(banners.join('\n'))
+}
+
+async function doctor(): Promise<void> {
+  const { pid, banners, stops } = await problems()
+  console.log(`✓ TED’s background process is running (pid ${pid ?? 'unknown'})`)
+  const git = await promisify(execFile)('git', ['--version']).then(
+    ({ stdout }) => stdout.trim().replace(/^git version /, ''),
+    () => undefined,
+  )
+  console.log(git === undefined ? '✗ git not found on PATH' : `✓ git ${git}`)
+  console.log(banners.join('\n'))
+  if (stops || git === undefined) process.exitCode = 1
+}
+
+function formatBanners(banners: Banner[], factories: Factory[]): string[] {
+  if (banners.length === 0) return ['No problems.']
+  const where = (b: Banner) =>
+    b.factoryId === undefined
+      ? 'TED'
+      : (factories.find((f) => f.id === b.factoryId)?.name ?? 'a Factory')
+  const rows = banners.map((b) => [
+    b.severity === 'stops-work' ? 'Stops work' : 'Warning',
+    where(b),
+    [
+      printable(b.text),
+      ...(b.action ? [`[${printable(b.action.label)}]`] : []),
+      ...(isShowing(b) ? [] : [`(dismissed until ${b.dismissedUntil})`]),
+    ].join('  '),
+  ])
+  const width = (column: number) => Math.max(...rows.map((row) => row[column]?.length ?? 0))
+  return [
+    `${banners.length} ${banners.length === 1 ? 'problem' : 'problems'}:`,
+    ...rows.map(([kind = '', place = '', rest]) =>
+      ['  ', kind.padEnd(width(0)), '  ', place.padEnd(width(1)), '  ', rest].join(''),
+    ),
+  ]
 }
 
 async function workflowCheck(target: string): Promise<void> {
