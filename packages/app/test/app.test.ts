@@ -603,7 +603,7 @@ describe('TED app', () => {
     ].join(' ')
     const run = { run: ['sh', '-c', script] }
     const steps = JSON.stringify({ steps: [{ everyMessage: [run, { endTurn: true }] }, run] })
-    await ted('dev', 'factory', 'add', origin, '--key', 'NB')
+    await addFactory(origin, 'NB')
     await ted('task', 'create', '--factory', 'NB', steps)
     const window = await launchApp()
     await openAllTasks(window)
