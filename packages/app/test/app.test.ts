@@ -24,6 +24,7 @@ import {
   hostRecords,
   isAlive,
   makeOriginRepo,
+  removeHome,
   stopDaemonIn,
   waitForExit,
 } from '../../daemon/test/helpers.ts'
@@ -54,7 +55,7 @@ afterEach(async () => {
   await closeApp(app)
   app = undefined
   await stopDaemonIn(home)
-  await rm(home, { recursive: true, force: true })
+  await removeHome(home)
 }, 30_000)
 
 const env = () => ({
