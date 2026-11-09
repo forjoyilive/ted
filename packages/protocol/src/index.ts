@@ -337,6 +337,7 @@ export {
   type FactoryHit,
   foldText,
   matchesTerms,
+  type PlanHit,
   type SearchField,
   type SearchResults,
   type SearchTaskState,
