@@ -36,7 +36,7 @@ import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
 import { nextStageMessage, taskLeadPrompt } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
-import { type SlotUse, startsNow } from './queue.ts'
+import { type QueueEntry, type SlotUse, startsNow } from './queue.ts'
 import {
   type CommandResult,
   copyFiles,
@@ -174,12 +174,25 @@ export function createTasks(options: {
     return { use, holders, all }
   }
 
+  function heldReady(): QueueEntry[] {
+    const paused = store.agentPauses()
+    return store.heldRuns().flatMap((held) => {
+      const task = store.getTask(held.taskId)
+      const agent = task?.lead?.agent ?? held.agent
+      if (!task || paused[agent] !== undefined || holds.has(task.id)) return []
+      return [{ id: task.id, kind: 'task' as const, rank: -1, factoryId: task.factoryId }]
+    })
+  }
+
   async function fill(): Promise<void> {
+    const held = heldReady()
     const queued = runnable(store.queue())
-    if (queued.length === 0) return
-    const { use } = await slotUse(queued.map((q) => q.factoryId))
-    for (const entry of startsNow(runnable(store.queue()), use)) {
-      if (!holds.has(entry.id)) begin(entry.id)
+    if (queued.length === 0 && held.length === 0) return
+    const { use } = await slotUse([...held, ...queued].flatMap((q) => q.factoryId ?? []))
+    const heldIds = new Set(held.map((h) => h.id))
+    for (const entry of startsNow<QueueEntry>([...held, ...runnable(store.queue())], use)) {
+      if (heldIds.has(entry.id)) relaunch(entry.id)
+      else if (!holds.has(entry.id)) begin(entry.id)
     }
   }
 
@@ -686,8 +699,12 @@ export function createTasks(options: {
   function relaunch(taskId: string): void {
     if (relaunching.has(taskId)) return
     relaunching.add(taskId)
+    const release = hold(taskId)
     inBackground(`continue ${taskId}`, () =>
-      resume(taskId).finally(() => relaunching.delete(taskId)),
+      resume(taskId).finally(() => {
+        relaunching.delete(taskId)
+        release()
+      }),
     )
   }
 
@@ -720,7 +737,6 @@ export function createTasks(options: {
   })
 
   health.onReady((agent) => {
-    for (const held of store.heldRuns()) if (held.agent === agent) relaunch(held.taskId)
     void pump()
     for (const runId of [...interrupted]) {
       const run = store.getRun(runId)
@@ -748,8 +764,8 @@ export function createTasks(options: {
 
   const heldAtStart = new Set(store.heldRuns().map((h) => h.taskId))
   for (const task of store.listTasks()) {
-    if (heldAtStart.has(task.id)) relaunch(task.id)
-    else if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
+    if (heldAtStart.has(task.id)) continue
+    if (task.leadRunId === undefined && task.repos.some((r) => !r.removed)) {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
@@ -874,7 +890,7 @@ export function createTasks(options: {
       const task = store.setTaskLead(find(ref).id, lead)
       inBackground('apply the Task Lead setting', () => applyLead(task.id))
       const held = store.heldRuns().find((h) => h.taskId === task.id)
-      if (held && held.agent !== lead.agent) relaunch(task.id)
+      if (held && held.agent !== lead.agent) void pump()
       return task
     },
 

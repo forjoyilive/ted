@@ -917,6 +917,9 @@ export async function openStore({
           .filter((r) => r.state !== 'finished' && r.taskId !== null)
           .map((r) => r.taskId as string),
         ...store.query(queryDb(heldRuns.where({ agent }))).map((h) => h.taskId),
+        ...queue()
+          .filter((q) => taskRow(q.id)?.leadAgent === agent)
+          .map((q) => q.id),
       ])
       for (const taskId of affected) updatedTask(taskId)
     },

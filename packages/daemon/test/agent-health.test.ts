@@ -169,6 +169,32 @@ describe('Agent health', () => {
     )
   })
 
+  test('a held Task Lead waits for a free slot before it continues', async () => {
+    const client = await start({ codex: true })
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const goA = path.join(scratch, 'go-a')
+    const goB = path.join(scratch, 'go-b')
+    const a = await startTask(client, steps({ waitFor: goA }, { authError: true }, { exit: 1 }))
+    const firstA = await waitUntil(async () => (await getTask(client, a.id))?.leadRunId, 'A’s Run')
+    const b = await startTask(client, steps({ waitFor: goB }, { endTurn: true }), 'codex')
+
+    await setStub('claude', { signedIn: false })
+    await writeFile(goA, '')
+    await waitUntil(async () => (await getTask(client, b.id))?.leadRunId, 'B to take the free slot')
+    expect((await getTask(client, a.id))?.status?.kind).toBe('paused')
+
+    await setStub('claude', { signedIn: true })
+    await client.ok('POST', '/agents/health/check')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect((await getTask(client, a.id))?.leadRunId).toBe(firstA)
+
+    await writeFile(goB, '')
+    await waitUntil(async () => {
+      const id = (await getTask(client, a.id))?.leadRunId
+      return id !== firstA ? id : undefined
+    }, 'A to continue once B’s slot frees')
+  })
+
   test('a Run that stops on an auth error resumes its session once the agent can run again', async () => {
     const client = await start()
     const go = path.join(scratch, 'go')

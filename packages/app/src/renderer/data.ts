@@ -259,8 +259,10 @@ export function useBanners(): Banner[] {
 
 export function useAgentHealth(): AgentHealth[] {
   const [health, setHealth] = useState<AgentHealth[]>([])
+  const { epoch } = useConnection()
 
   useEffect(() => {
+    void epoch
     const merge = (incoming: AgentHealth[]) =>
       setHealth((current) => {
         const byAgent = new Map(current.map((h) => [h.agent, h]))
@@ -273,9 +275,9 @@ export function useAgentHealth(): AgentHealth[] {
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'agent-health-changed') merge([event.health])
     })
-    void ted.agentHealth().then(merge)
+    void ted.agentHealth().then(merge, () => undefined)
     return unsubscribe
-  }, [])
+  }, [epoch])
 
   return health
 }
