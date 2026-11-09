@@ -232,6 +232,7 @@ export interface NewTask {
   blockedBy?: string[]
   attachments?: Attachment[]
   source?: TaskSource
+  followUpOf?: string
 }
 
 export interface PlannedStage {
@@ -973,6 +974,7 @@ export async function openStore({
     stoppedRuns,
     stoppedWhy,
     failedAt,
+    followUpOf,
     partlyMergedAt,
     ...row
   }: typeof tasks.Type): StoredTask => {
@@ -1096,6 +1098,17 @@ export async function openStore({
       return { kind: 'stopped', stage }
     }
     const source = sourceOf(row.id)
+    const original =
+      followUpOf === null ? undefined : (taskRow(followUpOf) ?? deletedRow(followUpOf))
+    const merged =
+      stage === 'done'
+        ? {
+            at: entries.findLast((e) => e.stage === 'done')?.at ?? row.createdAt,
+            pullRequests: repos.flatMap((r) =>
+              r.pullRequest?.state === 'merged' ? [r.pullRequest.number] : [],
+            ),
+          }
+        : undefined
     return {
       ...row,
       priority: row.priority as Priority,
@@ -1153,7 +1166,14 @@ export async function openStore({
             ...(waitingOnSubAgents.has(r.id) && { onSubAgents: true }),
           }
         }),
-      createdBy: 'human',
+      createdBy: followUpOf === null ? 'human' : 'follow-up',
+      ...(followUpOf !== null && {
+        followUpOf: {
+          id: followUpOf,
+          displayId: original ? `${factoryKey(original.factoryId)}-${original.number}` : followUpOf,
+        },
+      }),
+      ...(merged && { merged }),
       updatedAt,
       ...(archivedAt !== null && { archived: { at: archivedAt, ended: ended() } }),
     }
@@ -1572,6 +1592,7 @@ export async function openStore({
       blockedBy = [],
       attachments = [],
       source,
+      followUpOf,
     }) {
       const inFactory = listTasks().filter((t) => t.factoryId === factoryId)
       const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
@@ -1614,11 +1635,18 @@ export async function openStore({
               }),
             ]
           : []),
+        ...(followUpOf !== undefined
+          ? [
+              events.taskFollowsUp({ taskId: id, originalId: followUpOf, at }),
+              events.taskFollowedUp({ taskId: followUpOf, followUpId: id, at }),
+            ]
+          : []),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row))
       emit({ type: 'task-created', task })
+      if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       return task
     },
     listTasks: () => listTasks().map(toPublicTask),
