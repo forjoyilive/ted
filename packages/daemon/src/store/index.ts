@@ -470,7 +470,7 @@ function pick(values: Record<string, unknown>, names: string[]): Record<string, 
 
 const persistTimeoutMs = 10_000
 
-export type NewBanner =Omit<Banner, 'raisedAt' | 'dismissedUntil'>
+export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export interface OpenProgress {
   done: number
