@@ -634,16 +634,20 @@ function BlockedBy({
   )
 }
 
-function LeadFields({
+export function LeadFields({
   id,
   lead,
   factoryLead,
   onChange,
+  label = 'Task Lead',
+  help = 'The agent that carries this Task through its Stages. Filled from the Factory’s lead.',
 }: {
   id: string
   lead: TaskLead
   factoryLead: TaskLead | undefined
   onChange: (lead: TaskLead) => void
+  label?: string
+  help?: string
 }) {
   const models = [
     ...new Set([
@@ -662,10 +666,8 @@ function LeadFields({
   return (
     <div className={styles.field}>
       <span className={styles.labelRow}>
-        <span className={styles.label}>Task Lead</span>
-        <Help>
-          The agent that carries this Task through its Stages. Filled from the Factory’s lead.
-        </Help>
+        <span className={styles.label}>{label}</span>
+        <Help>{help}</Help>
       </span>
       <div className={styles.leadRow}>
         <Select

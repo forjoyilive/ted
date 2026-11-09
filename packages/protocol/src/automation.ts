@@ -9,6 +9,7 @@ export type AutomationTemplateId = (typeof automationTemplateIds)[number]
 export interface AutomationTemplate {
   id: AutomationTemplateId
   name: string
+  summary: string
   prompt: string
   schedule: AutomationSchedule
 }
@@ -50,6 +51,7 @@ export interface AutomationRun {
   startedAt?: string
   finishedAt?: string
   result: AutomationResult
+  created?: AutomationTaskLink[]
   message?: string
   runId?: string
 }

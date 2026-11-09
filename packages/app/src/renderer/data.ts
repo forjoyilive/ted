@@ -1,6 +1,10 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
+  Automation,
+  AutomationDetail,
+  AutomationRequest,
+  AutomationTemplate,
   Banner,
   CheckRun,
   Comment,
@@ -514,4 +518,44 @@ export function useDescriptions(taskId: string): DescriptionVersion[] | undefine
     (event) => event.type === 'task-updated' && event.task.id === taskId,
     taskId,
   )
+}
+
+const automationEvents = new Set<TedEvent['type']>([
+  'automation-updated',
+  'automation-deleted',
+  'run-updated',
+  'slots-changed',
+  'task-updated',
+  'task-deleted',
+  'agent-health-changed',
+])
+
+export function useAutomations(factoryId: string | undefined): Automation[] | undefined {
+  return useReloading(
+    () => ted.listAutomations(factoryId),
+    (event) => automationEvents.has(event.type),
+    factoryId ?? '',
+  )
+}
+
+export function useAutomation(id: string): AutomationDetail | null | undefined {
+  return useReloading(
+    () => ted.getAutomation(id).catch(() => null),
+    (event) => automationEvents.has(event.type),
+    id,
+  )
+}
+
+export function useAutomationRequests(): AutomationRequest[] {
+  return (
+    useReloading(
+      () => ted.automationRequests(),
+      (event) => event.type === 'automation-updated' || event.type === 'automation-deleted',
+      '',
+    ) ?? []
+  )
+}
+
+export function useAutomationTemplates(): AutomationTemplate[] {
+  return useReloading(ted.automationTemplates, () => false, '') ?? []
 }

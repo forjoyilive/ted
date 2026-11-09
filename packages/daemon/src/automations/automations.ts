@@ -394,10 +394,19 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }
     const count = failuresInARow(automation.id)
     if (count >= failuresForBanner) {
+      const error = saved.firings(automation.id).findLast((f) => f.outcome === 'failed')?.error
       banners.raise({
         ...ref,
         severity: 'warning',
-        text: `Automation “${automation.name}” failed ${count} times in a row`,
+        text: `Automation “${automation.name}” failed ${count} times in a row${error ? ` · last error: ${firstLine(error, 200)}` : ''}`,
+        action: {
+          label: 'Open the Automation',
+          opens: {
+            kind: 'automation',
+            automationId: automation.id,
+            factoryId: automation.factoryId,
+          },
+        },
       })
     } else banners.clear(ref)
   }
@@ -618,6 +627,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(firing.retriedAt !== undefined && { retriedAt: firing.retriedAt }),
       ...(firing.startedAt !== undefined && { startedAt: firing.startedAt }),
       ...(firing.finishedAt !== undefined && { finishedAt: firing.finishedAt }),
+      ...(created.length > 0 && { created }),
       ...(firing.message !== undefined && { message: firing.message }),
       ...(store.getRun(firing.id) && { runId: firing.id }),
     }

@@ -10,6 +10,7 @@ export interface FactoryBadges {
   waiting?: number
   failed?: boolean
   stopsWork?: boolean
+  automationFailed?: boolean
 }
 
 export interface SidebarFooter {
@@ -302,6 +303,11 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'automations' && badge.automationFailed && (
+                      <span role="img" aria-label="An Automation failed" className={styles.subDot}>
+                        <DotIcon className={styles.failedDot} />
+                      </span>
+                    )}
                   </button>
                 )
               })}

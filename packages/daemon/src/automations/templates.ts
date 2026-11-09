@@ -35,18 +35,23 @@ export const automationTemplates: readonly AutomationTemplate[] = [
   {
     id: 'linear',
     name: 'Pull new Linear issues assigned to me',
+    summary:
+      'Creates a Task for each new Linear issue assigned to you, using your own Linear tools.',
     prompt: linear,
     schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {
     id: 'sentry',
     name: 'Turn new Sentry issues into Tasks',
+    summary:
+      'Reads new Sentry issues and makes a Task for each real crash. Asks about doubtful ones.',
     prompt: sentry,
     schedule: { kind: 'weekdays', at: '09:00' },
   },
   {
     id: 'github',
     name: 'Daily GitHub issue triage',
+    summary: 'Reads new GitHub issues and makes Tasks for the ones worth doing.',
     prompt: github,
     schedule: { kind: 'daily', at: '09:00' },
   },

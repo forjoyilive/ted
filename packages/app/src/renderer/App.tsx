@@ -1,4 +1,4 @@
-import type { AgentHealth, Banner, Factory, ListFilters, Task } from '@ted/protocol'
+import type { AgentHealth, Automation, Banner, Factory, ListFilters, Task } from '@ted/protocol'
 import { planChip, runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
@@ -17,11 +17,13 @@ import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
-import { Sidebar } from './components/Sidebar.tsx'
+import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
 import {
   useAgentHealth,
   useAnswered,
+  useAutomationRequests,
+  useAutomations,
   useBanners,
   useConnection,
   useFactoryList,
@@ -45,6 +47,8 @@ import { factoryCapLine, runsLine } from './slots.ts'
 import { runStatusAction, shortcutAction } from './task-actions.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
+import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
+import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
 import { editTaskEvent } from './views/EditTaskDialog.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
@@ -58,7 +62,6 @@ import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
   plans: 'Plans',
-  automations: 'Automations',
   settings: 'Factory settings',
 } as const
 
@@ -112,6 +115,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
   const [removing, setRemoving] = useState<Factory>()
+  const [automationDialog, setAutomationDialog] = useState<{
+    factoryId?: string
+    template?: TemplateChoice
+    editing?: Automation
+  }>()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [findAt, setFindAt] = useState<string>()
   const panes = useRef<HTMLDivElement>(null)
@@ -125,16 +133,26 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }, [factoriesLoaded])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen =
-    newTaskOpen !== undefined || addFactoryOpen || paletteOpen || removing !== undefined
+    newTaskOpen !== undefined ||
+    addFactoryOpen ||
+    paletteOpen ||
+    removing !== undefined ||
+    automationDialog !== undefined
   const openNewTask = (factoryId?: string) =>
     setNewTaskOpen(factoryId === undefined ? {} : { factoryId })
   const inbox = useInbox()
-  const inboxCount = inbox.length
+  const questions = useAutomationRequests()
+  const allAutomations = useAutomations(undefined)
+  const inboxCount = inbox.length + questions.length
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
   const answered = useAnswered(inboxScreen?.answered === true)
-  const waiting: Record<string, { waiting?: number; failed?: boolean }> = {}
-  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox))) {
+  const waiting: Record<string, FactoryBadges> = {}
+  for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions))) {
     waiting[factoryId] = { waiting: count }
+  }
+  for (const automation of allAutomations ?? []) {
+    if (automation.last?.result.kind !== 'failed') continue
+    waiting[automation.factoryId] = { ...waiting[automation.factoryId], automationFailed: true }
   }
   const failedTasks = tasks.filter((task) => task.status?.kind === 'failed' && !task.archived)
   for (const task of failedTasks) {
@@ -172,6 +190,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     setNewTaskOpen(undefined)
     setAddFactoryOpen(false)
     setPaletteOpen(false)
+    setAutomationDialog(undefined)
   }, [offline])
 
   const shownFactoryId =
@@ -307,6 +326,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     } else if (place.kind === 'settings') {
       const section = settingsSectionIds.find((id) => id === place.section)
       dispatch({ type: 'open-settings', ...(section !== undefined && { section }) })
+    } else if (place.kind === 'automation') {
+      dispatch({
+        type: 'open-automation',
+        automationId: place.automationId,
+        factoryId: place.factoryId,
+      })
     } else if (place.kind === 'factory-settings') {
       dispatch({
         type: 'open',
@@ -341,6 +366,42 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       onAction={act}
       onDismiss={(banner) => void ted.dismissBanner(banner.id)}
       menu={keepsStoppingMenu}
+    />
+  )
+
+  const newAutomation = (factoryId?: string, template?: TemplateChoice) => {
+    if (factories.length === 0) return setAddFactoryOpen(true)
+    setAutomationDialog({
+      ...(factoryId !== undefined && { factoryId }),
+      ...(template !== undefined && { template }),
+    })
+  }
+  const openAutomation = (automation: Pick<Automation, 'id' | 'factoryId'>, runId?: string) =>
+    dispatch({
+      type: 'open-automation',
+      automationId: automation.id,
+      factoryId: automation.factoryId,
+      ...(runId !== undefined && { runId }),
+    })
+  const automationBanners = (factoryId: string, automationId: string) =>
+    bannerStack(
+      'Automation problems',
+      factoryBanners(banners, factoryId)
+        .filter(
+          (b) =>
+            b.action?.opens?.kind === 'automation' && b.action.opens.automationId === automationId,
+        )
+        .map(({ action: _, ...banner }) => banner),
+    )
+  const automationRun = (automationId: string, runId: string) => (
+    <AutomationRunView
+      key={runId}
+      automationId={automationId}
+      runId={runId}
+      tasks={tasks}
+      onBack={() => dispatch({ type: 'close-automation' })}
+      onOpenAutomation={() => dispatch({ type: 'close-automation' })}
+      onOpenTask={openTaskByRef}
     />
   )
 
@@ -392,10 +453,22 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               requestId: request.id,
             })
           }
+          questions={questions}
+          onOpenQuestion={(question) =>
+            dispatch({
+              type: 'open-automation',
+              automationId: question.automationId,
+              factoryId: question.factoryId,
+              runId: question.runId,
+              requestId: question.id,
+            })
+          }
           onFilter={(factoryId) => openInbox({ factoryId })}
           onShowAnswered={(show) => openInbox({ answered: show })}
         >
-          {opened}
+          {opened ??
+            (navigation.automation?.runId !== undefined &&
+              automationRun(navigation.automation.id, navigation.automation.runId))}
         </Inbox>
       )
     }
@@ -487,6 +560,36 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             />
           )
         }
+        if (screen.view === 'automations') {
+          const open = navigation.automation
+          if (open?.runId !== undefined) return automationRun(open.id, open.runId)
+          if (open) {
+            return (
+              <AutomationView
+                key={open.id}
+                automationId={open.id}
+                banners={automationBanners(screen.factoryId, open.id)}
+                settings={settings}
+                onBack={() => dispatch({ type: 'close-automation' })}
+                onOpenRun={(runId) =>
+                  openAutomation({ id: open.id, factoryId: screen.factoryId }, runId)
+                }
+                onEdit={(editing) => setAutomationDialog({ editing })}
+                onOpenAutomation={openAutomation}
+                onOpenTask={openTaskByRef}
+              />
+            )
+          }
+          return (
+            <AutomationsPage
+              factory={factory}
+              banners={view.banners}
+              onOpen={openAutomation}
+              onNew={(template) => newAutomation(screen.factoryId, template)}
+              onOpenTask={openTaskByRef}
+            />
+          )
+        }
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
     }
@@ -506,6 +609,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         factories,
         dispatch,
         newTask: (description) => setNewTaskOpen(description === undefined ? {} : { description }),
+        newAutomation: () => newAutomation(currentFactoryId(navigation, tasks)),
         addFactory: () => setAddFactoryOpen(true),
       }}
       factoryId={currentFactoryId(navigation, tasks)}
@@ -552,6 +656,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             initialDescription: newTaskOpen.description,
           })}
           onClose={() => setNewTaskOpen(undefined)}
+        />
+      )}
+      {automationDialog && (
+        <AutomationDialog
+          factories={factories}
+          factoryId={automationDialog.factoryId ?? currentFactoryId(navigation, tasks)}
+          {...(automationDialog.editing && { editing: automationDialog.editing })}
+          {...(automationDialog.template && { template: automationDialog.template })}
+          onClose={() => setAutomationDialog(undefined)}
+          onSaved={(saved) => {
+            setAutomationDialog(undefined)
+            if (!automationDialog.editing) openAutomation(saved)
+          }}
         />
       )}
       {removing && (

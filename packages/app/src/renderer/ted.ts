@@ -2,10 +2,17 @@ import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
   AgentHealth,
   AgentKind,
+  AnswerAutomationRequest,
   AnswerRequest,
   ArchiveDoneResult,
   ArchiveTaskRequest,
   Attachment,
+  Automation,
+  AutomationDetail,
+  AutomationRequest,
+  AutomationRun,
+  AutomationSchedule,
+  AutomationTemplate,
   BackupsSummary,
   Banner,
   BannerActionInput,
@@ -18,6 +25,7 @@ import type {
   ClarifyDepth,
   CommandLineStatus,
   Comment,
+  CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
   DaemonEvent,
@@ -25,6 +33,7 @@ import type {
   DeleteTaskRequest,
   DescriptionVersion,
   Diagnostics,
+  EditAutomationRequest,
   EditTaskRequest,
   Factory,
   FactoryBoard,
@@ -58,6 +67,7 @@ import type {
   SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
+  SchedulePreview,
   SearchResults,
   SetTaskReposRequest,
   SettingsPreview,
@@ -271,6 +281,29 @@ export const ted = {
   removeLinearKey: () => window.ted.request('removeLinearKey') as Promise<LinearStatus>,
   lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
   openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
+  listAutomations: (factoryId?: string) =>
+    window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,
+  getAutomation: (id: string) =>
+    window.ted.request('getAutomation', id) as Promise<AutomationDetail>,
+  automationTemplates: () =>
+    window.ted.request('automationTemplates') as Promise<AutomationTemplate[]>,
+  automationRequests: () =>
+    window.ted.request('automationRequests') as Promise<AutomationRequest[]>,
+  previewSchedule: (schedule: AutomationSchedule, timeZone?: string) =>
+    window.ted.request('previewSchedule', schedule, timeZone) as Promise<SchedulePreview>,
+  createAutomation: (input: CreateAutomationRequest) =>
+    window.ted.request('createAutomation', input) as Promise<Automation>,
+  editAutomation: (id: string, input: EditAutomationRequest) =>
+    window.ted.request('editAutomation', id, input) as Promise<Automation>,
+  setAutomationOn: (id: string, on: boolean) =>
+    window.ted.request('setAutomationOn', id, on) as Promise<Automation>,
+  runAutomation: (id: string) => window.ted.request('runAutomation', id) as Promise<AutomationRun>,
+  retryAutomationRun: (runId: string) =>
+    window.ted.request('retryAutomationRun', runId) as Promise<AutomationRun>,
+  deleteAutomation: (id: string) =>
+    window.ted.request('deleteAutomation', id) as Promise<{ deleted: boolean }>,
+  answerAutomationRequest: (id: string, answer: AnswerAutomationRequest) =>
+    window.ted.request('answerAutomationRequest', id, answer) as Promise<AutomationRequest>,
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
 }
 

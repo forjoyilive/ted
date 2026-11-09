@@ -1,4 +1,4 @@
-import type { Factory, InboxItem } from '@ted/protocol'
+import type { AutomationRequest, Factory, InboxItem } from '@ted/protocol'
 import { type ReactNode, useEffect, useRef } from 'react'
 import { Help } from '../components/Help.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
@@ -16,6 +16,8 @@ export function Inbox({
   showAnswered,
   selected,
   onOpen,
+  questions = [],
+  onOpenQuestion,
   onFilter,
   onShowAnswered,
   children,
@@ -27,6 +29,8 @@ export function Inbox({
   showAnswered: boolean
   selected: string | undefined
   onOpen: (item: InboxItem) => void
+  questions?: readonly AutomationRequest[]
+  onOpenQuestion?: (question: AutomationRequest) => void
   onFilter: (factoryId: string | undefined) => void
   onShowAnswered: (show: boolean) => void
   children?: ReactNode
@@ -35,6 +39,9 @@ export function Inbox({
   const manyFactories = factories.length > 1
   const waiting = inFactory(items, factoryId)
   const shown = showAnswered ? inFactory(answered, factoryId) : waiting
+  const asked = showAnswered
+    ? []
+    : questions.filter((q) => factoryId === undefined || q.factoryId === factoryId)
 
   const before = useRef(waiting)
   const open = useRef(onOpen)
@@ -69,7 +76,7 @@ export function Inbox({
           </div>
           {manyFactories && (
             <div className={styles.chips}>
-              {inboxChips(items, factories).map((chip) => (
+              {inboxChips(items, factories, questions).map((chip) => (
                 <button
                   key={chip.factoryId ?? 'all'}
                   type="button"
@@ -83,7 +90,7 @@ export function Inbox({
             </div>
           )}
         </header>
-        {shown.length === 0 ? (
+        {shown.length === 0 && asked.length === 0 ? (
           <p className={views.empty}>
             {showAnswered
               ? 'Nothing answered in the last 30 days.'
@@ -128,6 +135,32 @@ export function Inbox({
                       className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
                     >
                       {headline(request)}
+                    </span>
+                    <span className={styles.where}>{where}</span>
+                  </button>
+                </li>
+              )
+            })}
+            {asked.map((question) => {
+              const where = [
+                question.automationName,
+                'Automation',
+                ...(manyFactories ? [factoryName(factories, question.factoryId)] : []),
+              ].join(' · ')
+              return (
+                <li key={question.id}>
+                  <button
+                    type="button"
+                    className={styles.row}
+                    aria-current={question.id === selected ? 'true' : undefined}
+                    onClick={() => onOpenQuestion?.(question)}
+                  >
+                    <span className={styles.top}>
+                      <span className={styles.kind}>Question</span>
+                      <span className={styles.age}>{age(question.createdAt, now)}</span>
+                    </span>
+                    <span data-headline className={`${styles.headline} ${styles.unread}`}>
+                      {question.body.split('\n')[0]}
                     </span>
                     <span className={styles.where}>{where}</span>
                   </button>

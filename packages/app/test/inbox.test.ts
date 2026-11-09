@@ -1,6 +1,6 @@
-import type { Factory, InboxItem } from '@ted/protocol'
+import type { AutomationRequest, Factory, InboxItem } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { inboxChips, inFactory, nextSelection } from '../src/renderer/inbox.ts'
+import { inboxChips, inFactory, nextSelection, waitingByFactory } from '../src/renderer/inbox.ts'
 
 const item = (id: string, factoryId = 'nb') =>
   ({ request: { id }, task: { id: `t-${id}`, factoryId } }) as unknown as InboxItem
@@ -20,6 +20,18 @@ describe('Inbox chips', () => {
     ])
     expect(inFactory(items, 'ms').map((i) => i.request.id)).toEqual(['b'])
     expect(inFactory(items, undefined)).toBe(items)
+  })
+})
+
+describe('Automation questions', () => {
+  test('count in All and in their Factory’s chip', () => {
+    const questions = [{ id: 'q', factoryId: 'ms' }] as unknown as AutomationRequest[]
+    expect(inboxChips([item('a')], factories, questions)).toEqual([
+      { label: 'All', count: 2 },
+      { factoryId: 'nb', label: 'Notebook', count: 1 },
+      { factoryId: 'ms', label: 'Marketing site', count: 1 },
+    ])
+    expect(waitingByFactory([item('a')], questions)).toEqual({ nb: 1, ms: 1 })
   })
 })
 

@@ -122,4 +122,45 @@ describe('navigation', () => {
     expect(state.screen).toEqual({ kind: 'factory', factoryId: 'ms', view: 'settings' })
     expect(currentFactoryId(state, tasks)).toBe('ms')
   })
+
+  test('an Automation opens on its Factory’s Automations page, and back goes one level up', () => {
+    const run = after(
+      { type: 'open-automation', automationId: 'a1', factoryId: 'nb' },
+      { type: 'open-automation', automationId: 'a1', factoryId: 'nb', runId: 'r1' },
+    )
+    expect(run.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'automations' })
+    expect(run.automation).toEqual({ id: 'a1', runId: 'r1' })
+    expect(currentFactoryId(run, tasks)).toBe('nb')
+
+    const view = navigate(run, { type: 'close-automation' })
+    expect(view.automation).toEqual({ id: 'a1' })
+    expect(navigate(view, { type: 'close-automation' }).automation).toBeUndefined()
+    expect(navigate(run, { type: 'open', screen: { kind: 'all-tasks' } }).automation).toBe(
+      undefined,
+    )
+  })
+
+  test('an Automation question opens its Run beside the Inbox; back opens the Automation', () => {
+    const inbox = after(
+      { type: 'open-task', taskId: 't1' },
+      {
+        type: 'open-automation',
+        automationId: 'a1',
+        factoryId: 'nb',
+        runId: 'r1',
+        requestId: 'q1',
+      },
+    )
+    expect(inbox.screen).toEqual({ kind: 'inbox' })
+    expect(inbox.taskId).toBeUndefined()
+    expect(inbox.requestId).toBe('q1')
+    expect(inbox.automation).toEqual({ id: 'a1', runId: 'r1' })
+
+    const back = navigate(inbox, { type: 'close-automation' })
+    expect(back.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'automations' })
+    expect(back.automation).toEqual({ id: 'a1' })
+    expect(back.requestId).toBeUndefined()
+
+    expect(navigate(inbox, { type: 'open-task', taskId: 't2' }).automation).toBeUndefined()
+  })
 })

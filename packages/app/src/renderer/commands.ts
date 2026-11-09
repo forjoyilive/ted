@@ -17,6 +17,7 @@ export interface CommandContext {
   factories: readonly Factory[]
   dispatch: (action: NavigationAction) => void
   newTask: (description?: string) => void
+  newAutomation: () => void
   addFactory: () => void
 }
 
@@ -68,7 +69,7 @@ export const globalCommands: readonly Command[] = [
     id: 'go-to-automations',
     label: 'Go to Automations…',
     scope: 'global',
-    keywords: 'new automation schedule',
+    keywords: 'automations schedule',
     choices: ({ factories, dispatch }) =>
       factories.map((factory) => ({
         id: factory.id,
@@ -93,6 +94,13 @@ export const globalCommands: readonly Command[] = [
         ...(index < 9 && { shortcut: factoryShortcut(index) }),
         run: () => dispatch({ type: 'open-factory', factoryId: factory.id }),
       })),
+  },
+  {
+    id: 'new-automation',
+    label: 'New Automation',
+    scope: 'global',
+    keywords: 'schedule automation',
+    run: ({ newAutomation }) => newAutomation(),
   },
   {
     id: 'settings',

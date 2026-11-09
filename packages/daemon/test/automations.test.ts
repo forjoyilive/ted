@@ -292,6 +292,7 @@ describe('Automations', () => {
       source: { url },
     })
     expect(row?.result).toMatchObject({ kind: 'created', tasks: [{ displayId: 'NB-1' }] })
+    expect(row?.created).toMatchObject([{ displayId: 'NB-1' }])
     const results = await commandResults(client, row?.runId ?? '')
     expect(results[0]).toMatchObject({ code: 0, stdout: 'Created NB-1  Crash in parser\n' })
     expect(results[1]).toMatchObject({
@@ -361,7 +362,13 @@ describe('Automations', () => {
     const banners = await client.ok<Banner[]>('GET', '/banners')
     expect(banners.find((b) => b.problem === 'automation-failing')).toMatchObject({
       severity: 'warning',
-      text: 'Automation “Sentry crash intake” failed 3 times in a row',
+      text: expect.stringMatching(
+        /^Automation “Sentry crash intake” failed 3 times in a row · last error: .+/,
+      ),
+      action: {
+        label: 'Open the Automation',
+        opens: { kind: 'automation', automationId: automation.id, factoryId: automation.factoryId },
+      },
     })
 
     const older = await client.call('POST', `/automation-runs/${rows[1]?.id}/retry`, {})
