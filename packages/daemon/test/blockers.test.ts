@@ -265,6 +265,8 @@ describe('starting when the blocker merges', () => {
     expect(res.status).toBe(200)
     expect(res.body).toMatchObject({ stage: 'backlog', blockedBy: [], markers: [] })
     expect((await client.call('DELETE', `/tasks/${task.id}/blockers/NB-1`)).status).toBe(404)
+    await block(client, task, blocker)
+    expect((await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)).blockedBy).toEqual([])
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect((await getTask(client, task.id)).stage).toBe('backlog')
   })

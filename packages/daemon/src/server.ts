@@ -180,7 +180,7 @@ const routes: Route[] = [
     path: /^\/tasks\/([^/]+)\/blockers(?:\/([^/]+))?$/,
     runToken: true,
     async handle({ params: [ref = '', by], caller }, { tasks }) {
-      return [200, tasks.unblock(ref, caller, by)]
+      return [200, tasks.unblock(ref, caller, by === '' ? undefined : by)]
     },
   },
   {

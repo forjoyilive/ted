@@ -256,7 +256,7 @@ export function createTasks(options: {
     const work = launchQueued(taskId)
       .catch((error: unknown) => {
         if (store.queue().some((q) => q.id === taskId)) {
-          if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.dequeue(taskId)
+          if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.waitForBlockers(taskId)
           else store.moveToBacklog(taskId)
           const message = error instanceof Error ? error.message : String(error)
           store.setActivity(taskId, oneLine(`Couldn’t start: ${message}`))
@@ -599,12 +599,12 @@ export function createTasks(options: {
     const factory = factoryOf(task)
     const repo = task.repos.find((r) => !r.removed)
     if (repo) {
-      store.dequeue(task.id)
       const resolution = await resolveWorkflow(factory, { fetch: false })
       const env =
         store.recordedSetup(task.id, repo.name)?.env ??
         primaryRepoWorktree(resolution.workflow, factory).env
       await launch(find(task.id), resolution, repo, env, undefined, pickUpNote(task))
+      store.dequeue(task.id)
       return
     }
     {
@@ -723,6 +723,7 @@ export function createTasks(options: {
     } finally {
       stoppingForBlockers.delete(taskId)
     }
+    wake()
   }
 
   function wake(): void {
@@ -847,6 +848,7 @@ export function createTasks(options: {
 
     async block(ref, caller, by) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      await beginning.get(task.id)?.catch(() => undefined)
       const blocker = find(by)
       if (blocker.id === task.id) {
         throw new RequestError(409, `${task.displayId} can’t block itself`)
@@ -860,7 +862,6 @@ export function createTasks(options: {
           `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
         )
       }
-      await beginning.get(task.id)?.catch(() => undefined)
       const current = find(task.id)
       const runId = caller.kind === 'run' ? caller.runId : undefined
       const existing = store.blockers(task.id).find((b) => b.blockerId === blocker.id)
