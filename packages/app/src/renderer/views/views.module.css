@@ -232,6 +232,8 @@
   margin: 0;
   padding: 18px 22px;
   list-style: none;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .comment {
