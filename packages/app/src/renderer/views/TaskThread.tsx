@@ -188,6 +188,7 @@ export function TaskPanes({
   factories,
   backLink,
   requestId,
+  answeredId,
   onBack,
   onOpenTask,
 }: {
@@ -196,6 +197,7 @@ export function TaskPanes({
   factories: readonly Factory[]
   backLink: string | undefined
   requestId?: string | undefined
+  answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
 }) {
@@ -217,6 +219,7 @@ export function TaskPanes({
         task={task}
         backLink={backLink}
         requestId={requestId}
+        answeredId={answeredId}
         onBack={onBack}
         onOpenTask={onOpenTask}
         shownRun={visibleRun}
@@ -233,6 +236,7 @@ export function TaskThread({
   task,
   backLink,
   requestId,
+  answeredId,
   onBack,
   onOpenTask,
   shownRun,
@@ -243,6 +247,7 @@ export function TaskThread({
   task: Task
   backLink: string | undefined
   requestId?: string | undefined
+  answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
   shownRun: string | undefined
@@ -395,7 +400,13 @@ export function TaskThread({
                     : undefined
                 return (
                   <li key={comment.id} className={styles.requestItem}>
-                    <AnsweredCard request={comment} task={task} newer={newer} />
+                    <AnsweredCard
+                      key={comment.id === answeredId ? 'shown' : 'collapsed'}
+                      request={comment}
+                      task={task}
+                      newer={newer}
+                      expanded={comment.id === answeredId}
+                    />
                   </li>
                 )
               }

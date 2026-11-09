@@ -226,3 +226,46 @@ describe('ted ask --supersedes', () => {
     })
   })
 })
+
+describe('the Inbox', () => {
+  test('requests sort by Priority then age, stay unread until their Task is opened, and answered ones move to Answered', async () => {
+    const client = await start()
+    const asking = async (question: string, priority: string) => {
+      const task = await client.ok<Task>('POST', '/tasks', {
+        title: steps({ run: ['ted', 'outcome', 'ask', question] }, { endTurn: true }),
+        factory: 'NB',
+        priority,
+      })
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      await idleLead(client, task)
+      return task
+    }
+    const low = await asking('Low first?', 'low')
+    const urgent = await asking('Urgent second?', 'urgent')
+
+    const waiting = await inbox(client)
+    expect(waiting.map((i) => [i.task.id, i.request.body])).toEqual([
+      [urgent.id, 'Urgent second?'],
+      [low.id, 'Low first?'],
+    ])
+    expect(waiting.map((i) => i.request.readAt)).toEqual([undefined, undefined])
+
+    await client.ok('POST', `/tasks/${low.id}/read`)
+    expect((await inbox(client)).map((i) => i.request.readAt !== undefined)).toEqual([false, true])
+
+    const [first, second] = waiting
+    if (!first || !second) throw new Error('missing requests')
+    await client.ok('POST', `/comments/${first.request.id}/answer`, { action: 'answer', text: 'A' })
+    await client.ok('POST', `/comments/${second.request.id}/answer`, {
+      action: 'answer',
+      text: 'B',
+    })
+
+    expect(await inbox(client)).toEqual([])
+    const answered = await client.ok<InboxItem[]>('GET', '/inbox/answered')
+    expect(answered.map((i) => [i.request.id, i.request.answer?.kind])).toEqual([
+      [second.request.id, 'answered'],
+      [first.request.id, 'answered'],
+    ])
+  })
+})

@@ -385,6 +385,7 @@ export interface TedStore {
   taskLog(taskId: string): LoggedEvent[]
   supersedeComment(id: string, input: NewComment): Comment
   listOpenRequests(): Comment[]
+  listAnsweredRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
   latestBrief(taskId: string): TaskBrief | undefined
   recordSendBack(input: {
@@ -1724,6 +1725,11 @@ export async function openStore({
         }))
         .sort((a, b) => sequence(a.id) - sequence(b.id)),
     listOpenRequests: () => openRequestRows().map(toComment),
+    listAnsweredRequests: () =>
+      store
+        .query(queryDb(comments.orderBy('createdAt', 'asc')))
+        .filter((row) => row.kind !== 'note' && row.answer !== null)
+        .map(toComment),
     writeBrief({ taskId, text, runId }) {
       const row = taskRow(taskId)
       if (!row) throw new Error(`no Task ${taskId}`)

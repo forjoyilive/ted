@@ -102,24 +102,37 @@ export function Sidebar({
       {factories.map((factory) => {
         const expanded = factory.id === currentFactoryId
         const badge = badges[factory.id] ?? {}
+        const waiting = badge.waiting ?? 0
         return (
           <div key={factory.id} className={styles.factory}>
-            <button
-              type="button"
-              className={`${styles.row} ${expanded ? styles.strong : ''}`}
-              aria-expanded={expanded}
-              onClick={() => dispatch({ type: 'open-factory', factoryId: factory.id })}
-            >
-              <ChevronIcon open={expanded} className={styles.chevron} />
-              <span className={styles.label}>{factory.name}</span>
-              {badge.failed && <DotIcon className={styles.failedDot} />}
-              {badge.stopsWork && (
-                <span role="img" aria-label="A problem stops work" className={styles.warning}>
-                  <WarningIcon />
-                </span>
+            <div className={styles.factoryRow}>
+              <button
+                type="button"
+                className={`${styles.row} ${expanded ? styles.strong : ''} ${waiting > 0 ? styles.counted : ''}`}
+                aria-expanded={expanded}
+                onClick={() => dispatch({ type: 'open-factory', factoryId: factory.id })}
+              >
+                <ChevronIcon open={expanded} className={styles.chevron} />
+                <span className={styles.label}>{factory.name}</span>
+                {badge.failed && <DotIcon className={styles.failedDot} />}
+                {badge.stopsWork && (
+                  <span role="img" aria-label="A problem stops work" className={styles.warning}>
+                    <WarningIcon />
+                  </span>
+                )}
+              </button>
+              {waiting > 0 && (
+                <button
+                  type="button"
+                  className={styles.countButton}
+                  aria-label={`${waiting} waiting in ${factory.name}`}
+                  title="Show in the Inbox"
+                  onClick={() => open({ kind: 'inbox', factoryId: factory.id })}
+                >
+                  {waiting}
+                </button>
               )}
-              {(badge.waiting ?? 0) > 0 && <span className={styles.count}>{badge.waiting}</span>}
-            </button>
+            </div>
             {expanded &&
               factoryViews.map(({ view, label }) => {
                 const screen: Screen = { kind: 'factory', factoryId: factory.id, view }
