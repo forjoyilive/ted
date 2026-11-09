@@ -190,7 +190,7 @@ function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now
     ) : item.tool === 'Read' && outputLines > 0 ? (
       `${outputLines} lines`
     ) : (
-      item.detail
+      (item.detail ?? (outputLines === 1 ? item.output?.trim().slice(0, 80) : undefined))
     )
   return (
     <Collapsible

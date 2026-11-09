@@ -73,13 +73,19 @@ function EventRow({
 }) {
   const { runId } = event
   return (
-    <EventLine tone={event.tone} text={event.text} at={event.at}>
+    <EventLine
+      tone={event.tone}
+      text={event.text}
+      at={event.at}
+      action={
+        runId !== undefined && (
+          <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
+            View message
+          </button>
+        )
+      }
+    >
       {event.findings !== undefined && <Findings text={event.findings} />}
-      {runId !== undefined && (
-        <button type="button" className={styles.linkButton} onClick={() => onOpenRun(runId)}>
-          View message
-        </button>
-      )}
     </EventLine>
   )
 }
