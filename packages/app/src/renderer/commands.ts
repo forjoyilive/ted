@@ -236,7 +236,12 @@ export function taskCommands(task: Task): Command[] {
       scope: 'task',
       shortcuts: keysFor('shell'),
       keywords: 'terminal worktree',
-      run: () => openTaskShell(task),
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id) {
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        }
+        openTaskShell(task)
+      },
     })
     const repo = task.repos.find((r) => !r.removed)
     if (repo) {
