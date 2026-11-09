@@ -257,6 +257,8 @@ export function createTasks(options: {
   const turnEnding = new Set<string>()
   const readyMidTurn = new Set<string>()
   const advancing = new Set<string>()
+  const released = new Map<string, Promise<void>>()
+  const humanWaitMs = 15_000
   const applying = new Set<string>()
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
@@ -1292,6 +1294,7 @@ export function createTasks(options: {
   }
 
   async function cancelMerge(ref: string, text: string): Promise<Comment> {
+    await untilFree(find(ref).id)
     const task = find(ref)
     if (!store.mergePending(task.id)) {
       throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
@@ -2590,10 +2593,30 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} is already moving; try again`)
     }
     advancing.add(task.id)
+    let release = () => {}
+    released.set(
+      task.id,
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+    )
     try {
       return await work()
     } finally {
       advancing.delete(task.id)
+      released.delete(task.id)
+      release()
+    }
+  }
+
+  async function untilFree(taskId: string): Promise<void> {
+    const deadline = Date.now() + humanWaitMs
+    for (let held = released.get(taskId); held; held = released.get(taskId)) {
+      const left = deadline - Date.now()
+      if (left <= 0) return
+      const timer = new AbortController()
+      await Promise.race([held, sleep(left, undefined, { signal: timer.signal }).catch(() => {})])
+      timer.abort()
     }
   }
 
@@ -4334,6 +4357,8 @@ export function createTasks(options: {
     },
 
     async answer(id, request) {
+      const answering = store.getComment(id)
+      if (answering) await untilFree(answering.taskId)
       const comment = store.getComment(id)
       if (!comment) throw new RequestError(404, `no Comment ${id}`)
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
