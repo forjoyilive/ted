@@ -16,6 +16,18 @@ The Gate is decided when the Task Lead reports `advance`, not at Stage entry. A 
 
 Setup Tasks are still never started automatically.
 
+## A Task that changes `.ted/`
+
+Overnight mode must never make a Task that changes `.ted/` less protected than it is with the mode off. A Task Lead that edits `.ted/workflow.yaml`, for example to turn on `permissions: bypass` or drop a Check, would otherwise merge it with nobody looking. So while the mode is on, a Task whose working changes in the Factory’s primary repo touch a path under `.ted/` keeps its Gates exactly as saved (`withoutGates` is not applied), and its Review Gate counts as on, as `forcedGates: ['review']` would make it, even when the saved Workflow has no Review Stage or no Gate.
+
+It is decided where a Gate is decided, not in every `taskWorkflow` call, because reading changes needs git. `gateWorkflow` in `tasks/tasks.ts` wraps `taskWorkflow` for `ted outcome advance`, the approve answer, Validate’s “move on” answer, Merge entry in `move` and the merge watcher’s cycle. It asks `settingsGuard`, which reads the primary repo’s worktree through `git.changedFiles` (`workingChanges`) against the same `origin/<base branch>` the Checks use and applies `touchesSettings` from `tasks/checks.ts`, the one definition the TED settings Check also uses. Committed and uncommitted changes both count. If the changes can’t be read (no worktree, a git error), the Task is treated as changing settings. At Merge the answer is kept in memory for the visit, so the watcher does not run git on every poll.
+
+At Merge there is one more check for such a Task: TED starts merging only if the human approved a Review or Merge Gate since the Task last entered a Stage before Review. Otherwise it posts the Merge sign-off once CI passes, whatever path brought the Task to Merge.
+
+A Gate kept this way is one `v1.GateKeptOvernight` event (Task, Stage, reason), shown as “Overnight mode is on, but this Task changes .ted/, so its Review Gate stays on”, or “… but TED couldn’t read this Task’s changes, …”. `GET /tasks/:id/gates` runs the same check: for such a Task no row carries `overnight`, and the Review row is `required` with the reason as its lock. The Factory settings, Library and Board rows are per Factory and still carry `overnight: true`.
+
+Turning the mode off removes the forced Review Gate for later decisions; a Review request already posted stays, like any other.
+
 ## What is recorded and shown
 
 Each skipped Gate is one `v1.GateSkippedOvernight` event (Task, Stage), shown in the thread as “Overnight mode is on, so TED skipped the Design Gate”. For Merge the same event is what keeps the merge going after the mode is turned off. `GET /tasks/:id/gates` keeps `inherited` and `override` as saved, sets `effective: false` and adds `overnight: true` on each row the mode turns off. Factory settings, Library and Board Stage rows keep `gate` as saved and add `overnight: true` when the mode is on and the Gate is on.

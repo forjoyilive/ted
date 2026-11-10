@@ -538,6 +538,7 @@ export interface TedStore {
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
+  gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
   mergeCanceled(taskId: string, commentId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
@@ -3048,6 +3049,10 @@ export async function openStore({
     },
     mergeStarted(taskId) {
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    gateKeptOvernight(taskId, stage, reason) {
+      commit(events.gateKeptOvernight({ taskId, stage, reason, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     gateSkippedOvernight(taskId, stage) {

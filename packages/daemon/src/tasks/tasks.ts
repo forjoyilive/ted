@@ -135,6 +135,7 @@ import {
 import { readGitLayer } from '../workflow/layers.ts'
 import {
   boardStages,
+  type OvernightGuard,
   onDefaultBranch,
   type ResolvedWorkflow,
   setupWorkflow,
@@ -162,6 +163,7 @@ import {
   runChecks,
   summary,
   tedSettingsCheck,
+  touchesSettings,
 } from './checks.ts'
 import { type CommandSandbox, runTaskCommand } from './command.ts'
 import {
@@ -565,6 +567,7 @@ export function createTasks(options: {
   const pausedAt = new Map<string, number>()
   const recovering = new Set<string>()
   const overnightSeen = new Map<string, boolean>()
+  const mergeGuards = new Map<string, { visit: string; guard: OvernightGuard | undefined }>()
   let overnightChangedAt = new Date().toISOString()
   const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
@@ -796,7 +799,7 @@ export function createTasks(options: {
 
   async function taskWorkflow(
     task: StoredTask,
-    options?: { fetch?: boolean; inheritedGates?: boolean },
+    options?: { fetch?: boolean; inheritedGates?: boolean; keepGates?: OvernightGuard },
   ): Promise<WorkflowResolution> {
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, options)
@@ -804,11 +807,17 @@ export function createTasks(options: {
       resolution.workflow,
       options?.inheritedGates ? {} : task.gateOverrides,
     )
+    const kept = store.settings().overnightMode ? options?.keepGates : undefined
     const night =
-      store.settings().overnightMode && !options?.inheritedGates
+      store.settings().overnightMode && !options?.inheritedGates && kept === undefined
         ? withoutGates(chosen)
         : { workflow: chosen, off: [] }
-    const forced = withForcedGates(night.workflow, task.forcedGates)
+    const forced = withForcedGates(
+      night.workflow,
+      kept !== undefined && !task.forcedGates.includes('review')
+        ? [...task.forcedGates, 'review']
+        : task.forcedGates,
+    )
     const based = task.changesSettings ? onDefaultBranch(forced) : forced
     const workflow = task.setup
       ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
@@ -818,8 +827,80 @@ export function createTasks(options: {
         workflow.settings.stages[id]?.gate !== true &&
         !(id === 'clarify' && task.clarifyDepth === 'grilling'),
     )
+    if (kept !== undefined) {
+      const stages = agentStageIds.filter(
+        (id) =>
+          workflow.stages.includes(id) &&
+          workflow.settings.stages[id]?.gate === true &&
+          !task.forcedGates.includes(id) &&
+          !(task.setup && (id === 'design' || id === 'review')),
+      )
+      return { ...resolution, workflow: { ...workflow, overnightKept: { reason: kept, stages } } }
+    }
     if (overnightGates.length === 0) return { ...resolution, workflow }
     return { ...resolution, workflow: { ...workflow, overnightGates } }
+  }
+
+  async function settingsGuard(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<OvernightGuard | undefined> {
+    const live = task.repos.filter((r) => !r.removed)
+    if (live.length === 0) return task.stage === 'backlog' ? undefined : 'unreadable'
+    const visit = visitStart(task)
+    const cached = task.stage === 'merge' ? mergeGuards.get(task.id) : undefined
+    if (cached?.visit === visit) return cached.guard
+    const entries = factoryRepos(workflow, factoryOf(task))
+    const primary = live.find(
+      (r) => (repoEntry(entries, r)?.name ?? r.name) === (entries[0]?.name ?? ''),
+    )
+    if (!primary) return entries.length > 1 ? undefined : 'unreadable'
+    let guard: OvernightGuard | undefined
+    try {
+      const base =
+        repoEntry(entries, primary)?.baseBranch ?? (await git.defaultBranch(primary.worktree))
+      const files = await git.changedFiles(primary.worktree, `origin/${base}`)
+      guard = touchesSettings(files) ? 'settings' : undefined
+    } catch {
+      return 'unreadable'
+    }
+    if (task.stage === 'merge') mergeGuards.set(task.id, { visit, guard })
+    return guard
+  }
+
+  async function gateWorkflow(
+    task: StoredTask,
+    options?: { fetch?: boolean },
+  ): Promise<WorkflowResolution> {
+    const plain = await taskWorkflow(task, options)
+    if (!store.settings().overnightMode) return plain
+    const guard = await settingsGuard(task, plain.workflow)
+    if (guard === undefined) return plain
+    return taskWorkflow(task, { fetch: false, keepGates: guard })
+  }
+
+  function signedOffSinceWork(task: Task): boolean {
+    const since =
+      store.listStageEntries(task.id).findLast((e) => e.stage !== 'review' && e.stage !== 'merge')
+        ?.at ?? ''
+    return store
+      .listComments(task.id)
+      .some(
+        (c) =>
+          c.gate &&
+          (c.stage === 'review' || c.stage === 'merge') &&
+          c.answer?.kind === 'approved' &&
+          c.answer.at >= since,
+      )
+  }
+
+  function gateKept(task: Task): boolean {
+    const since = visitStart(task)
+    return store
+      .taskLog(task.id)
+      .some(
+        (e) => e.name === 'v1.GateKeptOvernight' && e.data.stage === task.stage && e.at >= since,
+      )
   }
 
   function gateRequested(task: Task): boolean {
@@ -849,12 +930,17 @@ export function createTasks(options: {
   }
 
   async function gatesFor(taskId: string): Promise<TaskGates> {
-    const { workflow } = await taskWorkflow(find(taskId), { fetch: false, inheritedGates: true })
+    const plain = await taskWorkflow(find(taskId), { fetch: false, inheritedGates: true })
     const task = find(taskId)
-    const overrides = task.gateOverrides ?? {}
-    const position = workflow.order.indexOf(task.stage as AgentStageId)
     const finished = task.archived || task.stage === 'done'
     const overnightMode = store.settings().overnightMode
+    const guard = overnightMode && !finished ? await settingsGuard(task, plain.workflow) : undefined
+    const { workflow } =
+      guard === undefined
+        ? plain
+        : await taskWorkflow(task, { fetch: false, inheritedGates: true, keepGates: guard })
+    const overrides = task.gateOverrides ?? {}
+    const position = workflow.order.indexOf(task.stage as AgentStageId)
     const rows = workflow.order
       .filter((stage) => workflow.stages.includes(stage))
       .map((stage) => {
@@ -864,7 +950,11 @@ export function createTasks(options: {
             ? 'Required for Factory setup'
             : stage === 'clarify' && task.clarifyDepth === 'grilling'
               ? 'Required at grilling depth'
-              : undefined
+              : stage === 'review' && guard === 'settings'
+                ? 'Required while overnight mode is on: this Task changes .ted/'
+                : stage === 'review' && guard === 'unreadable'
+                  ? 'Required while overnight mode is on: TED couldn’t read this Task’s changes'
+                  : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
@@ -882,6 +972,7 @@ export function createTasks(options: {
         const overnight =
           chosen &&
           required === undefined &&
+          guard === undefined &&
           !finished &&
           !posted &&
           (atMerge && gateSkipped(task)
@@ -1612,7 +1703,8 @@ export function createTasks(options: {
     if (!workflow.stages.includes('merge')) return 'off'
     const since = visitStart(task)
     if (lastChangesRequested(task) !== '') return 'canceled'
-    if (!gateOn(task, workflow, 'merge')) return 'merge'
+    const unseen = workflow.overnightKept !== undefined && !signedOffSinceWork(task)
+    if (!gateOn(task, workflow, 'merge') && !unseen) return 'merge'
     if (gateSkipped(task)) return 'merge'
     const approved = store
       .listComments(task.id)
@@ -2508,7 +2600,7 @@ export function createTasks(options: {
         return 'wait'
       }
     }
-    const resolution = await taskWorkflow(task, { fetch: false })
+    const resolution = await gateWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
@@ -2646,6 +2738,8 @@ export function createTasks(options: {
     }
     if (mode === 'gate') {
       for (const { target } of ready) setWait(taskId, target.name, undefined)
+      const kept = resolution.workflow.overnightKept
+      if (kept && !gateKept(find(taskId))) store.gateKeptOvernight(taskId, 'merge', kept.reason)
       await holding(find(taskId), () => postMergeGate(find(taskId), ready))
       return 'wait'
     }
@@ -4129,7 +4223,7 @@ export function createTasks(options: {
       }
       if (request.action === 'approve') {
         const now = find(task.id)
-        const resolution = await taskWorkflow(now)
+        const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
         await requireObligations(now)
         const answered = answerRequest(task, comment, {
@@ -4619,7 +4713,8 @@ export function createTasks(options: {
       await deliver(task, message)
     }
     if (next === 'merge') {
-      if (tedMerges(moved, resolution.workflow)) startMerging(moved, resolution.workflow)
+      const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
+      if (tedMerges(moved, workflow)) startMerging(moved, workflow)
       watchMerge(task.id)
     }
     return moved
@@ -5032,7 +5127,7 @@ export function createTasks(options: {
     if (!ask?.loop) return undefined
     const current = find(task.id)
     if (current.stage !== 'validate') return undefined
-    const resolution = await taskWorkflow(current)
+    const resolution = await gateWorkflow(current)
     const { workflow } = resolution
     const next = workflow.next('validate') as AgentStageId | 'done'
     const choices = loopChoices(workflow)
@@ -7450,7 +7545,8 @@ export function createTasks(options: {
           }
         }
         if (outcome.outcome === 'advance') await requireObligations(current)
-        const resolution = await taskWorkflow(current)
+        const resolution =
+          outcome.outcome === 'advance' ? await gateWorkflow(current) : await taskWorkflow(current)
         const { workflow } = resolution
         const changesAsked =
           (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
@@ -7567,6 +7663,10 @@ export function createTasks(options: {
           ? await signOffChanges(current, outcome.changes?.trim())
           : undefined
         const design = outcome.design
+        const kept = workflow.overnightKept
+        if (kept?.stages.includes(stage) && !gateKept(current)) {
+          store.gateKeptOvernight(task.id, stage, kept.reason)
+        }
         const request = store.postComment({
           taskId: task.id,
           kind: stage === 'design' ? 'review' : 'signoff',

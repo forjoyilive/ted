@@ -41,7 +41,7 @@ A setting on a Stage that makes the Task wait for the human’s sign-off at the 
 _Avoid_: Approval step, checkpoint
 
 **Overnight mode**:
-A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Gates set in the Workflow or on one Task count as off, the Merge Gate included. Gates TED forces (a setup Task, a Task that changes `.ted/`, Clarify at grilling depth), Gate requests already open, questions and permission prompts still wait for the human.
+A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Gates set in the Workflow or on one Task count as off, the Merge Gate included. Gates TED forces (a setup Task, Clarify at grilling depth), Gate requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every Gate it has with the mode off, and its Review Gate is on, so Workflow changes never merge unseen.
 _Avoid_: Night mode, autopilot
 
 **Stage file**:

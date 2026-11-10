@@ -1591,6 +1591,15 @@ export const events = {
     name: 'v1.MergeStarted',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
+  gateKeptOvernight: Events.synced({
+    name: 'v1.GateKeptOvernight',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stage: Schema.String,
+      reason: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   gateSkippedOvernight: Events.synced({
     name: 'v1.GateSkippedOvernight',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
@@ -2590,6 +2599,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.GitHubActivityHeld': (args) => task(args, { notices: args.notices }),
   'v1.MergeStarted': (args) => task(args),
   'v1.GateSkippedOvernight': (args) => task(args, { stage: args.stage }),
+  'v1.GateKeptOvernight': (args) => task(args, { stage: args.stage, reason: args.reason }),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
@@ -2774,6 +2784,8 @@ const materializers = counted(
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.GateKeptOvernight': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateSkippedOvernight': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
