@@ -131,3 +131,21 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+.notNow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.notNowTeam {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.notNowTeam .link {
+  font-family: var(--font-sans);
+}

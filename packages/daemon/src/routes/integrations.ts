@@ -1,4 +1,4 @@
-import { agentKinds, integrationFixes, type RunFixRequest } from '@ted/protocol'
+import { agentKinds, integrationFixes, isLinearTeamKey, type RunFixRequest } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { type Route, readJson } from './route.ts'
 
@@ -84,6 +84,18 @@ export const integrationRoutes: Route[] = [
       const body = (await readJson(req)) as Partial<Record<'url', unknown>> | null
       if (typeof body?.url !== 'string') throw new HttpError(400, 'url must be text')
       return [200, await linear.lookup(body.url)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/integrations\/linear\/teams$/,
+    async handle({ req }, { tasks }) {
+      const body = (await readJson(req)) as Partial<Record<'factoryId' | 'team', unknown>> | null
+      if (typeof body?.factoryId !== 'string') throw new HttpError(400, 'factoryId must be text')
+      if (typeof body.team !== 'string' || !isLinearTeamKey(body.team)) {
+        throw new HttpError(400, 'team must be a Linear team key like ENG')
+      }
+      return [200, tasks.allowLinearTeam(body.factoryId, body.team)]
     },
   },
 ]

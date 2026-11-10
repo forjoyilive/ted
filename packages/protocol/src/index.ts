@@ -254,6 +254,7 @@ export {
 } from './integrations.ts'
 export {
   findLinearUrl,
+  isLinearTeamKey,
   type LinearFile,
   type LinearIssue,
   type LinearKeyPlace,
@@ -261,6 +262,7 @@ export {
   type LinearLookup,
   type LinearLookupRequest,
   type LinearStatus,
+  type LinearTeam,
   type LinearUnfetched,
   type LinearUrl,
   linearKeyPage,

@@ -130,7 +130,11 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
           />
         )}
       </SettingsGroup>
-      <LinearGroup sync={settings.linearSync} teams={settings.linearSyncTeams} />
+      <LinearGroup
+        sync={settings.linearSync}
+        teams={settings.linearSyncTeams}
+        declined={settings.linearSyncDeclined}
+      />
     </SettingsPage>
   )
 }

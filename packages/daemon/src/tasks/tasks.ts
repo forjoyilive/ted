@@ -34,6 +34,7 @@ import type {
   LinearFile,
   LinearIssue,
   LineComment,
+  MachineSettings,
   MergeMethod,
   MergeRow,
   MoveTaskRequest,
@@ -323,6 +324,7 @@ export interface Tasks {
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   allowLinearSync(ref: string): Task
+  allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   unarchive(ref: string): Promise<Task>
@@ -1367,7 +1369,9 @@ export function createTasks(options: {
   }
 
   function holdsMerge(taskId: string): boolean {
-    return openRequests(taskId).some((c) => !isCiStuck(c) && !isLinearQuestion(c))
+    return openRequests(taskId).some(
+      (c) => !isCiStuck(c) && !isLinearQuestion(c) && !isLinearTeamAsk(c),
+    )
   }
 
   function hostOfPullRequest(url: string): string {
@@ -4543,6 +4547,96 @@ export function createTasks(options: {
     })
   }
 
+  function openTeamAsks(factoryId: string, team: string): Comment[] {
+    return store
+      .listOpenRequests()
+      .filter(
+        (c) =>
+          isLinearTeamAsk(c) &&
+          c.linearTeam?.key === team &&
+          store.getTask(c.taskId)?.factoryId === factoryId,
+      )
+  }
+
+  function askLinearTeam(taskId: string, automationName: string, issue: LinearIssue): void {
+    const task = store.getTask(taskId)
+    const factory = task && store.getFactory(task.factoryId)
+    const link = task?.source && parseLinearUrl(task.source.url)
+    if (!task || !factory || !link || !issue.team || task.linearSync !== 'ask') return
+    const team = issue.team
+    const settings = store.settings()
+    if (!settings.linearSync) return
+    if ((settings.linearSyncTeams[factory.id] ?? []).includes(team.key)) return
+    if ((settings.linearSyncDeclined[factory.id] ?? []).includes(team.key)) return
+    if (openTeamAsks(factory.id, team.key).length > 0) return
+    const named = team.name === team.key ? team.key : `${team.name} (${team.key})`
+    store.postComment({
+      taskId,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: `Sync ${named} issues with Linear for Automations in ${factory.name}?`,
+      body: [
+        `${automationName} made ${task.displayId} from ${link.identifier}. TED doesn’t change Linear issues for Tasks an Automation makes until you allow it for the issue’s team.`,
+        `If you allow ${team.key} for ${factory.name}, TED moves each issue to In Progress when its Task starts, to review at the sign-off before Merge, and to Done when the Task merges, and attaches the Task’s pull requests. It does this for ${team.key} Tasks Automations already made in ${factory.name}, too.`,
+        'Not now keeps them as they are, and TED won’t ask about this team again. You can change either in Settings → Integrations.',
+      ].join('\n\n'),
+      choices: [linearAllowChoice, linearNotNowChoice],
+      linearTeam: team,
+    })
+  }
+
+  function allowLinearTeam(factoryId: string, team: string): MachineSettings {
+    const consents = store.listTasks().flatMap((task) => {
+      if (task.factoryId !== factoryId || task.archived || task.linearSync !== 'ask') return []
+      const link = task.source && parseLinearUrl(task.source.url)
+      const seen = store.linearSync(task.id).seen
+      return link && seen?.team === team ? [{ taskId: task.id, identifier: link.identifier }] : []
+    })
+    const settings = store.allowLinearTeam(factoryId, team, consents)
+    closeTeamAsks(factoryId, team, linearAllowChoice)
+    return settings
+  }
+
+  function declineLinearTeam(factoryId: string, team: string): void {
+    const declined = store.settings().linearSyncDeclined
+    const listed = declined[factoryId] ?? []
+    if (!listed.includes(team)) {
+      store.updateSettings({ linearSyncDeclined: { ...declined, [factoryId]: [...listed, team] } })
+    }
+    closeTeamAsks(factoryId, team, linearNotNowChoice)
+  }
+
+  function answerLinearTeam(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Comment {
+    if (comment.answer?.kind === 'withdrawn') {
+      throw new RequestError(409, 'this request was withdrawn')
+    }
+    if (comment.answer) throw new RequestError(409, 'this request has already been answered')
+    const team = comment.linearTeam?.key
+    if (team === undefined) throw new RequestError(400, 'this question isn’t about a Linear team')
+    if (text !== '') {
+      throw new RequestError(
+        400,
+        `answer with ${linearAllowChoice} or ${linearNotNowChoice}; this question doesn’t reach the Task Lead`,
+      )
+    }
+    if (choice === linearAllowChoice) allowLinearTeam(task.factoryId, team)
+    else if (choice === linearNotNowChoice) declineLinearTeam(task.factoryId, team)
+    else throw new RequestError(400, `answer with ${linearAllowChoice} or ${linearNotNowChoice}`)
+    return store.getComment(comment.id) ?? comment
+  }
+
+  function closeTeamAsks(factoryId: string, team: string, choice: string): void {
+    const at = new Date().toISOString()
+    for (const ask of openTeamAsks(factoryId, team)) {
+      store.answerComment(ask.id, { kind: 'answered', at, choice })
+    }
+  }
+
   function withdrawLinearQuestions(taskId: string, why: 'reopened' | 'done'): void {
     for (const question of linearQuestions(taskId)) {
       store.answerComment(question.id, {
@@ -5068,6 +5162,8 @@ export function createTasks(options: {
       ...(input.automation && { automation: input.automation.link }),
       linearConsent: input.linearConsent,
     })
+    const issue = input.automation && url !== undefined ? await linearIssue(url) : undefined
+    if (input.automation && issue) askLinearTeam(task.id, input.automation.name, issue)
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
     }
@@ -5433,7 +5529,7 @@ export function createTasks(options: {
     if (merging.has(task.id)) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
-    if (openRequests(task.id).length > 0) return
+    if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
     if (planningInChat(task.id)) return
     const nudged = store
       .taskLog(task.id)
@@ -5786,6 +5882,7 @@ export function createTasks(options: {
         linearConsent: caller.kind === 'app',
       })
       if (issue) noteUnfetched(task.id, issue, linearFiles)
+      if (automation && issue) askLinearTeam(task.id, automation.name, issue)
       if (!factory) return task
       if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
       if (!resolution) {
@@ -5908,6 +6005,11 @@ export function createTasks(options: {
       if (task.linearSync === 'on') return publicTask(task.id)
       store.linearSyncAllowed(task.id, link.identifier)
       return publicTask(task.id)
+    },
+
+    allowLinearTeam(factoryId, team) {
+      if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
+      return allowLinearTeam(factoryId, team.toUpperCase())
     },
 
     archive(ref, { closePullRequests = false, blocked = 'unblock' } = {}) {
@@ -6276,6 +6378,9 @@ export function createTasks(options: {
         throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
       } else if (request.choice === undefined && text === '') {
         throw new RequestError(400, 'pick a choice or write an answer')
+      }
+      if (isLinearTeamAsk(comment) && request.action === 'answer') {
+        return answerLinearTeam(task, comment, request.choice, text)
       }
       if (
         comment.sizeCheck &&
@@ -6943,6 +7048,14 @@ function conflictFindings(target: { repo: string; number: number; base: string }
 }
 const linearArchiveChoice = 'Archive'
 const linearKeepChoice = 'Keep going'
+const linearAllowChoice = 'Allow'
+const linearNotNowChoice = 'Not now'
+
+function isLinearTeamAsk(comment: Comment): boolean {
+  return (
+    comment.author.kind === 'ted' && comment.kind === 'question' && comment.linearTeam !== undefined
+  )
+}
 
 function isLinearQuestion(comment: Comment): boolean {
   return (

@@ -238,7 +238,7 @@ describe('the Linear key in Settings', () => {
 })
 
 describe('looking up a pasted Linear URL', () => {
-  test('with a key, the issue’s title, Priority, branch and description come back', async () => {
+  test('with a key, the issue’s title, Priority, branch, description and team come back', async () => {
     const client = await start({ secret: key })
 
     expect(await client.lookupLinear(issueUrl)).toEqual({
@@ -250,6 +250,7 @@ describe('looking up a pasted Linear URL', () => {
         priority: 'high',
         branchName: 'nabha/note-212-search-ignores-accents',
         description: 'Typing “cafe” should find “Café”.',
+        team: { key: 'NOTE', name: 'NOTE' },
       },
     })
     expect(linear.requests.at(-1)).toMatchObject({

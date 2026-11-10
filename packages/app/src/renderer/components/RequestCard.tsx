@@ -481,40 +481,42 @@ export function RequestCard({
       )}
       {!readOnly && !request.round && !request.proposal && (
         <>
-          <textarea
-            className={styles.box}
-            data-answer-box
-            aria-label="Your answer"
-            placeholder={
-              request.simulator
-                ? 'Comment…'
-                : request.permission
-                  ? 'Comment, or say why you’re denying…'
-                  : request.design
-                    ? 'Comment, or say what to change…'
-                    : request.failed
-                      ? 'Or tell the Task Lead what to change, then Retry…'
-                      : actionChoice !== undefined
-                        ? 'Comment, or tell the Task Lead what to do next…'
-                        : request.kind === 'question' && request.choices
-                          ? 'Or write your own answer…'
-                          : 'Comment to the Task Lead…'
-            }
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={
-              request.permission || request.simulator
-                ? undefined
-                : sendOnEnter(
-                    () =>
-                      void send(
-                        request.gate
-                          ? { action: 'request-changes', text }
-                          : { action: 'answer', text },
-                      ),
-                  )
-            }
-          />
+          {!request.linearTeam && (
+            <textarea
+              className={styles.box}
+              data-answer-box
+              aria-label="Your answer"
+              placeholder={
+                request.simulator
+                  ? 'Comment…'
+                  : request.permission
+                    ? 'Comment, or say why you’re denying…'
+                    : request.design
+                      ? 'Comment, or say what to change…'
+                      : request.failed
+                        ? 'Or tell the Task Lead what to change, then Retry…'
+                        : actionChoice !== undefined
+                          ? 'Comment, or tell the Task Lead what to do next…'
+                          : request.kind === 'question' && request.choices
+                            ? 'Or write your own answer…'
+                            : 'Comment to the Task Lead…'
+              }
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={
+                request.permission || request.simulator
+                  ? undefined
+                  : sendOnEnter(
+                      () =>
+                        void send(
+                          request.gate
+                            ? { action: 'request-changes', text }
+                            : { action: 'answer', text },
+                        ),
+                    )
+              }
+            />
+          )}
           {error !== undefined && (
             <p className={styles.error} role="alert">
               {error}

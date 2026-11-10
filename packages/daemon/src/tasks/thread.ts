@@ -329,6 +329,13 @@ export function threadEvents(
           add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
         }
         break
+      case 'v1.LinearTeamSyncAllowed':
+        add(
+          entry,
+          'edit',
+          `You let TED sync ${text(data.team)} issues with Linear for Automations in this Factory`,
+        )
+        break
       case 'v1.LinearPullRequestsLinked': {
         const count = Array.isArray(data.urls) ? data.urls.length : 0
         add(

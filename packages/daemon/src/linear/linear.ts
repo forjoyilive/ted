@@ -1,10 +1,12 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  isLinearTeamKey,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearLookup,
   type LinearStatus,
+  type LinearTeam,
   type LinearUrl,
   type Priority,
   parseLinearUrl,
@@ -252,11 +254,12 @@ export function createLinear(options: LinearOptions): Linear {
           description?: string | null
           priority?: number
           branchName?: string | null
+          team?: { key?: string; name?: string } | null
           attachments?: { nodes?: LinearIssueAttachment[] } | null
         } | null
       }>(
         key,
-        'query TedIssue($id: String!) { issue(id: $id) { identifier title description priority branchName attachments(first: 50) { nodes { url title } } } }',
+        'query TedIssue($id: String!) { issue(id: $id) { identifier title description priority branchName team { key name } attachments(first: 50) { nodes { url title } } } }',
         { id: link.identifier },
       )
       const issue = data.issue
@@ -269,6 +272,7 @@ export function createLinear(options: LinearOptions): Linear {
         title: oneLine(issue.title).slice(0, maxTitle),
         priority: linearPriorities[issue.priority ?? 0] ?? 'none',
         ...(issue.branchName && { branchName: issue.branchName }),
+        ...teamOf(issue.team),
         ...(issue.description && { description: issue.description.slice(0, maxDescription) }),
       }
       if (options.files) {
@@ -556,6 +560,15 @@ function reasonOf(error: unknown): string {
   if (typeof cause?.code === 'string') return cause.code
   if (error instanceof Error && error.name === 'TimeoutError') return 'timed out'
   return redactSecrets(error instanceof Error ? error.message : String(error))
+}
+
+function teamOf(team: { key?: string; name?: string } | null | undefined): {
+  team?: LinearTeam
+} {
+  if (typeof team?.key !== 'string' || !isLinearTeamKey(team.key)) return {}
+  const key = team.key.toUpperCase()
+  const name = typeof team.name === 'string' ? oneLine(team.name).slice(0, 80) : ''
+  return { team: { key, name: name === '' ? key : name } }
 }
 
 function oneLine(text: string): string {
