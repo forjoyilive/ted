@@ -85,12 +85,27 @@ export function pickState(
   )
 }
 
-function targetStep(task: Task, merged: boolean): LinearStep | undefined {
+function targetStep(
+  task: Pick<Task, 'archived' | 'stage'>,
+  merged: boolean,
+): LinearStep | undefined {
   if (merged) return 'done'
   if (task.archived || task.stage === 'done') return undefined
   if (task.stage === 'merge') return 'review'
   if (task.stage !== 'backlog') return 'started'
   return undefined
+}
+
+export function linearMove(
+  task: Pick<Task, 'archived' | 'stage'>,
+  merged: boolean,
+  previous: LinearStep | undefined,
+  state: Pick<LinearWorkflowState, 'name' | 'type'>,
+): { step: LinearStep; move: boolean } | undefined {
+  const open = !task.archived && task.stage !== 'done'
+  const target = open && isClosedType(state.type) ? undefined : targetStep(task, merged)
+  if (!target || stepRank(target) <= stepRank(previous)) return undefined
+  return { step: target, move: rankOf(state) < stepRank(target) }
 }
 
 function pullRequestLinks(task: Task): { url: string; title: string }[] {
@@ -166,10 +181,11 @@ export function createLinearSync(options: LinearSyncOptions): LinearSync {
       options.settled(task.id, 'reopened')
     }
     if (!merged && store.getTask(task.id)?.archived) return
-    const target = issueClosed ? undefined : targetStep(task, merged)
-    if (target && stepRank(target) > stepRank(record.step)) {
+    const decision = linearMove(task, merged, record.step, issue.state)
+    if (decision) {
+      const target = decision.step
       let moved: string | undefined
-      if (rankOf(issue.state) < stepRank(target)) {
+      if (decision.move) {
         const next = pickState(await linear.teamStates(issue.teamId), target)
         if (next) {
           await linear.moveIssue(issue.id, next.id)

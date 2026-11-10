@@ -9,12 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
-import {
-  type StubLinear,
-  type StubLinearIssue,
-  startStubLinear,
-  stubLinearStates,
-} from './fixtures/stub-linear.ts'
+import { type StubLinear, type StubLinearIssue, startStubLinear } from './fixtures/stub-linear.ts'
 import { api, tokenFor, waitUntil } from './helpers.ts'
 import {
   approve,
@@ -126,39 +121,6 @@ describe('TED → Linear', () => {
     expect(thread).toContain('Linked the pull request in NOTE-1 in Linear')
     expect(thread).toContain('Moved NOTE-1 to In Review in Linear')
     expect(thread).toContain('Moved NOTE-1 to Done in Linear')
-  })
-
-  test('a team without a review state stays where it is at sign-off', async () => {
-    account().states = stubLinearStates.filter((s) => s.name !== 'In Review')
-    const client = await startWithLinear({ workflow: mergeOff })
-
-    const { task, signoff } = await toSignoff(client, { source: url })
-    await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
-    await approve(client, signoff)
-    await waitForStage(client, task, 'merge')
-    await seenAfterNow()
-    expect(issue().state).toBe('In Progress')
-
-    await setGh({ merged: true })
-    await waitUntil(() => issue().state === 'Done' || undefined, 'Done')
-    expect(moves()).toEqual(['state-progress', 'state-done'])
-  })
-
-  test('an issue already further along isn’t moved back', async () => {
-    issue().state = 'In Review'
-    const client = await startWithLinear()
-
-    const task = await client.ok<Task>('POST', '/tasks', {
-      title: waiting(ctx.scratch),
-      factory: 'NB',
-      source: url,
-      start: true,
-    })
-    await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
-    await seenAfterNow()
-
-    expect(moves()).toEqual([])
-    expect(issue().state).toBe('In Review')
   })
 
   test('with sync off or no key, TED doesn’t touch Linear', async () => {

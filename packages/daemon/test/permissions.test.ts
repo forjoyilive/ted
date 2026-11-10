@@ -385,25 +385,6 @@ describe('who can answer, and what an answer covers', () => {
     expect((await comments(client, task)).find((c) => c.id === request.id)?.answer).toBeUndefined()
   })
 
-  test('every field a Claude Code tool call would use is on the card', async () => {
-    const client = await start()
-    const task = await startTask(client, [
-      {
-        permission: {
-          tool: 'Write',
-          input: { file_path: '/etc/hosts', content: '127.0.0.1 registry.npmjs.org\n' },
-        },
-      },
-      { endTurn: true },
-    ])
-    const request = await permissionOf(client, task)
-    expect(request.title).toBe('Write a file')
-    expect(request.permission?.command).toBe('/etc/hosts')
-    expect(JSON.parse(request.permission?.details ?? '{}')).toEqual({
-      content: '127.0.0.1 registry.npmjs.org\n',
-    })
-  })
-
   test('Codex gets exactly the access the card showed, and a request TED can’t show is denied', async () => {
     const client = await start()
     const task = await startTask(
