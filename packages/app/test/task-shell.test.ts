@@ -294,6 +294,74 @@ describe('Task shell', () => {
     expect(await terminal.evaluate((element) => element.isConnected)).toBe(true)
   })
 
+  test('Find stays usable inside minimum-width panes on either side in both themes', async () => {
+    await startedTask()
+    const window = await launchApp()
+    await app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1440, 1000),
+    )
+    const code = await openTask(window)
+    await code.getByRole('button', { name: 'Shell' }).click()
+    const shell = window.getByRole('region', { name: 'Shell', exact: true })
+    const first = shell.getByRole('region', { name: 'Shell 1', exact: true })
+    await first.getByRole('button', { name: 'Split right', exact: true }).click()
+    const second = shell.getByRole('region', { name: 'Shell 2', exact: true })
+    for (const pane of [first, second]) {
+      await pane.locator('.xterm-helper-textarea').focus()
+      await window.keyboard.type('printf "needle-%s\\nneedle-%s\\n" 42 42')
+      await window.keyboard.press('Enter')
+      await expect.poll(() => pane.getByText('needle-42', { exact: true }).count()).toBe(2)
+    }
+    const divider = shell.getByRole('separator')
+    for (const [pane, target, key] of [
+      [first, 10, 'ArrowLeft'],
+      [second, 90, 'ArrowRight'],
+    ] as const) {
+      await divider.focus()
+      let ratio = Number(await divider.getAttribute('aria-valuenow'))
+      while (ratio !== target) {
+        await divider.press(key)
+        ratio += key === 'ArrowLeft' ? -5 : 5
+        await expect.poll(() => divider.getAttribute('aria-valuenow')).toBe(String(ratio))
+        await expect.poll(() => divider.getAttribute('tabindex')).toBe('0')
+      }
+      const bounds = await pane.boundingBox()
+      if (!bounds) throw new Error('no pane bounds')
+      expect(bounds.width).toBeCloseTo(220, 0)
+      for (const mode of ['light', 'dark'] as const) {
+        await app?.evaluate(({ nativeTheme }, theme) => {
+          nativeTheme.themeSource = theme
+        }, mode)
+        await window.emulateMedia({ colorScheme: mode })
+        await window.evaluate((theme) => {
+          document.documentElement.style.colorScheme = theme
+        }, mode)
+        await pane.getByRole('button', { name: 'Find', exact: true }).click()
+        const find = pane.getByRole('search', { name: 'Find in shell' })
+        const input = find.getByRole('textbox', { name: 'Find', exact: true })
+        await input.fill('needle-42')
+        const count = find.locator('[aria-live="polite"]')
+        await expect.poll(() => count.textContent()).toMatch(/^[12] of 2$/)
+        const before = await count.textContent()
+        await find.getByRole('button', { name: 'Next match' }).click()
+        await expect.poll(() => count.textContent()).not.toBe(before)
+        await find.getByRole('button', { name: 'Previous match' }).click()
+        await expect.poll(() => count.textContent()).toBe(before)
+        expect(await input.inputValue()).toBe('needle-42')
+        for (const control of [find, input, count, ...(await find.getByRole('button').all())]) {
+          const box = await control.boundingBox()
+          if (!box) throw new Error('no Find control bounds')
+          expect(box.x).toBeGreaterThanOrEqual(bounds.x)
+          expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+          expect(box.y).toBeGreaterThanOrEqual(bounds.y)
+          expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height)
+        }
+        await find.getByRole('button', { name: 'Close find' }).click()
+        await expect.poll(() => pane.getByRole('search').count()).toBe(0)
+      }
+    }
+  })
+
   test('closing a pane confirms, keeps the other alive, and closing all stays empty', async () => {
     await startedTask()
     const window = await launchApp()

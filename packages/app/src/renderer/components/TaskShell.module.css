@@ -92,8 +92,18 @@
   color: var(--terminal-match-active);
 }
 
-.find {
+.shellPane .find {
   z-index: 30;
+  right: 8px;
+  box-sizing: border-box;
+  width: min(358px, calc(100% - 16px));
+  flex-wrap: wrap;
+}
+
+.find input {
+  flex: 1 1 140px;
+  min-width: 0;
+  width: 0;
 }
 
 .workspace {

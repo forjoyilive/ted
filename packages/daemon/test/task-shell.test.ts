@@ -20,6 +20,7 @@ import type {
   Task,
   TaskShell,
 } from '@ted/protocol'
+import * as pty from 'node-pty'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -261,6 +262,41 @@ describe('Task shell panes', () => {
       await rename(`${worktree}.away`, worktree)
     }
     expect(await ted.ok('GET', workspaceRoute(task))).toEqual(opened)
+  })
+
+  test('a PTY launch failure preserves the original workspace and activity, then splitting can retry', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const activity = await ted.ok('GET', '/activity')
+    const failure = vi.spyOn(pty, 'spawn').mockImplementationOnce(() => {
+      throw new Error('fixture refuses PTY launch')
+    })
+    try {
+      const result = await ted.call('POST', `${workspaceRoute(task)}/change`, {
+        kind: 'split',
+        revision: opened.revision,
+        shellId: firstShell(opened).id,
+        direction: 'right',
+        size,
+      })
+      expect(failure).toHaveBeenCalledOnce()
+      expect(result.status).toBeGreaterThanOrEqual(400)
+      expect(await ted.ok('GET', workspaceRoute(task))).toEqual(opened)
+      expect(await ted.ok('GET', '/activity')).toEqual(activity)
+    } finally {
+      failure.mockRestore()
+    }
+    const split = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: opened.revision,
+      shellId: firstShell(opened).id,
+      direction: 'right',
+      size,
+    })
+    expect(split.revision).toBe(opened.revision + 1)
+    expect(split.shells).toHaveLength(2)
+    expect(split.shells[0]).toEqual(firstShell(opened))
   })
 
   test('opening while the worktree is removed leaves no running panes', async () => {
