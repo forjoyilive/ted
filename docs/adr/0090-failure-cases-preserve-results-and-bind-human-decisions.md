@@ -1,0 +1,5 @@
+# Failure cases preserve results and bind human decisions
+
+A failed Check and a human’s acceptance answer different questions. Keep a Failure case separate from Check execution and original Findings, with durable assessment, request, resolution and invalidation history owned by Tasks. Acceptance binds one identified failure to a daemon-captured tested context; observing a changed or unverifiable context permanently invalidates that acceptance, even if the old content returns.
+
+Use normal question Comments and atomic CommentAnswered commits for decisions so Inbox, restart and fresh Task Lead Runs share one source of truth. Serialize these operations with forward movement and remote merge actions. Explicit cases hold advancement now; existing failure producers retain their behavior until they adopt this API. Acceptance never bypasses existing Check, reviewer or GitHub merge prerequisites. The contract and its conservative context boundary are in [failure-cases.md](../spec/failure-cases.md).

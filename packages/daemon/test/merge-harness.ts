@@ -81,6 +81,10 @@ export interface GhMerge {
   mergeState?: string
   reviewDecision?: string | null
   checks?: {
+    id?: string
+    startedAt?: string
+    completedAt?: string
+    createdAt?: string
     name: string
     status?: string
     conclusion?: string | null

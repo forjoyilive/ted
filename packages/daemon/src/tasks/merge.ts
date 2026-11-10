@@ -15,6 +15,7 @@ export interface MergeTarget {
 export type CheckState = 'pending' | 'passed' | 'failed'
 
 export interface RemoteCheck {
+  identity?: string | undefined
   name: string
   state: CheckState
   required: boolean
@@ -53,6 +54,7 @@ export interface RemoteDeployment {
 }
 
 export interface RemotePullRequest {
+  checksComplete?: boolean
   id: string
   title: string
   url: string
@@ -226,6 +228,7 @@ export async function readPullRequests(
       mergeStateStatus: String(pr.mergeStateStatus ?? 'UNKNOWN'),
       reviewDecision: typeof pr.reviewDecision === 'string' ? pr.reviewDecision : null,
       autoMerge: pr.autoMergeRequest != null,
+      checksComplete: commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage === false,
       checks: contexts.flatMap((c) => (c ? [checkOf(c)] : [])),
       threads: (pr.reviewThreads?.nodes ?? []).flatMap((t) => (t ? [threadOf(t)] : [])),
       reviews: (pr.reviews?.nodes ?? []).flatMap((r) => (r ? [reviewOf(r)] : [])),
@@ -305,6 +308,10 @@ function checkOf(node: ContextBody): RemoteCheck {
       required,
       conclusion: text(node.state),
       kind: 'status',
+      identity:
+        text(node.id) && text(node.createdAt)
+          ? `${text(node.id)}:${text(node.createdAt)}`
+          : undefined,
       ...(typeof node.targetUrl === 'string' && { url: node.targetUrl }),
     }
   }
@@ -321,6 +328,10 @@ function checkOf(node: ContextBody): RemoteCheck {
     required,
     ...(typeof node.conclusion === 'string' && { conclusion: node.conclusion }),
     kind: 'check',
+    identity:
+      text(node.id) && text(node.startedAt)
+        ? `${text(node.id)}:${text(node.startedAt)}:${text(node.completedAt)}`
+        : undefined,
     ...(typeof node.detailsUrl === 'string' && { url: node.detailsUrl }),
     ...(typeof node.checkSuite?.app?.slug === 'string' && { app: node.checkSuite.app.slug }),
   }
@@ -390,11 +401,11 @@ function repositoryFields(i: number): string {
     reviews(last: 50) { nodes { id state body url authorAssociation author { __typename login } } }
     commits(last: 1) { nodes { commit {
       deployments(last: 10) { nodes { environment state latestStatus { state environmentUrl } } }
-      statusCheckRollup { contexts(first: 100) { nodes {
+      statusCheckRollup { contexts(first: 100) { pageInfo { hasNextPage } nodes {
         __typename
-        ... on CheckRun { name status conclusion detailsUrl checkSuite { app { slug } }
+        ... on CheckRun { id startedAt completedAt name status conclusion detailsUrl checkSuite { app { slug } }
           isRequired(pullRequestNumber: $p${i}) }
-        ... on StatusContext { context state targetUrl isRequired(pullRequestNumber: $p${i}) }
+        ... on StatusContext { id createdAt context state targetUrl isRequired(pullRequestNumber: $p${i}) }
       } } }
     } } }
   }
@@ -402,6 +413,10 @@ function repositoryFields(i: number): string {
 }
 
 interface ContextBody {
+  id?: unknown
+  startedAt?: unknown
+  completedAt?: unknown
+  createdAt?: unknown
   __typename?: string
   name?: unknown
   status?: unknown
@@ -474,7 +489,12 @@ interface RepositoryBody {
       nodes?: ({
         commit?: {
           deployments?: { nodes?: (DeploymentBody | null)[] } | null
-          statusCheckRollup?: { contexts?: { nodes?: (ContextBody | null)[] } } | null
+          statusCheckRollup?: {
+            contexts?: {
+              pageInfo?: { hasNextPage?: boolean }
+              nodes?: (ContextBody | null)[]
+            }
+          } | null
         }
       } | null)[]
     }

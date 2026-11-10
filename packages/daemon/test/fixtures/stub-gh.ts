@@ -22,6 +22,10 @@ interface StubState {
 }
 
 interface StubCheck {
+  id?: string
+  startedAt?: string
+  completedAt?: string
+  createdAt?: string
   name: string
   status?: string
   conclusion?: string | null
@@ -138,6 +142,8 @@ function checkNode(c: StubCheck) {
   return c.state !== undefined
     ? {
         __typename: 'StatusContext',
+        id: c.id ?? c.name,
+        createdAt: c.createdAt ?? '2026-01-01T00:00:00Z',
         context: c.name,
         state: c.state,
         targetUrl: c.url ?? null,
@@ -145,6 +151,9 @@ function checkNode(c: StubCheck) {
       }
     : {
         __typename: 'CheckRun',
+        id: c.id ?? c.name,
+        startedAt: c.startedAt ?? '2026-01-01T00:00:00Z',
+        completedAt: c.completedAt ?? '2026-01-01T00:01:00Z',
         name: c.name,
         status: c.status ?? 'COMPLETED',
         conclusion: c.conclusion ?? null,
@@ -217,7 +226,12 @@ function pullRequests(variables: Record<string, unknown>) {
                     latestStatus: { state: d.state, environmentUrl: d.url ?? null },
                   })),
                 },
-                statusCheckRollup: { contexts: { nodes: (merge.checks ?? []).map(checkNode) } },
+                statusCheckRollup: {
+                  contexts: {
+                    pageInfo: { hasNextPage: false },
+                    nodes: (merge.checks ?? []).map(checkNode),
+                  },
+                },
               },
             },
           ],

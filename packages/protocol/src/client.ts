@@ -72,6 +72,14 @@ import type {
   SaveSettingsResult,
   SettingsPreview,
 } from './factory-settings.ts'
+import type {
+  AssessFailureRequest,
+  FailureCase,
+  FailureContext,
+  RecordFailureRequest,
+  ResolveFailureRequest,
+  ValidationObligations,
+} from './failures.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
@@ -465,6 +473,57 @@ export class DaemonClient {
 
   listStageEntries(ref: string): Promise<StageEntry[]> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/stage-entries`)
+  }
+
+  listFailures(ref: string): Promise<FailureCase[]> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/failures`)
+  }
+  validationObligations(ref: string): Promise<ValidationObligations> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/validation-obligations`)
+  }
+  failureContext(ref: string, id: string): Promise<FailureContext> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/failure-contexts/${encodeURIComponent(id)}`,
+    )
+  }
+  captureFailureContext(ref: string): Promise<FailureContext> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/failure-contexts`, {})
+  }
+  recordFailure(ref: string, input: RecordFailureRequest): Promise<FailureCase> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/failures`, input)
+  }
+  addFailureEvidence(
+    ref: string,
+    id: string,
+    input: { evidence: string; contextId?: string },
+  ): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/evidence`,
+      input,
+    )
+  }
+  assessFailure(ref: string, id: string, input: AssessFailureRequest): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/assessments`,
+      input,
+    )
+  }
+  requestFailureDecision(ref: string, id: string): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/decision`,
+      {},
+    )
+  }
+  resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase> {
+    return this.#request(
+      'POST',
+      `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/resolve`,
+      input,
+    )
   }
 
   runChecks(ref: string, request: RunChecksRequest = {}): Promise<CheckRun> {

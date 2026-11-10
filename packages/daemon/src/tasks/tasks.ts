@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -11,6 +12,7 @@ import type {
   AppStarter,
   ArchiveDoneResult,
   ArchiveTaskRequest,
+  AssessFailureRequest,
   Attachment,
   BlockedChoice,
   CheckRun,
@@ -28,6 +30,8 @@ import type {
   EditTaskRequest,
   Effort,
   FactoryBoard,
+  FailureCase,
+  FailureContext,
   FileDiff,
   GitHubWait,
   InboxItem,
@@ -43,8 +47,10 @@ import type {
   ProposalCreated,
   ProposalInput,
   RecordAppRequest,
+  RecordFailureRequest,
   ReportOutcomeRequest,
   RepoSetupReport,
+  ResolveFailureRequest,
   RoundInput,
   Run,
   RunSlots,
@@ -71,6 +77,7 @@ import type {
   TaskSource,
   ThreadEvent,
   ValidateJudgments,
+  ValidationObligations,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
@@ -139,6 +146,7 @@ import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import { fileDiffs, taskChanges } from './changes.ts'
 import {
   type CheckRunnerResult,
+  checkEnv,
   failureFindings,
   lastLines,
   planChecks,
@@ -147,6 +155,7 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import { createFailureCases, failureChoices, failureText } from './failure-cases.ts'
 import {
   alreadyFailed,
   asksForFreshRun,
@@ -309,6 +318,26 @@ export type OutcomeInput =
   | (Omit<AdvanceRequest, 'design'> & { design?: DesignSubmission })
 
 export interface Tasks {
+  failureContext(ref: string, id: string, caller: Caller): FailureContext
+  listFailures(ref: string, caller: Caller): Promise<FailureCase[]>
+  validationObligations(ref: string, caller: Caller): Promise<ValidationObligations>
+  captureFailureContext(ref: string, caller: Caller): Promise<FailureContext>
+  recordFailure(ref: string, caller: Caller, input: RecordFailureRequest): Promise<FailureCase>
+  addFailureEvidence(
+    ref: string,
+    caller: Caller,
+    id: string,
+    evidence: string,
+    contextId?: string,
+  ): Promise<FailureCase>
+  assessFailure(
+    ref: string,
+    caller: Caller,
+    id: string,
+    input: AssessFailureRequest,
+  ): Promise<FailureCase>
+  requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
+  resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   defaults(factoryId: string): Promise<TaskDefaults>
@@ -1451,7 +1480,12 @@ export function createTasks(options: {
         ? []
         : task.repos.flatMap((repo) => {
             const pr = repo.pullRequest
-            if (repo.removed || !pr || pr.state === 'merged') return []
+            if (repo.removed || !pr) return []
+            if (
+              pr.state === 'merged' &&
+              (task.stage === 'done' || store.failures.list(task.id).length === 0)
+            )
+              return []
             return [
               {
                 key: `${task.id}:${repo.name}`,
@@ -1471,6 +1505,16 @@ export function createTasks(options: {
       if (!task || task.archived) continue
       try {
         recordPullRequests(task, read)
+        if (
+          store.failures.list(task.id).length > 0 &&
+          !advancing.has(task.id) &&
+          !mergeInFlight.has(task.id)
+        ) {
+          await holding(task, async () => {
+            const context = await failureSnapshot(find(task.id), read).catch(() => null)
+            await failures.obligations(find(task.id), context)
+          })
+        }
         await sendActivity(task.id, read)
       } catch (error) {
         console.error(
@@ -1486,6 +1530,9 @@ export function createTasks(options: {
       const stored = repo.pullRequest
       const pr = read.pulls.get(`${task.id}:${repo.name}`)
       if (repo.removed || !stored || !pr || stored.state === 'merged') continue
+      if (pr.state === 'MERGED' && store.failures.list(task.id).length > 0) {
+        store.pullRequestMerged(task.id, repo.name, { noCi: false, byTed: false })
+      }
       if (pr.state === 'CLOSED' && (stored.state === 'draft' || stored.state === 'ready')) {
         store.pullRequestClosedOnGitHub(task.id, repo.name)
       } else if (
@@ -1846,10 +1893,14 @@ export function createTasks(options: {
     const key = `${task.id}:${target.name}:${target.expectedHead}`
     const method = chooseMethod(target.method, pr.allowed)
     if (!method || autoMergeTried.has(key)) return
-    autoMergeTried.add(key)
     try {
-      await mergePullRequest(gh, target, method, { auto: true })
-      store.autoMergeEnabled(task.id, target.name, { method, requested: target.method })
+      await holding(find(task.id), async () => {
+        await requireObligations(find(task.id))
+        autoMergeTried.add(key)
+        await mergePullRequest(gh, target, method, { auto: true })
+        store.autoMergeEnabled(task.id, target.name, { method, requested: target.method })
+        await store.persisted()
+      })
     } catch (error) {
       console.error(
         `couldn’t turn on auto-merge for ${target.repo}#${target.number}:`,
@@ -1956,6 +2007,7 @@ export function createTasks(options: {
         throw new RequestError(409, 'this request was withdrawn: CI reported before you answered')
       }
       if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      if (choice === mergeAnywayChoice) await requireObligations(find(task.id))
       return store.answerComment(comment.id, {
         kind: 'answered',
         at: new Date().toISOString(),
@@ -2051,6 +2103,7 @@ export function createTasks(options: {
     ready: readonly { target: MergeWork; pr: RemotePullRequest }[],
   ): Promise<void> {
     if (openGateRequest(task)) return
+    await requireObligations(task)
     const rows: MergeRow[] = ready.map(({ target, pr }) => ({
       name: target.name,
       repo: target.repo,
@@ -2067,6 +2120,7 @@ export function createTasks(options: {
       reviewMissing: reviewMissing(pr),
     }))
     const changes = await signOffChanges(task)
+    await requireObligations(find(task.id))
     const count = rows.length
     store.postComment({
       taskId: task.id,
@@ -2229,8 +2283,17 @@ export function createTasks(options: {
     taskId: string,
     read: PullRequestRead | undefined,
   ): Promise<MergeCycle> {
+    if (store.failures.list(taskId).length > 0) await untilFree(taskId)
     const task = find(taskId)
     if (advancing.has(taskId)) return 'busy'
+    if (store.failures.list(task.id).length > 0) {
+      if (read) recordPullRequests(task, read)
+      try {
+        await requireObligations(task, read)
+      } catch {
+        return 'wait'
+      }
+    }
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
     const resolution = await taskWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
@@ -2320,7 +2383,10 @@ export function createTasks(options: {
         case 'behind':
           if (rebaseAsked.get(key)?.from !== target.expectedHead) {
             try {
-              const to = await rebasePullRequest(gh, pr)
+              const to = await holding(find(taskId), async () => {
+                await requireObligations(find(taskId))
+                return rebasePullRequest(gh, pr)
+              })
               if (to !== undefined) rebaseAsked.set(key, { from: target.expectedHead, to })
             } catch (error) {
               if (/conflict/i.test(textOf(error))) {
@@ -2367,7 +2433,7 @@ export function createTasks(options: {
     }
     if (mode === 'gate') {
       for (const { target } of ready) setWait(taskId, target.name, undefined)
-      await postMergeGate(find(taskId), ready)
+      await holding(find(taskId), () => postMergeGate(find(taskId), ready))
       return 'wait'
     }
     for (const { target, pr, noCi } of ready) {
@@ -2379,7 +2445,10 @@ export function createTasks(options: {
         return 'wait'
       }
       try {
-        await mergePullRequest(gh, target, method, { auto: false })
+        await holding(find(taskId), async () => {
+          await requireObligations(find(taskId))
+          await mergePullRequest(gh, target, method, { auto: false })
+        })
       } catch (error) {
         if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
           setWait(taskId, target.name, 'sign-in')
@@ -4037,6 +4106,12 @@ export function createTasks(options: {
     given: string | undefined,
     { signedOff = false }: { signedOff?: boolean } = {},
   ): Promise<Task> {
+    if (
+      to === 'done' ||
+      resolution.workflow.order.indexOf(to) >
+        resolution.workflow.order.indexOf(task.stage as AgentStageId)
+    )
+      await requireObligations(task)
     const mergeOff =
       to === 'done' && task.stage !== 'merge' && !resolution.workflow.stages.includes('merge')
     const next = mergeOff ? 'merge' : to
@@ -4483,6 +4558,8 @@ export function createTasks(options: {
     if (!choices.includes(choice)) return undefined
     if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
     if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
+    if (choice !== tryAgainChoice && choice !== backToDesignChoice)
+      await requireObligations(current)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
@@ -5950,7 +6027,176 @@ export function createTasks(options: {
     inBackground('stop a blocked Task Lead', () => stopForBlockers(task.id))
   }
 
+  const hashContext = (value: unknown) =>
+    createHash('sha256').update(JSON.stringify(value)).digest('hex')
+  async function failureSnapshot(task: Task, observed?: PullRequestRead): Promise<FailureContext> {
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    const repos = await Promise.all(
+      task.repos
+        .filter((r) => !r.removed)
+        .map(async (r) => {
+          const entry = repoEntry(entries, r)
+          const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
+          const changes = await git.workingChanges(r.worktree, `origin/${baseBranch}`)
+          return {
+            repo: r.repo,
+            head: changes.head,
+            base: changes.base,
+            tree: changes.tree,
+            mergeBase: changes.mergeBase,
+          }
+        }),
+    )
+    if (repos.length === 0) throw new RequestError(409, 'tested context needs a Task worktree')
+    const checks = hashContext({
+      checks: task.setup
+        ? await approvedSetupChecks(find(task.id))
+        : (resolution.workflow.settings.stages.validate?.checks ?? []),
+      repos: entries.map((e) => ({
+        repo: e.repo,
+        name: e.name,
+        baseBranch: e.baseBranch,
+        env: Object.entries(checkEnv(task.displayId, e.env, options.env?.() ?? process.env)).sort(
+          ([a], [b]) => a.localeCompare(b),
+        ),
+      })),
+    })
+    const prs = task.repos.filter((r) => !r.removed && r.pullRequest)
+    let ci: string | undefined
+    if (prs.length > 0) {
+      const read = observed ?? (await watch?.next({ now: true }))
+      if (!read) throw new RequestError(409, 'GitHub context is unavailable')
+      ci = hashContext(
+        prs.map((r) => {
+          const pr = read.pulls.get(`${task.id}:${r.name}`)
+          if (pr?.checksComplete !== true || pr.checks.some((c) => !c.identity))
+            throw new RequestError(
+              409,
+              'GitHub Check attempt identity is unavailable or incomplete',
+            )
+          return {
+            repo: r.repo,
+            head: pr.headRefOid,
+            checks: pr.checks
+              .map((c) => ({ name: c.name, app: c.app, identity: c.identity, state: c.state }))
+              .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+          }
+        }),
+      )
+    }
+    const context = {
+      version: 1 as const,
+      repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)),
+      checks,
+      ...(ci && { ci }),
+    }
+    return {
+      ...context,
+      id: randomUUID(),
+      taskId: task.id,
+      capturedAt: new Date().toISOString(),
+      fingerprint: hashContext(context),
+    }
+  }
+  const failures = createFailureCases({
+    store,
+    snapshot: failureSnapshot,
+    assertLead: (task, runId) => {
+      taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
+    },
+    drafts,
+    onInvalidated: async (task, ids) => {
+      const note = store.postComment({
+        taskId: task.id,
+        author: { kind: 'ted' },
+        body: `Acceptance is no longer current for failure cases ${ids.join(', ')}. Their tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh human decision.`,
+      })
+      await store.persisted()
+      await deliver(task, note.body)
+    },
+    onHold: async (task) => {
+      const stillOn = await turnOffAutoMerge(task.id)
+      if (stillOn.length > 0)
+        throw new RequestError(
+          502,
+          `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. TED will retry.`,
+        )
+    },
+    tell: async (task, comment) => {
+      await deliverAnswer(
+        task,
+        comment,
+        failureText(
+          `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+        ),
+      )
+    },
+  })
+  async function requireObligations(task: Task, observed?: PullRequestRead): Promise<void> {
+    if (store.failures.list(task.id).length === 0) return
+    const context = observed ? await failureSnapshot(task, observed).catch(() => null) : undefined
+    const result = await failures.obligations(task, context)
+    if (!result.satisfied)
+      throw new RequestError(
+        409,
+        `Unresolved failure cases hold this Task: ${result.blockers.join(', ')}`,
+      )
+  }
+  async function failureLead<T>(
+    ref: string,
+    caller: Caller,
+    work: (task: StoredTask, runId: string) => Promise<T> | T,
+  ): Promise<T> {
+    const { task } = taskLead(ref, caller, 'manages failure cases')
+    await untilFree(task.id)
+    return holding(find(task.id), async () => {
+      const { task: current, runId } = taskLead(ref, caller, 'manages failure cases')
+      if (
+        current.archived ||
+        current.stopped ||
+        current.stage === 'done' ||
+        store.getRun(runId)?.state === 'finished'
+      )
+        throw new RequestError(409, 'failure cases cannot change on an archived or Done Task')
+      return work(current, runId)
+    })
+  }
+
   return {
+    failureContext(ref, id, caller) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      const context = store.failures.context(id)
+      if (!context || context.taskId !== task.id)
+        throw new RequestError(404, 'no tested context on this Task')
+      return context
+    },
+    async listFailures(ref, caller) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      return failures.list(task)
+    },
+    async validationObligations(ref, caller) {
+      const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
+      await untilFree(task.id)
+      return holding(find(task.id), () => failures.obligations(find(task.id)))
+    },
+    captureFailureContext: (ref, caller) =>
+      failureLead(ref, caller, (task, runId) => failures.capture(task, runId)),
+    recordFailure: (ref, caller, input) =>
+      failureLead(ref, caller, (task, runId) => failures.record(task, runId, input)),
+    addFailureEvidence: (ref, caller, id, evidence, contextId) =>
+      failureLead(ref, caller, (task, runId) =>
+        failures.evidence(task, id, runId, evidence, contextId),
+      ),
+    assessFailure: (ref, caller, id, input) =>
+      failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
+    requestFailureDecision: (ref, caller, id) =>
+      failureLead(ref, caller, (task, runId) => failures.request(task, id, runId)),
+    async resolveFailure(ref, id, input) {
+      const task = find(ref)
+      await untilFree(task.id)
+      return holding(find(task.id), () => failures.resolve(find(task.id), id, input))
+    },
     async create(
       {
         title,
@@ -6507,6 +6753,31 @@ export function createTasks(options: {
       if (!comment) throw new RequestError(404, `no Comment ${id}`)
       if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
       const task = find(comment.taskId)
+      const failure = failures.findDecision(id)
+      if (failure) {
+        if (comment.answer)
+          throw new RequestError(409, 'this failure decision is stale or already answered')
+        if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
+          await holding(task, () =>
+            humanComment(find(task.id), failureText(request.text ?? ''), []),
+          )
+          return store.getComment(id) as Comment
+        }
+        if (request.action !== 'answer' || request.choice === undefined)
+          throw new RequestError(400, 'choose a failure resolution')
+        const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
+          (key) => failureChoices[key] === request.choice,
+        )
+        if (!resolution) throw new RequestError(400, 'choose a failure resolution')
+        return holding(task, async () => {
+          await failures.resolve(find(task.id), failure.id, {
+            requestId: id,
+            resolution,
+            ...(request.text !== undefined && { reason: request.text }),
+          })
+          return store.getComment(id) as Comment
+        })
+      }
       if (comment.kind === 'round') return answerRound(task, comment, request)
       if (comment.kind === 'proposal') return answerProposal(task, comment, request)
       if (request.action === 'answer-round' || request.action === 'accept-recommended') {
@@ -6593,6 +6864,7 @@ export function createTasks(options: {
           const now = find(task.id)
           const resolution = await taskWorkflow(now)
           const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+          await requireObligations(now)
           const answered = answerRequest(task, comment, {
             kind: 'approved',
             at,
@@ -6751,6 +7023,7 @@ export function createTasks(options: {
             request,
           }
         }
+        if (outcome.outcome === 'advance') await requireObligations(current)
         const resolution = await taskWorkflow(current)
         const { workflow } = resolution
         const changesAsked =

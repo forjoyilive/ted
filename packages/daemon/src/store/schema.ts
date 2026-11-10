@@ -400,6 +400,25 @@ export const sendBacks = State.SQLite.table({
   },
 })
 
+export const failureCases = State.SQLite.table({
+  name: 'failureCases',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    data: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+export const failureContexts = State.SQLite.table({
+  name: 'failureContexts',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    data: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const checkRuns = State.SQLite.table({
   name: 'checkRuns',
   columns: {
@@ -749,6 +768,70 @@ export const events = {
     name: 'v1.CoordinatorRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, runIds: Schema.Array(Schema.String) }),
   }),
+  failureContextCaptured: Events.synced({
+    name: 'v1.FailureContextCaptured',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureCaseRecorded: Events.synced({
+    name: 'v1.FailureCaseRecorded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureAssessed: Events.synced({
+    name: 'v1.FailureAssessed',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureEvidenceAdded: Events.synced({
+    name: 'v1.FailureEvidenceAdded',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureDecisionRequested: Events.synced({
+    name: 'v1.FailureDecisionRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureResolved: Events.synced({
+    name: 'v1.FailureResolved',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  failureAcceptanceInvalidated: Events.synced({
+    name: 'v1.FailureAcceptanceInvalidated',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+
   factoryAdded: Events.synced({
     name: 'v1.FactoryAdded',
     schema: Schema.Struct({
@@ -2742,6 +2825,8 @@ const materializers = counted(
         sendBacks.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
+        failureCases.delete().where({ taskId }),
+        failureContexts.delete().where({ taskId }),
         stageEntries.delete().where({ taskId }),
         taskRepos.delete().where({ taskId }),
         pullRequests.delete().where({ taskId }),
@@ -2771,6 +2856,14 @@ const materializers = counted(
           .where({ id: taskId }),
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
+      'v1.FailureContextCaptured': (row) => failureContexts.insert(row).onConflict('id', 'replace'),
+      'v1.FailureCaseRecorded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureAssessed': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureEvidenceAdded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureDecisionRequested': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureAcceptanceInvalidated': (row) =>
+        failureCases.insert(row).onConflict('id', 'replace'),
       'v1.CommentAnswered': ({ id, answer }) => comments.update({ answer }).where({ id }),
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
         comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
@@ -3271,6 +3364,8 @@ const state = State.SQLite.makeState({
     sendBackResets,
     checkRuns,
     checkResults,
+    failureCases,
+    failureContexts,
     stageEntries,
     workflowLayers,
     stageFileTexts,
