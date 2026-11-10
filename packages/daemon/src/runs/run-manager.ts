@@ -27,7 +27,7 @@ import {
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
-import { isLockHeld } from '../lock.ts'
+import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
@@ -420,7 +420,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       )
       await writeLaunch(runDir, run.cwd, launch, inputFrom)
       replacing.set(runId, launch.env)
-      signal(await hostPid(runDir, start), 'SIGTERM')
+      await signalHost(runDir, await hostPid(runDir, start), 'SIGTERM')
     } catch (error) {
       console.error(`couldn’t replace Run ${runId}’s old host:`, error)
     }
@@ -581,7 +581,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await writeLaunch(runDir, run.cwd, launch)
       const before = await startRecordCount(runDir)
       const restarted = store.restartRun(runId, flags)
-      signal(await hostPid(runDir, start), 'SIGHUP')
+      await signalHost(runDir, await hostPid(runDir, start), 'SIGHUP')
       for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
         if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s agent didn't restart`)
         await sleep(pollMs)
@@ -652,10 +652,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       if (!held) return void (await done)
       const pid = await hostPid(runDir, start)
-      signal(pid, 'SIGTERM')
+      await signalHost(runDir, pid, 'SIGTERM')
       if ((await Promise.race([done, timeout])) === 'timeout') {
-        signal((await lastStartRecord(runDir))?.agentPid ?? null, 'SIGKILL')
-        signal(pid, 'SIGKILL')
+        if (await holdsLock(runFiles(runDir).lock, pid)) {
+          signal((await lastStartRecord(runDir))?.agentPid ?? null, 'SIGKILL')
+          signal(pid, 'SIGKILL')
+        }
         await done
       }
     },
@@ -773,6 +775,12 @@ async function readRunEnv(file: string): Promise<Record<string, string>> {
 const lastStartRecord = async (runDir: string) => (await startRecords(runDir)).at(-1)
 
 const startRecordCount = async (runDir: string) => (await startRecords(runDir)).length
+
+// A saved pid can belong to another process once the host has exited, for example
+// after a reboot, so only signal a pid that still holds the Run's host lock.
+async function signalHost(runDir: string, pid: number, name: NodeJS.Signals): Promise<void> {
+  if (await holdsLock(runFiles(runDir).lock, pid)) signal(pid, name)
+}
 
 function signal(pid: number | null, name: NodeJS.Signals): void {
   try {

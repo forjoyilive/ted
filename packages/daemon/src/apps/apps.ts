@@ -24,7 +24,7 @@ import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
-import { isLockHeld } from '../lock.ts'
+import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
@@ -651,17 +651,18 @@ export function createApps(options: AppsOptions): Apps {
         pid = await hostPid(dir)
       }
       const deadline = Date.now() + stopGraceMs
-      if (pid !== undefined && (await hostAlive(dir))) {
+      const lock = appFiles(dir).lock
+      if (pid !== undefined && (await holdsLock(lock, pid))) {
         try {
           process.kill(pid, 'SIGTERM')
         } catch {}
       }
       while ((await hostAlive(dir)) && Date.now() < deadline) await sleep(50)
-      if (await hostAlive(dir)) {
+      if (pid !== undefined && (await holdsLock(lock, pid))) {
         const child = (await records(dir)).find((r) => r.t === 'start')
         for (const target of [
           ...(child?.t === 'start' && child.pid !== null ? [-child.pid] : []),
-          ...(pid !== undefined ? [pid] : []),
+          pid,
         ]) {
           try {
             process.kill(target, 'SIGKILL')
