@@ -47,8 +47,22 @@ export interface AutomationHit {
   on: boolean
 }
 
+export interface ConversationHit {
+  runId: string
+  itemId: string
+  factoryId: string
+  source: 'task' | 'plan' | 'automation' | 'coordinator'
+  ref: string
+  title: string
+  runName: string
+  kind: 'agent' | 'human' | 'tool'
+  at: string
+  snippet: string
+}
+
 export interface SearchResults {
   query: string
+  conversations: ConversationHit[]
   tasks: TaskHit[]
   comments: CommentHit[]
   factories: FactoryHit[]
@@ -57,6 +71,8 @@ export interface SearchResults {
 }
 
 export const searchLimits = {
+  conversations: 10,
+  conversationsPerRun: 2,
   tasks: 20,
   comments: 10,
   factories: 10,

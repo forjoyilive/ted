@@ -375,6 +375,7 @@ export {
 export {
   type AutomationHit,
   type CommentHit,
+  type ConversationHit,
   type FactoryHit,
   foldText,
   matchesTerms,
