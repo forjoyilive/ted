@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
-import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -749,7 +749,10 @@ describe('local Factory permission consent', () => {
         (await hostRecords(home, recovering.id)).filter((r) => r.t === 'start').length >= 2,
       'daemon recovery',
     )
-    expect((await client.getRun(recovering.id)).run.permissions).toBe('auto')
+    await waitUntil(
+      async () => (await client.getRun(recovering.id)).run.permissions === 'auto',
+      'recovered process mode recorded',
+    )
   })
 
   test('a permission save waits for a pending agent handoff before it takes effect', async () => {
@@ -788,6 +791,100 @@ describe('local Factory permission consent', () => {
     }
     expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
     expect((await client.getRun(run.id)).run.permissions).toBe('auto')
+  })
+
+  test('failed restart preparation preserves the running agent’s recorded permissions', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const original = await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')
+    const settings = path.join(home, 'runs', run.id, 'settings.json')
+    await rename(settings, `${settings}.saved`)
+    await mkdir(settings)
+    try {
+      await client.ok('PUT', route, { mode: 'auto' })
+      expect((await client.call('POST', `/runs/${run.id}/restart`)).status).toBe(409)
+      expect((await client.getRun(run.id)).run).toMatchObject({
+        state: 'idle',
+        permissions: 'bypass',
+      })
+      expect(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')).toBe(original)
+      const { pid } = JSON.parse(original) as { pid: number }
+      expect(() => process.kill(pid, 0)).not.toThrow()
+    } finally {
+      await rm(settings, { recursive: true })
+      await rename(`${settings}.saved`, settings)
+    }
+    const gate = path.join(scratch, 'accounting-shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.ok('POST', `/runs/${run.id}/restart`)
+    try {
+      await waitUntil(
+        () =>
+          readFile(`${gate}.waiting`)
+            .then(() => true)
+            .catch(() => false),
+        'shutdown gate',
+      )
+      expect((await client.getRun(run.id)).run.permissions).toBe('bypass')
+    } finally {
+      await writeFile(gate, '')
+      await restarting
+    }
+    expect((await client.getRun(run.id)).run.permissions).toBe('auto')
+    expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start').at(-1)).toMatchObject({
+      permissions: 'auto',
+    })
+  })
+
+  test('recovery reconciles permission mode from a process started while the daemon was down', async () => {
+    const client = await start('version: 1\n', true)
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    await client.ok('PUT', route, { mode: 'auto' })
+    daemonChild?.kill('SIGKILL')
+    if (daemonChild) await once(daemonChild, 'exit')
+    daemonChild = undefined
+    const file = path.join(home, 'runs', run.id, 'launch.json')
+    const launch = JSON.parse(await readFile(file, 'utf8')) as { args: string[] }
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...launch,
+        args: launch.args.map((arg) => (arg === 'bypassPermissions' ? 'auto' : arg)),
+        permissions: 'auto',
+        launchId: 'prepared-auto-before-daemon-crash',
+      }),
+    )
+    const starts = (await hostRecords(home, run.id)).filter((r) => r.t === 'start')
+    process.kill(Number(starts.at(-1)?.hostPid), 'SIGHUP')
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).filter((r) => r.t === 'start').length === 2,
+      'process started while daemon was down',
+    )
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    const reopened = api(daemon.port, { appKey: daemon.appToken })
+    await waitUntil(
+      async () => (await reopened.getRun(run.id)).run.permissions === 'auto',
+      'actual mode recovered',
+    )
+    const record = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+      argv: string[]
+    }
+    expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
   })
 
   test('a timed-out restart kills the old Bypass agent before releasing consent', async () => {
@@ -851,7 +948,7 @@ describe('local Factory permission consent', () => {
       version: '9.9.9',
       claudeBin: stubClaudePath,
       codexBin: stubCodexPath,
-      oldestHost: 4,
+      oldestHost: 5,
     })
     const reopened = api(daemon.port, { appKey: daemon.appToken })
     await waitUntil(
@@ -876,7 +973,10 @@ describe('local Factory permission consent', () => {
       'replacement arguments',
     )
     expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
-    expect((await reopened.getRun(run.id)).run.permissions).toBe('auto')
+    await waitUntil(
+      async () => (await reopened.getRun(run.id)).run.permissions === 'auto',
+      'replacement process mode recorded',
+    )
   })
 
   test('a daemon restart invalidates a pending Bypass launch before revocation is saved', async () => {
@@ -927,7 +1027,10 @@ describe('local Factory permission consent', () => {
     )
     for (const record of starts.slice(1))
       expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
-    expect((await reopened.getRun(run.id)).run.permissions).toBe('auto')
+    await waitUntil(
+      async () => (await reopened.getRun(run.id)).run.permissions === 'auto',
+      'replacement process mode recorded',
+    )
   })
 
   test('local consent persists on daemon restart and is removed with the Factory', async () => {

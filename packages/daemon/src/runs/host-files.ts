@@ -1,8 +1,10 @@
 import path from 'node:path'
+import type { PermissionMode } from '@ted/protocol'
 import type { LaunchAuthority } from './launch-authority.ts'
 
 export interface LaunchFile {
   launchId?: string
+  permissions?: PermissionMode
   authority?: LaunchAuthority
   command: string
   args: string[]
@@ -23,11 +25,17 @@ export type DriveAgent = (io: {
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 3
-export const oldestHostProtocol = 3
+export const hostProtocol = 4
+export const oldestHostProtocol = 4
 
 export type HostRecord =
-  | { t: 'start'; v: number; hostPid: number; agentPid: number | null }
+  | {
+      t: 'start'
+      v: number
+      hostPid: number
+      agentPid: number | null
+      permissions?: PermissionMode
+    }
   | { t: 'out'; line: string; at?: string }
   | { t: 'err'; line: string }
   | { t: 'exit'; code: number | null; signal: string | null; error?: string; stopped?: boolean }

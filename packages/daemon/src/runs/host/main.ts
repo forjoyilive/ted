@@ -65,7 +65,13 @@ async function startAgent(): Promise<Started> {
     cwd: launch.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  write({ t: 'start', v: hostProtocol, hostPid: process.pid, agentPid: agent.pid ?? null })
+  write({
+    t: 'start',
+    v: hostProtocol,
+    hostPid: process.pid,
+    agentPid: agent.pid ?? null,
+    ...(launch.permissions !== undefined && { permissions: launch.permissions }),
+  })
   generation += 1
 
   let spawnError: string | undefined
