@@ -59,6 +59,7 @@ describe('machine settings in the store', () => {
       developerMode: false,
       overnightMode: false,
       maxWorkingRuns: 6,
+      adjustRunsToLoad: false,
       maxBootedSimulators: 3,
       runOutputDays: 7,
       quitWithWorkRunning: 'ask',

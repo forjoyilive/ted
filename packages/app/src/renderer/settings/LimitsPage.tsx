@@ -3,7 +3,7 @@ import { workingRunLimits } from '@ted/protocol/settings'
 import { useSimulators, useSlots } from '../data.ts'
 import { nowLine } from '../slots.ts'
 import { ted } from '../ted.ts'
-import { SettingRow, SettingsGroup, SettingsPage, Stepper } from './controls.tsx'
+import { SettingRow, SettingsGroup, SettingsPage, Stepper, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './settings.module.css'
 
@@ -27,6 +27,16 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             lessLabel="Fewer working Runs"
             moreLabel="More working Runs"
             onChange={(maxWorkingRuns) => void ted.updateSettings({ maxWorkingRuns })}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Start fewer Runs when this computer is busy"
+          help="While this computer is busy, TED starts no new Run unless none is working. Runs already working carry on. The limit above is still the most TED runs at once."
+        >
+          <Switch
+            label="Start fewer Runs when this computer is busy"
+            checked={settings.adjustRunsToLoad}
+            onChange={(adjustRunsToLoad) => void ted.updateSettings({ adjustRunsToLoad })}
           />
         </SettingRow>
         {simulators?.supported === true && (

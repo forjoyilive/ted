@@ -246,6 +246,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     return choice
   },
   overnightMode: onOff('overnightMode'),
+  adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
