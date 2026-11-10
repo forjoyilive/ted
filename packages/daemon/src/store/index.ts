@@ -255,7 +255,7 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
-  pendingLeadMessage?: string
+  pendingLeadMessages: { id: string; text: string }[]
   leadRestartPending: boolean
   forcedGates: AgentStageId[]
   changesSettings: boolean
@@ -633,7 +633,7 @@ export interface TedStore {
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
   holdLeadMessage(taskId: string, text: string): void
-  deliveredLeadMessage(taskId: string, text: string): void
+  deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -737,7 +737,7 @@ export interface TedStore {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   restartRun(runId: string, flags: RunFlags): Run
-  reviveRun(runId: string): Run
+  reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
@@ -1204,6 +1204,7 @@ export async function openStore({
     leadEffortMode,
     stageEffort,
     pendingLeadMessage,
+    pendingLeadDeliveries,
     rank,
     changedAt,
     archivedAt,
@@ -1407,7 +1408,12 @@ export async function openStore({
         },
       }),
       ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
-      ...(pendingLeadMessage !== null && { pendingLeadMessage }),
+      pendingLeadMessages:
+        pendingLeadDeliveries !== null
+          ? (JSON.parse(pendingLeadDeliveries) as { id: string; text: string }[])
+          : pendingLeadMessage !== null
+            ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
+            : [],
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
@@ -1486,7 +1492,7 @@ export async function openStore({
   }
 
   const toPublicTask = ({
-    pendingLeadMessage: _______,
+    pendingLeadMessages: _______,
     leadRestartPending: ________,
     forcedGates: _____,
     changesSettings: ______,
@@ -3203,22 +3209,23 @@ export async function openStore({
       commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
     },
     holdLeadMessage(taskId, text) {
-      const previous = requireTaskRow(taskId).pendingLeadMessage
+      const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
       commit(
-        events.taskLeadMessageHeld({
+        events.taskLeadMessagesHeld({
           taskId,
-          text: previous === null ? text : `${previous}\n\n${text}`,
+          messages: JSON.stringify([...pending, { id: randomUUID(), text }]),
           at: new Date().toISOString(),
         }),
       )
     },
-    deliveredLeadMessage(taskId, text) {
-      const pending = requireTaskRow(taskId).pendingLeadMessage
-      if (pending === null || !pending.startsWith(text)) return
+    deliveredLeadMessages(taskId, ids) {
+      const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      const remaining = pending.filter((message) => !ids.includes(message.id))
+      if (remaining.length === pending.length) return
       commit(
-        events.taskLeadMessageHeld({
+        events.taskLeadMessagesHeld({
           taskId,
-          text: pending === text ? null : pending.slice(text.length + 2),
+          messages: JSON.stringify(remaining),
           at: new Date().toISOString(),
         }),
       )
@@ -3819,9 +3826,22 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    reviveRun(runId) {
+    reviveRun(runId, flags) {
       const at = new Date().toISOString()
-      commit(events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }))
+      commit(
+        ...(flags
+          ? [
+              events.runRestarted({
+                runId,
+                model: flags.model ?? null,
+                effort: flags.effort ?? null,
+                usesDefaultModel: flags.usesDefaultModel ?? false,
+                at,
+              }),
+            ]
+          : []),
+        events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }),
+      )
       const row = runRow(runId)
       if (!row) throw new Error(`no Run ${runId}`)
       const run = toRun(row)

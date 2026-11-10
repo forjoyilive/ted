@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { Comment, Factory, Run, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
@@ -419,6 +420,192 @@ describe('Model unavailable', () => {
 })
 
 describe('Stage effort', () => {
+  test('a fresh launch keeps held instructions durable until acceptance and does not replay them on later recovery', async () => {
+    let client = await startTed()
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      title: steps({ endTurn: true }),
+    })
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: path.join(home, 'store') })
+    try {
+      store.holdLeadMessage(
+        task.id,
+        'Held Stage instructions before a replacement Task Lead starts.',
+      )
+      await store.persisted()
+    } finally {
+      await store.close()
+    }
+    const gate = path.join(scratch, 'accept-initial')
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ inputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
+    )
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    client = connect(daemon)
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const initial = await waitForRun(
+      client,
+      task,
+      (r) => r.sessionId !== undefined,
+      'new Task Lead session before acceptance',
+    )
+    expect(await userMessages(client, initial.id)).toHaveLength(0)
+    await daemon.stop()
+    daemon = undefined
+    const reopened = await openStore({ directory: path.join(home, 'store') })
+    try {
+      expect(reopened.getTask(task.id)?.pendingLeadMessages).toHaveLength(1)
+    } finally {
+      await reopened.close()
+    }
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    client = connect(daemon)
+    await writeFile(gate, '')
+    await waitForRun(client, task, (r) => r.state === 'idle', 'initial prompt acceptance')
+    await killRunHosts(home)
+    await waitForRun(
+      client,
+      task,
+      (r) => r.revivedAt !== undefined && r.state === 'idle',
+      'recovery after initial acceptance',
+    )
+    const messages = await userMessages(client, initial.id)
+    expect(
+      messages.filter((m) => m.includes('Held Stage instructions before a replacement')),
+    ).toHaveLength(1)
+    expect(messages.at(-1)).not.toContain('Held Stage instructions before a replacement')
+  })
+
+  test('recovers a crashed host with the entered Stage’s flags and instructions on its first turn', async () => {
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml':
+        'version: 1\norder: [intake, work, merge]\nlead: { agent: claude, effort: medium }\nstages:\n  work: { effort: high }\n',
+    })
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+    )
+    const go = path.join(scratch, 'advance')
+    const client = await startTed()
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      title: steps(
+        { waitFor: go },
+        { run: ['ted', 'outcome', 'advance'] },
+        { waitFor: path.join(scratch, 'never') },
+      ),
+    })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const initial = await waitForRun(
+      client,
+      task,
+      (r) => r.state === 'working' && r.sessionId !== undefined,
+      'Intake session',
+    )
+    await writeFile(go, '')
+    await waitUntil(async () => (await getTask(client, task.id))?.stage === 'work', 'Work entry')
+    await killRunHosts(home)
+    await waitUntil(async () => (await claudeStarts()).length === 2, 'host recovery')
+    await waitForRun(
+      client,
+      task,
+      (r) => r.revivedAt !== undefined && r.state === 'idle',
+      'recovery turn',
+    )
+    const starts = await claudeStarts()
+    expect(flag(starts[1]?.argv ?? [], '--effort')).toBe('high')
+    expect(flag(starts[1]?.argv ?? [], '--resume')).toBe(initial.sessionId)
+    expect((await leadRun(client, task)).id).toBe(initial.id)
+    expect((await userMessages(client, initial.id)).at(-1)).toContain('TED moved this Task to Work')
+    expect(starts).toHaveLength(2)
+  })
+
+  test.each([false, true])(
+    'replays Stage delivery only when the crashed host did not accept it (accepted: %s)',
+    async (accepted) => {
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml':
+          'version: 1\norder: [intake, work, merge]\nlead: { agent: claude, effort: medium }\nstages:\n  work: { effort: high }\n',
+      })
+      const gate = path.join(scratch, 'resume-gate')
+      await writeFile(
+        path.join(home, 'stub-claude.json'),
+        JSON.stringify({ resumeInputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
+      )
+      const go = path.join(scratch, 'advance')
+      const client = await startTed()
+      const task = await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        title: steps({ waitFor: go }, { run: ['ted', 'outcome', 'advance'] }, { endTurn: true }),
+      })
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      const initial = await waitForRun(
+        client,
+        task,
+        (r) => r.state === 'working' && r.sessionId !== undefined,
+        'Intake session',
+      )
+      await writeFile(go, '')
+      await waitUntil(async () => {
+        const input = await readFile(
+          path.join(home, 'runs', initial.id, 'input.jsonl'),
+          'utf8',
+        ).catch(() => '')
+        return input.includes('TED moved this Task to Work')
+      }, 'Stage input appended before acceptance')
+      await waitUntil(async () => {
+        const { conversation } = await client.getRun(initial.id)
+        return (
+          conversation.filter((entry) => {
+            const line = JSON.parse(entry.line) as { type?: string; subtype?: string }
+            return line.type === 'system' && line.subtype === 'init'
+          }).length >= 2
+        )
+      }, 'resumed agent session acknowledgement before input acceptance')
+      if (accepted) {
+        await writeFile(gate, '')
+        await waitUntil(
+          async () =>
+            (await userMessages(client, initial.id)).some((m) =>
+              m.includes('TED moved this Task to Work'),
+            ),
+          'Stage acceptance',
+        )
+        await waitForRun(client, task, (r) => r.state === 'idle', 'accepted Stage turn')
+      }
+      await killRunHosts(home)
+      await writeFile(gate, '')
+      await waitUntil(
+        async () => (await claudeStarts()).length === 3,
+        'host recovery after delivery',
+      )
+      await waitForRun(
+        client,
+        task,
+        (r) => r.revivedAt !== undefined && r.state === 'idle',
+        'recovery turn',
+      )
+      const messages = await userMessages(client, initial.id)
+      expect(messages.filter((m) => m.includes('TED moved this Task to Work'))).toHaveLength(1)
+      if (!accepted) expect(messages.at(-1)).toContain('TED moved this Task to Work')
+      else expect(messages.at(-1)).not.toContain('TED moved this Task to Work')
+      expect(await claudeStarts()).toHaveLength(3)
+    },
+  )
+
   test('holds Stage instructions until idle, resumes the same session, and restores the baseline on an unconfigured Stage', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml':

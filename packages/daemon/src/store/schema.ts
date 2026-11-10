@@ -72,6 +72,7 @@ export const tasks = State.SQLite.table({
     leadEffortMode: State.SQLite.text({ nullable: true }),
     stageEffort: State.SQLite.text({ nullable: true }),
     pendingLeadMessage: State.SQLite.text({ nullable: true }),
+    pendingLeadDeliveries: State.SQLite.text({ nullable: true }),
     leadRestartPending: State.SQLite.boolean({ default: false }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
@@ -1708,6 +1709,10 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskLeadMessagesHeld: Events.synced({
+    name: 'v1.TaskLeadMessagesHeld',
+    schema: Schema.Struct({ taskId: Schema.String, messages: Schema.String, at: Schema.String }),
+  }),
   taskStageEnteredV2: Events.synced({
     name: 'v2.TaskStageEntered',
     schema: Schema.Struct({ ...stageEnteredFields, order: Schema.String }),
@@ -3147,6 +3152,10 @@ const materializers = counted(
         tasks.update({ leadRestartPending: pending }).where({ id: taskId }),
       'v1.TaskLeadMessageHeld': ({ taskId, text }) =>
         tasks.update({ pendingLeadMessage: text }).where({ id: taskId }),
+      'v1.TaskLeadMessagesHeld': ({ taskId, messages }) =>
+        tasks
+          .update({ pendingLeadDeliveries: messages, pendingLeadMessage: null })
+          .where({ id: taskId }),
       'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
         tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
       'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>
