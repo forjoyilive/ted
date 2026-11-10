@@ -54,6 +54,7 @@ const sections = [
   ['agents', 'Agents'],
   ['permissions', 'Permissions'],
   ['notes', 'Factory notes'],
+  ['danger-zone', 'Danger zone'],
 ] as const
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
@@ -241,7 +242,7 @@ export function FactorySettings({
           <div className={styles.column}>
             {saved && <SavedNotice result={saved} onDismiss={() => setSaved(undefined)} />}
             {view?.invalid && <InvalidNotice invalid={view.invalid} />}
-            <GeneralSection factory={factory} onRemove={onRemoveFactory} />
+            <GeneralSection factory={factory} />
             {loadError !== undefined && (
               <p className={styles.loadError} role="alert">
                 {loadError}
@@ -282,6 +283,7 @@ export function FactorySettings({
                 <NotesSection draft={draft} loaded={base.draft} onDraft={onDraft} />
               </>
             )}
+            <DangerZoneSection onRemove={onRemoveFactory} />
           </div>
         </div>
       </div>
@@ -366,7 +368,7 @@ function SectionHeading({
   )
 }
 
-function GeneralSection({ factory, onRemove }: { factory: Factory; onRemove: () => void }) {
+function GeneralSection({ factory }: { factory: Factory }) {
   const nameId = useId()
   const keyId = useId()
   const [name, setName] = useState(factory.name)
@@ -419,7 +421,14 @@ function GeneralSection({ factory, onRemove }: { factory: Factory; onRemove: () 
           />
         </div>
       </div>
-      <div className={styles.divider} />
+    </section>
+  )
+}
+
+function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
+  return (
+    <section className={styles.section} aria-labelledby="danger-zone">
+      <SectionHeading id="danger-zone" title="Danger zone" where="machine" />
       <div className={styles.removeRow}>
         <span className={styles.label}>
           Remove Factory{' '}
