@@ -1384,14 +1384,14 @@ test('answer resolves a failure decision and leaves line comment drafts unsent',
     'with a choice',
   )
   const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-    operation: 'accept',
+    operation: 'not-applicable',
     version: read.version,
     request: requestId,
-    choice: 'Accept this failure',
+    choice: 'No longer applicable',
   })
   expect(answered.status, JSON.stringify(answered.body)).toBe(200)
   const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
-  expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'Accept this failure' })
+  expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'No longer applicable' })
   expect(comment?.lineComments ?? []).toEqual([])
   expect(await unsent()).toHaveLength(1)
 })
