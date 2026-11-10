@@ -22,10 +22,12 @@ import type {
   AnswerAutomationRequest,
   Automation,
   AutomationDetail,
+  AutomationPromptDraft,
   AutomationRequest,
   AutomationRun,
   AutomationTemplate,
   CreateAutomationRequest,
+  DraftAutomationPromptRequest,
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
@@ -203,6 +205,18 @@ export class DaemonClient {
 
   getAutomation(ref: string, factory?: string): Promise<AutomationDetail> {
     return this.#request('GET', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  draftAutomationPrompt(input: DraftAutomationPromptRequest): Promise<AutomationPromptDraft> {
+    return this.#request('POST', '/automation-prompt-drafts', input)
+  }
+
+  getAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('GET', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
+  }
+
+  cancelAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('DELETE', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
   }
 
   automationTemplates(): Promise<AutomationTemplate[]> {

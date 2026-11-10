@@ -2,6 +2,7 @@ import { type Effort, efforts } from '@ted/protocol'
 import type { DriveAgent } from '../runs/host-files.ts'
 
 export interface CodexPlan {
+  textOnly?: boolean
   thread: { method: 'thread/start' | 'thread/resume'; params: Record<string, unknown> }
   prompt: string
   clientVersion: string
@@ -13,7 +14,12 @@ interface RpcMessage {
   id?: number | string
   method?: string
   params?: Record<string, unknown>
-  result?: { thread?: { id?: unknown }; turn?: { id?: unknown }; data?: unknown }
+  result?: {
+    thread?: { id?: unknown }
+    turn?: { id?: unknown }
+    data?: unknown
+    config?: { mcp_servers?: Record<string, unknown> }
+  }
   error?: unknown
 }
 
@@ -78,8 +84,23 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       if (resumingOnDefault) model = defaultModel(models)
       effort = clampEffort(models, model, plan.effort)
     }
+    let config: Record<string, unknown> | undefined
+    if (plan.textOnly) {
+      const read = await request('config/read', { cwd: process.cwd(), includeLayers: false })
+      if (read.error !== undefined || !read.result?.config) return stop()
+      // Empty tables merge with inherited MCP settings, so disable each configured server.
+      config = {
+        mcp_servers: Object.fromEntries(
+          Object.keys(read.result.config.mcp_servers ?? {}).map((name) => [
+            name,
+            { enabled: false },
+          ]),
+        ),
+      }
+    }
     const opened = await request(plan.thread.method, {
       ...plan.thread.params,
+      ...(plan.textOnly && { sandbox: 'read-only', approvalPolicy: 'never', config }),
       ...(model !== undefined && { model }),
     })
     const openedId = opened.result?.thread?.id
@@ -101,6 +122,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
     const started = await request('turn/start', {
       threadId,
       input: textInput(text),
+      ...(plan.textOnly && { sandboxPolicy: { type: 'readOnly' }, approvalPolicy: 'never' }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
     })

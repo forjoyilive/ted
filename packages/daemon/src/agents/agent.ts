@@ -120,6 +120,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
+    tools?: 'none'
     billing?: Billing
   }): AgentLaunch
   message(text: string): string

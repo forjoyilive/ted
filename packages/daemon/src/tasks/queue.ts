@@ -5,6 +5,7 @@ export const queueKinds = [
   'sub-agent',
   'planning',
   'coordinator',
+  'automation-draft',
   'automation',
   'task',
 ] as const

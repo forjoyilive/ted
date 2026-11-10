@@ -5,6 +5,15 @@ export type SlotHolder =
   | AutomationSlotHolder
   | PlanSlotHolder
   | CoordinatorSlotHolder
+  | DraftSlotHolder
+
+export interface DraftSlotHolder {
+  kind: 'automation-draft'
+  runId: string
+  name: string
+  factoryId: string
+  runs: number
+}
 
 export interface CoordinatorSlotHolder {
   kind: 'coordinator'
@@ -44,6 +53,7 @@ export interface TaskSlotHolder {
 }
 
 export type QueuedForSlot =
+  | { kind: 'automation-draft'; place: number; runId: string; name: string; factoryId: string }
   | { kind: 'coordinator'; place: number; runId: string; factoryId: string; name: string }
   | {
       kind: 'task'
