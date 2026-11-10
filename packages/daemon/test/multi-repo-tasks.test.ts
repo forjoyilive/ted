@@ -431,8 +431,10 @@ describe('a multi-repo Task', () => {
     expect(
       await readFile(path.join(home, 'logs', 'worktrees', 'NB-1-api-teardown.log'), 'utf8'),
     ).toBe('torn-down\n')
-    const archived = await getTask(client, task.id)
-    expect(archived?.repos.every((r) => r.removed !== undefined)).toBe(true)
+    const archived = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.repos.every((r) => r.removed !== undefined) ? current : undefined
+    }, 'every repo to be recorded as removed')
     expect(archived?.repos.find((r) => r.name === 'api')?.removed?.teardown?.outcome).toBe('passed')
 
     await client.ok('POST', `/tasks/${task.id}/unarchive`)

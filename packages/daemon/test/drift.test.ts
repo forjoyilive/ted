@@ -21,6 +21,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
+  basedOnLine,
   commitToOrigin,
   killRunHosts,
   makeOriginRepo,
@@ -309,7 +310,7 @@ describe('Drift in the Library', () => {
     expect((await client.drift()).library).toBe(1)
 
     await client.saveLibrary({ keepStageFiles: ['review'] }, view.version)
-    expect(await libraryFile('workflow.yaml')).toContain(`based_on: ${blobHash(review)}`)
+    expect(await libraryFile('workflow.yaml')).toContain(basedOnLine(blobHash(review)))
     expect(await libraryFile('stages/review.md')).toBe('My review steps\n')
     expect(reviewRow(await client.library())?.drift).toBeUndefined()
     await waitUntil(async () => (await client.drift()).library === 0, 'no Library drift')
