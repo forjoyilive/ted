@@ -316,7 +316,6 @@ export function createSteering(options: {
     },
     async changed(runId) {
       const run = requireLive(runId)
-      releaseAll(run)
       syncFlag(runId)
       if (run.state !== 'working') {
         await serially(runId, async () => {
