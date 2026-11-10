@@ -106,7 +106,7 @@ export function defaultView(scope: string): ListView {
   const all = isAllTasks(scope)
   return {
     sort: 'manual',
-    group: all ? 'factory' : 'stage',
+    group: 'stage',
     columns: [
       'priority',
       'id',
