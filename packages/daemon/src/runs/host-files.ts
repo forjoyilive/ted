@@ -75,6 +75,7 @@ export function runFiles(runDir: string) {
     log: path.join(runDir, 'host.log'),
     lock: path.join(runDir, 'host.lock'),
     input: path.join(runDir, 'input.jsonl'),
+    promptInputs: path.join(runDir, 'prompt-inputs.jsonl'),
     queued: path.join(runDir, 'queued'),
     pid: path.join(runDir, 'host.pid'),
     env: path.join(runDir, 'env.json'),

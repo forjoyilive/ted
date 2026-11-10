@@ -118,18 +118,26 @@ export function createSteering(options: {
         const dispatch = sending.filter((message) => pending.has(message.id))
         if (dispatch.length === 0) return 0
         if (
-          !(await runs.dispatch(run.id, dispatch, !admitted, () =>
-            options.canDeliver(run.id, admitted),
+          !(await runs.dispatch(
+            run.id,
+            dispatch,
+            !admitted,
+            (messageId) =>
+              options.canDeliver(run.id, admitted) &&
+              (messageId === undefined ||
+                queued(run.id).some((message) => message.id === messageId)),
           ))
         )
           return 0
+        const remaining = new Set(queued(run.id).map((message) => message.id))
+        const delivered = dispatch.filter((message) => remaining.has(message.id))
         store.deliverRunMessages(
           run.id,
-          dispatch.map((message) => message.id),
+          delivered.map((message) => message.id),
           false,
         )
         await store.persisted()
-        return dispatch.length
+        return delivered.length
       } catch (error) {
         failure = error
         throw error
@@ -259,6 +267,8 @@ export function createSteering(options: {
     },
     remove(runId, messageId) {
       if (!store.getRun(runId)) throw new RequestError(404, 'no such Run')
+      if (store.coordinators.forRun(runId) && runs.inputDispatched(runId, messageId))
+        throw new RequestError(409, 'Delivery has started; this message can no longer be canceled')
       const removed = store.deleteRunMessage(runId, messageId)
       if (!removed) throw new RequestError(409, 'The agent has already read this message')
       syncFlag(runId)

@@ -90,11 +90,13 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   name?: string
   env?: Record<string, string>
   resume?: string
+  messageIds?: string[]
   permissions?: PermissionMode
 }
 
 export interface ReviveRunInput {
   prompt: string
+  messageIds?: string[]
   env?: Record<string, string>
 }
 
@@ -108,8 +110,10 @@ export interface RunManager {
     runId: string,
     messages: readonly { id: string; text: string }[],
     steer: boolean,
-    canDispatch: () => boolean,
+    canDispatch: (messageId?: string) => boolean,
   ): Promise<boolean>
+  inputDispatched(runId: string, messageId: string): boolean
+  acceptedInputs(runId: string): string[]
   interrupt(runId: string): Promise<void>
   lastHeard(runId: string): number | undefined
   answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
@@ -471,6 +475,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     cwd: string,
     launch: AgentLaunch,
     inputFrom?: number,
+    promptInput?: { ids: string[]; text: string },
   ): Promise<void> {
     for (const [name, content] of Object.entries(launch.files)) {
       await writeFile(path.join(runDir, name), content, { mode: 0o600 })
@@ -487,6 +492,95 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const tmp = `${file}.${process.pid}.tmp`
     await writeFile(tmp, JSON.stringify(launchFile), { mode: 0o600 })
     await rename(tmp, file)
+    if (promptInput?.ids.length) {
+      const files = runFiles(runDir)
+      writePromptInput(runDir, {
+        forGeneration: (await startRecordCount(runDir)) + 1,
+        deliveryIds: promptInput.ids,
+        text: promptInput.text,
+        outputFrom: await stat(files.log).then(
+          (info) => info.size,
+          () => 0,
+        ),
+        line: launch.input,
+      })
+    }
+  }
+
+  function readInput(file: string): Buffer {
+    try {
+      return readFileSync(file)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      return Buffer.alloc(0)
+    }
+  }
+  function inputRecords(
+    runId: string,
+    input = readInput(runFiles(path.join(runsDir, runId)).input),
+  ): QueuedInput[] {
+    const files = runFiles(path.join(runsDir, runId))
+    const parse = (bytes: Buffer) =>
+      bytes
+        .toString('utf8')
+        .split('\n')
+        .slice(0, -1)
+        .flatMap((line) => {
+          const record = readQueuedInput(line)
+          return record ? [record] : []
+        })
+    const prompts = new Map<number, QueuedInput>()
+    for (const record of parse(readInput(files.promptInputs)))
+      prompts.set(record.forGeneration, record)
+    return [...prompts.values(), ...parse(input)]
+  }
+  function inputAccepted(
+    runId: string,
+    record: QueuedInput,
+    records: readonly QueuedInput[],
+  ): boolean {
+    const run = store.getRun(runId)
+    if (!run) return false
+    const agent = agents.get(run.agent)
+    const siblings = records.filter(
+      (r) => r.text === record.text && r.outputFrom === record.outputFrom,
+    )
+    const required = siblings.indexOf(record) + 1
+    const entries = store.conversation(runId)
+    const earlier = new Set(
+      agent
+        .chat(
+          entries.filter((entry) => entry.offset < record.outputFrom),
+          run.cwd,
+        )
+        .filter((entry) => entry.kind === 'user')
+        .map((entry) => entry.key),
+    )
+    return (
+      agent
+        .chat(entries, run.cwd)
+        .filter(
+          (entry) =>
+            entry.kind === 'user' &&
+            !earlier.has(entry.key) &&
+            entry.text.trim() === record.text.trim(),
+        ).length >= required
+    )
+  }
+  function writePromptInput(runDir: string, record: QueuedInput): void {
+    const file = runFiles(runDir).promptInputs
+    const earlier = readInput(file)
+    const fd = openSync(file, 'a', 0o600)
+    try {
+      if (earlier.length > 0 && earlier.at(-1) !== 10)
+        ftruncateSync(fd, earlier.lastIndexOf(10) + 1)
+      const buffer = Buffer.from(`${JSON.stringify(record)}\n`)
+      for (let offset = 0; offset < buffer.length; )
+        offset += writeSync(fd, buffer, offset, buffer.length - offset)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
   }
 
   const manager: RunManager = {
@@ -503,6 +597,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       parentRunId,
       name,
       permissions = 'auto',
+      messageIds,
     }) {
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
@@ -518,7 +613,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         permissions,
         billing: billingOf(kind),
       })
-      await writeLaunch(runDir, cwd, launch)
+      await writeLaunch(
+        runDir,
+        cwd,
+        launch,
+        undefined,
+        messageIds && { ids: messageIds, text: prompt },
+      )
       await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
 
       refuseWhileShuttingDown()
@@ -539,7 +640,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       follow(id)
       return run
     },
-    async revive(runId, { prompt, env = {} }) {
+    async revive(runId, { prompt, env = {}, messageIds }) {
       refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (run?.state !== 'finished' || following.has(runId)) {
@@ -566,7 +667,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         (info) => info.size,
         () => 0,
       )
-      await writeLaunch(runDir, run.cwd, launch, inputFrom)
+      await writeLaunch(
+        runDir,
+        run.cwd,
+        launch,
+        inputFrom,
+        messageIds && { ids: messageIds, text: prompt },
+      )
       await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
       refuseWhileShuttingDown()
       stopRequested.delete(runId)
@@ -627,51 +734,17 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await sleep(pollMs)
       }
       if (!canDispatch()) return false
-      let inputBytes: Buffer = Buffer.alloc(0)
-      try {
-        inputBytes = readFileSync(files.input)
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      }
+      const inputBytes = readInput(files.input)
       const input = inputBytes.toString('utf8')
-      const records = input
-        .split('\n')
-        .slice(0, -1)
-        .flatMap((line) => {
-          const record = readQueuedInput(line)
-          return record ? [record] : []
-        })
-      const accepted = (record: QueuedInput) => {
-        const siblings = records.filter(
-          (r) => r.text === record.text && r.outputFrom === record.outputFrom,
-        )
-        const required = siblings.indexOf(record) + 1
-        const entries = store.conversation(runId)
-        const earlier = new Set(
-          agent
-            .chat(
-              entries.filter((entry) => entry.offset < record.outputFrom),
-              run.cwd,
-            )
-            .filter((entry) => entry.kind === 'user')
-            .map((entry) => entry.key),
-        )
-        return (
-          agent
-            .chat(entries, run.cwd)
-            .filter(
-              (entry) =>
-                entry.kind === 'user' &&
-                !earlier.has(entry.key) &&
-                entry.text.trim() === record.text.trim(),
-            ).length >= required
-        )
-      }
+      const records = inputRecords(runId, inputBytes)
+      const accepted = (record: QueuedInput) => inputAccepted(runId, record, records)
       const usable = records.filter(
         (record) => record.forGeneration === generation || accepted(record),
       )
       const missing = messages.filter(
-        (message) => !usable.some((record) => record.deliveryIds.includes(message.id)),
+        (message) =>
+          canDispatch(message.id) &&
+          !usable.some((record) => record.deliveryIds.includes(message.id)),
       )
       if (missing.length > 0) {
         const outputFrom = statSync(files.log).size
@@ -701,6 +774,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const relevant = usable.filter((record) =>
         record.deliveryIds.some((id) => messages.some((message) => message.id === id)),
       )
+      if (relevant.length === 0) return false
       for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
         if (waited >= 10_000 || store.getRun(runId)?.state === 'finished')
           throw new Error(
@@ -709,6 +783,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         await sleep(pollMs)
       }
       return true
+    },
+    inputDispatched(runId, messageId) {
+      return inputRecords(runId).some((record) => record.deliveryIds.includes(messageId))
+    },
+    acceptedInputs(runId) {
+      const records = inputRecords(runId)
+      return records
+        .filter((record) => inputAccepted(runId, record, records))
+        .flatMap((record) => record.deliveryIds)
     },
     async send(runId, text) {
       const input = runFiles(path.join(runsDir, runId)).input

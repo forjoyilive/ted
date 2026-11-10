@@ -460,7 +460,7 @@ test('failed admitted input write preserves the human request for Retry', async 
   await s.restart()
   await s.call('POST', `${s.base}/retry`)
   await waitUntil(async () => (await s.chat()).status === 'ready', 'retried answer')
-  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const after = await s.call<RunChat>('GET', `/runs/${(await s.chat()).runId}/chat`)
   expect(
     after.items.filter((i) => i.kind === 'agent' && i.text === 'Recovered human request'),
   ).toHaveLength(1)
@@ -531,6 +531,7 @@ test('restart after input acceptance recovers the delivery without replaying an 
   const tasks = await s.call<Task[]>('GET', '/tasks')
   pauses.dispatched = undefined
   await s.restart()
+  expect((await s.request('DELETE', `/runs/${c.runId}/messages/${pending.id}`)).status).toBe(409)
   await s.call('POST', `${s.base}/retry`)
   await waitUntil(async () => (await s.chat()).status === 'ready', 'recovered checkpoint')
   const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
@@ -684,3 +685,170 @@ test.each(['claude', 'codex'] as const)(
     expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
   },
 )
+
+test('cancel refuses a queued-looking message whose input has already dispatched', async () => {
+  const s = await setup()
+  const c = await s.message([{ say: 'Initial answer' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')
+  const gate = pause('dispatched')
+  const text = JSON.stringify({ steps: [{ say: 'Dispatched action ran' }, { endTurn: true }] })
+  await s.call('POST', `${s.base}/messages`, { text })
+  await gate.entered
+  const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const message = chat.items.find((i) => i.kind === 'human' && i.text === text)
+  if (!message) throw Error('missing message')
+  const result = await s.request('DELETE', `/runs/${c.runId}/messages/${message.id}`)
+  expect(result.status).toBe(409)
+  gate.release()
+})
+
+test('delivery failure cannot release a slot while its Coordinator Run still works', async () => {
+  const s = await setup()
+  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const c = await s.message([{ waitFor: path.join(scratch, 'coordinator-end') }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).started, 'Coordinator Run')
+  const other = await s.call<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({
+      steps: [{ waitFor: path.join(scratch, 'other-end') }, { endTurn: true }],
+    }),
+  })
+  await s.call('POST', `/tasks/${other.id}/start`)
+  pauses.dispatch = async () => {
+    throw Error('simulated delivery failure while Working')
+  }
+  await s.call('POST', `${s.base}/messages`, { text: 'Correct the pending response' })
+  if (!daemon) throw Error('missing daemon')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  await api(daemon.port, tokens.issue(c.runId)).call('POST', `/runs/${c.runId}/boundary`)
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'delivery failure')
+  await waitUntil(async () => {
+    const state = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state
+    const task = (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)
+    return state === 'finished' || task?.leadRunId !== undefined
+  }, 'slot resolution')
+  const active = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state
+  const task = (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)
+  expect(active === 'working' && task?.leadRunId !== undefined).toBe(false)
+})
+
+test('Coordinator refuses reversed current neighbours rather than claiming an impossible move', async () => {
+  const s = await setup()
+  const a = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'A' })
+  const b = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'B' })
+  const target = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'Target' })
+  const c = await s.message([{ waitFor: path.join(scratch, 'coordinator-end') }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).started, 'Coordinator Run')
+  if (!daemon) throw Error('missing daemon')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const run = api(daemon.port, tokens.issue(c.runId))
+  const read = async (id: string) => {
+    const r = await run.call('GET', `/coordinator/tasks/${id}`)
+    return JSON.parse(
+      (r.body as { context: string }).context.split('\n').slice(1, -1).join('\n'),
+    ) as CoordinatorTask
+  }
+  const av = await read(a.id),
+    bv = await read(b.id),
+    tv = await read(target.id)
+  const [low, high] = [av, bv].sort((x, y) => x.task.rank - y.task.rank)
+  if (!low || !high) throw Error('missing neighbours')
+  const result = await run.call('POST', `/coordinator/tasks/${target.id}/move`, {
+    operation: 'reversed-neighbours',
+    version: tv.version,
+    after: high.task.id,
+    before: low.task.id,
+    neighbours: { [high.task.id]: high.version, [low.task.id]: low.version },
+  })
+  expect(result.status).toBe(409)
+})
+
+test('initial prompt checkpoint does not replay an accepted request after interrupted cleanup', async () => {
+  const s = await setup()
+  pauses.started = async () => {
+    const c = await s.chat()
+    await waitUntil(
+      async () =>
+        (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(
+          (i) => i.kind === 'agent' && i.text === 'One requested answer',
+        ),
+      'original answer',
+    )
+    throw new Error('simulated interruption after RunStarted before queue removal')
+  }
+  const c = await s.message([{ say: 'One requested answer' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'interrupted launch cleanup')
+  const before = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(before.items.some((i) => i.kind === 'human' && i.queued === true)).toBe(true)
+  pauses.started = undefined
+  await s.restart()
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'recovered response')
+  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(
+    after.items.filter((i) => i.kind === 'agent' && i.text === 'One requested answer'),
+  ).toHaveLength(1)
+})
+
+test('revival prompt checkpoint does not replay accepted input after interrupted cleanup', async () => {
+  const s = await setup()
+  const c = await s.message([{ waitFor: path.join(scratch, 'fail') }, { exit: 1 }])
+  await waitUntil(async () => (await s.chat()).started, 'initial Run')
+  await writeFile(path.join(scratch, 'fail'), '')
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'initial failure')
+  await daemon?.stop()
+  daemon = undefined
+  const store = await openStore({ directory: path.join(home, 'store') })
+  const saved = store.coordinators.get(s.factory.id)
+  if (!saved) throw Error('missing chat')
+  store.queueRunMessage({
+    runId: c.runId,
+    text: JSON.stringify({ steps: [{ say: 'One revived answer' }, { endTurn: true }] }),
+  })
+  store.coordinators.save({ ...saved, phase: 'queued' })
+  await store.persisted()
+  await store.close()
+  pauses.resumed = async () => {
+    await waitUntil(
+      async () =>
+        (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(
+          (i) => i.kind === 'agent' && i.text === 'One revived answer',
+        ),
+      'revived answer',
+    )
+    throw Error('simulated interruption after RunRevived before delivery checkpoint')
+  }
+  await s.restart()
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'interrupted revival')
+  pauses.resumed = undefined
+  await s.restart()
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'recovered revival')
+  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(
+    after.items.filter((i) => i.kind === 'agent' && i.text === 'One revived answer'),
+  ).toHaveLength(1)
+})
+
+test('cancellation before input write prevents dispatch of a previously selected message', async () => {
+  const s = await setup()
+  const c = await s.message([{ waitFor: path.join(scratch, 'original-end') }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).started, 'initial Run')
+  await s.call('POST', `${s.base}/messages`, { text: 'Canceled before write' })
+  const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const message = chat.items.find((i) => i.kind === 'human' && i.text === 'Canceled before write')
+  if (!message || !daemon) throw Error('missing message or daemon')
+  const gate = pause('dispatch')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const boundary = api(daemon.port, tokens.issue(c.runId)).call('POST', `/runs/${c.runId}/boundary`)
+  await gate.entered
+  expect((await s.request('DELETE', `/runs/${c.runId}/messages/${message.id}`)).status).toBe(200)
+  gate.release()
+  expect((await boundary).body).toEqual({ delivered: 0 })
+  const input = await readFile(path.join(home, 'runs', c.runId, 'input.jsonl'), 'utf8').catch(
+    () => '',
+  )
+  expect(input).not.toContain('Canceled before write')
+  await writeFile(path.join(scratch, 'original-end'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'original response finished')
+})

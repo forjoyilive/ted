@@ -11,6 +11,7 @@ import type {
   RunMessage,
   Task,
 } from '@ted/protocol'
+import { priorities } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
@@ -115,12 +116,41 @@ export function createCoordinators(options: {
   const fail = (id: string, error: unknown) => {
     if (closed) return
     const c = saved.get(id)
-    if (c)
-      save({
-        ...c,
-        phase: 'failed',
-        error: redactSecrets(error instanceof Error ? error.message : String(error)),
-      })
+    if (!c) return
+    const run = store.getRun(c.runId)
+    const accepted = new Set(runs.acceptedInputs(c.runId))
+    const mustStop =
+      run &&
+      run.state !== 'finished' &&
+      (run.state !== 'idle' || pending(c.runId).some((message) => !accepted.has(message.id)))
+    const stop = mustStop && !stopping.has(id)
+    if (stop) stopping.add(id)
+    save({
+      ...c,
+      phase: 'failed',
+      error: redactSecrets(error instanceof Error ? error.message : String(error)),
+    })
+    if (stop) {
+      const work = runs
+        .stop(c.runId)
+        .catch((error) => {
+          if (!closed) fail(id, error)
+        })
+        .finally(() => {
+          stopping.delete(id)
+          background.delete(work)
+          if (!closed) pump()
+        })
+      background.add(work)
+    }
+  }
+  function reconcileInput(c: StoredCoordinator): number {
+    const accepted = new Set(runs.acceptedInputs(c.runId))
+    const ids = pending(c.runId)
+      .filter((message) => accepted.has(message.id))
+      .map((message) => message.id)
+    store.deliverRunMessages(c.runId, ids, false)
+    return ids.length
   }
   const source: QueueSource = {
     queued: () =>
@@ -154,7 +184,11 @@ export function createCoordinators(options: {
       saved
         .list()
         .filter(
-          (c) => c.phase === 'working' || launching.has(c.factoryId) || stopping.has(c.factoryId),
+          (c) =>
+            c.phase === 'working' ||
+            launching.has(c.factoryId) ||
+            stopping.has(c.factoryId) ||
+            ['working', 'waiting'].includes(store.getRun(c.runId)?.state ?? ''),
         )
         .map((c) => ({
           kind: 'coordinator',
@@ -214,6 +248,7 @@ export function createCoordinators(options: {
       name: 'Coordinator',
       cwd,
       permissions: 'auto',
+      messageIds: [...messages, ...(c.launch?.messages ?? [])].map((message) => message.id),
       prompt,
     })
     for (const message of messages) store.deleteRunMessage(c.runId, message.id)
@@ -232,8 +267,11 @@ export function createCoordinators(options: {
   async function launch(id: string): Promise<void> {
     let c = requireChat(id)
     if (c.phase !== 'queued' || store.newWorkHold()) return
+    reconcileInput(c)
     if (pending(c.runId).length === 0 && !c.launch) {
-      save({ ...c, phase: 'ready', error: undefined })
+      if (store.getRun(c.runId)?.state === 'finished')
+        fail(id, 'The response was interrupted. Retry to continue.')
+      else save({ ...c, phase: 'ready', error: undefined })
       return
     }
     c = { ...c, phase: 'working', error: undefined }
@@ -249,6 +287,7 @@ export function createCoordinators(options: {
         await store.persisted()
         if (stopping.has(id) || removing.has(id) || closed) return
         await runs.revive(run.id, {
+          messageIds: messages.map((message) => message.id),
           prompt:
             messages.map((m) => m.text).join('\n\n') ||
             'Continue the interrupted Coordinator response using fresh facts. Do not repeat completed actions.',
@@ -296,7 +335,12 @@ export function createCoordinators(options: {
     settled(run) {
       if (closed) return
       const c = saved.forRun(run.id)
-      if (!c || c.runId !== run.id || c.phase !== 'working' || steering.delivering(run.id)) return
+      if (!c || c.runId !== run.id) return
+      if (c.phase === 'failed') {
+        pump()
+        return
+      }
+      if (c.phase !== 'working' || steering.delivering(run.id)) return
       save({ ...c, phase: pending(run.id).length > 0 ? 'queued' : 'ready' })
       pump()
     },
@@ -304,6 +348,10 @@ export function createCoordinators(options: {
       if (closed) return
       const c = saved.forRun(run.id)
       if (!c || c.runId !== run.id || stopping.has(c.factoryId) || closed) return
+      if (c.phase === 'failed') {
+        pump()
+        return
+      }
       if (ending.stopped) save({ ...c, phase: 'ready' })
       else
         fail(
@@ -548,6 +596,18 @@ export function createCoordinators(options: {
       if (stopping.has(id)) throw new RequestError(409, 'The Coordinator is stopping')
       if (c.phase !== 'failed' && store.getRun(c.runId)?.state !== 'finished')
         throw new RequestError(409, 'The Coordinator has not failed')
+      const reconciled = reconcileInput(c)
+      if (
+        reconciled > 0 &&
+        pending(c.runId).length === 0 &&
+        store.getRun(c.runId)?.state === 'idle' &&
+        !c.launch
+      ) {
+        save({ ...c, phase: 'ready', error: undefined })
+        await store.persisted()
+        pump()
+        return publicChat(requireChat(id))
+      }
       if (store.getRun(c.runId) && pending(c.runId).length === 0 && !c.launch)
         store.queueRunMessage({
           runId: c.runId,
@@ -646,6 +706,16 @@ export function createCoordinators(options: {
                 throw new RequestError(
                   409,
                   'Neighbour changed; read its current state before deciding again',
+                )
+            }
+            if (kind === 'move' && input.after && input.before) {
+              const after = target(current, input.after),
+                before = target(current, input.before)
+              const order = priorities.indexOf(after.priority) - priorities.indexOf(before.priority)
+              if (after.id === before.id || order > 0 || (order === 0 && after.rank >= before.rank))
+                throw new RequestError(
+                  409,
+                  'Neighbours are not in the requested order; read current Tasks before deciding again',
                 )
             }
             if (kind === 'move' && !input.after && !input.before)
