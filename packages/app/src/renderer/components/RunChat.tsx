@@ -18,8 +18,8 @@ import { ScrollMemory } from './ScrollMemory.tsx'
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!on) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), on ? 1000 : 30_000)
     return () => clearInterval(timer)
   }, [on])
   return now

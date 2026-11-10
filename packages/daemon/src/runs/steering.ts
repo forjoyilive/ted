@@ -7,7 +7,14 @@ import type { RunInterrupt, TedStore } from '../store/index.ts'
 import { runFiles } from './host-files.ts'
 import type { RunManager } from './run-manager.ts'
 
+export interface SteeringSource {
+  pending(run: Run): { id: string; text: string; at: string }[]
+  delivered(run: Run, ids: string[]): void
+}
+
 export interface Steering {
+  addSource(source: SteeringSource): void
+  changed(runId: string): Promise<void>
   send(runId: string, text: string, options: { interrupt: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
@@ -23,7 +30,10 @@ const turnEndMs = 10_000
 const acceptMs = 10_000
 const pollMs = 50
 
-export function isHeld(message: RunMessage, interrupts: readonly RunInterrupt[]): boolean {
+export function isHeld(
+  message: Pick<RunMessage, 'at'>,
+  interrupts: readonly RunInterrupt[],
+): boolean {
   return interrupts.some((interrupt) => interrupt.hold && interrupt.at >= message.at)
 }
 
@@ -36,6 +46,7 @@ export function createSteering(options: {
   deliveryFinished?: (runId: string, error?: unknown) => void
 }): Steering {
   const { home, store, runs, isCurrentLead } = options
+  const sources = new Set<SteeringSource>()
   const chains = new Map<string, Promise<unknown>>()
   const waiters = new Set<{ runId: string; texts: string[]; done: () => void }>()
   const sendingNow = new Set<string>()
@@ -64,9 +75,24 @@ export function createSteering(options: {
     )
   }
 
+  function pendingSources(runId: string, includeHeld = false) {
+    const run = store.getRun(runId)
+    if (!run || run.state === 'finished' || !options.canDeliver(runId, false)) return []
+    const interrupts = store.runInterrupts(runId)
+    return [...sources].flatMap((source) =>
+      source
+        .pending(run)
+        .filter((message) => includeHeld || !isHeld(message, interrupts))
+        .map((message) => ({ ...message, source })),
+    )
+  }
+
+  const hasPending = (runId: string) =>
+    deliverable(runId).length > 0 || pendingSources(runId).length > 0
+
   function syncFlag(runId: string): void {
     try {
-      if (deliverable(runId).length > 0) writeFileSync(flagFile(runId), '', { mode: 0o600 })
+      if (hasPending(runId)) writeFileSync(flagFile(runId), '', { mode: 0o600 })
       else rmSync(flagFile(runId), { force: true })
     } catch (error) {
       console.error(`couldn’t mark Run ${runId}’s queued messages:`, error)
@@ -99,14 +125,16 @@ export function createSteering(options: {
   async function deliver(
     run: Run,
     messages: readonly RunMessage[],
-    admitted = false,
+    delivery: { admitted?: boolean; includeHeld?: boolean; first?: string } = {},
   ): Promise<number> {
-    if (messages.length === 0 || !options.canDeliver(run.id, admitted)) return 0
+    const { admitted = false, includeHeld = false, first } = delivery
+    if (!options.canDeliver(run.id, admitted)) return 0
     const current = store.getRun(run.id)
     if (!current || current.state === 'finished') return 0
     const still = new Set(queued(run.id).map((m) => m.id))
     const sending = messages.filter((m) => still.has(m.id))
-    if (sending.length === 0) return 0
+    const extra = pendingSources(run.id, includeHeld)
+    if (sending.length === 0 && extra.length === 0) return 0
     if (store.coordinators.forRun(run.id)) {
       delivering.add(run.id)
       syncFlag(run.id)
@@ -153,15 +181,21 @@ export function createSteering(options: {
       sending.map((m) => m.id),
       isCurrentLead(current),
     )
+    const ordered = [...sending, ...extra].sort((a, b) => a.at.localeCompare(b.at))
+    const priority = first === undefined ? -1 : ordered.findIndex((m) => m.id === first)
+    if (priority > 0) ordered.unshift(...ordered.splice(priority, 1))
     syncFlag(run.id)
     await store.persisted()
-    if (admitted) await runs.send(run.id, sending.map((m) => m.text).join('\n\n'))
-    else
-      await runs.steer(
-        run.id,
-        sending.map((m) => m.text),
-      )
-    return sending.length
+    await runs.steer(
+      run.id,
+      ordered.map((m) => m.text),
+    )
+    for (const source of sources) {
+      const ids = extra.filter((m) => m.source === source).map((m) => m.id)
+      if (ids.length > 0) source.delivered(run, ids)
+    }
+    syncFlag(run.id)
+    return ordered.length
   }
 
   async function turnEnded(runId: string): Promise<void> {
@@ -182,7 +216,9 @@ export function createSteering(options: {
       } finally {
         sendingNow.delete(first.id)
       }
-      await deliver(run, [first, ...deliverable(run.id).filter((m) => m.id !== first.id)])
+      await deliver(run, [first, ...deliverable(run.id).filter((m) => m.id !== first.id)], {
+        first: first.id,
+      })
     }).catch(logFailure(run.id))
   }
 
@@ -200,10 +236,10 @@ export function createSteering(options: {
       }
     },
     boundary(run) {
-      if (deliverable(run.id).length > 0) void flush(run).catch(logFailure(run.id))
+      if (hasPending(run.id)) void flush(run).catch(logFailure(run.id))
     },
     settled(run) {
-      if (deliverable(run.id).length > 0) void flush(run).catch(logFailure(run.id))
+      if (hasPending(run.id)) void flush(run).catch(logFailure(run.id))
     },
     finished(run) {
       rmSync(flagFile(run.id), { force: true })
@@ -223,7 +259,27 @@ export function createSteering(options: {
     },
     syncQueuedFlag: syncFlag,
     deliverAdmitted: (runId) =>
-      serially(runId, () => deliver(requireLive(runId), queued(runId), true)),
+      serially(runId, () => deliver(requireLive(runId), queued(runId), { admitted: true })),
+    addSource(source) {
+      sources.add(source)
+      for (const run of store.listRuns()) {
+        if (run.state === 'finished') continue
+        syncFlag(run.id)
+        if (run.state !== 'working' && hasPending(run.id)) void flush(run).catch(logFailure(run.id))
+      }
+    },
+    async changed(runId) {
+      const run = requireLive(runId)
+      syncFlag(runId)
+      if (run.state !== 'working') {
+        await serially(runId, async () => {
+          const current = requireLive(runId)
+          if (current.state !== 'working')
+            await deliver(current, queued(runId), { includeHeld: true })
+          else syncFlag(runId)
+        })
+      }
+    },
     async send(runId, text, { interrupt }) {
       const run = requireLive(runId)
       if (run.state === 'working') {
@@ -240,7 +296,7 @@ export function createSteering(options: {
           syncFlag(runId)
           return message
         }
-        await deliver(live, queued(runId))
+        await deliver(live, queued(runId), { includeHeld: true })
         await runs.send(runId, text)
         return store.recordRunMessage({ runId, text, lead: isCurrentLead(live) })
       })
@@ -262,7 +318,7 @@ export function createSteering(options: {
         store.recordTurnInterrupted(runId, false)
         interruptThenDeliver(run, message)
       } else {
-        await serially(runId, () => deliver(run, [message]))
+        await serially(runId, () => deliver(run, [message], { first: message.id }))
       }
       return { id: message.id, runId, text: message.text, at: message.at }
     },
@@ -276,7 +332,7 @@ export function createSteering(options: {
       return removed
     },
     async boundary(runId) {
-      if (deliverable(runId).length === 0) {
+      if (!hasPending(runId)) {
         syncFlag(runId)
         return { delivered: 0 }
       }
@@ -284,7 +340,8 @@ export function createSteering(options: {
         const run = store.getRun(runId)
         if (!run || run.state === 'finished') return { delivered: 0 }
         const messages = deliverable(runId)
-        if (messages.length === 0) {
+        const extra = pendingSources(runId)
+        if (messages.length === 0 && extra.length === 0) {
           syncFlag(runId)
           return { delivered: 0 }
         }
@@ -292,7 +349,7 @@ export function createSteering(options: {
           ? undefined
           : accepted(
               runId,
-              messages.map((m) => m.text),
+              [...messages, ...extra].map((m) => m.text),
             )
         const delivered = await deliver(run, messages)
         if (delivered > 0) await seen
