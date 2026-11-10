@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -16,6 +16,7 @@ import type {
 import { readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { nodeEntry } from '../src/node-entry.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { forGeneration } from '../src/runs/host-files.ts'
 import {
@@ -792,6 +793,87 @@ describe('local Factory permission consent', () => {
     expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
     expect((await client.getRun(run.id)).run.permissions).toBe('auto')
   })
+
+  test.each(['auto', 'bypass'] as const)(
+    'a waiting legacy %s host restarts with current consent and recorded mode',
+    async (previous) => {
+      const client = await start('version: 1\n', true)
+      const [factory] = await client.ok<Factory[]>('GET', '/factories')
+      const route = `/factories/${factory?.id}/permissions`
+      if (previous === 'bypass')
+        await client.ok('PUT', route, { mode: previous, confirmBypass: true })
+      const task = await startTask(client, [
+        bash('echo waiting', 'Wait before update'),
+        { endTurn: true },
+      ])
+      const run = await leadRun(client, task)
+      await waitUntil(
+        async () => (await client.getRun(run.id)).run.state === 'waiting',
+        'waiting Run',
+      )
+      daemonChild?.kill('SIGKILL')
+      if (daemonChild) await once(daemonChild, 'exit')
+      daemonChild = undefined
+      await killRunHosts(home)
+      const entry = nodeEntry(path.resolve('packages/daemon/test/fixtures/legacy-host.ts'), [
+        path.join(home, 'runs', run.id),
+      ])
+      const legacy = spawn(entry.command, entry.args, {
+        cwd: run.cwd,
+        env: { ...process.env, TED_HOME: home, TED_RUN: run.id, ELECTRON_RUN_AS_NODE: '1' },
+        stdio: 'ignore',
+        detached: true,
+      })
+      try {
+        await waitUntil(
+          async () => (await hostRecords(home, run.id)).some((r) => r.t === 'start' && r.v === 3),
+          'legacy host started',
+        )
+        daemon = await startDaemon({
+          home,
+          version: '9.9.9',
+          claudeBin: stubClaudePath,
+          codexBin: stubCodexPath,
+        })
+        const reopened = api(daemon.port, { appKey: daemon.appToken })
+        await waitUntil(
+          async () => (await reopened.getRun(run.id)).run.state === 'waiting',
+          'legacy host waiting',
+        )
+        const next = previous === 'auto' ? 'bypass' : 'auto'
+        expect(
+          (await reopened.call('PUT', route, { mode: next, confirmBypass: true })).status,
+        ).toBe(200)
+        const gate = path.join(scratch, 'resumed-legacy')
+        await writeFile(
+          path.join(home, 'stub-claude.json'),
+          JSON.stringify({ resumeWaitsFor: gate }),
+        )
+        try {
+          expect((await reopened.call('POST', `/runs/${run.id}/restart`)).status).toBe(200)
+          expect((await reopened.getRun(run.id)).run.permissions).toBe(next)
+          const record = await waitUntil(
+            () =>
+              readFile(path.join(run.cwd, 'stub-record.json'), 'utf8').then((s) => {
+                const r = JSON.parse(s) as { argv: string[] }
+                return r.argv.includes('--resume') ? r : undefined
+              }),
+            'replacement arguments',
+          )
+          expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe(
+            next === 'bypass' ? 'bypassPermissions' : 'auto',
+          )
+          const last = (await hostRecords(home, run.id)).filter((r) => r.t === 'start').at(-1)
+          expect(last).toMatchObject({ v: 4, permissions: next })
+          expect(last?.hostPid).not.toBe(legacy.pid)
+        } finally {
+          await writeFile(gate, '')
+        }
+      } finally {
+        legacy.kill('SIGKILL')
+      }
+    },
+  )
 
   test('failed restart preparation preserves the running agent’s recorded permissions', async () => {
     const client = await start()

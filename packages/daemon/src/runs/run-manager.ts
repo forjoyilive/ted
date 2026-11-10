@@ -782,10 +782,24 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
       const sessionId = run.sessionId
+      const runDir = path.join(runsDir, runId)
+      const start = await lastStartRecord(runDir)
+      if (!start) throw new Error(`Run ${runId}'s host never started`)
+      if (replacing.has(runId)) throw new Error(`Run ${runId}'s host is being replaced`)
+      if (start.v < oldestHost) {
+        const pid = await hostPid(runDir, start)
+        if (!(await holdsLock(runFiles(runDir).lock, pid))) {
+          throw new Error(`Run ${runId}'s host is no longer running`)
+        }
+        const before = await startRecordCount(runDir)
+        const restarted = store.restartRun(runId, flags)
+        outdated.delete(runId)
+        replacing.add(runId)
+        await signalHost(runDir, pid, 'SIGTERM')
+        await waitForStart(runId, before, () => killHostGroup(runDir, pid))
+        return store.getRun(runId) ?? restarted
+      }
       return withRunPermissions(store, run, async () => {
-        const runDir = path.join(runsDir, runId)
-        const start = await startRecord(runDir)
-        if (!start) throw new Error(`Run ${runId}'s host never started`)
         const permissions = runPermissions(store, run)
         const launch = agents.get(run.agent).launch({
           prompt: '',

@@ -61,3 +61,19 @@ test('canceling Bypass does not save; failed saves keep Auto and show the error'
   expect(await screen.findByRole('alert')).toBeTruthy()
   expect(screen.getByText('Auto is on.')).toBeTruthy()
 })
+
+test('a refreshed snapshot reconciles local mode even when its scalar is unchanged', async () => {
+  bridge({ setFactoryPermissions: (_id, mode) => ({ mode }) })
+  const snapshot: FactorySettingsView = { ...view, permissions: 'bypass' }
+  const draft = settingsDraft(snapshot)
+  const { rerender } = render(
+    <PermissionsSection view={snapshot} draft={draft} loaded={draft} onDraft={vi.fn()} />,
+  )
+  await user().click(screen.getByRole('button', { name: 'Use Auto' }))
+  expect(screen.getByText('Auto is on.')).toBeTruthy()
+  rerender(
+    <PermissionsSection view={{ ...snapshot }} draft={draft} loaded={draft} onDraft={vi.fn()} />,
+  )
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Use Auto' })).toBeTruthy()
+})
