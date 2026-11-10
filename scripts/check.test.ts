@@ -197,6 +197,85 @@ describe('project reports', () => {
     expect(parse(report(), false).problems.join('\n')).toContain('failed execution')
   })
 
+  test('rejects positive suite totals without file results but accepts nested suites', () => {
+    const value = report()
+    expect(parse({ ...value, numTotalTestSuites: 3, numPassedTestSuites: 3 }).ok).toBe(true)
+    const missing = parse({ ...value, numTotalTests: 0, numPassedTests: 0, testResults: [] })
+    expect(missing.ok).toBe(false)
+    expect(missing.problems.join('\n')).toContain('suite results do not match')
+  })
+
+  test.each([
+    'numTotalTests',
+    'numPassedTests',
+    'numFailedTests',
+    'numPendingTests',
+    'numTodoTests',
+    'numTotalTestSuites',
+    'numPassedTestSuites',
+    'numFailedTestSuites',
+    'numPendingTestSuites',
+  ])('retains named failures when %s is an object that cannot be coerced', (field) => {
+    const result = parse({ ...report('failed'), [field]: { toString: null } }, false)
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('invalid report totals')
+    expect(failedTests(result.report)).toEqual(['scripts/example.test.ts > example works'])
+  })
+
+  test('retains valid assertions despite malformed assertion and file statuses', () => {
+    const value = report('failed')
+    const result = parse(
+      {
+        ...value,
+        testResults: value.testResults.map((file) => ({
+          ...file,
+          status: { toString: null },
+          assertionResults: [
+            ...file.assertionResults,
+            { fullName: 'malformed', status: { toString: null } },
+          ],
+        })),
+      },
+      false,
+    )
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('invalid assertion')
+    expect(result.problems.join('\n')).toContain('invalid test file status')
+    expect(failedTests(result.report)).toEqual(['scripts/example.test.ts > example works'])
+  })
+
+  test('rejects ambiguous pending suites, including intentional todo suites', () => {
+    const value = report()
+    const result = parse({
+      ...value,
+      numTotalTests: 0,
+      numPassedTests: 0,
+      numPassedTestSuites: 0,
+      numPendingTestSuites: 1,
+      testResults: value.testResults.map((file) => ({ ...file, assertionResults: [] })),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('pending suites cannot be confirmed complete')
+    expect(result.problems.join('\n')).toContain('intentional todo suites')
+  })
+
+  test('preserves suite errors alongside named assertion failures', () => {
+    const value = report('failed')
+    const result = parse(
+      {
+        ...value,
+        testResults: value.testResults.map((file) => ({
+          ...file,
+          message: 'afterAll cleanup failed',
+        })),
+      },
+      false,
+    )
+    expect(result.ok).toBe(false)
+    expect(result.problems.join('\n')).toContain('afterAll cleanup failed')
+    expect(failedTests(result.report)).toEqual(['scripts/example.test.ts > example works'])
+  })
+
   test('keeps valid failures from partial reports and persists an incomplete window', () => {
     const value = report('failed')
     const partial = { ...value, testResults: [...value.testResults, null] }
@@ -218,22 +297,32 @@ describe('project reports', () => {
 })
 
 describe('check runner integration with stub processes', () => {
-  test.each(['passed', 'failed', 'missing', 'malformed', 'write-error'])(
-    'records and reports a %s run without executing the suite',
-    (mode) => {
-      const root = path.dirname(historyFile())
-      const scripts = path.join(root, 'scripts')
-      const support = path.join(root, 'packages/daemon/test/support')
-      const cache = path.join(root, 'node_modules/.cache')
-      mkdirSync(scripts, { recursive: true })
-      mkdirSync(support, { recursive: true })
-      mkdirSync(cache, { recursive: true })
-      for (const file of ['check.ts', 'check-history.ts']) {
-        copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
-      }
-      writeFileSync(
-        path.join(support, 'suite-lock.ts'),
-        `
+  test.each([
+    'passed',
+    'failed',
+    'missing',
+    'malformed',
+    'write-error',
+    'missing-suites',
+    'malformed-assertion',
+    'malformed-file',
+    'malformed-counter',
+    'pending-suite',
+    'suite-error',
+  ])('records and reports a %s run without executing the suite', (mode) => {
+    const root = path.dirname(historyFile())
+    const scripts = path.join(root, 'scripts')
+    const support = path.join(root, 'packages/daemon/test/support')
+    const cache = path.join(root, 'node_modules/.cache')
+    mkdirSync(scripts, { recursive: true })
+    mkdirSync(support, { recursive: true })
+    mkdirSync(cache, { recursive: true })
+    for (const file of ['check.ts', 'check-history.ts']) {
+      copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
+    }
+    writeFileSync(
+      path.join(support, 'suite-lock.ts'),
+      `
         import { writeFileSync } from 'node:fs'
         export const heldLockEnv = 'TED_STUB_CHECK_LOCK'
         export const waitingMessage = () => ''
@@ -241,19 +330,74 @@ describe('check runner integration with stub processes', () => {
           return async () => writeFileSync(${JSON.stringify(path.join(root, 'unlocked'))}, 'yes')
         }
       `,
-      )
-      writeFileSync(
-        path.join(root, 'run.ts'),
-        `
+    )
+    writeFileSync(
+      path.join(root, 'run.ts'),
+      `
         import { runChecks } from ${JSON.stringify(path.join(scripts, 'check.ts'))}
         console.log('RESULT=' + await runChecks())
       `,
-      )
-      const failed = mode === 'failed'
-      const value = report(failed ? 'failed' : 'passed')
-      writeFileSync(
-        path.join(root, 'pnpm'),
-        `#!${process.execPath}
+    )
+    const failed = [
+      'failed',
+      'missing-suites',
+      'malformed-assertion',
+      'malformed-file',
+      'malformed-counter',
+      'pending-suite',
+      'suite-error',
+    ].includes(mode)
+    const value = report(failed ? 'failed' : 'passed')
+    let nodeReport: Record<string, unknown> = value
+    if (mode === 'malformed-counter')
+      nodeReport = { ...value, numTotalTestSuites: { toString: null } }
+    if (mode === 'malformed-assertion')
+      nodeReport = {
+        ...value,
+        testResults: value.testResults.map((file) => ({
+          ...file,
+          assertionResults: [
+            ...file.assertionResults,
+            { fullName: 'malformed', status: { toString: null } },
+          ],
+        })),
+      }
+    if (mode === 'malformed-file')
+      nodeReport = {
+        ...value,
+        testResults: value.testResults.map((file) => ({
+          ...file,
+          status: { toString: null },
+        })),
+      }
+    if (mode === 'suite-error')
+      nodeReport = {
+        ...value,
+        testResults: value.testResults.map((file) => ({
+          ...file,
+          message: 'afterAll cleanup failed',
+        })),
+      }
+    if (mode === 'missing-suites' || mode === 'pending-suite') {
+      const empty = report()
+      nodeReport = {
+        ...empty,
+        numTotalTests: 0,
+        numPassedTests: 0,
+        numPassedTestSuites: mode === 'pending-suite' ? 0 : 1,
+        numPendingTestSuites: mode === 'pending-suite' ? 1 : 0,
+        testResults:
+          mode === 'missing-suites'
+            ? []
+            : empty.testResults.map((file) => ({
+                ...file,
+                assertionResults: [],
+              })),
+      }
+    }
+    writeFileSync(
+      path.join(root, 'pnpm'),
+      `#!${process.execPath}
         const fs = require('node:fs')
         const args = process.argv.slice(2)
         fs.appendFileSync(${JSON.stringify(path.join(root, 'commands'))}, JSON.stringify(args) + '\\n')
@@ -261,38 +405,40 @@ describe('check runner integration with stub processes', () => {
           const project = args[args.indexOf('--project') + 1]
           const file = args[args.indexOf('--outputFile.json') + 1]
           const omit = project === 'electron' && ${JSON.stringify(mode === 'missing')}
-          if (!omit) fs.writeFileSync(file, ${JSON.stringify(mode === 'malformed' ? '{' : JSON.stringify(value))})
+          if (!omit) fs.writeFileSync(file, project === 'node' ? ${JSON.stringify(mode === 'malformed' ? '{' : JSON.stringify(nodeReport))} : ${JSON.stringify(mode === 'malformed' ? '{' : JSON.stringify(value))})
           console.log(' Test Files 1 ' + ${JSON.stringify(failed ? 'failed' : 'passed')})
-          process.exit(${failed ? 1 : 0})
+          process.exit(project === 'node' ? ${nodeReport.success === false ? 1 : 0} : ${failed ? 1 : 0})
         }
       `,
-        { mode: 0o755 },
-      )
-      if (mode === 'write-error') mkdirSync(path.join(cache, 'ted-test-failures.json'))
-      const output = execFileSync(process.execPath, [path.join(root, 'run.ts')], {
-        env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH}` },
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      })
-      expect(output).toContain(`RESULT=${mode === 'passed'}`)
-      expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
-      const commands = readFileSync(path.join(root, 'commands'), 'utf8')
-      expect(commands).toContain('"--project","electron","--maxWorkers","3"')
-      expect(commands).toContain('"--project","node","--maxWorkers","6"')
-      if (mode === 'write-error') return
-      const runs = parseHistory(readFileSync(path.join(cache, 'ted-test-failures.json'), 'utf8'))
-      expect(runs).toHaveLength(1)
-      expect(runs[0]?.ok).toBe(mode === 'passed')
-      expect(output).toContain('Most frequently observed test failures (last 1 runs;')
-      if (failed) {
-        expect(runs[0]?.failures).toHaveLength(1)
-        expect(output).toContain('× ')
-        expect(output).toContain('Slowest test files')
-      }
-      if (mode === 'missing' || mode === 'malformed') {
-        expect(runs[0]?.problems.length).toBeGreaterThan(0)
-        expect(output).toContain('1 incomplete')
-      }
-    },
-  )
+      { mode: 0o755 },
+    )
+    if (mode === 'write-error') mkdirSync(path.join(cache, 'ted-test-failures.json'))
+    const output = execFileSync(process.execPath, [path.join(root, 'run.ts')], {
+      env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH}` },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    expect(output).toContain(`RESULT=${mode === 'passed'}`)
+    expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
+    const commands = readFileSync(path.join(root, 'commands'), 'utf8')
+    expect(commands).toContain('"--project","electron","--maxWorkers","3"')
+    expect(commands).toContain('"--project","node","--maxWorkers","6"')
+    if (mode === 'write-error') return
+    const runs = parseHistory(readFileSync(path.join(cache, 'ted-test-failures.json'), 'utf8'))
+    expect(runs).toHaveLength(1)
+    expect(runs[0]?.ok).toBe(mode === 'passed')
+    expect(output).toContain('Most frequently observed test failures (last 1 runs;')
+    if (failed) {
+      expect(runs[0]?.failures).toHaveLength(1)
+      expect(output).toContain('× ')
+      expect(output).toContain('Slowest test files')
+    }
+    if (!['passed', 'failed'].includes(mode)) {
+      expect(runs[0]?.problems.length).toBeGreaterThan(0)
+      expect(output).toContain('1 incomplete')
+    }
+    if (mode === 'suite-error') {
+      expect(runs[0]?.problems.join('\n')).toContain('afterAll cleanup failed')
+    }
+  })
 })

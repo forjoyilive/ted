@@ -112,6 +112,10 @@ function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function count(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
 export function parseReport(text: string, project: string, exitedOk: boolean): ProjectReport {
   const report: JsonReport = { testResults: [] }
   const problems: string[] = []
@@ -138,10 +142,7 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
     'numFailedTestSuites',
     'numPendingTestSuites',
   ]
-  if (
-    counters.some((key) => !Number.isSafeInteger(value[key]) || Number(value[key]) < 0) ||
-    typeof value.success !== 'boolean'
-  )
+  if (counters.some((key) => count(value[key]) === undefined) || typeof value.success !== 'boolean')
     problem('invalid report totals or success flag')
   let assertions = 0
   let failures = 0
@@ -158,14 +159,13 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
       if (
         !object(test) ||
         typeof test.fullName !== 'string' ||
-        !['passed', 'failed', 'skipped', 'pending', 'todo', 'disabled'].includes(
-          String(test.status),
-        )
+        typeof test.status !== 'string' ||
+        !['passed', 'failed', 'skipped', 'pending', 'todo', 'disabled'].includes(test.status)
       ) {
         problem(`invalid assertion in ${path.relative(root, file.name)}`)
         continue
       }
-      const status = String(test.status)
+      const status = test.status
       results.push({ fullName: test.fullName, status })
       assertions++
       if (status === 'failed') failures++
@@ -174,7 +174,12 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
       if (status === 'todo') todo++
       if (status === 'pending') problem(`unfinished assertion in ${path.relative(root, file.name)}`)
     }
-    if (!['passed', 'failed'].includes(String(file.status))) problem('invalid test file status')
+    if (file.status !== 'passed' && file.status !== 'failed') problem('invalid test file status')
+    if (typeof file.message === 'string' && file.message.trim()) {
+      problem(`suite error in ${path.relative(root, file.name)}: ${file.message}`)
+    } else if (file.message !== undefined && typeof file.message !== 'string') {
+      problem(`invalid suite error in ${path.relative(root, file.name)}`)
+    }
     if (file.status === 'failed' && !results.some((test) => test.status === 'failed')) {
       problem(`suite failed without a named test failure: ${path.relative(root, file.name)}`)
     }
@@ -197,21 +202,34 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
   ) {
     problem('assertion results do not match report totals')
   }
+  const totalSuites = count(value.numTotalTestSuites)
+  const passedSuites = count(value.numPassedTestSuites)
+  const failedSuites = count(value.numFailedTestSuites)
+  const pendingSuites = count(value.numPendingTestSuites)
   if (
-    Number(value.numTotalTestSuites) < value.testResults.length ||
-    Number(value.numPassedTestSuites) +
-      Number(value.numFailedTestSuites) +
-      Number(value.numPendingTestSuites) !==
-      value.numTotalTestSuites
+    totalSuites !== undefined &&
+    passedSuites !== undefined &&
+    failedSuites !== undefined &&
+    pendingSuites !== undefined
   ) {
-    problem('suite results do not match report totals')
+    if (
+      totalSuites < value.testResults.length ||
+      passedSuites + failedSuites + pendingSuites !== totalSuites ||
+      (totalSuites > 0 && value.testResults.length === 0)
+    ) {
+      problem('suite results do not match report totals')
+    }
+    // Vitest counts unfinished and intentional todo suites together in JSON.
+    if (pendingSuites > 0) {
+      problem('pending suites cannot be confirmed complete (includes intentional todo suites)')
+    }
   }
   if (value.success === false && failures === 0)
     problem('project failed without named test failures')
   if (!exitedOk && failures === 0) problem('test process failed without named test failures')
   if (
     value.success === true &&
-    (failures > 0 || Number(value.numFailedTestSuites) > 0 || !exitedOk)
+    (failures > 0 || (failedSuites !== undefined && failedSuites > 0) || !exitedOk)
   ) {
     problem('successful report conflicts with failed execution')
   }
