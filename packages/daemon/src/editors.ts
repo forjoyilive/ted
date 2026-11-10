@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, realpath, stat } from 'node:fs/promises'
+import { access, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import {
@@ -13,6 +13,7 @@ import {
 } from '@ted/protocol'
 import { worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
+import { openRegularFile } from './regular-file.ts'
 
 export interface EditorLaunch {
   program: string
@@ -186,18 +187,17 @@ export function createEditors(options: EditorsOptions): Editors {
   async function place(worktree: string, request: OpenInEditorRequest) {
     if (request.file === undefined) return undefined
     const file = request.file
-    if (file === '' || path.isAbsolute(file) || file.includes('\0')) {
-      throw new RequestError(400, 'file must be a path inside the worktree')
+    try {
+      const handle = await openRegularFile(worktree, file)
+      await handle.close()
+    } catch (error) {
+      if (error instanceof RequestError) throw error
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+        throw new RequestError(404, `${file} isn’t in the worktree`)
+      throw new RequestError(400, 'file must be a regular file inside the worktree')
     }
-    const root = await realpath(worktree)
-    const inside = (candidate: string) => candidate.startsWith(`${root}${path.sep}`)
-    const resolved = path.resolve(root, file)
-    if (!inside(resolved)) throw new RequestError(400, 'file must be a path inside the worktree')
-    const real = await realpath(resolved).catch(() => undefined)
-    if (real === undefined) throw new RequestError(404, `${file} isn’t in the worktree`)
-    if (!inside(real)) throw new RequestError(400, 'file must be a path inside the worktree')
     return {
-      file: path.join(worktree, path.relative(root, real)),
+      file: path.join(worktree, file),
       line: request.line ?? 1,
       column: request.column ?? 1,
     }

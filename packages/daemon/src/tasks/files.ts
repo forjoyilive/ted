@@ -1,6 +1,3 @@
-import { constants } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
-import path from 'node:path'
 import {
   fileListLimit,
   filePreviewLimit,
@@ -9,32 +6,7 @@ import {
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { worktreeFiles } from '../git.ts'
-
-async function checkedPath(worktree: string, relative: string): Promise<string> {
-  const parts = relative.split('/')
-  if (
-    !relative ||
-    relative.length > 4096 ||
-    relative.includes('\\') ||
-    relative.includes('\0') ||
-    path.isAbsolute(relative) ||
-    parts.some((part) => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')
-  )
-    throw new RequestError(400, 'file must be a relative path inside the worktree')
-  const root = await realpath(worktree)
-  const rootInfo = await lstat(worktree)
-  if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())
-    throw new Error('Worktree is no longer available.')
-  let current = root
-  for (const [i, part] of parts.entries()) {
-    current = path.join(current, part)
-    const info = await lstat(current)
-    if (info.isSymbolicLink() || (i < parts.length - 1 ? !info.isDirectory() : !info.isFile())) {
-      throw new Error('Only regular files inside the worktree can be opened.')
-    }
-  }
-  return current
-}
+import { checkedPath, openRegularFile } from '../regular-file.ts'
 
 export async function listTaskFiles(worktree: string, repo: string): Promise<RepoFiles> {
   const listed = await worktreeFiles(worktree)
@@ -50,25 +22,9 @@ export async function listTaskFiles(worktree: string, repo: string): Promise<Rep
 
 export async function readTaskFile(worktree: string, relative: string): Promise<TaskFileContent> {
   try {
-    const file = await checkedPath(worktree, relative)
-    const before = await lstat(file)
-    const handle = await open(
-      file,
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    )
+    const handle = await openRegularFile(worktree, relative)
     try {
       const opened = await handle.stat()
-      const verified = await checkedPath(worktree, relative)
-      const after = await lstat(verified)
-      if (
-        !opened.isFile() ||
-        opened.dev !== before.dev ||
-        opened.ino !== before.ino ||
-        opened.dev !== after.dev ||
-        opened.ino !== after.ino
-      ) {
-        throw new Error('File changed while opening. Refresh and try again.')
-      }
       if (opened.size > filePreviewLimit)
         return {
           kind: 'too-large',

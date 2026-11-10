@@ -31,8 +31,8 @@ export function middlePaneStep(
   const { run, changes, app, brief, shell, file } = state
   switch (action.kind) {
     case 'file':
-      if (action.file === undefined) return { run, app, shell }
-      return { run, app, shell, file: { taskId, file: action.file } }
+      if (action.file === undefined) return { run, changes, app, brief, shell }
+      return { run, changes, app, brief, shell, file: { taskId, file: action.file } }
     case 'run':
       return { run: { taskId, runId: action.runId } }
     case 'changes':
@@ -83,12 +83,12 @@ export function middlePane(
     requestedFile && task.repos.some((r) => !r.removed && r.name === requestedFile.repo)
       ? requestedFile
       : undefined
-  const all = changes?.kind === 'all' && changesLoaded
+  const all = file === undefined && changes?.kind === 'all' && changesLoaded
   return {
     run,
-    changes,
+    changes: file === undefined ? changes : undefined,
     app,
-    brief,
+    brief: file === undefined && brief,
     shell,
     all,
     file,

@@ -10,10 +10,12 @@ export function FileView({
   taskId,
   file,
   onBack,
+  backLabel = '← Thread',
 }: {
   taskId: string
   file: TaskFileRef
   onBack: () => void
+  backLabel?: string
 }) {
   const [content, setContent] = useState<TaskFileContent>()
   const [error, setError] = useState<string>()
@@ -52,7 +54,7 @@ export function FileView({
     <section className={styles.pane} aria-label="File contents">
       <header className={styles.header}>
         <Button variant="quiet" size="small" onClick={onBack}>
-          ← Thread
+          {backLabel}
         </Button>
         <div className={styles.toolbar}>
           <span className={styles.path}>

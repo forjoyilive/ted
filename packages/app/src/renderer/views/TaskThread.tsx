@@ -437,6 +437,9 @@ export function TaskPanes({
           key={`${task.id}:${pane.file.repo}:${pane.file.path}`}
           taskId={task.id}
           file={pane.file}
+          backLabel={
+            state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Thread'
+          }
           onBack={() => go({ kind: 'file', file: undefined })}
         />
       )}

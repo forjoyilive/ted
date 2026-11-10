@@ -158,3 +158,51 @@ test('Cmd/Ctrl+P opens the Task file dialog through the shared keymap and choosi
   await user().click(screen.getByRole('button', { name: '← Thread' }))
   expect(screen.queryByRole('region', { name: 'File contents' })).toBeNull()
 })
+
+test.each(['Full brief', 'All changes'])(
+  'file inspection restores %s without drawing both views',
+  async (previous) => {
+    const a = appState()
+    a.state.tasks = [task({ repos: [repo], stage: 'work' })]
+    a.handle('taskFiles', () => files)
+    a.handle('taskFile', () => ({ kind: 'text', text: 'inspected contents' }))
+    a.handle('taskBrief', () => ({
+      taskId: 'NB-1',
+      version: 1,
+      stage: 'work',
+      text: '## Goal\n\nInspect files.\n',
+      createdAt: '2026-11-09T12:00:00.000Z',
+    }))
+    a.handle('taskChanges', () => ({
+      taskId: 'NB-1',
+      files: 1,
+      repos: [
+        {
+          name: 'web',
+          baseBranch: 'main',
+          added: 1,
+          removed: 0,
+          files: [{ path: 'README.md', added: 1, removed: 0, uncommitted: true }],
+        },
+      ],
+    }))
+    a.handle('fileDiffs', () => [])
+    a.mount()
+    const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
+    await user().click(within(nav).getByRole('button', { name: 'All Tasks' }))
+    await user().click(await screen.findByRole('row', { name: /NB-1/ }))
+    if (previous === 'Full brief')
+      await user().click(await screen.findByRole('button', { name: 'Full brief' }))
+    else await user().click(await screen.findByRole('button', { name: 'Expand all' }))
+    await screen.findByRole('region', { name: previous })
+    await user().keyboard('{Control>}p{/Control}')
+    const quick = await screen.findByRole('dialog', { name: 'Quick open' })
+    fireEvent.change(within(quick).getByRole('combobox'), { target: { value: 'hello' } })
+    await user().keyboard('{Enter}')
+    await screen.findByText('inspected contents')
+    expect(screen.queryByRole('region', { name: previous })).toBeNull()
+    await user().click(screen.getByRole('button', { name: '← Back' }))
+    await screen.findByRole('region', { name: previous })
+    expect(screen.queryByRole('region', { name: 'File contents' })).toBeNull()
+  },
+)

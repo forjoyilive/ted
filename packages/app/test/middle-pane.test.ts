@@ -122,3 +122,25 @@ test('a file covers the middle pane, restores the Run or shell, and is scoped to
     ).file,
   ).toBeUndefined()
 })
+
+test('a file temporarily covers All changes or Full brief and restores it on return', () => {
+  for (const action of [
+    { kind: 'brief', open: true },
+    { kind: 'changes', view: { kind: 'all' } },
+  ] as const) {
+    const original = middlePaneStep({}, task.id, action)
+    const opened = middlePaneStep(original, task.id, {
+      kind: 'file',
+      file: { repo: 'web', path: 'a.ts' },
+    })
+    expect(middlePane(opened, task, true)).toMatchObject({
+      file: { path: 'a.ts' },
+      all: false,
+      brief: false,
+      changes: undefined,
+    })
+    const closed = middlePaneStep(opened, task.id, { kind: 'file', file: undefined })
+    expect(closed).toEqual(original)
+    expect(middlePane(closed, task, true)).toMatchObject({ file: undefined, covered: true })
+  }
+})

@@ -1,5 +1,16 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import fs, {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -10,7 +21,8 @@ import {
   type TaskFileContent,
   type TaskFiles,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import type { EditorLaunch } from '../src/editors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
@@ -50,7 +62,17 @@ async function fixture() {
     'deleted.ts': 'old\n',
     '.dotfile': 'dot\n',
   })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const launches: EditorLaunch[] = []
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    editors: {
+      launch: async (launch) => {
+        launches.push(launch)
+      },
+    },
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -77,7 +99,7 @@ async function fixture() {
   const fileRoute = (file: string) =>
     `/tasks/${task.id}/repos/${repo}/file?path=${encodeURIComponent(file)}`
   const read = (file: string) => ok<TaskFileContent>('GET', fileRoute(file))
-  return { client, ok, task, worktree, repo, list, read, fileRoute }
+  return { client, ok, task, worktree, repo, list, read, fileRoute, launches }
 }
 
 test('lists current tracked and untracked files, hides ignored paths and links, and ignores hostile worktree config', async () => {
@@ -181,3 +203,56 @@ test('large worktrees return a bounded, explicitly partial file list', async () 
   expect(listed.repos[0]?.partial).toBe(true)
   expect(listed.repos[0]?.paths).toHaveLength(20_000)
 }, 60_000)
+
+test('a directory replaced after its lstat cannot redirect preview outside the worktree', async () => {
+  const f = await fixture()
+  const root = await realpath(f.worktree)
+  const parent = path.join(root, 'nested')
+  const parked = path.join(root, 'parked')
+  const outside = path.join(await realpath(scratch), 'outside')
+  await mkdir(parent)
+  await mkdir(outside)
+  await writeFile(path.join(parent, 'file.txt'), 'inside')
+  await writeFile(path.join(outside, 'file.txt'), 'outside sentinel')
+  const original = fs.lstat
+  let swaps = 0
+  const spy = vi
+    .spyOn(fs, 'lstat')
+    .mockImplementation(async (...args: Parameters<typeof fs.lstat>) => {
+      if (String(args[0]) !== parent) return original(...args)
+      if (swaps > 0) {
+        await unlink(parent)
+        await rename(parked, parent)
+      }
+      const info = await original(...args)
+      await rename(parent, parked)
+      await symlink(outside, parent)
+      swaps++
+      return info
+    })
+  syncBuiltinESMExports()
+  try {
+    const result = await f.read('nested/file.txt')
+    expect(swaps).toBeGreaterThan(0)
+    expect(result).toMatchObject({ kind: 'unavailable' })
+  } finally {
+    spy.mockRestore()
+    syncBuiltinESMExports()
+  }
+})
+
+test('editor launch revalidates selected files and refuses symlinks and FIFOs', async () => {
+  const f = await fixture()
+  await f.ok('PATCH', '/settings', { editor: 'custom', editorCommand: '/usr/bin/true {path}' })
+  const open = (file: string) =>
+    f.client.call('POST', `/tasks/${f.task.id}/repos/${f.repo}/open-in-editor`, { file })
+  expect((await open('src/hello.ts')).status).toBe(200)
+  expect(f.launches).toHaveLength(1)
+  await rm(path.join(f.worktree, 'src/hello.ts'))
+  await symlink('../README.md', path.join(f.worktree, 'src/hello.ts'))
+  expect((await open('src/hello.ts')).status).toBeGreaterThanOrEqual(400)
+  await unlink(path.join(f.worktree, 'src/hello.ts'))
+  await run('mkfifo', [path.join(f.worktree, 'src/hello.ts')])
+  expect((await open('src/hello.ts')).status).toBeGreaterThanOrEqual(400)
+  expect(f.launches).toHaveLength(1)
+})
