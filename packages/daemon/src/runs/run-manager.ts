@@ -52,7 +52,11 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
-import { initializeLaunchAuthority, launchAuthority } from './launch-authority.ts'
+import {
+  initializeLaunchAuthority,
+  launchAuthority,
+  revokeLaunchAuthority,
+} from './launch-authority.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -555,21 +559,26 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     signal?: AbortSignal,
   ): Promise<void> {
     const runDir = path.join(runsDir, runId)
-    for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
-      signal?.throwIfAborted()
-      if (waited >= stopGraceMs) {
-        await kill()
-        throw new Error(
-          'The agent did not start; TED stopped its host and agent before releasing the permission handoff',
-        )
+    try {
+      for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
+        signal?.throwIfAborted()
+        if (waited >= stopGraceMs) {
+          await kill()
+          throw new Error(
+            'The agent did not start; TED stopped its host and agent before releasing the permission handoff',
+          )
+        }
+        await sleep(pollMs)
       }
-      await sleep(pollMs)
-    }
-    signal?.throwIfAborted()
-    const start = await lastStartRecord(runDir)
-    if (start?.permissions !== undefined) {
-      store.setRunPermissions(runId, start.permissions)
-      await store.persisted()
+      signal?.throwIfAborted()
+      const start = await lastStartRecord(runDir)
+      if (start?.permissions !== undefined) {
+        store.setRunPermissions(runId, start.permissions)
+        await store.persisted()
+      }
+    } catch (error) {
+      if (signal?.aborted && !closed) await kill()
+      throw error
     }
   }
 
@@ -1060,6 +1069,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await Promise.all([...following.keys()].map((runId) => manager.stop(runId)))
     },
     async close() {
+      shuttingDown = true
+      await revokeLaunchAuthority(store)
       closed = true
       for (const controller of launchStops.values())
         controller.abort(new RequestError(503, 'TED is shutting down'))

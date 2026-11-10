@@ -27,3 +27,7 @@ export function checkLaunchAuthority(authority: LaunchAuthority | undefined): vo
   if (!authority || readFileSync(authority.file, 'utf8') !== authority.value)
     throw new Error('This launch belongs to an earlier daemon; TED must prepare it again')
 }
+
+export async function revokeLaunchAuthority(store: TedStore): Promise<void> {
+  await writeFile(launchAuthority(store).file, randomUUID(), { mode: 0o600 })
+}

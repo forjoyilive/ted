@@ -26,6 +26,7 @@ import type {
 import { readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { isLockHeld } from '../src/lock.ts'
 import { nodeEntry } from '../src/node-entry.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { forGeneration, hostProtocol } from '../src/runs/host-files.ts'
@@ -852,9 +853,14 @@ describe('local Factory permission consent', () => {
     }
     await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'restarted Run')
     await client.ok('POST', `/runs/${run.id}/restart`)
-    const record = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
-      argv: string[]
-    }
+    const started = (await hostRecords(home, run.id)).filter((r) => r.t === 'start').at(-1)
+    const record = await waitUntil(async () => {
+      const latest = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+        pid: number
+        argv: string[]
+      }
+      return latest.pid === started?.agentPid ? latest : undefined
+    }, 'restarted agent arguments')
     expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
     expect((await client.getRun(run.id)).run.permissions).toBe('auto')
   })
@@ -998,6 +1004,51 @@ describe('local Factory permission consent', () => {
       }
     },
   )
+
+  test('Stop keeps consent protected while its host lookup is delayed', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    const task = await startTask(client, [bash('echo waiting', 'Wait'), { endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.state === 'waiting',
+      'waiting Run',
+    )
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const gate = path.join(scratch, 'stop-consent')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.call('POST', `/runs/${run.id}/restart`)
+    await waitUntil(() => stat(`${gate}.waiting`).catch(() => undefined), 'restart shutdown')
+    const pidFile = path.join(home, 'runs', run.id, 'host.pid')
+    const pid = await readFile(pidFile)
+    await rename(pidFile, `${pidFile}.saved`)
+    execFileSync('mkfifo', [pidFile])
+    const stopping = client.call('POST', `/tasks/${task.id}/stop`)
+    const writer = await open(pidFile, 'w')
+    try {
+      expect((await restarting).status).toBe(409)
+      expect((await client.call('PUT', route, { mode: 'auto' })).status).toBe(200)
+      const starts = (await hostRecords(home, run.id)).filter((r) => r.t === 'start').length
+      await writeFile(gate, '')
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(starts)
+      expect(starts).toBe(1)
+      const original = (await hostRecords(home, run.id)).find((r) => r.t === 'start')
+      expect(() => process.kill(Number(original?.agentPid), 0)).toThrow()
+    } finally {
+      await writer.writeFile(pid)
+      await writer.close()
+      await rm(pidFile)
+      await rename(`${pidFile}.saved`, pidFile)
+      await writeFile(gate, '')
+      await stopping
+    }
+    expect((await client.getRun(run.id)).run).toMatchObject({
+      state: 'finished',
+      ended: { how: 'stopped' },
+    })
+  })
 
   test('Stop cancels automatic host replacement during delayed shutdown', async () => {
     const initial = await start('version: 1\n', true)
@@ -1370,6 +1421,44 @@ describe('local Factory permission consent', () => {
       async () => (await reopened.getRun(run.id)).run.permissions === 'auto',
       'replacement process mode recorded',
     )
+  })
+
+  test('daemon close invalidates pending launches without killing existing agents', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const otherTask = await startTask(client, [{ endTurn: true }])
+    const other = await leadRun(client, otherTask)
+    await waitUntil(
+      async () => (await client.getRun(other.id)).run.state === 'idle',
+      'other idle Run',
+    )
+    const otherStart = (await hostRecords(home, other.id)).filter((r) => r.t === 'start').at(-1)
+    const gate = path.join(scratch, 'close-shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.call('POST', `/runs/${run.id}/restart`).catch(() => undefined)
+    await waitUntil(() => stat(`${gate}.waiting`).catch(() => undefined), 'restart shutdown')
+    try {
+      await daemon?.stop()
+      daemon = undefined
+      await restarting
+      expect(() => process.kill(Number(otherStart?.agentPid), 0)).not.toThrow()
+      await writeFile(gate, '')
+      await waitUntil(
+        () => !isLockHeld(path.join(home, 'runs', run.id, 'host.lock')),
+        'pending host exited',
+      )
+      expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(1)
+      expect(() => process.kill(Number(otherStart?.agentPid), 0)).not.toThrow()
+    } finally {
+      await writeFile(gate, '')
+    }
   })
 
   test('local consent persists on daemon restart and is removed with the Factory', async () => {
