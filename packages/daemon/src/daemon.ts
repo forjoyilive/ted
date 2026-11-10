@@ -28,7 +28,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
-import { pruneRunOutput } from './retention.ts'
+import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
@@ -75,6 +75,7 @@ export interface DaemonOptions {
   limitProbeMs?: number
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
+  retention?: DaemonRetentionOptions
   oldestHost?: number
   editors?: DaemonEditorsOptions
 }
@@ -90,6 +91,11 @@ export interface DaemonAutomationsOptions {
   now?: () => number
   checkEveryMs?: number
   graceMs?: number
+}
+
+export interface DaemonRetentionOptions {
+  now?: () => Date
+  checkEveryMs?: number
 }
 
 export interface DaemonOnlineOptions {
@@ -453,13 +459,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const prune = () =>
         pruneRunOutput({
           runsDir: paths.runs,
-          isLive: (runId) => {
-            const run = store.getRun(runId)
-            return run !== undefined && run.state !== 'finished'
-          },
+          keepDays: store.settings().runOutputDays,
+          endOf: (runId) => runOutputEnd(store, runId),
+          ...(options.retention?.now && { now: options.retention.now() }),
         }).catch((error: unknown) => console.error('pruning Run output failed:', error))
       void prune()
-      const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
+      let keptDays = store.settings().runOutputDays
+      const stopPruningOnChange = store.subscribe((event) => {
+        if (event.type !== 'settings-changed' || event.settings.runOutputDays === keptDays) return
+        keptDays = event.settings.runOutputDays
+        void prune()
+      })
+      const pruneTimer = setInterval(
+        () => void prune(),
+        options.retention?.checkEveryMs ?? pruneEveryMs,
+      )
       pruneTimer.unref()
       storage = createStorage({
         home: paths.home,
@@ -531,6 +545,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)
+          stopPruningOnChange()
           stopWatchingWrites()
           online.close()
           health.close()

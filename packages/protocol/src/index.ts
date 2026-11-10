@@ -385,6 +385,7 @@ export {
   type Profile,
   type QuitChoice,
   quitChoices,
+  runOutputDayLimits,
   type TimeFormat,
   terminalFontSizes,
   timeFormats,

@@ -146,8 +146,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 - No export in v1 (KRI-71). (KRI-59)
 - **Kept:** (KRI-59)
   - The event log, forever. No compaction in v1 (KRI-73).
-  - Conversations, with their Task until it is deleted. Archived Tasks keep them.
-  - Raw Run output, 14 days after the Run stops, at most 100 MB per Run.
+  - Conversations and raw Run output, for as long as their Task is open. After the Task is Done or archived, for the number of days set in Settings → Storage (7 by default). A Run without a Task keeps them that long after it finishes; a Coordinator’s Runs keep them while the Coordinator exists (ADR 0098).
   - App logs, the last 10 MB per running App, deleted with the worktree.
   - TED’s own logs, 7 rolling files of 20 MB.
 - Deleting a Task removes its Conversations, raw output, logs and attachments from disk at once. Its events stay in the event log, which only TED reads. (KRI-59)
