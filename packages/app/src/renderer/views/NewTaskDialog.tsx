@@ -666,7 +666,10 @@ function NewTaskForm({
                 type="button"
                 className={styles.setupLink}
                 onClick={() => {
-                  void close(() => onOpenTask(setup.task))
+                  void close(() => {
+                    onClose()
+                    onOpenTask(setup.task)
+                  })
                 }}
               >
                 Open setup Task

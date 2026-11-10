@@ -14,6 +14,7 @@ import {
   addFactory,
   ctx,
   daemonClient,
+  githubReady,
   launchApp,
   setUpAppTests,
   sidebar,
@@ -38,6 +39,39 @@ async function setup() {
 }
 
 describe('New Task drafts', () => {
+  test('opening the setup Task dismisses New Task and preserves its draft', async () => {
+    await makeOriginRepo(path.join(ctx.home, 'origin'))
+    await githubReady(['acme/widgets'])
+    const window = await launchApp()
+    const client = await daemonClient()
+    const factory = await client.createFactory({
+      name: 'Widgets',
+      key: 'WD',
+      repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
+      showTutorial: false,
+    })
+    const setup = await waitUntil(
+      async () => (await client.listTasks()).find((task) => task.setup),
+      'the setup Task',
+    )
+    await sidebar(window).getByRole('button', { name: 'Widgets', exact: true }).click()
+    await open(window)
+    await form(window).getByLabel('Description', { exact: true }).fill('Keep this unfinished Task')
+    await form(window).getByRole('button', { name: 'Open setup Task', exact: true }).click()
+    await form(window).waitFor({ state: 'detached', timeout: 5000 })
+    await window
+      .getByRole('region', { name: 'Task thread' })
+      .getByRole('heading', { name: setup.title, exact: true })
+      .waitFor()
+    expect((await client.taskDraft(factory.id)).draft?.description).toBe(
+      'Keep this unfinished Task',
+    )
+    await open(window)
+    expect(await form(window).getByLabel('Description', { exact: true }).inputValue()).toBe(
+      'Keep this unfinished Task',
+    )
+  })
+
   test('restores the whole form after closing and after an app restart', async () => {
     let window = await setup()
     const client = await daemonClient()
