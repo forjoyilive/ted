@@ -655,7 +655,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 6.16 Blockers
 
 - A **Blocked by** field in Task details and the New Task dialog searches every Factory on this machine, so cross-Factory blockers are allowed. Agents use `ted task block <id> --by <id>` and `ted task unblock`. (KRI-55)
-- **Adding a blocker:** a Backlog Task stays in Backlog; a Queued Task goes back to Backlog; a running Task’s Task Lead is told and either stops (Blocked) or replies why it can carry on. (KRI-55)
+- **Adding a blocker:** a Backlog Task stays in Backlog; a Queued Task goes back to Backlog. A running Task’s Task Lead is told, explains whether it can still make useful progress, recommends waiting or continuing, and asks the human before doing more work. The Task shows Waiting on you while the question is open. **Wait for blocker** saves the brief and stops the Task Lead (Blocked), keeping the worktree and Stage for a fresh Run when its blockers merge. **Continue independent work** keeps the blocker link and lets the Task Lead work on independent parts; it must save the brief and block itself when it reaches dependent work. (KRI-55, KRI-175)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
 - A Task counts as merged only when every pull request has merged. (KRI-52)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)
