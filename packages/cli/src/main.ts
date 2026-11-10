@@ -37,6 +37,7 @@ import {
   type ValidateJudgments,
 } from '@ted/protocol'
 import { AutomationUsageError, automationCommand, automationUsage } from './automation.ts'
+import { exportCommand } from './export.ts'
 
 const usage = `Usage:
   ted help                                   Show this list of commands
@@ -144,6 +145,8 @@ const usage = `Usage:
   ted task repos set <name> …                Set which of the Factory’s repos the Task changes
   ted task repos add <name>                  Add a repo; prints its setup output when done
   ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
+  ted export --factory <key> [--format json|markdown] --output <path>
+                                             Export a Factory’s retained Tasks and history
   ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
   ted task lead <id> claude|codex [--model <name>] [--effort <level>]
@@ -190,6 +193,8 @@ function parse() {
         template: { type: 'string' },
         off: { type: 'boolean' },
         factory: { type: 'string' },
+        format: { type: 'string' },
+        output: { type: 'string' },
         file: { type: 'string' },
         findings: { type: 'string' },
         'own-worktree': { type: 'boolean' },
@@ -276,6 +281,8 @@ try {
     throw new UsageError('')
   } else if (group === 'help' && command === undefined) {
     console.log(usage)
+  } else if (group === 'export' && command === undefined) {
+    console.log(await exportCommand(home, options))
   } else if (group === 'status' && command === undefined) {
     await status()
   } else if (group === 'doctor' && command === undefined) {

@@ -7,6 +7,7 @@ import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { plural } from '../words.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
+import { ExportGroup } from './ExportGroup.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './storage.module.css'
 
@@ -180,6 +181,8 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
               />
             </SettingRow>
           </SettingsGroup>
+
+          <ExportGroup />
 
           <section className={styles.backups} aria-label="Backups">
             <h2 className={styles.backupsLabel}>Backups</h2>

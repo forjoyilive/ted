@@ -54,6 +54,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -663,6 +664,10 @@ export class DaemonClient {
 
   reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
+  }
+
+  exportFactory(id: string): Promise<FactoryExport> {
+    return this.#request('GET', `/factories/${encodeURIComponent(id)}/export`)
   }
 
   listFactories(): Promise<Factory[]> {

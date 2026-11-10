@@ -101,6 +101,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
 test('Storage sets how long Run output is kept after a Task is done', async () => {
   const update = vi.fn()
   bridge({
+    listFactories: () => [],
     getStorage: () => ({
       home: '~/.ted/',
       usedBytes: 2e9,

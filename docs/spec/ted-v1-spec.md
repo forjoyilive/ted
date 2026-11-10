@@ -143,7 +143,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 - **Daily backup:** the event log and attachment list (not worktrees, clones or simulators), keeping 7. Attachment files are stored by hash and not copied again. (KRI-59)
 - **Restore** is `ted backup restore <name>`, which asks to stop all Runs first and copies the current data to `~/.ted/backups/` before restoring. (KRI-59, KRI-64)
 - If a rebuild fails, or the store was written by a newer TED, a full-window screen shows “TED couldn’t update its data” or “This data needs TED 1.4 or later”, with **Restore the backup from before the update (loses changes since <date>)**, **Copy report**, and **Download TED 1.4** or **Quit TED**. Each screen ends “Runs keep going in the background.” (KRI-59, KRI-64)
-- No export in v1 (KRI-71). (KRI-59)
+- `ted export --factory <key> [--format json|markdown] --output <path>` and Settings → Storage → Export a Factory save a single-file snapshot of all retained Tasks, including Done and archived Tasks, Comments and answers, saved brief and description versions, and Task Run metadata. JSON is the default. Existing destinations are refused. Attachment names and references are included, but attached files, Run Conversations, deleted records, repo files and non-Task Runs are excluded. Known token-shaped secrets and URL credentials are redacted. Export is for reading outside TED; use backups to restore TED data. (KRI-71)
 - **Kept:** (KRI-59)
   - The event log, forever. No compaction in v1 (KRI-73).
   - Conversations and raw Run output, for as long as their Task is open. After the Task is Done or archived, for the number of days set in Settings → Storage (7 by default). A Run without a Task keeps them that long after it finishes; a Coordinator’s Runs keep them while the Coordinator exists (ADR 0098).
@@ -824,6 +824,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted workflow check [<path>]` | Validate `workflow.yaml` and Stage files. | KRI-58 |
 | `ted automation <subcommand>`: `list`, `show`, `history`, `create`, `edit`, `enable`, `disable`, `run`, `delete` | Manage Automations (12.3). Inside a Run only `list`, `show` and `history` work. | KRI-60 |
 | `ted backup restore <name>` | Restore a backup. | KRI-59 |
+| `ted export --factory <key> [--format json\|markdown] --output <path>` | Export one Factory’s retained Tasks and history; never replaces an existing file. | KRI-71 |
 | `ted doctor` | Health checks and every active banner. | KRI-20, KRI-59 |
 | `ted status` (no argument) | Daemon status and active banners. | KRI-20, KRI-59 |
 | `ted open` | Open or focus the app. | KRI-59 |
@@ -1220,7 +1221,7 @@ Figma: KRI-64 First launch and Settings.
    - **Git:** version, name and email.
    - **Linear:** masked key (last 4), where it is stored, “Connected as Nabha · Kriya Design” (checked on Save by asking Linear who the key belongs to), **Test**, **Remove**, **Create a key ↗**.
 6. **Library:** the effective Workflow table (Stage, On, Gate, Send-backs, Clarify depth, a Default or Library tag, **Override in Library** / **Reset to default**; Backlog and Done shown as holding), then Stage files. Each Stage has **Edit in Library**, which copies TED’s default to `~/.ted/library/stages/<id>.md` and opens a Markdown editor with preview and **Compare with default**; **Reset to default** deletes the copy. Edits collect until **Save**, which writes straight to `~/.ted/library/`, under the line “Applies to every Factory that doesn’t override it, from each Task’s next Stage.” Drift for Library copies is in 5.5. Not shown here: `permissions`, Checks, Apps, repos (Factory only), and the agent settings (under Agents, with a link). (KRI-57, KRI-58, KRI-64)
-7. **Storage:** “62.4 GB used under ~/.ted/ · 8.2 GB free on Macintosh HD”; space by category (worktrees, clones, simulators, store, Conversations and logs, attachments, backups, Scratch worktrees); the 10 largest worktrees with **Open Task**; **Remove clones of removed Factories**; **Erase simulators not used by a running Task**; Backups with date, size, **Show in folder** and the `ted backup restore` hint. (KRI-59, KRI-64, KRI-8 coordinator decision 13)
+7. **Storage:** “62.4 GB used under ~/.ted/ · 8.2 GB free on Macintosh HD”; space by category (worktrees, clones, simulators, store, Conversations and logs, attachments, backups, Scratch worktrees); the 10 largest worktrees with **Open Task**; **Remove clones of removed Factories**; **Erase simulators not used by a running Task**; Export a Factory with Factory and format choices and a native save dialog; Backups with date, size, **Show in folder** and the `ted backup restore` hint. (KRI-59, KRI-64, KRI-71, KRI-8 coordinator decision 13)
 8. **Developer:** **Developer mode** (shows Diagnostics and the log viewer here), **Show TED’s folder** (`~/.ted/`), **Copy report**. (KRI-57, KRI-64)
 
 ### 11.4 Developer mode
@@ -1393,7 +1394,6 @@ From the map (KRI-8) and every issue labelled `later`:
 - Saved List views: [KRI-68](https://linear.app/kriyadesign/issue/KRI-68)
 - Searching Run Conversations: [KRI-69](https://linear.app/kriyadesign/issue/KRI-69)
 - Sharing Automations through the repo: [KRI-70](https://linear.app/kriyadesign/issue/KRI-70)
-- Exporting Tasks, Comments and briefs: [KRI-71](https://linear.app/kriyadesign/issue/KRI-71)
 - Posting line comments to GitHub as a review: [KRI-72](https://linear.app/kriyadesign/issue/KRI-72)
 - Compacting the event log: [KRI-73](https://linear.app/kriyadesign/issue/KRI-73)
 - apt and dnf repositories: [KRI-74](https://linear.app/kriyadesign/issue/KRI-74)

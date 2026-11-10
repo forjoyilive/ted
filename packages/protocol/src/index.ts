@@ -153,6 +153,15 @@ export type {
 export { type Edition, edition, type Identity, identity } from './edition.ts'
 export type { DaemonEvent } from './events.ts'
 export {
+  type ExportFormat,
+  type ExportRun,
+  type ExportTask,
+  exportFormat,
+  type FactoryExport,
+  formatExport,
+  type SaveExportResult,
+} from './export.ts'
+export {
   type AddFactoryRequest,
   type CheckRepoRequest,
   type CreateFactoryRequest,

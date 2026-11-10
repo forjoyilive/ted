@@ -663,6 +663,7 @@ export interface TedStore {
   listOpenRequests(): Comment[]
   listAnsweredRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
+  listBriefs(taskId: string): TaskBrief[]
   latestBrief(taskId: string): TaskBrief | undefined
   recordSendBack(input: {
     taskId: string
@@ -3431,6 +3432,7 @@ export async function openStore({
       updatedTask(taskId)
       return toBrief(brief)
     },
+    listBriefs: (taskId) => briefRows(taskId).map(toBrief),
     latestBrief(taskId) {
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
