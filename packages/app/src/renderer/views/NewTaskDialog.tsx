@@ -294,8 +294,8 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && defaultsReady) descriptionField.current?.focus()
-  }, [ready, defaultsReady])
+    if (ready && defaultsReady && !busy) descriptionField.current?.focus()
+  }, [ready, defaultsReady, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const fetching = source !== undefined && source.lookup === undefined

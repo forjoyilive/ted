@@ -161,6 +161,11 @@ describe('New Task drafts', () => {
         (await form(window).getByLabel('Description', { exact: true }).inputValue()) === '',
     )
     expect((await client.taskDraft(first.id)).draft).toBeNull()
+    await waitFor(() =>
+      form(window)
+        .getByLabel('Description', { exact: true })
+        .evaluate((field) => field === document.activeElement),
+    )
     expect((await client.taskDraft(second.id)).draft?.description).toBe('Site draft')
     await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
     await waitFor(
