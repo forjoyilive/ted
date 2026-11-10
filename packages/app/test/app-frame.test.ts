@@ -18,6 +18,7 @@ import {
   sidebar,
   startDaemonAsApp,
 } from './app-harness.ts'
+import { firstWindow } from './first-window.ts'
 
 setUpAppTests()
 
@@ -100,7 +101,7 @@ describe('New Task dialog', () => {
     await open.waitFor()
     const [factory] = await (await daemonClient()).listFactories()
     expect(await open.getByLabel('Factory').inputValue()).toBe(factory?.id)
-    expect(await isFocused(window)).toBe(true)
+    await expect.poll(() => isFocused(window)).toBe(true)
     await window.keyboard.press('Escape')
     await open.waitFor({ state: 'detached' })
 
