@@ -233,7 +233,7 @@ test('overnight mode is switched in Settings → General, not in the sidebar', a
 
 const notice = () => screen.queryByRole('status', { name: 'Overnight mode is on' })
 const noticeText =
-  '▲ Overnight mode is on. Gates set here are off until you turn it off in Settings → General. Gates TED forces still apply.'
+  '▲ Overnight mode is on. Gates set here are off until you turn it off in Settings → General. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()

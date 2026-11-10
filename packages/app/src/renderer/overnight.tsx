@@ -38,7 +38,8 @@ export function OvernightNotice() {
       <button type="button" className={base.link} onClick={openGeneral}>
         Settings → General
       </button>
-      . Gates TED forces still apply.
+      . Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait
+      for you.
     </p>
   )
 }
