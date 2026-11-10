@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import http from 'node:http'
-import { getPriority, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { CheckRun, Factory, Task, TaskApp } from '@ted/protocol'
@@ -20,10 +21,14 @@ import {
 } from './helpers.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
-const own = getPriority()
-const low = Math.min(own + lowPriorityNiceness, process.platform === 'darwin' ? 20 : 19)
+const mac = process.platform === 'darwin'
+const field = mac ? 'pri=' : 'ni='
+const level = (pid: number) =>
+  Number(execFileSync('ps', ['-o', field, '-p', String(pid)], { encoding: 'utf8' }).trim())
+const own = level(process.pid)
+const low = mac ? Math.min(own, 20) : Math.min(own + lowPriorityNiceness, 19)
 const advance = { run: ['ted', 'outcome', 'advance'] }
-const niceness = { run: ['sh', '-c', 'ps -o nice= -p $PPID; ps -o nice= -p $$'] }
+const levels = { run: ['sh', '-c', `ps -o ${field} -p $PPID; ps -o ${field} -p $$`] }
 
 let home: string
 let cleanup: () => Promise<void>
@@ -65,11 +70,11 @@ async function start() {
 type Client = Awaited<ReturnType<typeof start>>
 
 async function agentAndCommand(client: Client): Promise<number[]> {
-  const run = await client.startRun([niceness, { endTurn: true }], scratch)
+  const run = await client.startRun([levels, { endTurn: true }], scratch)
   const [said] = await waitUntil(async () => {
     const texts = assistantTexts((await client.getRun(run.id)).conversation)
     return texts.length > 0 ? texts : undefined
-  }, 'the stub agent to report its niceness')
+  }, 'the stub agent to report its priority')
   const { stdout } = JSON.parse(said ?? '{}') as { stdout: string }
   return stdout.trim().split(/\s+/).map(Number)
 }
@@ -80,9 +85,6 @@ async function startTask(client: Client, title: string): Promise<Task> {
   await client.ok('POST', `/tasks/${task.id}/start`)
   return task
 }
-
-const getTask = async (client: Client, id: string) =>
-  (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)
 
 function fetchJson(url: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -98,28 +100,24 @@ function fetchJson(url: string): Promise<Record<string, unknown>> {
   })
 }
 
-async function appNiceness(
-  client: Client,
-  task: Task,
-  by: 'human' | 'task-lead',
-): Promise<unknown> {
+async function appLevel(client: Client, task: Task, by: 'human' | 'task-lead'): Promise<number> {
   const app = await waitUntil(async () => {
     const found = (await client.ok<TaskApp[]>('GET', `/tasks/${task.id}/apps`)).find(
       (a) => a.name === 'Web',
     )
     return found?.state === 'running' && found.startedBy === by ? found : undefined
   }, `Web to be running, started by ${by}`)
-  return (await fetchJson(`http://127.0.0.1:${app.port}/`)).nice
+  return level(Number((await fetchJson(`http://127.0.0.1:${app.port}/`)).pid))
 }
 
 describe('Low priority for the work TED starts', () => {
-  test('a Run’s agent and the commands it runs are niced, and the daemon is not', async () => {
+  test('a Run’s agent and the commands it runs are lowered, and the daemon is not', async () => {
     const client = await start()
     expect(
       (await client.ok<{ lowPriorityWork: boolean }>('GET', '/settings')).lowPriorityWork,
     ).toBe(true)
     expect(await agentAndCommand(client)).toEqual([low, low])
-    expect(getPriority()).toBe(own)
+    expect(level(process.pid)).toBe(own)
   })
 
   test('with the setting off, a Run starts at the daemon’s own priority', async () => {
@@ -128,27 +126,22 @@ describe('Low priority for the work TED starts', () => {
     expect(await agentAndCommand(client)).toEqual([own, own])
   })
 
-  test('a worktree’s setup command and a Check run niced', async () => {
-    const report = `'${process.execPath}' report-nice.mjs`
+  test('a worktree’s setup command and a Check run lowered', async () => {
+    const report = (name: string) =>
+      `echo $$ > stub-${name}-pid; while [ ! -e stub-${name}-go ]; do sleep 0.1; done`
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
-      'report-nice.mjs': [
-        "import { writeFileSync } from 'node:fs'",
-        "import { getPriority } from 'node:os'",
-        'writeFileSync(process.argv[2], String(getPriority()))',
-        '',
-      ].join('\n'),
       '.ted/workflow.yaml': [
         'version: 1',
         'order: [intake, work, validate]',
         'repos:',
         '  - name: widgets',
         '    worktree:',
-        `      setup: "${report} stub-setup-nice"`,
+        `      setup: "${report('setup')}"`,
         'stages:',
         '  validate:',
         '    checks:',
-        `      - { name: Nice, run: "${report} stub-check-nice" }`,
+        `      - { name: Wait, run: "${report('check')}" }`,
         '',
       ].join('\n'),
     })
@@ -159,23 +152,35 @@ describe('Low priority for the work TED starts', () => {
         steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
       }),
     )
+    const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
+    const levelOf = async (name: string) => {
+      const pid = await waitUntil(
+        () =>
+          readFile(path.join(worktree, `stub-${name}-pid`), 'utf8').then(
+            (text) => Number(text.trim()) || undefined,
+            () => undefined,
+          ),
+        `the ${name} command to start`,
+        20_000,
+      )
+      const found = level(pid)
+      await writeFile(path.join(worktree, `stub-${name}-go`), '')
+      return found
+    }
+    expect(await levelOf('setup')).toBe(low)
+    expect(await levelOf('check')).toBe(low)
     const checkRun = await waitUntil(
       async () =>
         (await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)).find(
           (r) => r.finishedAt !== undefined,
         ),
       'a finished Check run',
-      40_000,
+      20_000,
     )
     expect(checkRun.outcome).toBe('passed')
-    const worktree = (await getTask(client, task.id))?.repos[0]?.worktree ?? ''
-    const read = async (name: string) =>
-      Number((await readFile(path.join(worktree, name), 'utf8')).trim())
-    expect(await read('stub-setup-nice')).toBe(low)
-    expect(await read('stub-check-nice')).toBe(low)
   })
 
-  test('an App a Run starts is niced, and the same App started by the human is not', async () => {
+  test('an App a Run starts is lowered, and the same App started by the human is not', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': [
         'version: 1',
@@ -195,25 +200,35 @@ describe('Low priority for the work TED starts', () => {
       client,
       JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Web'] }, { endTurn: true }] }),
     )
-    expect(await appNiceness(client, task, 'task-lead')).toBe(low)
+    expect(await appLevel(client, task, 'task-lead')).toBe(low)
     await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Web' })
-    expect(await appNiceness(client, task, 'human')).toBe(own)
+    expect(await appLevel(client, task, 'human')).toBe(own)
   })
 })
 
 describe('workCommand', () => {
-  test('puts nice in front of a command, and leaves it alone at normal priority or without nice', () => {
-    expect(workCommand('/bin/sh', ['-c', 'true'], true, ['/nowhere/nice', '/bin/sh'])).toEqual({
+  const nice = { programs: ['/nowhere/nice', '/bin/sh'], args: ['-n', '10'] }
+
+  test('puts the first program that exists in front of a command', () => {
+    expect(workCommand('/bin/sh', ['-c', 'true'], true, nice)).toEqual({
       command: '/bin/sh',
       args: ['-n', '10', '/bin/sh', '-c', 'true'],
     })
-    expect(workCommand('/bin/sh', ['-c', 'true'], false)).toEqual({
-      command: '/bin/sh',
-      args: ['-c', 'true'],
-    })
-    expect(workCommand('/bin/sh', ['-c', 'true'], true, ['/nowhere/nice'])).toEqual({
-      command: '/bin/sh',
-      args: ['-c', 'true'],
-    })
+  })
+
+  test('uses the utility clamp on macOS and nice elsewhere', () => {
+    expect(workCommand('/bin/sh', ['-c', 'true'], true)).toEqual(
+      mac
+        ? { command: '/usr/sbin/taskpolicy', args: ['-c', 'utility', '/bin/sh', '-c', 'true'] }
+        : { command: '/usr/bin/nice', args: ['-n', '10', '/bin/sh', '-c', 'true'] },
+    )
+  })
+
+  test('leaves the command alone at normal priority or when no program exists', () => {
+    const unchanged = { command: '/bin/sh', args: ['-c', 'true'] }
+    expect(workCommand('/bin/sh', ['-c', 'true'], false)).toEqual(unchanged)
+    expect(
+      workCommand('/bin/sh', ['-c', 'true'], true, { ...nice, programs: ['/nowhere'] }),
+    ).toEqual(unchanged)
   })
 })

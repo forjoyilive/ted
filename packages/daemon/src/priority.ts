@@ -2,7 +2,16 @@ import { accessSync, constants } from 'node:fs'
 
 export const lowPriorityNiceness = 10
 
-const nicePrograms = ['/usr/bin/nice', '/bin/nice']
+export interface PriorityWrapper {
+  programs: readonly string[]
+  args: readonly string[]
+}
+
+// macOS ignores niceness when it shares out the processor; a utility QoS clamp is what gives way.
+const platformWrapper: PriorityWrapper =
+  process.platform === 'darwin'
+    ? { programs: ['/usr/sbin/taskpolicy'], args: ['-c', 'utility'] }
+    : { programs: ['/usr/bin/nice', '/bin/nice'], args: ['-n', String(lowPriorityNiceness)] }
 
 let warned = false
 
@@ -10,16 +19,20 @@ export function workCommand(
   command: string,
   args: readonly string[],
   lowPriority: boolean,
-  programs: readonly string[] = nicePrograms,
+  wrapper: PriorityWrapper = platformWrapper,
 ): { command: string; args: string[] } {
   if (!lowPriority) return { command, args: [...args] }
-  const nice = programs.find(isProgram)
-  if (nice === undefined) {
-    if (!warned) console.error('no nice program found; TED’s work runs at normal priority')
+  const program = wrapper.programs.find(isProgram)
+  if (program === undefined) {
+    if (!warned) {
+      console.error(
+        `${wrapper.programs.join(' or ')} isn’t there; TED’s work runs at normal priority`,
+      )
+    }
     warned = true
     return { command, args: [...args] }
   }
-  return { command: nice, args: ['-n', String(lowPriorityNiceness), command, ...args] }
+  return { command: program, args: [...wrapper.args, command, ...args] }
 }
 
 function isProgram(file: string): boolean {

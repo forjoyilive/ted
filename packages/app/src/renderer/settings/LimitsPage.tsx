@@ -69,7 +69,7 @@ export function LimitsPage({ settings }: SettingsPageProps) {
         </SettingRow>
         <SettingRow
           title="Run agents and Checks at low priority"
-          help="Agents, Checks, worktree setup and teardown, and Apps an agent starts run at niceness 10. On Linux that lowers their share of the processor; on macOS it doesn’t. Apps you start with ▶ and Task shells keep normal priority."
+          help="For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority."
           detail="Applies to work started after you change it. A Run that is already going keeps its priority."
         >
           <Switch
