@@ -7,10 +7,12 @@ import {
   heldLockEnv,
   waitingMessage,
 } from '../packages/daemon/test/support/suite-lock.ts'
+import { recordFailureRun } from './check-history.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
 export const timesFile = path.join(cacheDir, 'ted-test-times.json')
+export const failuresFile = path.join(cacheDir, 'ted-test-failures.json')
 
 const testGroups = [
   { project: 'electron', maxWorkers: 3 },
@@ -104,16 +106,134 @@ function reportFile(project: string): string {
   return path.join(cacheDir, `ted-test-report-${project}.json`)
 }
 
-function readReport(project: string): JsonReport {
+type ProjectReport = { report: JsonReport; problems: string[]; ok: boolean }
+
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+export function parseReport(text: string, project: string, exitedOk: boolean): ProjectReport {
+  const report: JsonReport = { testResults: [] }
+  const problems: string[] = []
+  const problem = (message: string) => problems.push(`${project}: ${message}`)
+  let value: unknown
   try {
-    return JSON.parse(readFileSync(reportFile(project), 'utf8')) as JsonReport
+    value = JSON.parse(text)
   } catch {
-    return {}
+    problem('missing or invalid JSON report')
+    return { report, problems, ok: false }
+  }
+  if (!object(value) || !Array.isArray(value.testResults)) {
+    problem('invalid report structure')
+    return { report, problems, ok: false }
+  }
+  const counters = [
+    'numTotalTests',
+    'numPassedTests',
+    'numFailedTests',
+    'numPendingTests',
+    'numTodoTests',
+    'numTotalTestSuites',
+    'numPassedTestSuites',
+    'numFailedTestSuites',
+    'numPendingTestSuites',
+  ]
+  if (
+    counters.some((key) => !Number.isSafeInteger(value[key]) || Number(value[key]) < 0) ||
+    typeof value.success !== 'boolean'
+  )
+    problem('invalid report totals or success flag')
+  let assertions = 0
+  let failures = 0
+  let passed = 0
+  let pending = 0
+  let todo = 0
+  for (const file of value.testResults) {
+    if (!object(file) || typeof file.name !== 'string' || !Array.isArray(file.assertionResults)) {
+      problem('invalid test file result')
+      continue
+    }
+    const results: { fullName: string; status: string }[] = []
+    for (const test of file.assertionResults) {
+      if (
+        !object(test) ||
+        typeof test.fullName !== 'string' ||
+        !['passed', 'failed', 'skipped', 'pending', 'todo', 'disabled'].includes(
+          String(test.status),
+        )
+      ) {
+        problem(`invalid assertion in ${path.relative(root, file.name)}`)
+        continue
+      }
+      const status = String(test.status)
+      results.push({ fullName: test.fullName, status })
+      assertions++
+      if (status === 'failed') failures++
+      if (status === 'passed') passed++
+      if (['skipped', 'pending', 'disabled'].includes(status)) pending++
+      if (status === 'todo') todo++
+      if (status === 'pending') problem(`unfinished assertion in ${path.relative(root, file.name)}`)
+    }
+    if (!['passed', 'failed'].includes(String(file.status))) problem('invalid test file status')
+    if (file.status === 'failed' && !results.some((test) => test.status === 'failed')) {
+      problem(`suite failed without a named test failure: ${path.relative(root, file.name)}`)
+    }
+    report.testResults?.push({
+      name: file.name,
+      assertionResults: results,
+      ...(typeof file.startTime === 'number' &&
+        Number.isFinite(file.startTime) &&
+        typeof file.endTime === 'number' &&
+        Number.isFinite(file.endTime) &&
+        file.endTime >= file.startTime && { startTime: file.startTime, endTime: file.endTime }),
+    })
+  }
+  if (
+    assertions !== value.numTotalTests ||
+    failures !== value.numFailedTests ||
+    passed !== value.numPassedTests ||
+    pending !== value.numPendingTests ||
+    todo !== value.numTodoTests
+  ) {
+    problem('assertion results do not match report totals')
+  }
+  if (
+    Number(value.numTotalTestSuites) < value.testResults.length ||
+    Number(value.numPassedTestSuites) +
+      Number(value.numFailedTestSuites) +
+      Number(value.numPendingTestSuites) !==
+      value.numTotalTestSuites
+  ) {
+    problem('suite results do not match report totals')
+  }
+  if (value.success === false && failures === 0)
+    problem('project failed without named test failures')
+  if (!exitedOk && failures === 0) problem('test process failed without named test failures')
+  if (
+    value.success === true &&
+    (failures > 0 || Number(value.numFailedTestSuites) > 0 || !exitedOk)
+  ) {
+    problem('successful report conflicts with failed execution')
+  }
+  return {
+    report,
+    problems: [...new Set(problems)],
+    ok: exitedOk && value.success === true && problems.length === 0,
   }
 }
 
-function recordTimes(): void {
-  const times = fileTimes(testGroups.map((group) => readReport(group.project)))
+function readReport(project: string, exitedOk: boolean): ProjectReport {
+  let text = ''
+  try {
+    text = readFileSync(reportFile(project), 'utf8')
+  } catch {
+    return parseReport('', project, exitedOk)
+  }
+  return parseReport(text, project, exitedOk)
+}
+
+function recordTimes(reports: JsonReport[]): void {
+  const times = fileTimes(reports)
   const files = Object.entries(times).sort(([, a], [, b]) => b - a)
   if (files.length === 0) return
   writeFileSync(
@@ -178,15 +298,37 @@ async function checkInParallel(): Promise<boolean> {
     run('Lint', ['lint']).then(printBlock),
     ...tests,
   ])
+  const reports = testGroups.map((group, index) =>
+    readReport(group.project, steps[index + 2]?.ok === true),
+  )
   for (const [index, step] of steps.slice(2).entries()) {
-    console.log(`\n== ${step.title} ${step.ok ? 'passed' : 'failed'}`)
+    const result = reports[index]
+    console.log(`\n== ${step.title} ${result?.ok ? 'passed' : 'failed'}`)
     console.log(summary(step.output))
-    const group = testGroups[index]
-    for (const name of group ? failedTests(readReport(group.project)) : [])
-      console.log(`  × ${name}`)
+    for (const name of result ? failedTests(result.report) : []) console.log(`  × ${name}`)
+    for (const problem of result?.problems ?? []) console.error(`  ! ${problem}`)
   }
-  recordTimes()
-  const failed = steps.filter((step) => !step.ok).map((step) => step.title)
+  recordTimes(reports.map((result) => result.report))
+  const failed = steps
+    .filter((step, index) => !step.ok || (index >= 2 && !reports[index - 2]?.ok))
+    .map((step) => step.title)
+  try {
+    console.log(
+      `\n${recordFailureRun(
+        failuresFile,
+        {
+          at: new Date().toISOString(),
+          ok: failed.length === 0,
+          failures: reports.flatMap((result) => failedTests(result.report)),
+          problems: reports.flatMap((result) => result.problems),
+        },
+        (message) => console.error(message),
+      )}`,
+    )
+  } catch (error) {
+    console.error(`check: Could not save failure history: ${String(error)}`)
+    failed.push('Failure reporting')
+  }
   if (failed.length > 0) console.error(`\ncheck: ${failed.join(', ')} failed`)
   return failed.length === 0
 }
