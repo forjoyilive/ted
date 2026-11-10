@@ -18,7 +18,7 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
-import { checkGuestNetwork, checkModalRace } from './browser-probes.ts'
+import { checkGuestNetwork, checkInFlightNavigation, checkModalRace } from './browser-probes.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { firstWindow } from './first-window.ts'
@@ -363,6 +363,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe(false)
   await command({ action: 'reload' })
   expect((await command({ action: 'snapshot' })).text).toContain('Project')
+  await checkInFlightNavigation(app, firstPage, command)
   const storageKey = 'before-app-restart'
   await app.evaluate(
     async ({ webContents }, { url, storageKey }) => {

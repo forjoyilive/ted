@@ -147,6 +147,7 @@ test('a new client resumes polling while an idle Task retains its page and sessi
   const second = bridge()
   controller.disconnected()
   client = second.client
+  controller.reconnected()
   await first.send('obsolete', 'one', 'reload')
   await second.send('snapshot', 'one', 'snapshot')
   await vi.waitFor(() => expect(second.replies).toHaveLength(1))
@@ -468,4 +469,148 @@ test('switching Apps does not discard a pending lifecycle check for the retained
   rejectValidation?.(new DaemonRequestError(404, 'App no longer exists'))
   await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
   expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+})
+
+test.each(['stop', 'restart', 'Task deletion', 'Factory deletion'])(
+  'reconnect reconciles a missed %s while Preview is hidden',
+  async (lifecycle) => {
+    const transport = bridge()
+    const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+    vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) =>
+      selected.name === app.name ? app : other,
+    )
+    const controller = createTaskBrowsers(
+      () => undefined,
+      () => transport.client,
+      vi.fn(),
+    )
+    controllers.push(controller)
+    await transport.send('first', 'one', 'open')
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+    await transport.send('other', 'one', 'open', {}, 1_000, undefined, other)
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+    controller.hide()
+    controller.disconnected()
+    vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) => {
+      if (lifecycle.includes('deletion')) throw new DaemonRequestError(404, 'Task no longer exists')
+      if (selected.name === other.name) return other
+      return lifecycle === 'stop' ? { ...app, state: 'stopped' } : { ...app, startedAt: 'tomorrow' }
+    })
+    controller.reconnected()
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
+    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+    expect(mocks.views[1]?.webContents.close).toHaveBeenCalledOnce()
+  },
+)
+
+test('an obsolete reconnect validation cannot clear a later connection’s session', async () => {
+  const first = bridge()
+  let client = first.client
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await first.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(first.replies).toHaveLength(1))
+  let reject: ((error: Error) => void) | undefined
+  vi.mocked(first.client.browserApp).mockImplementation(
+    () =>
+      new Promise((_resolve, fail) => {
+        reject = fail
+      }),
+  )
+  controller.reconnected()
+  await vi.waitFor(() => expect(reject).toBeTypeOf('function'))
+  controller.disconnected()
+  client = bridge().client
+  controller.reconnected()
+  reject?.(new DaemonRequestError(404, 'Old connection'))
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+  expect(mocks.views[0]?.webContents.close).not.toHaveBeenCalled()
+})
+
+test('navigation after a coordinate lookup prevents input to the new document', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('snapshot', 'one', 'snapshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const ref = transport.replies[0]?.result?.text?.split(' ')[0]
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing guest')
+  let release: ((value: unknown) => void) | undefined
+  contents.executeJavaScriptInIsolatedWorld.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve
+      }),
+  )
+  await transport.send('click', 'one', 'click', { ref })
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'))
+  contents.emit('did-start-navigation', { isMainFrame: true })
+  contents.emit('did-navigate')
+  release?.({ x: 10, y: 10 })
+  await vi.waitFor(() =>
+    expect(transport.replies.find((r) => r.id === 'click')?.error).toMatch(/page changed/),
+  )
+  expect(
+    contents.debugger.sendCommand.mock.calls.some(([method]) => method.startsWith('Input.')),
+  ).toBe(false)
+})
+
+test.each(['click', 'press'])(
+  'navigation during %s prevents releasing input in the new document',
+  async (action) => {
+    const transport = bridge()
+    const controller = createTaskBrowsers(
+      () => undefined,
+      () => transport.client,
+      vi.fn(),
+    )
+    controllers.push(controller)
+    await transport.send('snapshot', 'one', 'snapshot')
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+    const ref = transport.replies[0]?.result?.text?.split(' ')[0]
+    const contents = mocks.views[0]?.webContents
+    if (!contents) throw new Error('Missing guest')
+    contents.debugger.sendCommand.mockImplementation(async (method) => {
+      if (method.startsWith('Input.')) contents.emit('did-start-navigation', { isMainFrame: true })
+      return {}
+    })
+    await transport.send('input', 'one', action, action === 'click' ? { ref } : { value: 'Enter' })
+    await vi.waitFor(() =>
+      expect(transport.replies.find((r) => r.id === 'input')?.error).toMatch(/page changed/),
+    )
+    expect(
+      contents.debugger.sendCommand.mock.calls.filter(([method]) => method.startsWith('Input.')),
+    ).toHaveLength(1)
+    expect(contents.close).toHaveBeenCalledOnce()
+  },
+)
+
+test('reconnect retries temporary validation failures without losing the retained owner', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  controller.disconnected()
+  vi.mocked(transport.client.browserApp)
+    .mockRejectedValueOnce(new DaemonRequestError(503, 'Store opening'))
+    .mockResolvedValue({ ...app, state: 'stopped' })
+  controller.reconnected()
+  await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce(), {
+    timeout: 3_000,
+  })
 })

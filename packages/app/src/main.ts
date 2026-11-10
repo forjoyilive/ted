@@ -1056,7 +1056,8 @@ async function loadStateWhenReady(): Promise<void> {
 }
 
 function onConnection(connection: DaemonConnection): void {
-  if (connection.state !== 'connected') taskBrowsers?.disconnected()
+  if (connection.state === 'connected') taskBrowsers?.reconnected()
+  else taskBrowsers?.disconnected()
   sendToRenderer({ type: 'connection', connection })
   if (connection.state === 'connected') {
     notifications.forget()

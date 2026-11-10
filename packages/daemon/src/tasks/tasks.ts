@@ -670,7 +670,6 @@ export function createTasks(options: {
   }
 
   const browser = createBrowserBroker()
-  const browserCaptures = new Map<string, Map<string, Attachment>>()
   const browserApps = new Map<string, BrowserAppRef>()
 
   async function browserApp(ref: string, caller: Caller, app?: BrowserAppRef) {
@@ -3131,7 +3130,6 @@ export function createTasks(options: {
     subAgents.dropFor(task.id)
     browser.cancel(task.id)
     browserApps.delete(task.id)
-    browserCaptures.delete(task.id)
     await apps.stopTask(task.id).catch((error: unknown) => {
       console.error(`couldn’t stop ${task.displayId}’s Apps:`, error)
     })
@@ -4962,7 +4960,6 @@ export function createTasks(options: {
   function archiveNow(task: StoredTask, closePullRequests: boolean, why?: string): Task {
     browser.cancel(task.id)
     browserApps.delete(task.id)
-    browserCaptures.delete(task.id)
     const closing = closePullRequests
       ? task.repos.flatMap((r) =>
           r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
@@ -7673,7 +7670,6 @@ export function createTasks(options: {
       closed = true
       browser.close()
       browserApps.clear()
-      browserCaptures.clear()
       subAgents.close()
       clearInterval(silenceTimer)
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
@@ -7703,11 +7699,6 @@ export function createTasks(options: {
       if (current.app.startedAt !== app.startedAt || current.app.url !== app.url) {
         throw new RequestError(409, 'The App changed while the browser command ran')
       }
-      if (result.attachment) {
-        const captures = browserCaptures.get(task.id) ?? new Map<string, Attachment>()
-        captures.set(result.attachment.hash, result.attachment)
-        browserCaptures.set(task.id, captures)
-      }
       browserApps.set(task.id, { name: app.name, repo: app.repo })
       if (result.attachment && caller.kind === 'run')
         runUploads.add(`${task.id}:${result.attachment.hash}`)
@@ -7715,7 +7706,7 @@ export function createTasks(options: {
     },
     browserCaptureAccess(ref, caller, hash) {
       const { task } = appCaller(ref, caller)
-      const capture = browserCaptures.get(task.id)?.get(hash)
+      const capture = store.browserCaptures(task.id).find((capture) => capture.hash === hash)
       if (!capture) throw new RequestError(404, 'No browser capture on this Task')
       return capture
     },
@@ -7748,8 +7739,18 @@ export function createTasks(options: {
         throw new RequestError(400, 'Not a screenshot command')
       await browserApp(command.taskId, { kind: 'app' }, command.app)
       const attachment = await save()
-      browser.reply(session, id, { result: { attachment } })
-      return attachment
+      try {
+        store.recordBrowserCapture(command.taskId, attachment)
+        await store.persisted()
+        browser.reply(session, id, { result: { attachment } })
+        return attachment
+      } catch (error) {
+        if (!store.filesInUse().has(attachment.hash)) {
+          const file = attachmentFile(attachment)
+          await removeInside(path.dirname(file), path.basename(file))
+        }
+        throw error
+      }
     },
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)

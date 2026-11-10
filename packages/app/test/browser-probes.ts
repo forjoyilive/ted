@@ -152,3 +152,80 @@ export async function checkModalRace(app: ElectronApplication, window: Page, url
   }
   await expect.poll(attached).toBe(1)
 }
+
+type HeldLookup = typeof globalThis & {
+  lookupProbe?: { held: boolean; release: () => void; restore: () => void }
+}
+
+export async function checkInFlightNavigation(
+  app: ElectronApplication,
+  url: string,
+  command: (
+    request: import('@ted/protocol').BrowserRequest,
+  ) => Promise<import('@ted/protocol').BrowserResult>,
+) {
+  const snapshot = await command({ action: 'snapshot' })
+  const ref = snapshot.text?.match(/([^\s]+) button Try it/)?.[1]
+  if (!ref) throw new Error('No fixture button')
+  const id = await app.evaluate(({ webContents }, url) => {
+    const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    if (!guest) throw new Error('No guest')
+    const original = guest.executeJavaScriptInIsolatedWorld
+    const probe = {
+      held: false,
+      release: () => {},
+      restore: () => {
+        guest.executeJavaScriptInIsolatedWorld = original
+      },
+    }
+    ;(globalThis as HeldLookup).lookupProbe = probe
+    guest.executeJavaScriptInIsolatedWorld = async function (...args) {
+      const result = await original.apply(this, args)
+      if (args[1][0]?.code.includes('Element is not clickable')) {
+        probe.held = true
+        await new Promise<void>((resolve) => {
+          probe.release = resolve
+        })
+      }
+      return result
+    }
+    return guest.id
+  }, url)
+  try {
+    const clicking = command({ action: 'click', ref }).then(
+      () => 'unexpected success',
+      (error: Error) => error.message,
+    )
+    await expect
+      .poll(() => app.evaluate(() => (globalThis as HeldLookup).lookupProbe?.held), {
+        timeout: 10_000,
+      })
+      .toBe(true)
+    await app.evaluate(
+      async ({ webContents }, { id, url }) => {
+        await webContents.fromId(id)?.loadURL(new URL('?next=1', url).href)
+      },
+      { id, url },
+    )
+    await app.evaluate(() => (globalThis as HeldLookup).lookupProbe?.release())
+    expect(await clicking).toMatch(/page changed/)
+    expect(
+      await app.evaluate(
+        async ({ webContents }, id) =>
+          webContents.fromId(id)?.executeJavaScript('document.querySelector("h1").textContent'),
+        id,
+      ),
+    ).toBe('Project')
+  } finally {
+    await app.evaluate(
+      async ({ webContents }, { id, url }) => {
+        const state = globalThis as HeldLookup
+        state.lookupProbe?.release()
+        state.lookupProbe?.restore()
+        delete state.lookupProbe
+        await webContents.fromId(id)?.loadURL(url)
+      },
+      { id, url },
+    )
+  }
+}

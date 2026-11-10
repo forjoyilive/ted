@@ -39,6 +39,7 @@ export function createTaskBrowsers(
   let generation = 0
   const running = new Map<string, AbortController>()
   const runTasks = new Map<string, string>()
+  const rechecks = new Map<string, ReturnType<typeof setTimeout>>()
   const owner = randomUUID()
   const attached = new Set<WebContentsView>()
   const hide = (temporary = false) => {
@@ -51,6 +52,8 @@ export function createTaskBrowsers(
     shown = undefined
   }
   const close = (id: string, forget = true) => {
+    clearTimeout(rechecks.get(id))
+    rechecks.delete(id)
     const page = pages.get(id)
     if (page) {
       pages.delete(id)
@@ -69,8 +72,8 @@ export function createTaskBrowsers(
       void ses?.session.closeAllConnections().catch(() => undefined)
     }
   }
-  const valid = async (taskId: string, expected: TaskApp) => {
-    const current = await getClient().browserApp(taskId, expected)
+  const valid = async (taskId: string, expected: TaskApp, client = getClient()) => {
+    const current = await client.browserApp(taskId, expected)
     if (
       current?.state !== 'running' ||
       current.removed ||
@@ -83,6 +86,37 @@ export function createTaskBrowsers(
       throw new Error('That web App isn’t running; use ▶ in Apps')
     }
     return current
+  }
+  const reconcile = (taskId: string) => {
+    clearTimeout(rechecks.get(taskId))
+    rechecks.delete(taskId)
+    const retained = sessions.get(taskId)
+    if (!retained) return
+    const version = generation
+    const client = getClient()
+    for (const expected of retained.apps.values())
+      void valid(taskId, expected, client).catch((error: unknown) => {
+        if (
+          stopped ||
+          version !== generation ||
+          client !== getClient() ||
+          sessions.get(taskId) !== retained
+        )
+          return
+        if (
+          error instanceof Error &&
+          (error.message === 'That web App isn’t running; use ▶ in Apps' ||
+            (error instanceof DaemonRequestError && [403, 404, 409].includes(error.status)))
+        )
+          close(taskId)
+        else {
+          clearTimeout(rechecks.get(taskId))
+          rechecks.set(
+            taskId,
+            setTimeout(() => reconcile(taskId), 1_000),
+          )
+        }
+      })
   }
   const ensure = async (taskId: string, app: TaskApp, check: () => void) => {
     await valid(taskId, app)
@@ -175,6 +209,9 @@ export function createTaskBrowsers(
       event.preventDefault()
       callback('')
     })
+    contents.on('did-start-navigation', (event) => {
+      if (event.isMainFrame) page.revision = randomUUID()
+    })
     contents.on('did-navigate', () => {
       page.revision = randomUUID()
     })
@@ -247,6 +284,19 @@ export function createTaskBrowsers(
     const page = await ensure(command.taskId, command.app, check)
     check()
     const contents = page.view.webContents
+    const revision = page.revision
+    let inputStarted = false
+    const checkPage = () => {
+      check()
+      if (
+        pages.get(command.taskId) !== page ||
+        contents.isDestroyed() ||
+        page.revision !== revision
+      ) {
+        if (inputStarted && pages.get(command.taskId) === page) close(command.taskId, false)
+        throw new Error('The page changed; run snapshot again before retrying')
+      }
+    }
     const { action, value, ref } = command.request
     const script = async <T>(code: string): Promise<T> => {
       check()
@@ -278,6 +328,7 @@ export function createTaskBrowsers(
       return { url: contents.getURL(), text }
     }
     if (action === 'click' || action === 'fill') {
+      checkPage()
       if (!ref?.startsWith(`${page.revision}:`))
         throw new Error('Stale element reference; run snapshot again')
       const lookup = `const e = globalThis.__tedElements?.get(${JSON.stringify(ref)}); if (!e || !e.isConnected) throw Error('Stale element reference; run snapshot again'); if (e instanceof HTMLInputElement && e.type === 'file') throw Error('File inputs aren’t supported');`
@@ -285,7 +336,8 @@ export function createTaskBrowsers(
         const point = await script<{ x: number; y: number }>(
           `(() => { ${lookup} e.scrollIntoView({block:'center'}); const r=e.getBoundingClientRect(); if (!r.width || !r.height || e.disabled) throw Error('Element is not clickable'); const x=r.x+r.width/2,y=r.y+r.height/2; if (!e.contains(document.elementFromPoint(x,y))) throw Error('Element is covered'); return {x,y}; })()`,
         )
-        check()
+        checkPage()
+        inputStarted = true
         await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
           type: 'mousePressed',
           button: 'left',
@@ -293,7 +345,7 @@ export function createTaskBrowsers(
           x: point.x,
           y: point.y,
         })
-        check()
+        checkPage()
         await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
           type: 'mouseReleased',
           button: 'left',
@@ -321,7 +373,8 @@ export function createTaskBrowsers(
       }
       const keyCode = keys[value ?? '']
       if (!keyCode) throw new Error('Use Enter, Tab, Escape, Backspace, Space or an arrow key')
-      check()
+      checkPage()
+      inputStarted = true
       const key = value === 'Space' ? ' ' : value
       await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
         type: 'keyDown',
@@ -329,7 +382,7 @@ export function createTaskBrowsers(
         windowsVirtualKeyCode: keyCode,
         ...(value === 'Enter' ? { text: '\r' } : value === 'Space' ? { text: ' ' } : {}),
       })
-      check()
+      checkPage()
       await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
         type: 'keyUp',
         key,
@@ -359,6 +412,8 @@ export function createTaskBrowsers(
   }
   const invalidate = () => {
     generation++
+    for (const timer of rechecks.values()) clearTimeout(timer)
+    rechecks.clear()
     for (const controller of running.values()) controller.abort()
   }
   const run = async (command: BrowserCommand, client: DaemonClient, version: number) => {
@@ -430,6 +485,10 @@ export function createTaskBrowsers(
   void loop()
   return {
     disconnected: invalidate,
+    reconnected() {
+      invalidate()
+      for (const taskId of sessions.keys()) reconcile(taskId)
+    },
     ended(runId: string) {
       const taskId = runTasks.get(runId)
       if (taskId) running.get(taskId)?.abort()
@@ -480,18 +539,7 @@ export function createTaskBrowsers(
       return url
     },
     changed(taskId: string) {
-      const retained = sessions.get(taskId)
-      if (!retained) return
-      for (const expected of retained.apps.values())
-        void valid(taskId, expected).catch((error: unknown) => {
-          if (
-            sessions.get(taskId) === retained &&
-            error instanceof Error &&
-            (error.message === 'That web App isn’t running; use ▶ in Apps' ||
-              (error instanceof DaemonRequestError && [403, 404, 409].includes(error.status)))
-          )
-            close(taskId)
-        })
+      reconcile(taskId)
     },
     close() {
       stopped = true

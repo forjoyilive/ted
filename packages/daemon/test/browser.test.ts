@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -53,7 +53,7 @@ test('only its Task can command the browser; the app bridge completes commands o
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('Daemon info missing')
-  const app = new DaemonClient(info, info.token, { appKey: daemon.appToken })
+  let app = new DaemonClient(info, info.token, { appKey: daemon.appToken })
   await app.addFactory({ repo: origin, key: 'NB' })
   const task = await app.createTask({ factory: 'NB', title: '{"steps":[{"endTurn":true}]}' })
   await app.startTask(task.id)
@@ -102,6 +102,7 @@ test('only its Task can command the browser; the app bridge completes commands o
   )
   expect((await capturing).body).toMatchObject({ attachment })
   expect(await app.readBrowserCapture(task.id, attachment.hash)).toEqual({ data: 'iVBORw==' })
+  expect((await app.listTasks()).find((t) => t.id === task.id)?.attachments).toEqual([])
   expect(
     (await run.call('GET', `/tasks/${other.id}/browser/captures/${attachment.hash}`)).status,
   ).toBe(403)
@@ -118,6 +119,16 @@ test('only its Task can command the browser; the app bridge completes commands o
       })
     ).status,
   ).toBe(201)
+  await app.postComment(other.id, { body: 'Shared capture', attachments: [attachment] })
+  const unpostedPoll = app.pollBrowser('owner')
+  const unpostedRequest = run.call('POST', `/tasks/${task.id}/browser`, { action: 'screenshot' })
+  const unpostedCommand = (await unpostedPoll) as BrowserCommand
+  const unposted = await app.uploadBrowserCapture(
+    'owner',
+    unpostedCommand.id,
+    new Uint8Array([1, 2, 3]),
+  )
+  expect((await unpostedRequest).status).toBe(200)
   const stopPoll = app.pollBrowser('owner')
   const pending = run.call('POST', `/tasks/${task.id}/browser`, { action: 'snapshot' })
   const stopped = (await stopPoll) as BrowserCommand
@@ -127,4 +138,74 @@ test('only its Task can command the browser; the app bridge completes commands o
   expect((await run.call('POST', `/tasks/${task.id}/browser`, { action: 'snapshot' })).status).toBe(
     409,
   )
+  await daemon.stop()
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    apps: { pollMs: 50 },
+  })
+  const restartedInfo = await readDaemonInfo(home)
+  if (!restartedInfo) throw new Error('Missing restarted daemon')
+  app = new DaemonClient(restartedInfo, restartedInfo.token, { appKey: daemon.appToken })
+  expect(await app.readBrowserCapture(task.id, unposted.hash)).toEqual({ data: 'AQID' })
+  await app.archiveTask(task.id)
+  await app.deleteTask(task.id)
+  const capturedFile = (hash: string) => path.join(tedPaths(home).attachments, `${hash}.png`)
+  expect(
+    await stat(capturedFile(unposted.hash)).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false)
+  expect(
+    await stat(capturedFile(attachment.hash)).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(true)
+  await app.deleteTask(other.id)
+  expect(
+    await stat(capturedFile(attachment.hash)).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false)
+
+  const last = await app.createTask({ factory: 'NB', title: '{"steps":[{"endTurn":true}]}' })
+  await app.startTask(last.id)
+  await waitUntil(
+    async () => (await app.listTasks()).find((t) => t.id === last.id && t.leadRunId),
+    'last Task Lead',
+  )
+  await app.startApp(last.id, { name: 'Web' })
+  await waitUntil(
+    async () => (await app.listApps(last.id)).find((a) => a.state === 'running'),
+    'last App',
+  )
+  const openPoll = app.pollBrowser('restarted-owner')
+  const reopened = app.browserCommand(last.id, request)
+  const openCommand = await openPoll
+  if (!openCommand) throw new Error('No open command')
+  await app.replyBrowser('restarted-owner', openCommand.id, { result: {} })
+  await reopened
+  const lastPoll = app.pollBrowser('restarted-owner')
+  const lastRequest = app.browserCommand(last.id, { action: 'screenshot' })
+  const lastCommand = await lastPoll
+  if (!lastCommand) throw new Error('No capture command')
+  const factoryCapture = await app.uploadBrowserCapture(
+    'restarted-owner',
+    lastCommand.id,
+    new Uint8Array([4, 5, 6]),
+  )
+  await lastRequest
+  const factory = (await app.listFactories()).find((f) => f.key === 'NB')
+  if (!factory) throw new Error('Missing Factory')
+  await app.removeFactory(factory.id, { key: 'NB', closePullRequests: false })
+  expect(
+    await stat(capturedFile(factoryCapture.hash)).then(
+      () => true,
+      () => false,
+    ),
+  ).toBe(false)
 }, 90_000)
