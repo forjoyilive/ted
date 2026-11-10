@@ -254,6 +254,8 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
+  pendingLeadMessages: { id: string; text: string }[]
+  leadRestartPending: boolean
   forcedGates: AgentStageId[]
   changesSettings: boolean
   worktree?: string
@@ -312,6 +314,7 @@ export interface PlannedStage {
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
   order: PlannedStage[]
+  effort?: Effort
 }
 
 export interface NewWorktree {
@@ -426,6 +429,12 @@ export interface LoggedEvent {
   name: string
   data: Record<string, unknown>
   at: string
+}
+
+export interface RunSteeringRelease {
+  messageIds: string[]
+  first?: string
+  holdId?: string
 }
 
 export interface RunInterrupt {
@@ -631,6 +640,9 @@ export interface TedStore extends TaskHistory {
   rememberStageFileText(seen: SeenStageFile): void
   seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
+  setLeadRestartPending(taskId: string, pending: boolean): void
+  holdLeadMessage(taskId: string, text: string): void
+  deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -735,7 +747,7 @@ export interface TedStore extends TaskHistory {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   restartRun(runId: string, flags: RunFlags): Run
-  reviveRun(runId: string): Run
+  reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
@@ -745,6 +757,8 @@ export interface TedStore extends TaskHistory {
   queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
+  releaseRunSteering(runId: string, release: RunSteeringRelease): void
+  runSteeringRelease(runId: string): RunSteeringRelease | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
   runMessages(runId: string): RunMessage[]
   runInterrupts(runId: string): RunInterrupt[]
@@ -1194,6 +1208,10 @@ export async function openStore({
     leadAgent,
     leadModel,
     leadEffort,
+    leadEffortMode,
+    stageEffort,
+    pendingLeadMessage,
+    pendingLeadDeliveries,
     rank,
     changedAt,
     archivedAt,
@@ -1395,10 +1413,18 @@ export async function openStore({
       ...(leadAgent !== null && {
         lead: {
           agent: leadAgent as AgentKind,
+          ...(leadEffortMode === 'stage' && { effortMode: 'stage' as const }),
           ...(leadModel !== null && { model: leadModel }),
           ...(leadEffort !== null && { effort: leadEffort as Effort }),
         },
       }),
+      ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
+      pendingLeadMessages:
+        pendingLeadDeliveries !== null
+          ? (JSON.parse(pendingLeadDeliveries) as { id: string; text: string }[])
+          : pendingLeadMessage !== null
+            ? [{ id: `stage-legacy-${row.id}`, text: pendingLeadMessage }]
+            : [],
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
@@ -1477,6 +1503,8 @@ export async function openStore({
   }
 
   const toPublicTask = ({
+    pendingLeadMessages: _______,
+    leadRestartPending: ________,
     forcedGates: _____,
     changesSettings: ______,
     worktree: _,
@@ -1503,6 +1531,7 @@ export async function openStore({
     revivedAt,
     ended,
     retrying: _retrying,
+    steeringRelease: _steeringRelease,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
@@ -1674,10 +1703,11 @@ export async function openStore({
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEnteredV2({
+    events.taskStageEnteredV3({
       id: randomUUID(),
       taskId,
       stage,
+      effort: entry.effort ?? null,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
@@ -2358,6 +2388,9 @@ export async function openStore({
           startRequested,
           createdAt: at,
         }),
+        ...(lead?.effortMode === 'stage'
+          ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
+          : []),
         events.taskRanked({ taskId: id, rank: nextRank(), at }),
         ...blockedBy.map((blockerId) =>
           events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
@@ -3202,8 +3235,13 @@ export async function openStore({
         }
       )
     },
-    setTaskLead(taskId, { agent, model, effort }) {
+    setTaskLead(taskId, { agent, model, effort, effortMode }) {
       commit(
+        events.taskLeadEffortModeSet({
+          taskId,
+          mode: effortMode ?? null,
+          at: new Date().toISOString(),
+        }),
         events.taskLeadSet({
           taskId,
           agent,
@@ -3213,6 +3251,31 @@ export async function openStore({
         }),
       )
       return updatedTask(taskId)
+    },
+    setLeadRestartPending(taskId, pending) {
+      commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
+    },
+    holdLeadMessage(taskId, text) {
+      const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      commit(
+        events.taskLeadMessagesHeld({
+          taskId,
+          messages: JSON.stringify([...pending, { id: randomUUID(), text }]),
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    deliveredLeadMessages(taskId, ids) {
+      const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      const remaining = pending.filter((message) => !ids.includes(message.id))
+      if (remaining.length === pending.length) return
+      commit(
+        events.taskLeadMessagesHeld({
+          taskId,
+          messages: JSON.stringify(remaining),
+          at: new Date().toISOString(),
+        }),
+      )
     },
     setTaskGates(taskId, overrides) {
       commit(
@@ -3542,6 +3605,7 @@ export async function openStore({
       const run = toRun({
         ...row,
         retrying: false,
+        steeringRelease: null,
         usesDefaultModel: false,
         problem: null,
         failure: null,
@@ -3804,9 +3868,22 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    reviveRun(runId) {
+    reviveRun(runId, flags) {
       const at = new Date().toISOString()
-      commit(events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }))
+      commit(
+        ...(flags
+          ? [
+              events.runRestarted({
+                runId,
+                model: flags.model ?? null,
+                effort: flags.effort ?? null,
+                usesDefaultModel: flags.usesDefaultModel ?? false,
+                at,
+              }),
+            ]
+          : []),
+        events.runRevived({ runId, taskId: taskIdOfRun(runId) ?? null, at }),
+      )
       const row = runRow(runId)
       if (!row) throw new Error(`no Run ${runId}`)
       const run = toRun(row)
@@ -3898,6 +3975,13 @@ export async function openStore({
       commit(events.runMessageDeleted({ id, runId, at: new Date().toISOString() }))
       emit({ type: 'run-output', runId })
       return { id, runId, text: row.text, at: row.at }
+    },
+    releaseRunSteering(runId, release) {
+      commit(events.runSteeringReleased({ runId, release: JSON.stringify(release) }))
+    },
+    runSteeringRelease(runId) {
+      const release = runRow(runId)?.steeringRelease
+      return release ? (JSON.parse(release) as RunSteeringRelease) : undefined
     },
     recordTurnInterrupted(runId, hold) {
       const taskId = taskIdOfRun(runId) ?? null

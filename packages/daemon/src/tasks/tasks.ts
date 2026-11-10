@@ -346,6 +346,7 @@ export type OutcomeInput =
   | (Omit<AdvanceRequest, 'design'> & { design?: DesignSubmission })
 
 export interface Tasks {
+  deliveryAllowed(runId: string): boolean
   failureContext(ref: string, id: string, caller: Caller): FailureContext
   listFailures(ref: string, caller: Caller): Promise<FailureCase[]>
   validationObligations(ref: string, caller: Caller): Promise<ValidationObligations>
@@ -3162,28 +3163,87 @@ export function createTasks(options: {
     return run && run.state !== 'finished' ? run : undefined
   }
 
+  function effectiveLead(task: StoredTask, fallback?: TaskLead): TaskLead | undefined {
+    const lead = task.lead ?? fallback
+    if (lead?.effortMode !== 'stage' || task.stageEffort === undefined) return lead
+    return { ...lead, effort: task.stageEffort }
+  }
+
+  function acknowledgeLeadMessages(run: Run): void {
+    if (run.taskId === undefined) return
+    const task = store.getTask(run.taskId)
+    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return
+    store.deliveredLeadMessages(run.taskId, runs.acceptedInputs(run.id))
+  }
+
   async function applyLead(taskId: string): Promise<void> {
     if (applying.has(taskId)) return
+    const previous = store.getTask(taskId)
+    const run = previous && liveLead(previous)
+    if (run) acknowledgeLeadMessages(run)
     const task = store.getTask(taskId)
-    const run = task && liveLead(task)
-    if (!task?.lead || !run || sameChoice(task.lead, run) || !atIdlePoint(run)) return
+    const lead = task && effectiveLead(task)
+    if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
     applying.add(taskId)
     try {
-      const lead = task.lead
-      if (lead.agent !== run.agent) {
-        if (store.newWorkHold() !== undefined) return
-        await freshLead(task, run)
-      } else {
+      if (!sameChoice(lead, run) || task.leadRestartPending) {
+        if (lead.agent !== run.agent) {
+          if (store.newWorkHold() !== undefined) return
+          await freshLead(task, run)
+          return
+        }
+        store.setLeadRestartPending(taskId, true)
+        await store.persisted()
         await restartLead(run, {
           ...(lead.model !== undefined && { model: lead.model }),
           ...(lead.effort !== undefined && { effort: lead.effort }),
           usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
         })
+        store.setLeadRestartPending(taskId, false)
+        await store.persisted()
+      }
+      const current = find(taskId)
+      const live = liveLead(current)
+      const choice = effectiveLead(current)
+      if (!live || !choice) return
+      if (current.pendingLeadMessages.length > 0 && sameChoice(choice, live)) {
+        const accepted = await runs
+          .dispatch(live.id, current.pendingLeadMessages, false, () => {
+            const now = find(taskId)
+            return (
+              now.leadRunId === live.id &&
+              !now.stopped &&
+              !now.archived &&
+              store.getRun(live.id)?.state !== 'finished'
+            )
+          })
+          .catch((error: unknown) => {
+            const remaining = find(taskId).pendingLeadMessages
+            if (
+              current.pendingLeadMessages.every(
+                (message) => !remaining.some((held) => held.id === message.id),
+              )
+            )
+              return false
+            throw error
+          })
+        if (accepted) {
+          store.deliveredLeadMessages(
+            taskId,
+            current.pendingLeadMessages.map((m) => m.id),
+          )
+          await store.persisted()
+        }
       }
     } finally {
       applying.delete(taskId)
     }
-    await applyLead(taskId)
+    const after = find(taskId)
+    const live = liveLead(after)
+    const choice = effectiveLead(after)
+    if (live && choice && (!sameChoice(choice, live) || after.pendingLeadMessages.length > 0))
+      await applyLead(taskId)
+    await options.steering.refresh(run.id)
   }
 
   async function restartLead(run: Run, flags: RunFlags): Promise<void> {
@@ -3565,9 +3625,12 @@ export function createTasks(options: {
     setupReport?: string,
     { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
   ): Promise<void> {
+    const previous = find(task.id)
+    const old = previous.leadRunId && store.getRun(previous.leadRunId)
+    if (old) acknowledgeLeadMessages(old)
     const current = find(task.id)
     if (current.archived || current.stopped) return
-    const lead = task.lead ?? leadFrom(resolution.workflow.settings)
+    const lead = effectiveLead(current, leadFrom(resolution.workflow.settings)) as TaskLead
     const agent = lead.agent
     const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
     const followUp = resumeSession === undefined ? followUpNote(current) : undefined
@@ -3585,8 +3648,10 @@ export function createTasks(options: {
     const cwd = runFolderOf(current, entries)
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
     const overnightMode = store.settings().overnightMode
+    const pending = current.pendingLeadMessages
     const prompt = [
       overnightGuidance(overnightMode),
+      ...pending.map((message) => message.text),
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
@@ -3619,6 +3684,7 @@ export function createTasks(options: {
         agent,
         prompt,
         cwd,
+        messageIds: pending.map((message) => message.id),
         taskId: task.id,
         env: { ...env, ...(await apps.envFor(task.id)), TED_TASK: task.displayId },
         permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
@@ -3627,6 +3693,7 @@ export function createTasks(options: {
         ...(lead.effort !== undefined && { effort: lead.effort }),
       })
       overnightSeen.set(run.id, overnightMode)
+      if (current.leadRestartPending) store.setLeadRestartPending(task.id, false)
       store.commentsDelivered(
         waiting.comments.map((c) => c.id),
         run.id,
@@ -4569,7 +4636,14 @@ export function createTasks(options: {
       stage: id,
       enabled: workflow.stages.includes(id),
     }))
-    return { ...(file && { stageFile: { layer: file.layer, path: file.path } }), layers, order }
+    const effort =
+      stage === 'done' ? undefined : (workflow.settings.stages[stage]?.effort as Effort | undefined)
+    return {
+      ...(file && { stageFile: { layer: file.layer, path: file.path } }),
+      layers,
+      order,
+      ...(effort !== undefined && { effort }),
+    }
   }
 
   function publicTask(id: string): Task {
@@ -4615,7 +4689,20 @@ export function createTasks(options: {
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
     const mode = store.settings().overnightMode
-    await runs.send(run.id, `${text}\n\n${overnightGuidance(mode)}`)
+    const current = find(task.id)
+    const lead = effectiveLead(current)
+    const message = `${text}\n\n${overnightGuidance(mode)}`
+    if (
+      lead &&
+      (!sameChoice(lead, run) ||
+        applying.has(task.id) ||
+        current.leadRestartPending ||
+        current.pendingLeadMessages.length > 0)
+    ) {
+      store.holdLeadMessage(task.id, message)
+      await store.persisted()
+      inBackground('apply effort before Stage delivery', () => applyLead(task.id))
+    } else await runs.send(run.id, message)
     overnightSeen.set(run.id, mode)
     return true
   }
@@ -5624,7 +5711,7 @@ export function createTasks(options: {
       description: hasSettings ? laterSetupDescription : firstSetupDescription,
       priority: 'urgent',
       clarifyDepth: 'grilling',
-      lead: leadFrom(resolution?.workflow.settings),
+      lead: { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
       factoryId: factory.id,
       setup: true,
     })
@@ -5727,7 +5814,11 @@ export function createTasks(options: {
         )
           return false
       }
-      if (!current.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
+      if (!current.lead)
+        store.setTaskLead(task.id, {
+          ...leadFrom(resolution.workflow.settings),
+          effortMode: 'stage',
+        })
       const planned = find(task.id).markers.some((m) => m.kind === 'needs-planning')
       const stage = resolution.workflow.next('backlog')
       if (planned) {
@@ -5763,7 +5854,8 @@ export function createTasks(options: {
     }
     if (task.repos.length > 0) return reopenWorktree(task)
     const resolution = await taskWorkflow(task, { fetch: false })
-    if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
+    if (!task.lead)
+      store.setTaskLead(task.id, { ...leadFrom(resolution.workflow.settings), effortMode: 'stage' })
     const stage = resolution.workflow.next('backlog') as AgentStageId
     const chosen = chosenEntries(
       find(task.id).chosenRepos,
@@ -6218,14 +6310,31 @@ export function createTasks(options: {
     try {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
+      acknowledgeLeadMessages(run)
+      const current = find(taskId)
+      const lead = effectiveLead(current)
+      const messages = current.pendingLeadMessages
       await runs.revive(run.id, {
         prompt: [
           overnightGuidance(store.settings().overnightMode),
           revivedMessage(reason),
           ...editedSince(task),
+          ...messages.map((message) => message.text),
         ].join('\n\n'),
+        messageIds: messages.map((message) => message.id),
+        ...(lead && {
+          flags: {
+            ...(lead.model !== undefined && { model: lead.model }),
+            ...(lead.effort !== undefined && { effort: lead.effort }),
+            usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
+          },
+        }),
         env: { ...env, TED_TASK: task.displayId },
       })
+      if (current.leadRestartPending) {
+        store.setLeadRestartPending(taskId, false)
+        await store.persisted()
+      }
       await sendWaiting(task.id)
     } catch (error) {
       console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
@@ -6514,6 +6623,7 @@ export function createTasks(options: {
       runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
     },
     accepted(run, texts) {
+      acknowledgeLeadMessages(run)
       markAccepted(run, texts)
       const timer = nudgeTimers.get(run.id)
       timer?.cancel()
@@ -6941,6 +7051,19 @@ export function createTasks(options: {
       await untilFree(task.id)
       return holding(find(task.id), () => failures.resolve(find(task.id), id, input))
     },
+    deliveryAllowed(runId) {
+      const run = store.getRun(runId)
+      const task = run?.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!run || !task || task.leadRunId !== runId) return true
+      const lead = effectiveLead(task)
+      return (
+        !applying.has(task.id) &&
+        !task.leadRestartPending &&
+        task.pendingLeadMessages.length === 0 &&
+        (!lead || sameChoice(lead, run))
+      )
+    },
+
     async create(
       {
         title,
@@ -7017,7 +7140,7 @@ export function createTasks(options: {
             ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
           },
         }),
-        lead: lead ?? leadFrom(resolution?.workflow.settings),
+        lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
         blockedBy: blockers,
         startRequested: startNow === true && !held,
         ...(factory && { factoryId: factory.id }),
@@ -7067,7 +7190,7 @@ export function createTasks(options: {
         codex: agents.installed('codex'),
       })
       return {
-        lead: choices.lead,
+        lead: { ...choices.lead, effortMode: 'stage' },
         planner: choices.planner,
         clarifyDepth: clarifyDepths.find((d) => d === depth) ?? 'auto',
       }
