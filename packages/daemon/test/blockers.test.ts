@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -42,6 +42,12 @@ async function startTed() {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
   })
+  const client = await openTed()
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  return client
+}
+
+async function openTed() {
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -49,7 +55,6 @@ async function startTed() {
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
-  await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   return { ...client, ok }
 }
 
@@ -348,6 +353,97 @@ describe('starting when the blocker merges', () => {
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect((await getTask(client, task.id)).stage).toBe('backlog')
   })
+
+  test.each(['one', 'all'] as const)(
+    'removing remaining blockers mid-flow (%s) waits for Resume and keeps context',
+    async (removal) => {
+      let client = await startTed()
+      const gate = path.join(scratch, 'gate')
+      const briefFile = path.join(scratch, 'brief.md')
+      await writeFile(
+        briefFile,
+        '## Goal\n\nParse dates.\n\n## Decisions so far\n\nKeep the parser.\n\n## Current state\n\nParser half done.\n\n## Open questions\n\nNone.\n\n## Next step\n\nFinish integration.\n',
+      )
+      const blocker = await create(client, doneWhen(gate))
+      const other = await create(client, 'Other blocker')
+      const task = await create(
+        client,
+        steps(
+          { run: advance },
+          { run: ['ted', 'brief', 'write', '--file', briefFile] },
+          { endTurn: true },
+          {
+            everyMessage: [
+              { run: ['ted', 'task', 'block', '--by', blocker.displayId] },
+              { endTurn: true },
+            ],
+          },
+        ),
+        { start: true },
+      )
+      const first = await waitFor(
+        client,
+        task,
+        (t) => t.stage === 'work' && t.runs[0]?.state === 'idle',
+        'to work before waiting for a blocker',
+      )
+      const runId = first.leadRunId ?? ''
+      const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
+      const unfinished = path.join(worktree, 'parser.txt')
+      await writeFile(unfinished, 'unfinished parser\n')
+
+      await block(client, task, blocker)
+      await waitFor(client, task, (t) => t.status?.kind === 'blocked', 'to be Blocked')
+      await block(client, task, other)
+      await client.ok('DELETE', `/tasks/${task.id}/blockers/${other.displayId}`)
+      expect((await getTask(client, task.id)).status?.kind).toBe('blocked')
+      if (removal === 'all') await block(client, task, other)
+
+      const route = `/tasks/${task.id}/blockers${removal === 'one' ? `/${blocker.displayId}` : ''}`
+      const stopped = await client.ok<Task>('DELETE', route)
+      expect(stopped).toMatchObject({
+        stage: 'work',
+        blockedBy: [],
+        runs: [],
+        status: { kind: 'stopped' },
+        commentBox: 'stopped',
+        activity: 'Its blockers are gone. Resume to carry on.',
+      })
+      expect(stopped.leadRunId).toBe(runId)
+      expect((await client.getRun(runId)).run.state).toBe('finished')
+
+      await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Keep the old endpoint.' })
+      await client.ok('POST', `/tasks/${blocker.id}/start`)
+      await writeFile(gate, '')
+      await waitFor(client, blocker, (t) => t.stage === 'done', 'to merge after manual removal')
+
+      if (removal === 'all') {
+        await daemon?.stop()
+        daemon = undefined
+        client = await openTed()
+      }
+      const stillStopped = await getTask(client, task.id)
+      expect(stillStopped.status?.kind).toBe('stopped')
+      expect(stillStopped.runs).toEqual([])
+      expect(stillStopped.leadRunId).toBe(runId)
+      expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
+
+      await client.ok('POST', `/tasks/${task.id}/resume`, {})
+      const fresh = await waitFor(
+        client,
+        task,
+        (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
+        'to start a fresh Run only after Resume',
+      )
+      expect(fresh.stage).toBe('work')
+      const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
+      expect(prompt).toContain('# Picking up after a stop')
+      expect(prompt).toContain('Parser half done.')
+      expect(prompt).toContain('Keep the old endpoint.')
+      expect((await client.getRun(runId)).run.state).toBe('finished')
+      expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
+    },
+  )
 
   test('a blocker in another Factory works', async () => {
     const client = await startTed()
