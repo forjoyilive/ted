@@ -28,7 +28,7 @@ const declined: Record<string, unknown> = {
   'mcpServer/elicitation/request': { action: 'decline', content: null, _meta: null },
 }
 
-const rejection = { denied: { rejection: 'The human denied this request' } }
+const rejection = { denied: { rejection: 'The user denied this request' } }
 
 const replies: Record<string, (approved: boolean, grant: unknown) => unknown> = {
   'item/commandExecution/requestApproval': (approved) => ({

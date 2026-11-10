@@ -1850,7 +1850,7 @@ export function createTasks(options: {
     `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
 
   const needsSignOff = (target: MergeWork, why: string) =>
-    `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
+    `${why} TED merges only the commits the user signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
 
   async function adoptRebase(
     task: StoredTask,
@@ -2040,17 +2040,17 @@ export function createTasks(options: {
       await mergeSendBack(
         task.id,
         [
-          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
+          `TED asked the user about CI at Merge: ${comment.title ?? ''}.`,
           comment.body.split('\n\n')[0] ?? '',
-          'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
-          ...(text !== '' ? [`The human added: ${text}`] : []),
+          'The user sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
+          ...(text !== '' ? [`The user added: ${text}`] : []),
         ].join('\n\n'),
         undefined,
         false,
         { counted: false },
       )
     } else if (choice === undefined && text !== '') {
-      await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
+      await deliverAnswer(task, answered, `The user answered “${comment.title ?? ''}”:\n\n${text}`)
     }
     return store.getComment(comment.id) ?? answered
   }
@@ -2198,7 +2198,7 @@ export function createTasks(options: {
       await sendComment(run.id)
       await deliver(
         current,
-        'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+        'The user cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the user’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
       )
     }
     if (stillOn.length > 0) {
@@ -2742,7 +2742,7 @@ export function createTasks(options: {
       .map((r) => r.name)
       .join(', ')
     const lines = [
-      `The human changed this Task’s repos. They are now: ${names}.`,
+      `The user changed this Task’s repos. They are now: ${names}.`,
       ...adding.map((e) => {
         const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, e.repo))
         const where = repo ? ` Its worktree is ${repo.worktree}, on branch ${repo.branch}.` : ''
@@ -3280,7 +3280,7 @@ export function createTasks(options: {
     if (!edited) return []
     const current = find(task.id)
     return [
-      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+      `The user edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
     ]
   }
 
@@ -3334,7 +3334,7 @@ export function createTasks(options: {
               {
                 at: c.answer?.at ?? c.createdAt,
                 line: withLines(
-                  `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+                  `- ${c.answer?.at ?? c.createdAt}: the user answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
                   c,
                 ),
               },
@@ -3427,7 +3427,7 @@ export function createTasks(options: {
         if (open) {
           throw new RequestError(
             409,
-            `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+            `Round ${open.round?.number ?? ''} is still waiting on the user; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
           )
         }
         const answered = roundsThisVisit(task).some(
@@ -3498,7 +3498,7 @@ export function createTasks(options: {
           ? undefined
           : supersedable(task, runId, supersedes, isSizeCheck, 'size check')
       if (!old && openRequestOf(task, isSizeCheck)) {
-        throw new RequestError(409, 'the size check is already waiting on the human')
+        throw new RequestError(409, 'the size check is already waiting on the user')
       }
       const comment = {
         taskId: task.id,
@@ -3547,7 +3547,7 @@ export function createTasks(options: {
       if (open) {
         throw new RequestError(
           409,
-          `your proposal is still waiting on the human; if it’s out of date, replace it with \`ted task propose --supersedes ${open.id} --file <file>\``,
+          `your proposal is still waiting on the user; if it’s out of date, replace it with \`ted task propose --supersedes ${open.id} --file <file>\``,
         )
       }
       const comment = {
@@ -4078,7 +4078,7 @@ export function createTasks(options: {
     const talking = store.startRoundTalk(round.id, run.id)
     await deliver(
       task,
-      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
+      `The user wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
     )
     return talking
   }
@@ -4097,7 +4097,7 @@ export function createTasks(options: {
     await deliver(
       task,
       [
-        `The human is done talking Round ${round.round?.number ?? ''} through.`,
+        `The user is done talking Round ${round.round?.number ?? ''} through.`,
         'Write a summary of the talk to a file: each question and what you agreed, then what is still open. Post it with `ted ask --close --summary <file>`; TED posts it as your note and closes the round as answered in Talk it through.',
         'If anything is still open, ask it in a new round with `ted ask --round <file>` after closing this one.',
       ].join('\n\n'),
@@ -4116,13 +4116,13 @@ export function createTasks(options: {
       if (!round?.talk) {
         throw new RequestError(
           409,
-          'no round is being talked through; `ted ask --close` closes a round after the human clicks Talk it through',
+          'no round is being talked through; `ted ask --close` closes a round after the user clicks Talk it through',
         )
       }
       if (round.talk.runId !== runId) {
         throw new RequestError(
           409,
-          `the human talked Round ${round.round?.number ?? ''} through with an earlier Task Lead Run; ask them to click Talk it through again, or ask a new round`,
+          `the user talked Round ${round.round?.number ?? ''} through with an earlier Task Lead Run; ask them to click Talk it through again, or ask a new round`,
         )
       }
       const note = store.postComment({
@@ -4326,7 +4326,7 @@ export function createTasks(options: {
         })
         return {
           task: publicTask(task.id),
-          message: `Validate has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+          message: `Validate has sent this Task back ${times}, its limit, so TED asked the user instead. TED sends you their answer.`,
           request,
         }
       }
@@ -4349,7 +4349,7 @@ export function createTasks(options: {
       })
       return {
         task: publicTask(task.id),
-        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the user instead. TED sends you their answer.`,
         request,
       }
     }
@@ -4541,7 +4541,7 @@ export function createTasks(options: {
     })
     await deliver(
       task,
-      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
+      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : 'gave no verdict'}, so TED asked the user what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
     )
   }
 
@@ -4604,7 +4604,7 @@ export function createTasks(options: {
     if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
     if (choice !== tryAgainChoice && choice !== backToDesignChoice)
       await requireObligations(current)
-    const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
+    const added = text === '' ? '' : `\n\nThe user added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
       at,
@@ -4627,7 +4627,7 @@ export function createTasks(options: {
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+        `The user chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -4641,18 +4641,18 @@ export function createTasks(options: {
         current,
         resolution,
         'design',
-        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+        `The user sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
       )
     } else {
       pullRequestWork(task.id, 'again')
-      const open = `# Open Findings\n\nThe human chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
+      const open = `# Open Findings\n\nThe user chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the user sees them at ${stageTitle(next)}:\n\n${ask.findings}`
       await move(
         current,
         resolution,
         next,
         next === 'done'
           ? undefined
-          : `The human moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
+          : `The user moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
       )
     }
     return answered
@@ -5251,7 +5251,7 @@ export function createTasks(options: {
     if (last?.name === 'v1.TaskUnarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
-        why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
+        why: 'The user archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
       })
     }
     if (last?.name === 'v1.GitHubActivityQueued') {
@@ -5270,7 +5270,7 @@ export function createTasks(options: {
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
-        why: 'The human resumed this Task after its Task Lead stopped.',
+        why: 'The user resumed this Task after its Task Lead stopped.',
       })
     }
     const merged = store
@@ -5285,7 +5285,7 @@ export function createTasks(options: {
 
   function fromTheBrief(task: StoredTask, { heading, why }: { heading: string; why: string }) {
     const brief = store.latestBrief(task.id)
-    const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
+    const authors = { ted: 'TED', human: 'The user', run: 'Task Lead' } as const
     const notes = store
       .listComments(task.id)
       .filter((c) => !brief || c.createdAt > brief.createdAt)
@@ -5311,7 +5311,7 @@ export function createTasks(options: {
     if (!firing || !automation || !factory) {
       throw new RequestError(
         403,
-        'Only an Automation Run creates Tasks with `ted task create`. Ask the human to create it.',
+        'Only an Automation Run creates Tasks with `ted task create`. Ask the user to create it.',
       )
     }
     if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
@@ -5418,7 +5418,7 @@ export function createTasks(options: {
     const merged = original.merged ? ` It merged at ${original.merged.at}.` : ''
     return [
       `# Follow-up to ${id}`,
-      `This Task follows up ${id} · ${original.title.replace(/\s*\n\s*/g, ' ')}.${merged} ${id} is Done and is never reopened, so make the further change the human asked for in this Task. Start from ${id}’s Task brief and pull requests below. Where they already settle what Clarify or Design would decide, skip that Stage with \`ted outcome advance --skip\`.`,
+      `This Task follows up ${id} · ${original.title.replace(/\s*\n\s*/g, ' ')}.${merged} ${id} is Done and is never reopened, so make the further change the user asked for in this Task. Start from ${id}’s Task brief and pull requests below. Where they already settle what Clarify or Design would decide, skip that Stage with \`ted outcome advance --skip\`.`,
       ...(brief
         ? [`## ${id}’s Task brief (version ${brief.version})\n\n${brief.text.trim()}`]
         : []),
@@ -5493,7 +5493,7 @@ export function createTasks(options: {
     const id = blocker.displayId
     return runs.send(
       run.id,
-      `The human made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the human with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
+      `The user made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the user with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
     )
   }
 
@@ -6212,7 +6212,7 @@ export function createTasks(options: {
         redactSecrets(
           withLines(
             failureText(
-              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+              `The user resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
             ),
             comment,
           ),
@@ -6758,8 +6758,8 @@ export function createTasks(options: {
           await deliver(
             task,
             depth === 'auto'
-              ? 'The human set Clarify depth back to Auto. Pick one yourself at Clarify.'
-              : `The human set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
+              ? 'The user set Clarify depth back to Auto. Pick one yourself at Clarify.'
+              : `The user set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
           )
         }
         return set
@@ -6776,7 +6776,7 @@ export function createTasks(options: {
       if (floor !== undefined && depthOrder.indexOf(depth) < depthOrder.indexOf(floor)) {
         throw new RequestError(
           403,
-          `the human set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
+          `the user set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
         )
       }
       return store.setClarifyDepth(task.id, {
@@ -6939,11 +6939,11 @@ export function createTasks(options: {
             task,
             comment,
             [
-              `The human asked for changes at the ${gateName(comment)}:`,
+              `The user asked for changes at the ${gateName(comment)}:`,
               text,
               ...(lines !== undefined ? [lines] : []),
               picksStage
-                ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
+                ? `Decide whether the fix belongs in Work or in Design, write the user’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
                 : comment.stage === 'clarify'
                   ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
                   : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
@@ -6964,8 +6964,8 @@ export function createTasks(options: {
           if (!liveLead(now)) store.holdAnswer(comment.id)
           const approved =
             text === ''
-              ? `The human approved the ${gateName(comment)}.`
-              : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+              ? `The user approved the ${gateName(comment)}.`
+              : `The user approved the ${gateName(comment)} and added:\n\n${text}\n\n`
           if (now.stage === 'merge') {
             startMerging(find(task.id))
             watchMerge(task.id)
@@ -7032,7 +7032,7 @@ export function createTasks(options: {
           task,
           comment,
           [
-            `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
+            `The user answered “${comment.title ?? firstLine(comment.body)}”:`,
             ...(choice !== undefined ? [choice] : []),
             ...(text !== '' ? [text] : []),
             ...(lines !== undefined ? [lines] : []),
@@ -7093,7 +7093,7 @@ export function createTasks(options: {
         if (asked) {
           throw new RequestError(
             409,
-            `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+            `TED asked the user whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
           )
         }
       }
@@ -7110,7 +7110,7 @@ export function createTasks(options: {
           })
           return {
             task: publicTask(task.id),
-            message: `Asked the human (request ${request.id}). TED sends you their answer.`,
+            message: `Asked the user (request ${request.id}). TED sends you their answer.`,
             request,
           }
         }
@@ -7123,7 +7123,7 @@ export function createTasks(options: {
           if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
             throw new RequestError(
               409,
-              `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
+              `the user asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
             )
           }
           if (stage === 'validate') {
@@ -7135,7 +7135,7 @@ export function createTasks(options: {
         if (changesAsked) {
           throw new RequestError(
             409,
-            `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+            `the user asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
           )
         }
         if (stage === 'merge') {
@@ -7143,7 +7143,7 @@ export function createTasks(options: {
           throw new RequestError(
             409,
             mode === 'off'
-              ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
+              ? `Merge is off for this Factory: the user merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
               : mode === 'gate'
                 ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
                 : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
@@ -7153,7 +7153,7 @@ export function createTasks(options: {
         if (waiting) {
           throw new RequestError(
             409,
-            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+            `Round ${waiting.round?.number ?? ''} is still waiting on the user; TED sends you their answers`,
           )
         }
         if (outcome.skip === true) {
@@ -7244,7 +7244,7 @@ export function createTasks(options: {
         }
         return {
           task: publicTask(task.id),
-          message: `Waiting for the human at the ${name}. TED sends you their answer.`,
+          message: `Waiting for the user at the ${name}. TED sends you their answer.`,
           request,
         }
       })
@@ -7545,7 +7545,7 @@ const sendToLeadChoice = 'Send to Task Lead'
 const keepWaitingChoice = 'Keep waiting'
 const mergeAnywayChoice = 'Merge anyway'
 const mergeOffMessage =
-  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
+  'Merge is off for this Factory: the user merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
 
 function isCiStuck(comment: Comment): boolean {
   return (
@@ -7736,11 +7736,11 @@ function permissionMessage(approved: boolean, command: string, text: string): st
   if (approved) {
     return text === ''
       ? undefined
-      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
+      : `The user approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
   }
   return text === ''
-    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
-    : `The human denied this request and said:\n\n${text}`
+    ? 'The user denied this request. Don’t retry it; find another way or ask with `ted ask`.'
+    : `The user denied this request and said:\n\n${text}`
 }
 
 function editMessage(
@@ -7753,7 +7753,7 @@ function editMessage(
   const marks = { context: '  ', added: '+ ', removed: '- ' } as const
   const diff = diffTexts('description', before, edited.description)
   return [
-    `The human edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
+    `The user edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
     ...(renamed ? [`Title was: ${task.title}\nTitle now: ${edited.title}`] : []),
     ...(changed
       ? [
@@ -7769,7 +7769,7 @@ function editMessage(
 }
 
 function humanMessage(body: string): string {
-  return `The human posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
+  return `The user posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
 }
 
 function flat(text: string): string {
@@ -7860,7 +7860,7 @@ function joinAnd(items: readonly string[]): string {
 const setupProblem = 'setup-unfinished'
 
 const firstSetupDescription =
-  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
+  'Set up TED for this Factory. Read its repos, ask how the user works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
 
 const laterSetupDescription =
-  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'
+  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the user works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'

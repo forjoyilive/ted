@@ -10,7 +10,7 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 
 ## Steps
 
-1. The Checks already ran Typecheck and Lint. GitHub CI runs these two commands automatically on pull requests and pushes to `main`; full-suite CI is reserved for `v*` release tags. Agents never start GitHub workflows. Run tests covering the changed behaviour. The full `pnpm test` suite failed on the setup baseline (73 failing tests); compare any failures with that baseline and report them. Before merging to `main`, run all three commands required by `AGENTS.md`; if the suite is still failing for reasons outside the Task, ask the human how to proceed.
+1. The Checks already ran Typecheck and Lint. GitHub CI runs these two commands automatically on pull requests and pushes to `main`; full-suite CI is reserved for `v*` release tags. Agents never start GitHub workflows. Run tests covering the changed behaviour. The full `pnpm test` suite failed on the setup baseline (73 failing tests); compare any failures with that baseline and report them. Before merging to `main`, run all three commands required by `AGENTS.md`; if the suite is still failing for reasons outside the Task, ask the user how to proceed.
 2. Have the reviewer review the diff with no Work context: start it with `ted run start --reviewer --prompt-file <file>`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings with `ted run wait`. TED picks the reviewer’s agent, model and effort.
 3. Run `/codex-review` on the branch against `main`, every time. Include its confirmed Findings in the Validate result.
 4. Perform a security review when the change touches starting agents or running shell commands, messages between processes, credentials or tokens, network requests, or reading and writing files outside the repo. Use an available security review skill or tool, or review manually when none is available. Include the method used and its confirmed Findings in the Validate result.
@@ -23,13 +23,13 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 
 ## Done when
 
-There are no blocking Findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the human’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
+There are no blocking Findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the user’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
 
 ## Send back when
 
-There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. From the third send-back TED checks whether the rounds are converging and may ask the human instead; it tells you what happens.
+There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. From the third send-back TED checks whether the rounds are converging and may ask the user instead; it tells you what happens.
 
-## Ask the human when
+## Ask the user when
 
 A check fails for a reason outside this Task, or fixing a Finding would change what the Task delivers.
 

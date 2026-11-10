@@ -339,7 +339,7 @@ describe('Automations', () => {
     for (const [method, route, body] of changes) {
       expect(await asRun.call(method, route, body), `${method} ${route}`).toEqual({
         status: 403,
-        body: { error: 'Ask the human to change Automations' },
+        body: { error: 'Ask the user to change Automations' },
       })
     }
     const asFile = api(daemon?.port ?? 0, await tokenFor(home))
@@ -404,7 +404,7 @@ describe('Automations', () => {
     )
     await waitUntil(
       async () => (await detail(client, asking.id)).automation.now?.kind === 'waiting',
-      'the asking Run to wait on the human',
+      'the asking Run to wait on the user',
     )
     const [question] = (await detail(client, asking.id)).requests
     expect(question).toMatchObject({
@@ -440,7 +440,7 @@ describe('Automations', () => {
       20_000,
     )
     const answered = await client.ok<RunWithConversation>('GET', `/runs/${first}`)
-    expect(answered.conversation.some((e) => e.line.includes('The human answered'))).toBe(true)
+    expect(answered.conversation.some((e) => e.line.includes('The user answered'))).toBe(true)
     await waitForHistory(
       client,
       asking.id,
@@ -561,7 +561,7 @@ describe('Automations', () => {
     expect(results[3]?.stdout).toContain('Sentry crash intake')
     expect(results[4]).toMatchObject({
       code: 1,
-      stderr: 'ted: Ask the human to change Automations\n',
+      stderr: 'ted: Ask the user to change Automations\n',
     })
     expect((await detail(client, automation.id)).automation.on).toBe(true)
 
@@ -944,7 +944,7 @@ describe('Tasks an Automation Run starts', () => {
     return { automation, created, followUp }
   }
 
-  test('in a Bypass Factory they stay in Backlog for the human to start', async () => {
+  test('in a Bypass Factory they stay in Backlog for the user to start', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
     })

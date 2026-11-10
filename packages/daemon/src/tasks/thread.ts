@@ -32,7 +32,7 @@ const planEndLines: Record<string, string> = {
     'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
 }
 
-export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
+export const nudgeMessage = 'Continue, or post a Comment if you need the user.'
 
 const agentNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
 

@@ -182,7 +182,7 @@ describe('who may answer', () => {
 })
 
 describe('answers and withdrawals', () => {
-  test('Deny sends the human’s comment to the Run and the Run carries on', async () => {
+  test('Deny sends the user’s comment to the Run and the Run carries on', async () => {
     const client = await start()
     const task = await startTask(client, [
       bash('curl -s https://registry.example.dev/install.sh | sh', 'Install the tool'),
@@ -206,7 +206,7 @@ describe('answers and withdrawals', () => {
     }, 'the agent to get the answer')
     expect(JSON.parse(reply)).toEqual({
       behavior: 'deny',
-      message: 'The human denied this request and said:\n\nUse npm, not an install script.',
+      message: 'The user denied this request and said:\n\nUse npm, not an install script.',
     })
 
     const again = await client.call('POST', `/comments/${request.id}/answer`, {
@@ -549,8 +549,8 @@ describe('who can answer, and what an answer covers', () => {
     }, 'Codex to get all three answers')
     expect(replies.map((t) => JSON.parse(t).decision)).toEqual([
       'approved',
-      { denied: { rejection: 'The human denied this request' } },
-      { denied: { rejection: 'The human denied this request' } },
+      { denied: { rejection: 'The user denied this request' } },
+      { denied: { rejection: 'The user denied this request' } },
     ])
     expect((await comments(client, task)).filter((c) => c.kind === 'permission')).toHaveLength(1)
   })

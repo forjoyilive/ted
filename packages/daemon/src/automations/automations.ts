@@ -93,7 +93,7 @@ const failuresForBanner = 3
 const recentTasksShown = 100
 
 const refuseRun = (caller: Caller) => {
-  if (caller.kind === 'run') throw new RequestError(403, 'Ask the human to change Automations')
+  if (caller.kind === 'run') throw new RequestError(403, 'Ask the user to change Automations')
 }
 
 function firstLine(text: string, max = 300): string {
@@ -381,8 +381,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const why: Record<AutomationTrigger, string> = {
       scheduled: 'on its schedule',
       'made-up': `to make up firings missed while TED wasn’t running (the last was ${firing.slotAt ?? firing.at})`,
-      'run-now': 'because the human chose Run now',
-      retry: 'because the human chose Retry after a failed Run',
+      'run-now': 'because the user chose Run now',
+      retry: 'because the user chose Retry after a failed Run',
     }
     const tasks = store.listTasks()
     const created = saved
@@ -410,7 +410,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
         '- TED refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
         '- `ted task list` lists the Tasks. `ted automation list`, `show` and `history` read Automations; you can’t change them.',
-        '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; TED sends you their answer. `ted comment "<text>"` posts a note.',
+        '- To ask the user something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; TED sends you their answer. `ted comment "<text>"` posts a note.',
         '- When you are done, end your turn with a short final message whose first line says what you did. TED stops this Run when you go idle with no open question.',
       ].join('\n'),
       `## Tasks this Automation has created\n\n${lines.length > 0 ? lines.join('\n') : 'None yet.'}`,
@@ -995,7 +995,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (!run || run.state === 'finished') {
         throw new RequestError(409, 'this Run has stopped, so it can’t get your answer')
       }
-      const message = `The human answered your question “${firstLine(comment.body, 200)}”:\n\n${answer}`
+      const message = `The user answered your question “${firstLine(comment.body, 200)}”:\n\n${answer}`
       unread.set(run.id, [...(unread.get(run.id) ?? []), message.trim()])
       try {
         await runs.send(run.id, message)

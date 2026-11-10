@@ -272,7 +272,7 @@ describe('a multi-repo Task', () => {
     expect(liveRepos(await getTask(client, task.id))).toEqual(['widgets'])
   })
 
-  test('the human sets Repos in Backlog; both worktrees and setups are ready before the Task Lead', async () => {
+  test('the user sets Repos in Backlog; both worktrees and setups are ready before the Task Lead', async () => {
     await twoRepos(['    worktree:', '      setup: "touch setup-ran"', ''].join('\n'))
     const client = await start()
     await addFactory(client)
@@ -294,7 +294,7 @@ describe('a multi-repo Task', () => {
     expect(new Set(current?.repos.map((r) => r.branch)).size).toBe(1)
   })
 
-  test('the human adds a repo while the Task Lead works, and the Task Lead is told', async () => {
+  test('the user adds a repo while the Task Lead works, and the Task Lead is told', async () => {
     await twoRepos()
     const client = await start()
     await addFactory(client)
@@ -313,7 +313,7 @@ describe('a multi-repo Task', () => {
     expect(await exists(path.join(taskFolder(), 'api', 'README.md'))).toBe(true)
     const told = await waitUntil(async () => {
       const lines = (await client.getRun(run.id)).conversation.map((e) => e.line)
-      return lines.find((l) => l.includes('The human changed this Task’s repos'))
+      return lines.find((l) => l.includes('The user changed this Task’s repos'))
     }, 'the message to the Task Lead')
     expect(told).toContain('Added api (acme/api)')
     const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)

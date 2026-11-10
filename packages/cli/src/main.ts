@@ -46,25 +46,25 @@ const usage = `Usage:
   ted comment --attach <path> … ["<text>"]   Post a note with files; images show in the thread
   ted comment --tutorial "<text>"            In a setup Task, post a Comment with a Tutorial chip
   ted comment --choice "<answer>" … "<question>"
-                                             Ask the human a question with choice buttons
+                                             Ask the user a question with choice buttons
   ted ask --supersedes <request-id> [--choice "<answer>" …] "<question>"
                                              Replace your own unanswered request with a new one
   ted ask --round <file> [--supersedes <request-id>]
                                              Post a Clarify round: a JSON file with a title, an
                                              optional summary and questions, each with its
                                              recommended answer and optional choices
-  ted ask --close --summary <file>           Close the round the human talked through with you,
+  ted ask --close --summary <file>           Close the round the user talked through with you,
                                              posting the file as your summary note
   ted clarify depth none|few|grilling "<why>"
                                              Pick the Clarify depth and say why
   ted clarify too-big "<why>" --settle "<point>" … [--supersedes <request-id>]
-                                             Ask the human what to do with a Task too big for
+                                             Ask the user what to do with a Task too big for
                                              one pull request per repo; each --settle names
                                              something a plan must settle (reads why from stdin
                                              if no text)
   ted outcome advance [--skip] [--task <id>] End the current Stage and move the Task on
                                              (--skip: the Stage had nothing to do; skips its Gate)
-                [--changes "<one line>"]       On a re-sign-off, say what changed since the human
+                [--changes "<one line>"]       On a re-sign-off, say what changed since the user
                                              approved
                 [--design <file>]              At Design, post the design review: a JSON file with
                                              screenshots, a video, a prototype, a Figma link and
@@ -74,13 +74,13 @@ const usage = `Usage:
                 At Validate, both take [--review pass|fail] [--review-notes <n>]
                 [--visual pass|fail] [--visual-notes <n>] for the confirmation row
   ted outcome ask [--choice "<answer>" …] "<question>"
-                                             Ask the human instead of moving on
+                                             Ask the user instead of moving on
   ted checks [--name <Check>]                Run the Factory’s Checks now, one after another,
                                              stopping at the first failure
   ted run-app [<App>] [--repo <name>]        Start one of the Task’s Apps, or reuse the running
              [--reason <text>]               one, and wait until it answers; prints its URL.
                                              An iOS simulator App waits for a free simulator;
-                                             --reason tells the human why you need one
+                                             --reason tells the user why you need one
   ted app screenshot <App> [--repo <name>]   Save a screenshot of an iOS simulator App to the Task
   ted app record <App> --start|--stop        Record an iOS simulator App’s screen; --stop saves
                                              the video to the Task
@@ -299,7 +299,7 @@ try {
     )
     console.log(
       comment.kind === 'question'
-        ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+        ? `Asked the user (request ${comment.id}). TED sends you their answer.`
         : 'Posted',
     )
   } else if (group === 'comment') {
@@ -335,7 +335,7 @@ try {
     })
     console.log(
       comment.kind === 'question'
-        ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+        ? `Asked the user (request ${comment.id}). TED sends you their answer.`
         : 'Posted',
     )
   } else if (
@@ -372,7 +372,7 @@ try {
         ? `Round ${request.round?.number ?? ''}`
         : `a proposal of ${request.proposal?.rows.length ?? 0} rows`
     console.log(
-      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the user’s answer.`,
     )
   } else if (group === 'ask' && options.round !== undefined && command === undefined) {
     const ref = taskRef()
@@ -382,7 +382,7 @@ try {
       client.postComment(ref, { round, ...(supersedes !== undefined && { supersedes }) }),
     )
     console.log(
-      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.`,
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the user’s answers.`,
     )
   } else if (group === 'clarify' && command === 'depth' && rest.length >= 1) {
     const ref = taskRef()
@@ -412,7 +412,7 @@ try {
       }),
     )
     console.log(
-      `Asked the human what to do with this Task (request ${request.id}). TED sends you their answer.`,
+      `Asked the user what to do with this Task (request ${request.id}). TED sends you their answer.`,
     )
   } else if (group === 'task' && command === 'propose' && rest.length === 0) {
     const ref = taskRef()
@@ -424,7 +424,7 @@ try {
     )
     const rows = request.proposal?.rows.length ?? 0
     console.log(
-      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the human’s answer.`,
+      `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the user’s answer.`,
     )
   } else if (group === 'ask' && options.supersedes !== undefined) {
     const ref = taskRef()
@@ -708,7 +708,7 @@ async function taskRepos(action: 'set' | 'add' | 'remove', names: string[]): Pro
   if (changed.confirm) {
     for (const { name, commits } of changed.confirm) {
       console.error(
-        `ted: ${printable(name)}’s worktree has ${commits} ${commits === 1 ? 'commit' : 'commits'} that would be lost. Ask the human first; if they agree, run the command again with --yes.`,
+        `ted: ${printable(name)}’s worktree has ${commits} ${commits === 1 ? 'commit' : 'commits'} that would be lost. Ask the user first; if they agree, run the command again with --yes.`,
       )
     }
     process.exitCode = 1
@@ -1140,7 +1140,7 @@ async function runApp(given: string | undefined): Promise<void> {
     })
     if (app.state === 'waiting') {
       console.error(
-        `Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…`,
+        `Every simulator is booted, so TED asked the user which one to shut down. Waiting for an answer…`,
       )
     }
     while (app.state === 'starting' || app.state === 'waiting') {
@@ -1165,15 +1165,15 @@ async function runApp(given: string | undefined): Promise<void> {
   const name = printable(app.name)
   if (app.state === 'running' && app.simulator !== undefined) {
     console.log(
-      `${name} is running on ${printable(app.simulator.device)}. It keeps running until the human stops it or the Task ends.`,
+      `${name} is running on ${printable(app.simulator.device)}. It keeps running until the user stops it or the Task ends.`,
     )
     return
   }
   if (app.state === 'running') {
     console.log(
       app.url !== undefined
-        ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until the human stops it or the Task ends.`
-        : `${name} is running on port ${app.port}. It keeps running until the human stops it or the Task ends.`,
+        ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until the user stops it or the Task ends.`
+        : `${name} is running on port ${app.port}. It keeps running until the user stops it or the Task ends.`,
     )
     return
   }

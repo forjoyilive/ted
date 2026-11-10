@@ -181,7 +181,7 @@ async function start(prs: Record<number, PrState> = {}) {
   const briefFile = path.join(scratch, 'brief.md')
   await writeFile(briefFile, brief)
   const findingsFile = path.join(scratch, 'findings.md')
-  await writeFile(findingsFile, 'The human asked for changes.\n')
+  await writeFile(findingsFile, 'The user asked for changes.\n')
   return { ...client, ok, briefFile, findingsFile }
 }
 

@@ -177,7 +177,7 @@ export async function start(
   const briefFile = path.join(ctx.scratch, 'brief.md')
   await writeFile(briefFile, brief)
   const findingsFile = path.join(ctx.scratch, 'findings.md')
-  await writeFile(findingsFile, 'The human asked for a bigger button.\n')
+  await writeFile(findingsFile, 'The user asked for a bigger button.\n')
   const mergingFile = path.join(ctx.scratch, 'merging')
   return { ...client, ok, briefFile, findingsFile, mergingFile }
 }

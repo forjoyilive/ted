@@ -750,7 +750,7 @@ export function createApps(options: AppsOptions): Apps {
     if (got.state === 'denied') {
       return end(
         'failed',
-        `No simulator slot: the human denied${got.text === undefined ? '' : `. They said: “${got.text}”`}`,
+        `No simulator slot: the user denied${got.text === undefined ? '' : `. They said: “${got.text}”`}`,
       )
     }
     if (got.state === 'gone') return end('stopped')

@@ -51,7 +51,7 @@ export function clashMessage(clash: SourceClash): string {
     return `Already tracked as ${task.displayId} · ${stageTitle(task.stage)}`
   }
   if (clash.kind === 'archived') {
-    return `Already tracked as ${task.displayId}, which the human archived without merging. Leave it.`
+    return `Already tracked as ${task.displayId}, which the user archived without merging. Leave it.`
   }
   const facts = mergeFacts(task)
   return `${task.displayId} is Done${facts === '' ? '' : `: ${facts}`}. Use --follow-up ${task.displayId} if it isn’t fixed.`

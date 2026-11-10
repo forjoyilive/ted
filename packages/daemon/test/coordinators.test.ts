@@ -94,11 +94,11 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
-  await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the human' })
+  await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the user' })
   const read = unpack<CoordinatorTask>(
     (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
   )
-  expect(read.comments.some((c) => c.body === 'Fresh context from the human')).toBe(true)
+  expect(read.comments.some((c) => c.body === 'Fresh context from the user')).toBe(true)
   const again = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
     text: 'Compare these Tasks',
   })

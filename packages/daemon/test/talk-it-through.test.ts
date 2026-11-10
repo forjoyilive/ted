@@ -194,7 +194,7 @@ describe('Talk it through', () => {
       'the talk line to reach the Task Lead',
     )
     expect(opened).toBe(
-      'The human wants to talk Round 1 “Storage · 2 questions” through with you here; when it’s settled, post a summary with `ted ask --close --summary <file>`.',
+      'The user wants to talk Round 1 “Storage · 2 questions” through with you here; when it’s settled, post a summary with `ted ask --close --summary <file>`.',
     )
     await waitUntil(
       async () => (await agentTexts(client, task)).filter((t) => t === 'Noted.').length >= 2,
@@ -255,7 +255,7 @@ describe('Talk it through', () => {
     )
   })
 
-  test('the Task Lead can close the round on its own, but not before the human starts a talk', async () => {
+  test('the Task Lead can close the round on its own, but not before the user starts a talk', async () => {
     const client = await start()
     const task = await startTask(
       client,

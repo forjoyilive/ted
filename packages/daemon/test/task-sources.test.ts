@@ -129,7 +129,7 @@ describe('ted task create --source', () => {
     expect(again).toMatchObject({
       status: 409,
       body: {
-        error: `Already tracked as ${task.displayId}, which the human archived without merging. Leave it.`,
+        error: `Already tracked as ${task.displayId}, which the user archived without merging. Leave it.`,
       },
     })
   })

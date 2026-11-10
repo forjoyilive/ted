@@ -62,7 +62,7 @@ export function freshAfterFailure(entry: LoggedEvent): { heading: string; why: s
   if (entry.name === 'v1.TaskRetried') {
     return {
       heading: 'Picking up after a failure',
-      why: 'The Task Lead stopped twice in 30 minutes, and the human asked TED to try again.',
+      why: 'The Task Lead stopped twice in 30 minutes, and the user asked TED to try again.',
     }
   }
   const reason = typeof entry.data.reason === 'string' ? entry.data.reason : 'exited'

@@ -1,6 +1,6 @@
 # TED
 
-TED (“Totally Excellent Development”) is a desktop app for running software factories: agents carry development tasks through a configurable workflow, and the human steers through an inbox and comments. `AGENTS.md` at the repo root is the full guide to the code and its rules; read it before changing anything. Use the terms in `GLOSSARY.md`.
+TED (“Totally Excellent Development”) is a desktop app for running software factories: agents carry development tasks through a configurable workflow, and the user steers through an inbox and comments. `AGENTS.md` at the repo root is the full guide to the code and its rules; read it before changing anything. Use the terms in `GLOSSARY.md`.
 
 ## Repos
 

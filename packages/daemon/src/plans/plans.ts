@@ -99,7 +99,7 @@ const maxTitleLength = 200
 const maxMessageLength = 100_000
 
 const refuseRun = (caller: Caller) => {
-  if (caller.kind !== 'app') throw new RequestError(403, 'Only the human changes planning chats')
+  if (caller.kind !== 'app') throw new RequestError(403, 'Only the user changes planning chats')
 }
 
 function firstLine(text: string, max = 500): string {
@@ -905,13 +905,13 @@ export function createPlans(options: PlansOptions): Plans {
       if (open && open.id !== supersedes && open.kind !== kind) {
         throw new RequestError(
           409,
-          `your ${open.kind} is still waiting on the human; wait for their answer first`,
+          `your ${open.kind} is still waiting on the user; wait for their answer first`,
         )
       }
       if (open && open.id !== supersedes && kind === 'round') {
         throw new RequestError(
           409,
-          `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+          `Round ${open.round?.number ?? ''} is still waiting on the user; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
         )
       }
       const posted = round

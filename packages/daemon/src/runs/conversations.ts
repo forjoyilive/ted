@@ -308,7 +308,13 @@ export function createConversations(options: {
       subPreamble ??= subAgentPreamble().catch(() => '')
       const coordinated = store.coordinators.forRun(runId) !== undefined
       const planned = store.plans.get(runId) !== undefined
-      const openingText = coordinated ? coordinatorOpening : planOpening
+      const openings = coordinated
+        ? [coordinatorOpening, '## Message from the human']
+        : [planOpening, '## What the human wants to plan']
+      // Saved Runs can still carry the opening used before the terminology change.
+      const openingText =
+        openings.find((text) => run.prompt.includes(text)) ??
+        (coordinated ? coordinatorOpening : planOpening)
       const opening = coordinated
         ? run.prompt.lastIndexOf(openingText)
         : run.prompt.indexOf(openingText)

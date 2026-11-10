@@ -269,7 +269,7 @@ describe('Apps', () => {
     await eventText(client, task, `Fixed couldn’t start: port ${taken} is taken`)
   })
 
-  test('a Run starts only its own Task’s Apps, and only the human stops or restarts them', async () => {
+  test('a Run starts only its own Task’s Apps, and only the user stops or restarts them', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const client = await start()
     const task = await taskWithWorktree(client)
@@ -470,7 +470,7 @@ describe('the Apps’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'the human’s ▶ restarts an App a Run started sandboxed, outside the sandbox',
+    'the user’s ▶ restarts an App a Run started sandboxed, outside the sandbox',
     async () => {
       const outside = path.join(scratch, 'outside')
       await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(outside)) })
@@ -496,7 +496,7 @@ describe('the Apps’ sandbox', () => {
     },
   )
 
-  test('the human’s ▶ asks first until they choose Always for that App in this Factory, and a Run can’t choose it', async () => {
+  test('the user’s ▶ asks first until they choose Always for that App in this Factory, and a Run can’t choose it', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const client = await start()
     const task = await taskWithWorktree(client)
@@ -527,7 +527,7 @@ describe('the Apps’ sandbox', () => {
     expect(await logOf(client, task, outside)).toContain(`wrote ${outside}`)
   })
 
-  test('without a working sandbox a Run’s App doesn’t start and says why, but the human’s does', async () => {
+  test('without a working sandbox a Run’s App doesn’t start and says why, but the user’s does', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const before = process.env.TED_SANDBOX_BIN
     process.env.TED_SANDBOX_BIN = path.join(scratch, 'no-such-sandbox')

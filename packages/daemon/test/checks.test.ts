@@ -422,7 +422,7 @@ describe('Checks over the send-back limit and across restarts', () => {
     }
   }, 60_000)
 
-  test('past max_back a failing Check asks the human instead of sending back', async () => {
+  test('past max_back a failing Check asks the user instead of sending back', async () => {
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
       '.ted/workflow.yaml': [
@@ -449,7 +449,7 @@ describe('Checks over the send-back limit and across restarts', () => {
         >('GET', `/tasks/${task.id}/comments`)
         return comments.find((c) => c.kind === 'question')
       },
-      'the question to the human',
+      'the question to the user',
       40_000,
     )
     expect(question).toMatchObject({
@@ -461,13 +461,13 @@ describe('Checks over the send-back limit and across restarts', () => {
     const messages = await waitUntil(async () => {
       const all = await leadMessages(client, task)
       return all.some((m) => m.includes('# A Check failed')) ? all : undefined
-    }, 'the note that TED asked the human')
-    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
+    }, 'the note that TED asked the user')
+    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the user')
     await waitUntil(async () => {
       const id = (await getTask(client, task.id))?.leadRunId
       if (!id) return undefined
       return assistantTexts((await client.getRun(id)).conversation).some((t) =>
-        t.includes('TED asked the human whether to keep sending NB-1 back'),
+        t.includes('TED asked the user whether to keep sending NB-1 back'),
       )
     }, 'the Task Lead’s advance to be refused')
     expect((await getTask(client, task.id))?.stage).toBe('validate')

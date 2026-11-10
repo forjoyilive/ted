@@ -134,7 +134,7 @@ const waitForAsk = (client: Client, task: Task) =>
       (await comments(client, task)).find(
         (c) => c.kind === 'question' && c.author.kind === 'ted' && c.answer === undefined,
       ),
-    'TED to ask the human',
+    'TED to ask the user',
     30_000,
   )
 
@@ -300,7 +300,7 @@ async function loopTask(client: Client, verdict: string): Promise<Task> {
 
 describe('the Validate loop check', () => {
   test(
-    'at the third send-back a looping verdict asks the human, and the Task Lead can’t advance until they answer',
+    'at the third send-back a looping verdict asks the user, and the Task Lead can’t advance until they answer',
     async () => {
       const client = await start(
         `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3 }\n`,
@@ -331,7 +331,7 @@ describe('the Validate loop check', () => {
       const refused = await waitUntil(
         async () =>
           (await commandResults(client, task)).find((r) =>
-            r.stderr.includes('TED asked the human whether to keep sending NB-1 back'),
+            r.stderr.includes('TED asked the user whether to keep sending NB-1 back'),
           ),
         'the Task Lead’s advance to be refused',
         20_000,
@@ -356,7 +356,7 @@ describe('the Validate loop check', () => {
         async () =>
           (await userMessages(client, task)).some((m) =>
             m.startsWith(
-              'The human chose Try again, so Validate’s count of send-backs starts over.',
+              'The user chose Try again, so Validate’s count of send-backs starts over.',
             ),
           ),
         'the Task Lead to hear about Try again',
@@ -467,7 +467,7 @@ describe('the Validate loop check', () => {
       await waitUntil(
         async () =>
           (await userMessages(client, task)).find((m) =>
-            m.startsWith('The human sent this Task back to Design from Validate.'),
+            m.startsWith('The user sent this Task back to Design from Validate.'),
           ),
         'the Task Lead to hear about Design',
         20_000,

@@ -70,7 +70,7 @@ export function roundAnswerMessage(
     ].join('\n')
   })
   return [
-    `The human answered Round ${round?.number ?? ''} “${request.title ?? ''}”:`,
+    `The user answered Round ${round?.number ?? ''} “${request.title ?? ''}”:`,
     lines.join('\n'),
     nextAfterRound(depth),
   ].join('\n\n')
@@ -95,7 +95,7 @@ export function roundAnswerSummary(request: Comment, answers: readonly RoundAnsw
 
 function nextAfterRound(depth: ClarifyDepth): string {
   if (depth === 'grilling') {
-    return 'If anything is still open, ask another round with `ted ask --round <file>`. When nothing is, write the Task brief with every decision under Decisions so far, then run `ted outcome advance`; TED posts the brief to the human as the grilling sign-off.'
+    return 'If anything is still open, ask another round with `ted ask --round <file>`. When nothing is, write the Task brief with every decision under Decisions so far, then run `ted outcome advance`; TED posts the brief to the user as the grilling sign-off.'
   }
   return 'Clarify depth is Few, so this was the only round. Write the decisions into the Task brief’s Decisions so far with `ted brief write`, then run `ted outcome advance`. If an answer raises something bigger, switch to grilling with `ted clarify depth grilling "<why>"` and ask another round.'
 }

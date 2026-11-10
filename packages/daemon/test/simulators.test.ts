@@ -269,7 +269,7 @@ describe('iOS simulator Apps', () => {
     )
   })
 
-  test('with every slot booted the human must pick one to shut down', async () => {
+  test('with every slot booted the user must pick one to shut down', async () => {
     const client = await start()
     await addFactory(client)
     await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
@@ -321,7 +321,7 @@ describe('iOS simulator Apps', () => {
     expect(slots.booted.map((s) => s.app)).toEqual(['Watch'])
   })
 
-  test('a Run that needs a slot asks the human, and Deny reaches ted run-app', async () => {
+  test('a Run that needs a slot asks the user, and Deny reaches ted run-app', async () => {
     const client = await start()
     await addFactory(client)
     await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
@@ -346,7 +346,7 @@ describe('iOS simulator Apps', () => {
 
     const result = await leadResult(client, second)
     expect(result.code).toBe(1)
-    expect(result.stderr).toContain('No simulator slot: the human denied')
+    expect(result.stderr).toContain('No simulator slot: the user denied')
     expect((await iPhone(client, first))?.simulator?.booted).toBe(true)
   })
 

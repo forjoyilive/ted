@@ -145,7 +145,7 @@ describe('the token in daemon.json and the app’s token', () => {
     ['archive all in Done', 'POST', '/factories/DEV/archive-done', {}],
     ['install the ted command', 'POST', '/command-line/install', {}],
     ['stop the daemon and its Runs', 'POST', '/shutdown', {}],
-    ['post a Comment as the human', 'POST', '/tasks/DEV-1/comments', { body: 'Approved' }],
+    ['post a Comment as the user', 'POST', '/tasks/DEV-1/comments', { body: 'Approved' }],
     ['add a Factory', 'POST', '/dev/factories', { repo: '/tmp/evil/repo', key: 'EV' }],
     ['change a Factory’s local folder', 'PUT', '/factories/NB/local-folder', { path: '/' }],
   ])('daemon.json’s token can’t %s', async (_, method, route, body) => {
