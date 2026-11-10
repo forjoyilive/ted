@@ -659,7 +659,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - The Task Lead writes the brief: what changed, how it was checked, what to try. TED marks the pull requests ready when the sign-off is posted (9.1). (KRI-12, KRI-58)
 - Gate on by default. The sign-off card is in 9.2. (KRI-12, KRI-18)
 - **Request changes:** the human’s text plus any draft line comments go to the Task Lead’s open Run as one Comment. The Task Lead picks Work or Design. The fix always passes through Validate again and returns with a new sign-off. (KRI-18, KRI-60)
-- The default Review Stage file tells the Task Lead to start reviewer sub-agents, with two or three of agent-orchestrator’s reviewer prompts as suggestions. No separate reviewer catalog. (KRI-20)
+- Review is the configurable human review and sign-off step. Its default Stage file reuses Validate’s code review, security review and evidence, and carries their remaining notes into the brief. Missing reviews or later unreviewed changes go back to Validate; if the Workflow omits Validate, the Task Lead asks the human how to restore validation before sign-off. Fixes go back to Work and pass Validate again. (KRI-199)
 - TED never posts a GitHub approval. (KRI-18, KRI-52)
 
 ### 6.15 Done
@@ -860,7 +860,8 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 ### 8.2 `validate.md`
 
-- Suggested headings only. The default covers: run the project’s tests (and end-to-end tests where they exist); have the reviewer review the diff with no Work context; check against the description and the Design brief; for UI changes, take screenshots, judge them against what was wanted, and attach them as evidence. The aim is as much automated validation as possible. (KRI-16)
+- Suggested headings only. The default covers: run the project’s tests (and end-to-end tests where they exist); have the reviewer perform code review and security review of the committed diff against a stated base with no Work context; check against the description and the Design brief; for UI changes, take screenshots, judge them against what was wanted, and attach them as evidence. The aim is as much automated validation as possible. (KRI-16, KRI-199)
+- Every default Validate pass records the security review’s scope, method and outcome. Changes involving input, files, processes, network or credentials get a review of the relevant trust boundaries, permissions and failure cases, using an available security skill or tool when helpful, or manual review. A change with no security-sensitive impact records why. Code and security Findings use the same blocking/note flow. (KRI-199)
 - Factory setup always writes a Factory `validate.md`: how to start the app, which flows to run, what “looks right” means here. (KRI-16, KRI-22)
 - For web Apps, agents use their own browser tools in v1; a built-in browser is later (KRI-34). (KRI-18)
 - Pass means no blocking Findings. (KRI-16)
@@ -872,7 +873,7 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 ### 8.4 Reviewer
 
-- `reviewer` (4.5). The reviewer reviews the diff with no Work context. (KRI-16, KRI-53)
+- `reviewer` (4.5). The reviewer performs code review and security review of the committed diff with no Work context, supplied with the Task, acceptance criteria, Design brief, repo guidance and a stated base commit. One reviewer can cover both reviews, reporting requested behaviour, repo standards and security separately with evidence for each Finding. (KRI-16, KRI-53, KRI-199)
 - An explicit `reviewer` pauses like any other Run and never falls back. An unset `reviewer` picks from the agent kinds that are installed, signed in and not limited when Validate starts. The Validate event names the reviewer, for example “Reviewed by Claude (Codex unavailable)”. (KRI-54)
 
 ### 8.5 Loop limit
