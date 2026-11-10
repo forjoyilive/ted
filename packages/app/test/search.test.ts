@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -8,14 +8,17 @@ import { type ElectronApplication, _electron as electron, type Page } from 'play
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import {
   appClient,
+  commitToOrigin,
   daemonAsApp,
   makeOriginRepo,
   removeHome,
   stopDaemonIn,
+  stubClaudePath,
+  stubCodexPath,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -45,6 +48,8 @@ const env = () => ({
   TED_HOME: home,
   TED_IDLE_EXIT_MS: '30000',
   TED_HIDDEN_WINDOW: '1',
+  TED_CLAUDE_BIN: stubClaudePath,
+  TED_CODEX_BIN: stubCodexPath,
 })
 
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
@@ -61,9 +66,8 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   await (await daemonAsApp(home, env())).addFactory({ repo: origin, key: 'NB' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return { window, ted: await client() }
 }
 
@@ -85,6 +89,77 @@ describe('Search and commands (⌘K)', () => {
     await palette(window).waitFor({ state: 'detached' })
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByRole('heading', { name: 'Sync notes' }).waitFor()
+  })
+
+  test('Conversation search opens and expands the exact tool match, then restores its query', async () => {
+    const { window, ted } = await launch()
+    await commitToOrigin(path.join(home, 'origin'), {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+    const toolSteps = [
+      {
+        emit: {
+          type: 'assistant',
+          message: {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool_use',
+                id: 'find',
+                name: 'Bash',
+                input: { command: 'inspect cache', description: 'Inspect the cache' },
+              },
+            ],
+          },
+        },
+      },
+      {
+        emit: {
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: 'find',
+                content: 'retainedneedle: cache eviction passes',
+              },
+            ],
+          },
+        },
+      },
+      { say: 'The cache is bounded.' },
+      { endTurn: true },
+    ]
+    const task = await ted.createTask({
+      factory: 'NB',
+      title: 'Inspect cache behavior',
+      description: JSON.stringify({ steps: toolSteps }),
+    })
+    await ted.setTaskLead(task.id, { agent: 'claude' })
+    await ted.startTask(task.id)
+    await expect.poll(async () => (await ted.search('retainedneedle')).conversations.length).toBe(1)
+    await sidebar(window)
+      .getByRole('button', { name: /Search/ })
+      .click()
+    await palette(window).getByRole('combobox').fill('retainedneedle')
+    const hit = palette(window).getByRole('group', { name: 'Conversations' }).getByRole('option')
+    await hit.waitFor()
+    const captures = path.join(appDir, '../../node_modules/.cache/ted-95-work')
+    await mkdir(captures, { recursive: true })
+    await window.screenshot({ path: path.join(captures, 'search-results.png') })
+    await hit.click()
+    const row = palette(window).getByRole('button', { name: /Bash.*inspect cache/ })
+    await expect.poll(() => row.getAttribute('aria-expanded')).toBe('true')
+    const focused = palette(window).locator('[data-chat-item][tabindex="-1"]')
+    await expect.poll(() => focused.evaluate((el) => el === document.activeElement)).toBe(true)
+    expect(await palette(window).getByRole('textbox').count()).toBe(0)
+    await window.screenshot({ path: path.join(captures, 'conversation-match.png') })
+    await window.keyboard.press('Escape')
+    expect(await palette(window).getByRole('combobox').inputValue()).toBe('retainedneedle')
+    await hit.waitFor()
+    await window.keyboard.press('Escape')
+    await palette(window).waitFor({ state: 'detached' })
   })
 
   test('⌘F finds text inside the current pane', async () => {

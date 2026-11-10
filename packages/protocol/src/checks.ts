@@ -33,6 +33,7 @@ export interface CheckRun {
   startedAt: string
   finishedAt?: string
   outcome?: CheckRunOutcome
+  waiting?: boolean
 }
 
 export interface CheckRunReport {

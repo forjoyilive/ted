@@ -162,7 +162,7 @@ test('pending messages follow replacement Leads, and Task deletion removes peer 
     operation: 'pending',
     text: 'Coordinate this change',
   })
-  store.recordRunOutput(old.id, { toOffset: 1, entries: [], state: 'finished' })
+  store.recordRunOutput(old.id, { toOffset: 1, state: 'finished' })
   const replacement = lead(recipient)
   expect(peers.inbox({ kind: 'run', runId: replacement.id }).messages[0]?.id).toBe(sent.id)
   expect(peers.inbox({ kind: 'run', runId: replacement.id }).messages[0]?.delivered).toBeUndefined()
@@ -176,7 +176,7 @@ test('outgoing notes survive sender deletion and restart until the recipient is 
     operation: 'deleted-sender',
     text: 'Coordinate when you resume.',
   })
-  store.recordRunOutput(old.id, { toOffset: 1, entries: [], state: 'finished' })
+  store.recordRunOutput(old.id, { toOffset: 1, state: 'finished' })
   store.deleteTask(sender)
   expect(store.getComment(sent.id)?.body).toContain('Peer message from DEV-1')
   expect(store.peerMessages()).toEqual([sent])
@@ -255,7 +255,7 @@ test('watch ignores raw output and other Factories, and coalesces relevant updat
     if (caller.kind !== 'run') throw new Error('Lead missing')
     store.recordRunOutput(caller.runId, {
       toOffset: 1,
-      entries: [{ offset: 0, line: '{"type":"progress"}' }],
+      output: {},
     })
     await Promise.resolve()
     expect(reads).not.toHaveBeenCalled()

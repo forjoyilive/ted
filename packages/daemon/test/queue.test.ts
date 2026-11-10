@@ -1,6 +1,6 @@
 import type { Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { queueOrder, startsNow } from '../src/tasks/queue.ts'
+import { heldForLoad, loadMarks, queueOrder, startsNow } from '../src/tasks/queue.ts'
 
 const task = (id: string, priority: Priority, rank: number, factoryId = 'nb') =>
   ({ id, kind: 'task', priority, rank, factoryId }) as const
@@ -87,6 +87,61 @@ describe('startsNow', () => {
   })
 })
 
+describe('startsNow with a slot handoff', () => {
+  const subAgent = (id: string, rank: number, factoryId = 'nb') =>
+    ({ id, kind: 'sub-agent', rank, factoryId }) as const
+  const queue = queueOrder([
+    subAgent('other-task', 1),
+    subAgent('handed', 2),
+    subAgent('same-task', 3),
+    task('a', 'high', 1),
+  ])
+
+  test('a handed-off entry starts with the machine over its limit, and nothing else does', () => {
+    const started = startsNow(queue, {
+      limit: 2,
+      working: 3,
+      byFactory: {},
+      caps: {},
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['handed'])
+  })
+
+  test('a handed-off entry starts with its Factory at its cap', () => {
+    const started = startsNow(queue, {
+      limit: 6,
+      working: 1,
+      byFactory: { nb: 1 },
+      caps: { nb: 1 },
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['handed'])
+  })
+
+  test('a handed-off entry that starts while there is room uses a slot', () => {
+    const started = startsNow(queue, {
+      limit: 2,
+      working: 0,
+      byFactory: {},
+      caps: {},
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['other-task', 'handed'])
+  })
+
+  test('a handed-off entry counts towards its Factory’s cap for the entries after it', () => {
+    const started = startsNow(queue, {
+      limit: 6,
+      working: 0,
+      byFactory: {},
+      caps: { nb: 2 },
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['other-task', 'handed'])
+  })
+})
+
 test('Coordinator turns share the Planning tier and respect Factory caps', () => {
   const ordered = queueOrder([
     { id: 'plan', kind: 'planning', rank: 2, factoryId: 'nb' },
@@ -97,4 +152,62 @@ test('Coordinator turns share the Planning tier and respect Factory caps', () =>
   expect(
     startsNow(ordered, { limit: 3, working: 0, byFactory: {}, caps: { nb: 1 } }).map((e) => e.id),
   ).toEqual(['coordinator', 'auto'])
+})
+
+describe('heldForLoad', () => {
+  test('holds at one runnable process per core, and not below it', () => {
+    expect(heldForLoad(false, loadMarks.holdAt)).toBe(true)
+    expect(heldForLoad(false, 4.4)).toBe(true)
+    expect(heldForLoad(false, 0.99)).toBe(false)
+  })
+
+  test('once holding, keeps holding until the load is below the resume mark', () => {
+    expect(heldForLoad(true, 0.99)).toBe(true)
+    expect(heldForLoad(true, loadMarks.resumeBelow)).toBe(true)
+    expect(heldForLoad(true, 0.74)).toBe(false)
+    expect(heldForLoad(false, 0.8)).toBe(false)
+  })
+
+  test('a load that can’t be read, or the zeros Windows reports, never holds', () => {
+    expect(heldForLoad(true, Number.NaN)).toBe(false)
+    expect(heldForLoad(true, 0)).toBe(false)
+  })
+})
+
+describe('startsNow while starts are held for load', () => {
+  const queue = queueOrder([task('a', 'high', 1), task('b', 'medium', 2, 'ms')])
+  const subAgent = (id: string, rank: number) =>
+    ({ id, kind: 'sub-agent', rank, factoryId: 'nb' }) as const
+
+  test('starts nothing while anything is working, even with slots free', () => {
+    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true }
+    expect(startsNow(queue, use)).toEqual([])
+  })
+
+  test('with nothing working, starts the first entry and only that one', () => {
+    const use = { limit: 6, working: 0, byFactory: {}, caps: {}, heldForLoad: true }
+    expect(startsNow(queue, use).map((e) => e.id)).toEqual(['a'])
+  })
+
+  test('with nothing working, a Factory at its cap is still skipped for the next entry', () => {
+    const use = { limit: 6, working: 0, byFactory: {}, caps: { nb: 0 }, heldForLoad: true }
+    expect(startsNow(queue, use).map((e) => e.id)).toEqual(['b'])
+  })
+
+  test('a handed-off sub-agent still starts, and nothing else does', () => {
+    const started = startsNow(queueOrder([subAgent('other', 1), subAgent('handed', 2), ...queue]), {
+      limit: 6,
+      working: 2,
+      byFactory: {},
+      caps: {},
+      handoffs: new Set(['handed']),
+      heldForLoad: true,
+    })
+    expect(started.map((e) => e.id)).toEqual(['handed'])
+  })
+
+  test('without the hold the same queue starts', () => {
+    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: false }
+    expect(startsNow(queue, use).map((e) => e.id)).toEqual(['a', 'b'])
+  })
 })

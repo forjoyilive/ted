@@ -196,12 +196,36 @@
   font-weight: var(--weight-regular);
 }
 
-.modelInput {
+.modelInput,
+.defaultSelect > select,
+.resetButton {
+  box-sizing: border-box;
+  height: 32px;
+  font-size: var(--text-13-5);
+}
+
+.defaultSelect {
+  width: 120px;
+}
+
+.defaultSelect > select {
+  min-width: 0;
+  width: 100%;
+}
+
+.defaultSelect > select:disabled {
+  border-color: var(--border-default);
+  background: var(--surface-inset);
+  color: var(--text-tertiary);
+}
+
+.modelInput,
+.agentSelect {
   width: 112px;
 }
 
-.agentSelect {
-  width: 112px;
+.resetButton {
+  padding-block: 0;
 }
 
 .roleTitle {

@@ -32,7 +32,15 @@ export type ChatItem =
       at?: string
       endedAt?: string
     }
-  | { kind: 'human'; id: string; text: string; at: string; sent: boolean; queued?: true }
+  | {
+      kind: 'human'
+      id: string
+      text: string
+      at: string
+      sent: boolean
+      queued?: true
+      unsent?: true
+    }
   | { kind: 'interrupted'; id: string; at: string }
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
   | { kind: 'permission'; id: string; request: Comment; at: string }
@@ -82,4 +90,5 @@ export interface RunMessage {
   text: string
   at: string
   queued?: true
+  from?: 'ted'
 }

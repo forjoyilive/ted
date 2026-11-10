@@ -4,9 +4,10 @@
   flex-direction: column;
   gap: 2px;
   flex-shrink: 0;
-  width: var(--sidebar-width);
+  width: 100%;
   height: 100%;
   padding: 14px 10px;
+  overflow-x: hidden;
   overflow-y: auto;
   border-right: 1px solid var(--border-subtle);
   background: var(--surface-sidebar);
@@ -477,13 +478,7 @@
   outline-offset: 1px;
 }
 
-.overnightActive {
-  color: var(--accent-text);
-  background: var(--accent-subtle);
-}
-
-.overnightNote {
-  margin: 4px 12px 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
+.subStatus {
+  display: inline-flex;
+  margin-left: auto;
 }

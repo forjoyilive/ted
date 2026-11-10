@@ -4,7 +4,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import {
@@ -26,7 +28,8 @@ import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { ordinal, RunIcons } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
 import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
@@ -42,6 +45,8 @@ import views from './views.module.css'
 interface Dragging {
   task: Task
   from: StageId
+  grabY: number
+  height: number
 }
 
 interface Target {
@@ -80,6 +85,25 @@ function RefusedIcon() {
       <circle cx="5" cy="5" r="4" stroke="currentColor" />
       <path d="M2.2 7.8 7.8 2.2" stroke="currentColor" />
     </svg>
+  )
+}
+
+function RefusedDrop({ x, y, dragging }: { x: number; y: number; dragging: Dragging }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const hint = ref.current
+    if (!hint) return
+    const { width, height } = hint.getBoundingClientRect()
+    const above = y - dragging.grabY - height - 12
+    const below = y - dragging.grabY + dragging.height + 12
+    hint.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - width - 8))}px`
+    hint.style.top = `${Math.max(8, Math.min(above >= 8 ? above : below, window.innerHeight - height - 8))}px`
+  }, [x, y, dragging])
+  return (
+    <span ref={ref} className={styles.refused}>
+      <RefusedIcon />
+      Can’t drop here
+    </span>
   )
 }
 
@@ -187,7 +211,8 @@ export function Board({
   const stages = useBoardStages(factoryId, inUse)
   const start = startStage(stages)
   const [text, setText] = useState('')
-  const columns = boardColumns(stages, filterTasks(tasks, filters, text), now)
+  const shown = filterTasks(tasks, filters, text)
+  const columns = boardColumns(stages, shown, now)
   const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
   const [archivingDone, setArchivingDone] = useState(false)
   const [dragging, setDragging] = useState<Dragging>()
@@ -296,7 +321,10 @@ export function Board({
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'move'
           event.dataTransfer.setData('text/plain', task.displayId)
-          setDragging({ task, from: column.stage })
+          const box = event.currentTarget.getBoundingClientRect()
+          const grabY = event.clientY - box.top
+          event.dataTransfer.setDragImage(event.currentTarget, event.clientX - box.left, grabY)
+          setDragging({ task, from: column.stage, grabY, height: box.height })
         }}
         onDragEnd={endDrag}
       >
@@ -324,7 +352,7 @@ export function Board({
         <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
           {task.title}
         </button>
-        <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+        <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
         {activity !== undefined && <span className={styles.cardActivity}>{activity}</span>}
       </article>
     )
@@ -450,6 +478,10 @@ export function Board({
             </button>
           </span>
         ))}
+        <span className={views.headerSpacer} />
+        <span className={listStyles.summary}>
+          <SubAgentTotal tasks={shown} filtered={text !== '' || chips.length > 0} />
+        </span>
       </div>
       <div className={styles.boardArea}>
         <div className={styles.board} data-rank-order>
@@ -531,12 +563,7 @@ export function Board({
           onClose={() => setArchivingDone(false)}
         />
       )}
-      {refused && (
-        <span className={styles.refused} style={{ left: refused.x + 12, top: refused.y + 12 }}>
-          <RefusedIcon />
-          Can’t drop here
-        </span>
-      )}
+      {refused && dragging && <RefusedDrop x={refused.x} y={refused.y} dragging={dragging} />}
     </section>
   )
 }

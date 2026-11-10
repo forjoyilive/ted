@@ -2,6 +2,7 @@ import type { RunSummary } from '@ted/protocol'
 import { useState } from 'react'
 import { runStateWord, runsCollapsedSummary } from '../details.ts'
 import { ago, useNow } from '../requests.ts'
+import { activeSubAgentCount, activeSubAgentLabel } from '../sub-agents.ts'
 import { readableError, ted } from '../ted.ts'
 import { DetailsSection } from './DetailsSection.tsx'
 import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
@@ -48,6 +49,7 @@ export function runsSummary(runs: readonly RunSummary[]): string {
   const cost = keyed.reduce((sum, r) => sum + (r.cost ?? 0), 0)
   return [
     runs.length === 1 ? '1 Run' : `${runs.length} Runs`,
+    activeSubAgentLabel(activeSubAgentCount(runs)),
     ...(tokens > 0 ? [tokenCount(tokens)] : []),
     ...(keyed.length > 0 ? [`${dollars(cost)} on API key`] : []),
   ].join(' · ')
@@ -161,7 +163,7 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
           )}
         </span>
       </button>
-      {live && (
+      {live && !isLead && (
         <span className={styles.actions}>
           <button
             type="button"
@@ -173,32 +175,16 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
           >
             <RestartIcon />
           </button>
-          {isLead ? (
-            <button
-              type="button"
-              className={styles.action}
-              aria-label="Stop Task"
-              title="Stop Task"
-              disabled={busy || run.taskId === undefined}
-              onClick={() => {
-                const taskId = run.taskId
-                if (taskId !== undefined) act(() => ted.stopTask(taskId))
-              }}
-            >
-              <StopIcon />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.action}
-              aria-label="Stop Run"
-              title="Stop Run"
-              disabled={busy}
-              onClick={() => act(() => ted.stopRun(run.id))}
-            >
-              <StopIcon />
-            </button>
-          )}
+          <button
+            type="button"
+            className={styles.action}
+            aria-label="Stop Run"
+            title="Stop Run"
+            disabled={busy}
+            onClick={() => act(() => ted.stopRun(run.id))}
+          >
+            <StopIcon />
+          </button>
         </span>
       )}
     </li>

@@ -26,10 +26,16 @@ import {
   type WorktreeCommandInput,
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
+import { factoryExport } from '../export.ts'
 import { addFactory } from '../factories.ts'
 import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/export$/,
+    handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
+  },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,
