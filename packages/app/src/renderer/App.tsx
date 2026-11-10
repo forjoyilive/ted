@@ -633,6 +633,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   function main() {
     const opened = task && (
       <TaskPanes
+        key={task.id}
         task={task}
         tasks={tasks}
         factories={factories}
