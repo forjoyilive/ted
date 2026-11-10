@@ -86,6 +86,7 @@ import type {
   SaveSettingsResult,
   SchedulePreview,
   SearchResults,
+  SetTaskGatesRequest,
   SetTaskReposRequest,
   SettingsPreview,
   ShellOutput,
@@ -101,6 +102,7 @@ import type {
   TaskChanges,
   TaskDefaults,
   TaskDraftState,
+  TaskGates,
   TaskLead,
   TaskReposResult,
   TaskShell,
@@ -197,6 +199,9 @@ export const ted = {
     window.ted.request('taskBrief', taskId) as Promise<TaskBrief | null>,
   search: (query: string, factoryId?: string) =>
     window.ted.request('search', query, factoryId) as Promise<SearchResults>,
+  taskGates: (taskId: string) => window.ted.request('taskGates', taskId) as Promise<TaskGates>,
+  setTaskGates: (taskId: string, request: SetTaskGatesRequest) =>
+    window.ted.request('setTaskGates', taskId, request) as Promise<TaskGates>,
   setClarifyDepth: (taskId: string, depth: ClarifyDepth) =>
     window.ted.request('setClarifyDepth', taskId, depth) as Promise<Task>,
   pickDefaultModel: (taskId: string) =>

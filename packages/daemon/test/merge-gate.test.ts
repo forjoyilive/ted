@@ -1,6 +1,13 @@
 import { rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type Comment, type Factory, type InboxItem, type Task, tedPaths } from '@ted/protocol'
+import {
+  type Comment,
+  type Factory,
+  type InboxItem,
+  type Task,
+  type TaskGates,
+  tedPaths,
+} from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { clonePath } from '../src/factories.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -471,4 +478,41 @@ describe('CI stuck', () => {
     }, 'the send-back')
     expect(back).toMatchObject({ to: 'work', counted: false })
   })
+})
+
+test('a Task can turn off the inherited Merge Gate before entry, while CI still controls merging', async () => {
+  const client = await start({
+    files: ci,
+    workflow: ['stages:', '  merge: { gate: true }'],
+    merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
+  })
+  const { task, signoff } = await toSignoff(client)
+  expect(signoff.stage).toBe('review')
+  const route = `/tasks/${task.id}/gates`
+  const before = await client.ok<TaskGates>('GET', route)
+  await client.ok('PUT', route, { overrides: { merge: false }, revision: before.revision })
+  await approve(client, signoff)
+  await waitForStage(client, task, 'merge')
+  await waitUntil(
+    async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
+    'CI to hold merging',
+  )
+  expect(await merges()).toEqual([])
+  const merging = await client.ok<TaskGates>('GET', route)
+  expect(merging.rows.find((row) => row.stage === 'merge')).toMatchObject({
+    effective: false,
+    locked: 'Merge has started',
+  })
+  expect(
+    (await client.call('PUT', route, { overrides: { merge: true }, revision: merging.revision }))
+      .status,
+  ).toBe(409)
+  await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })
+  await waitForStage(client, task, 'done')
+  expect(await merges()).toHaveLength(1)
+  expect(
+    (await comments(client, task)).some((comment) => comment.gate && comment.stage === 'merge'),
+  ).toBe(false)
+  const done = await client.ok<TaskGates>('GET', route)
+  expect(done.rows.every((row) => !!row.locked)).toBe(true)
 })

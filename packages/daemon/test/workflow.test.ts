@@ -509,3 +509,34 @@ describe('repos', () => {
     ])
   })
 })
+
+test('Task Gates override inheritance without enabling Stages, and mandatory Gates win', async () => {
+  const { withTaskGates, withForcedGates, setupWorkflow } = await import(
+    '../src/workflow/resolve.ts'
+  )
+  const inherited = resolveWorkflow([
+    await defaults(),
+    factory({ 'workflow.yaml': 'version: 1\norder: [intake, design, work, review, merge]\n' }),
+  ])
+  const own = withTaskGates(inherited, {
+    design: false,
+    work: true,
+    validate: true,
+    merge: true,
+    review: false,
+  })
+  expect(own.stages).toEqual(inherited.stages)
+  expect(own.settings.stages.design?.gate).toBe(false)
+  expect(own.settings.stages.work?.gate).toBe(true)
+  expect(own.settings.stages.merge?.gate).toBe(true)
+  expect(inherited.settings.stages.design?.gate).toBe(true)
+  expect(withForcedGates(own, ['review']).settings.stages.review?.gate).toBe(true)
+  expect(setupWorkflow(own).settings.stages.design?.gate).toBe(true)
+  expect(withTaskGates(inherited, {}).settings.stages.design?.gate).toBe(true)
+  const changed = resolveWorkflow([
+    await defaults(),
+    factory({ 'workflow.yaml': 'version: 1\nstages:\n  design: { gate: false }\n' }),
+  ])
+  expect(withTaskGates(changed, {}).settings.stages.design?.gate).toBe(false)
+  expect(withTaskGates(changed, { design: true }).settings.stages.design?.gate).toBe(true)
+})

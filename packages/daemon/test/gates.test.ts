@@ -1,7 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, TaskBrief } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Run, Task, TaskBrief, TaskGates } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -658,4 +658,63 @@ describe('the Task brief', () => {
       text: brief,
     })
   })
+})
+
+test('Task Gate overrides keep Stage work, enforce new Gates and cannot bypass posted requests', async () => {
+  const client = await start()
+  const go = path.join(scratch, 'start-with-gates')
+  const task = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: steps(
+      { everyMessage: [{ endTurn: true }] },
+      { waitFor: go },
+      {
+        run: [
+          'node',
+          '-e',
+          `fetch('http://127.0.0.1:${daemon?.port}/tasks/own-task/gates', {method:'PUT', headers:{authorization:'Bearer '+(process.env.TED_RUN_CAPABILITY || process.env.TED_RUN_TOKEN),'content-type':'application/json'},body:'{}'}).then(r=>console.log(r.status))`,
+        ],
+      },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { run: ['ted', 'brief', 'write', '--file', client.briefFile] },
+      { run: ['ted', 'outcome', 'advance'] },
+      { endTurn: true },
+    ),
+  })
+  const route = `/tasks/${task.id}/gates`
+  const initial = await client.ok<TaskGates>('GET', route)
+  await client.ok('PUT', route, {
+    overrides: { design: false, work: true },
+    revision: initial.revision,
+  })
+  await client.ok('POST', `/tasks/${task.id}/start`)
+  await writeFile(go, '')
+  const item = await waitForRequest(client)
+  expect(item.task.stage).toBe('work')
+  expect(item.request.stage).toBe('work')
+  const posted = await comments(client, task)
+  expect(posted.some((comment) => comment.gate && comment.stage === 'design')).toBe(false)
+  expect(posted.filter((comment) => comment.gate && comment.stage === 'work')).toHaveLength(1)
+  const gates = await client.ok<TaskGates>('GET', route)
+  expect(gates.rows.find((row) => row.stage === 'design')?.locked).toBe('Stage already passed')
+  expect(gates.rows.find((row) => row.stage === 'work')?.locked).toContain(
+    'Sign-off has been requested',
+  )
+  expect(
+    (
+      await client.call('PUT', route, {
+        overrides: { design: false, work: false },
+        revision: gates.revision,
+      })
+    ).status,
+  ).toBe(409)
+  expect(
+    (await client.call('PUT', route, { overrides: { work: true }, revision: gates.revision }))
+      .status,
+  ).toBe(409)
+  expect((await inbox(client)).some((entry) => entry.request.id === item.request.id)).toBe(true)
+  await waitUntil(async () => (await commandResults(client, task)).length === 6, 'Gate commands')
+  expect((await commandResults(client, task))[0]?.stdout.trim()).toBe('403')
 })

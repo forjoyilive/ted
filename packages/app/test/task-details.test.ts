@@ -90,7 +90,102 @@ describe('Task details in the app', () => {
       async () => (await daemon.listInbox()).some((i) => i.request.kind === 'review') || undefined,
       'the Design review',
     )
+    return { daemon, task }
   }
+
+  test('Task Gates edit, cancel, reset and refresh stale choices while a posted Gate stays locked', async () => {
+    const { daemon, task } = await taskAtDesignGate()
+    const window = await launch()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: 'Use Workflow · Edit' }).click()
+    let editor = details.getByRole('region', { name: 'Gates for this Task' })
+    await expect(editor.getByLabel('Design', { exact: false }).isDisabled()).resolves.toBe(true)
+    const review = () => editor.locator(`select[id="gate-${task.id}-review"]`)
+    await review().selectOption('off')
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    expect((await daemon.taskGates(task.id)).overrides).toEqual({})
+    await details.getByRole('button', { name: 'Use Workflow · Edit' }).click()
+    await review().selectOption('off')
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await details.getByRole('button', { name: '1 overridden · Edit' }).waitFor()
+    expect((await daemon.taskGates(task.id)).overrides).toEqual({ review: false })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    const current = await daemon.taskGates(task.id)
+    await daemon.setTaskGates(task.id, { overrides: { review: true }, revision: current.revision })
+    await editor.getByText('The Task or Workflow changed. Reload Gates before saving.').waitFor()
+    await expect(
+      editor.getByRole('button', { name: 'Save', exact: true }).isDisabled(),
+    ).resolves.toBe(true)
+    await editor.getByRole('button', { name: 'Reload Gates' }).click()
+    await expect.poll(() => review().inputValue()).toBe('on')
+    await editor.getByRole('button', { name: 'Use Workflow', exact: true }).click()
+    await editor.getByRole('button', { name: 'Save', exact: true }).click()
+    await details.getByRole('button', { name: 'Use Workflow · Edit' }).waitFor()
+    expect((await daemon.taskGates(task.id)).overrides).toEqual({})
+    await details.getByRole('button', { name: 'Use Workflow · Edit' }).click()
+    editor = details.getByRole('region', { name: 'Gates for this Task' })
+    await editor.waitFor()
+    if (process.env.TED_GATE_SCREENSHOT) {
+      await daemon.editTask(task.id, { title: 'Let notes be edited offline.' })
+      if (app)
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.setSize(1400, 1050),
+        )
+      await window.getByRole('heading', { name: 'Let notes be edited offline.' }).waitFor()
+      await details.evaluate((element) => {
+        element.scrollTop = 0
+      })
+      await window.screenshot({ path: process.env.TED_GATE_SCREENSHOT })
+    }
+  })
+
+  test('a required Gate displays On while retaining a previously saved Off choice', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const daemon = await daemonAsApp(home, env())
+    await daemon.addFactory({ repo: origin, key: 'NB' })
+    const task = await daemon.createTask({
+      factory: 'NB',
+      title: 'Choose the Clarify Gate',
+      clarifyDepth: 'few',
+    })
+    const before = await daemon.taskGates(task.id)
+    await daemon.setTaskGates(task.id, { overrides: { clarify: false }, revision: before.revision })
+    const window = await launch()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    const editor = details.getByRole('region', { name: 'Gates for this Task' })
+    const clarify = editor.getByLabel('Clarify', { exact: true })
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await daemon.setClarifyDepth(task.id, { depth: 'grilling' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    await expect(clarify.inputValue()).resolves.toBe('required')
+    await expect(clarify.isDisabled()).resolves.toBe(true)
+    await editor.getByText('Required at grilling depth', { exact: true }).waitFor()
+    await editor.getByText('Your Off choice applies when this Gate is optional.').waitFor()
+    expect((await daemon.taskGates(task.id)).overrides.clarify).toBe(false)
+    if (process.env.TED_REQUIRED_GATE_SCREENSHOT) {
+      if (app)
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.setSize(1400, 1050),
+        )
+      for (const theme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: theme })
+        await window.evaluate((mode) => {
+          document.documentElement.style.colorScheme = mode
+        }, theme)
+        await editor.scrollIntoViewIfNeeded()
+        await window.screenshot({
+          path: `${process.env.TED_REQUIRED_GATE_SCREENSHOT}-${theme}.png`,
+        })
+      }
+    }
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await daemon.setClarifyDepth(task.id, { depth: 'few' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await expect(clarify.isDisabled()).resolves.toBe(false)
+  })
 
   test('sections run in order, collapse to a summary line and stay collapsed after a restart', async () => {
     await taskAtDesignGate()

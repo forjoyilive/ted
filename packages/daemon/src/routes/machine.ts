@@ -237,6 +237,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
+  overnightMode: onOff('overnightMode'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),

@@ -55,6 +55,7 @@ import type {
   Run,
   RunSlots,
   SetClarifyDepthRequest,
+  SetTaskGatesRequest,
   SetTaskReposRequest,
   SetupProposal,
   SignOffChanges,
@@ -71,6 +72,8 @@ import type {
   TaskBrief,
   TaskChanges,
   TaskDefaults,
+  TaskGateOverrides,
+  TaskGates,
   TaskLead,
   TaskRepo,
   TaskReposResult,
@@ -81,6 +84,7 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  agentStageIds,
   bannerId,
   briefHeadings,
   clarifyDepths,
@@ -134,6 +138,7 @@ import {
   type ResolvedWorkflow,
   setupWorkflow,
   withForcedGates,
+  withTaskGates,
 } from '../workflow/resolve.ts'
 import {
   backStageMessage,
@@ -208,6 +213,7 @@ import {
   reviewMissing,
 } from './merge.ts'
 import { placeBetween } from './order.ts'
+import { overnightGuidance } from './overnight.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import {
   createPullRequests,
@@ -385,6 +391,8 @@ export interface Tasks {
     },
   ): Promise<Comment>
   upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
+  taskGates(ref: string): Promise<TaskGates>
+  setTaskGates(ref: string, caller: Caller, request: SetTaskGatesRequest): Promise<TaskGates>
   setClarifyDepth(ref: string, caller: Caller, request: SetClarifyDepthRequest): Promise<Task>
   markRead(ref: string): number
   threadEvents(ref: string): ThreadEvent[]
@@ -537,6 +545,8 @@ export function createTasks(options: {
   const silent = new Map<string, string>()
   const pausedAt = new Map<string, number>()
   const recovering = new Set<string>()
+  const overnightSeen = new Map<string, boolean>()
+  let overnightChangedAt = new Date().toISOString()
   const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
@@ -748,15 +758,63 @@ export function createTasks(options: {
 
   async function taskWorkflow(
     task: StoredTask,
-    options?: { fetch?: boolean },
+    options?: { fetch?: boolean; inheritedGates?: boolean },
   ): Promise<WorkflowResolution> {
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, options)
-    const forced = withForcedGates(resolution.workflow, task.forcedGates)
+    const forced = withForcedGates(
+      withTaskGates(resolution.workflow, options?.inheritedGates ? {} : task.gateOverrides),
+      task.forcedGates,
+    )
     const workflow = task.changesSettings ? onDefaultBranch(forced) : forced
     if (!task.setup) return { ...resolution, workflow }
     const instructions = await setupInstructions(factory.showTutorial)
     return { ...resolution, workflow: setupWorkflow(workflow, instructions) }
+  }
+
+  async function gatesFor(taskId: string): Promise<TaskGates> {
+    const { workflow } = await taskWorkflow(find(taskId), { fetch: false, inheritedGates: true })
+    const task = find(taskId)
+    const overrides = task.gateOverrides ?? {}
+    const position = workflow.order.indexOf(task.stage as AgentStageId)
+    const rows = workflow.order
+      .filter((stage) => workflow.stages.includes(stage))
+      .map((stage) => {
+        const required = task.forcedGates.includes(stage)
+          ? 'Required by TED for this Task'
+          : task.setup && ['clarify', 'design', 'review'].includes(stage)
+            ? 'Required for Factory setup'
+            : stage === 'clarify' && task.clarifyDepth === 'grilling'
+              ? 'Required at grilling depth'
+              : undefined
+        const posted = store
+          .listComments(task.id)
+          .some(
+            (comment) =>
+              comment.gate && comment.stage === stage && comment.createdAt >= visitStart(task),
+          )
+        const locked =
+          task.archived || task.stage === 'done'
+            ? 'This Task has finished'
+            : (required ??
+              (stage === 'merge' && task.stage === 'merge'
+                ? 'Merge has started'
+                : workflow.order.indexOf(stage) < position
+                  ? 'Stage already passed'
+                  : stage === task.stage && posted
+                    ? 'Sign-off has been requested; answer it in the thread'
+                    : undefined))
+        const inherited = required !== undefined || workflow.settings.stages[stage]?.gate === true
+        return {
+          stage,
+          inherited,
+          effective: required !== undefined || (overrides[stage] ?? inherited),
+          required: required !== undefined,
+          ...(overrides[stage] !== undefined && { override: overrides[stage] }),
+          ...(locked && { locked }),
+        }
+      })
+    return { overrides, rows, revision: JSON.stringify({ stage: task.stage, overrides, rows }) }
   }
 
   async function capOf(factoryId: string): Promise<number | undefined> {
@@ -866,7 +924,8 @@ export function createTasks(options: {
       !deleting.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
-      store.getFactory(task.factoryId)?.autoStartBacklog === true &&
+      (store.settings().overnightMode ||
+        store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
   }
@@ -3214,7 +3273,9 @@ export function createTasks(options: {
     const entries = factoryRepos(resolution.workflow, factoryOf(current))
     const cwd = runFolderOf(current, entries)
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
+    const overnightMode = store.settings().overnightMode
     const prompt = [
+      overnightGuidance(overnightMode),
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
@@ -3251,6 +3312,7 @@ export function createTasks(options: {
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
     })
+    overnightSeen.set(run.id, overnightMode)
     store.commentsDelivered(
       waiting.comments.map((c) => c.id),
       run.id,
@@ -4005,7 +4067,9 @@ export function createTasks(options: {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
-    await runs.send(run.id, text)
+    const mode = store.settings().overnightMode
+    await runs.send(run.id, `${text}\n\n${overnightGuidance(mode)}`)
+    overnightSeen.set(run.id, mode)
     return true
   }
 
@@ -5620,7 +5684,11 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
+        prompt: [
+          overnightGuidance(store.settings().overnightMode),
+          revivedMessage(reason),
+          ...editedSince(task),
+        ].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
@@ -5825,6 +5893,25 @@ export function createTasks(options: {
 
   options.steering.addSource({
     pending(run) {
+      if (run.state !== 'working' || run.taskId === undefined) return []
+      const task = store.getTask(run.taskId)
+      const mode = store.settings().overnightMode
+      if (task?.leadRunId !== run.id || overnightSeen.get(run.id) === mode) return []
+      return [
+        {
+          id: `overnight:${mode}`,
+          text: overnightGuidance(mode),
+          at: overnightChangedAt,
+        },
+      ]
+    },
+    delivered(run, ids) {
+      overnightSeen.set(run.id, ids.includes('overnight:true'))
+    },
+  })
+
+  options.steering.addSource({
+    pending(run) {
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || liveLead(task)?.id !== run.id) return []
       return waitingForRun(task.id).comments.map((comment) => ({
@@ -6009,6 +6096,17 @@ export function createTasks(options: {
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'settings-changed') {
+      overnightChangedAt = new Date().toISOString()
+      for (const run of store.listRuns()) {
+        if (run.state === 'working') options.steering.syncQueuedFlag(run.id)
+      }
+    }
+    if (event.type === 'run-updated') {
+      if (event.run.state === 'finished') overnightSeen.delete(event.run.id)
+      else if (event.run.state === 'working') options.steering.syncQueuedFlag(event.run.id)
+    }
+
     if (
       event.type === 'task-created' ||
       event.type === 'task-updated' ||
@@ -6738,6 +6836,44 @@ export function createTasks(options: {
           author: { kind: 'run', runId },
           ...(choices.length > 0 && { choices }),
         })
+      })
+    },
+
+    async taskGates(ref) {
+      return gatesFor(find(ref).id)
+    },
+
+    async setTaskGates(ref, caller, request) {
+      if (caller.kind !== 'app')
+        throw new RequestError(403, 'only the TED app can change Task Gates')
+      const id = find(ref).id
+      await untilFree(id)
+      return holding(find(id), async () => {
+        const before = await gatesFor(id)
+        if (before.revision !== request.revision) {
+          throw new RequestError(
+            409,
+            'Task Gates changed while you were editing. Reopen the editor and try again.',
+          )
+        }
+        const keys = new Set([...Object.keys(before.overrides), ...Object.keys(request.overrides)])
+        for (const key of keys) {
+          const stage = key as AgentStageId
+          if (before.overrides[stage] === request.overrides[stage]) continue
+          const row = before.rows.find((row) => row.stage === stage)
+          if (!row || row.locked)
+            throw new RequestError(
+              409,
+              `${stageTitle(stage)}: ${row?.locked ?? 'Stage is not in this Workflow'}`,
+            )
+        }
+        if (find(id).archived || find(id).stage === 'done')
+          throw new RequestError(409, 'This Task has finished')
+        const overrides: TaskGateOverrides = {}
+        for (const stage of agentStageIds)
+          if (request.overrides[stage] !== undefined) overrides[stage] = request.overrides[stage]
+        store.setTaskGates(id, overrides)
+        return gatesFor(id)
       })
     },
 

@@ -4,7 +4,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
+import type { NewTaskDraft, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -626,6 +626,7 @@ export interface TedStore {
   rememberStageFileText(seen: SeenStageFile): void
   seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
+  setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
     input: { depth: ClarifyDepth; by: ClarifyDepthChooser; runId?: string; why?: string },
@@ -1195,6 +1196,7 @@ export async function openStore({
     failedAt,
     followUpOf,
     forcedGates,
+    gateOverrides,
     changesSettings,
     splitFrom,
     needsPlanningAt,
@@ -1388,6 +1390,7 @@ export async function openStore({
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
+      gateOverrides: gateOverrides === null ? {} : (JSON.parse(gateOverrides) as TaskGateOverrides),
       forcedGates: forcedGates === null ? [] : (JSON.parse(forcedGates) as AgentStageId[]),
       changesSettings,
       repos,
@@ -3136,6 +3139,16 @@ export async function openStore({
           agent,
           model: model ?? null,
           effort: effort ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    setTaskGates(taskId, overrides) {
+      commit(
+        events.taskGatesChanged({
+          taskId,
+          overrides: JSON.stringify(overrides),
           at: new Date().toISOString(),
         }),
       )
