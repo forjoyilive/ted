@@ -6166,8 +6166,13 @@ export function createTasks(options: {
       await deliverAnswer(
         task,
         comment,
-        failureText(
-          `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+        redactSecrets(
+          withLines(
+            failureText(
+              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+            ),
+            comment,
+          ),
         ),
       )
     },

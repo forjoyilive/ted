@@ -4,6 +4,7 @@ import {
   type Comment,
   type FailureCase,
   type FailureContext,
+  type LineComment,
   type Task,
   tedPaths,
   type ValidationObligations,
@@ -107,6 +108,73 @@ test('assessment, request and acceptance are separate, and each case holds indep
   expect(stored[0]?.source).toEqual(one.source)
   expect(stored[0]?.evidence).toBe(one.evidence)
 })
+
+test.each(['direct', 'comment'])(
+  '%s failure resolution delivers attached line comments to the live Task Lead',
+  async (entry) => {
+    const s = await setup()
+    const repo = s.task.repos[0]
+    if (!repo) throw new Error('missing Task repo')
+    await writeFile(path.join(repo.worktree, 'steering.txt'), 'new line\n')
+    const context = await s.capture()
+    const value = await s.record(context.id)
+    const asked = await s.request(value)
+    const requestId = asked.decisions.at(-1)?.commentId
+    if (!requestId) throw new Error('missing decision request')
+    const body =
+      'Preserve this behavior. Bearer abcdefghijklmnopqrstuvwxyz https://user:password@example.com/'
+    const draft = await s.client.ok<LineComment>('POST', `${s.root}/line-comments`, {
+      repo: repo.name,
+      path: 'steering.txt',
+      from: { new: 1 },
+      to: { new: 1 },
+      body,
+    })
+    const resolve = () =>
+      entry === 'direct'
+        ? s.resolve(asked)
+        : s.client.call('POST', `/comments/${requestId}/answer`, {
+            action: 'answer',
+            choice: 'Accept this failure',
+          })
+    expect((await resolve()).status).toBe(200)
+    const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+    const answered = comments.find((c) => c.id === requestId)
+    expect(answered?.lineComments?.[0]).toMatchObject({
+      id: draft.id,
+      body,
+      sent: { commentId: requestId },
+    })
+    expect(
+      (await s.client.ok<LineComment[]>('GET', `${s.root}/line-comments`)).filter((c) => !c.sent),
+    ).toEqual([])
+    const resolutionMessages = async () =>
+      (await s.client.getRun(s.task.leadRunId ?? '')).conversation.flatMap((event) => {
+        const line = JSON.parse(event.line) as {
+          type: string
+          message?: { content?: unknown }
+        }
+        return line.type === 'user' &&
+          typeof line.message?.content === 'string' &&
+          line.message.content.includes(`The human resolved failure request ${requestId}`)
+          ? [line.message.content]
+          : []
+      })
+    const message = await waitUntil(
+      async () => (await resolutionMessages())[0],
+      'resolution and line comments delivered to the live Task Lead',
+    )
+    expect(message).toContain('Accept this failure')
+    expect(message).toContain('Line comments (1):')
+    expect(message).toContain(`steering.txt line 1, repo ${repo.name}, commit ${draft.commit}`)
+    expect(message).toContain('+new line')
+    expect(message).toContain('Preserve this behavior.')
+    expect(message).not.toContain('abcdefghijklmnopqrstuvwxyz')
+    expect(message).not.toContain('user:password')
+    expect((await resolve()).status).toBe(409)
+    expect(await resolutionMessages()).toHaveLength(1)
+  },
+)
 
 test('code and nonignored binary changes invalidate durably; returning to old content never revives consent', async () => {
   const s = await setup()
