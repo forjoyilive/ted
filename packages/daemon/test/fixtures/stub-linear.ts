@@ -20,6 +20,7 @@ export interface StubLinearIssue {
 }
 
 export interface StubLinearAccount {
+  viewerReady?: Promise<void>
   name: string
   workspace: { name: string; urlKey: string }
   issues?: StubLinearIssue[]
@@ -91,7 +92,7 @@ export async function startStubLinear(
     req.on('data', (chunk) => {
       body += chunk
     })
-    req.on('end', () => {
+    req.on('end', async () => {
       const { query = '', variables } = JSON.parse(body || '{}') as {
         query?: string
         variables?: Record<string, string>
@@ -191,6 +192,7 @@ export async function startStubLinear(
           },
         })
       }
+      await account.viewerReady
       return reply(200, {
         data: { viewer: { name: account.name, displayName: account.name }, organization },
       })

@@ -150,9 +150,11 @@ function NewTaskForm({
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
   const lookups = useRef(0)
+  const mounted = useRef(false)
 
   const lookUp = useCallback(
     (url: string, identifier: string) => {
+      if (!mounted.current) return
       const ticket = ++lookups.current
       session.update({ source: url })
       setSource({ url, identifier, lookup: undefined })
@@ -192,6 +194,7 @@ function NewTaskForm({
 
   useEffect(() => {
     let active = true
+    mounted.current = true
     session.load().then(
       () => {
         if (!active) return
@@ -214,6 +217,7 @@ function NewTaskForm({
     )
     return () => {
       active = false
+      mounted.current = false
       lookups.current++
     }
   }, [session, initialDescription, lookUp])
@@ -492,7 +496,11 @@ function NewTaskForm({
             <SourceCard
               source={source}
               onRemove={removeSource}
-              onKeySaved={() => lookUp(source.url, source.identifier)}
+              onKeySaved={() => {
+                const current = session.get()
+                if (current.source !== source.url || current.dismissed.includes(source.url)) return
+                lookUp(source.url, source.identifier)
+              }}
             />
           )}
         </div>
@@ -785,6 +793,14 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [problem, setProblem] = useState<string>()
+  const mounted = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   async function save() {
     if (key.trim() === '' || saving) return
@@ -792,6 +808,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
     setProblem(undefined)
     try {
       const status = await ted.saveLinearKey(key)
+      if (!mounted.current) return
       if (status.storedIn !== undefined) {
         onSaved()
         return
@@ -802,9 +819,9 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
           : 'No keyring found on this computer. Save the key in Settings → Integrations.',
       )
     } catch (failure) {
-      setProblem(readableError(failure))
+      if (mounted.current) setProblem(readableError(failure))
     } finally {
-      setSaving(false)
+      if (mounted.current) setSaving(false)
     }
   }
 
