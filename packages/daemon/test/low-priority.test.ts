@@ -21,6 +21,8 @@ import {
 } from './helpers.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
+process.env.TED_LOW_PRIORITY = 'on'
+
 const mac = process.platform === 'darwin'
 const field = mac ? 'pri=' : 'ni='
 const level = (pid: number) =>

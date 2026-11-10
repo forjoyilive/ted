@@ -21,7 +21,7 @@ export function workCommand(
   lowPriority: boolean,
   wrapper: PriorityWrapper = platformWrapper,
 ): { command: string; args: string[] } {
-  if (!lowPriority) return { command, args: [...args] }
+  if (!lowPriority || process.env.TED_LOW_PRIORITY === 'off') return { command, args: [...args] }
   const program = wrapper.programs.find(isProgram)
   if (program === undefined) {
     if (!warned) {

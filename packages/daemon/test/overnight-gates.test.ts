@@ -423,7 +423,12 @@ describe('overnight mode and a Task that changes .ted/', () => {
       'auto-merge to be turned off',
     )
     expect((await merges()).at(-1)).toContain('--disable-auto')
-    expect((await getTask(client, task.id)).repos[0]?.pullRequest?.autoMerge).toBeUndefined()
+    await waitUntil(
+      async () =>
+        (await getTask(client, task.id)).repos[0]?.pullRequest?.autoMerge === undefined ||
+        undefined,
+      'the Task to record auto-merge as off',
+    )
 
     await setGh({
       mergeState: 'CLEAN',
