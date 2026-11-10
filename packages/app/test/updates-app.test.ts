@@ -21,7 +21,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const stubClaudePath = fileURLToPath(
@@ -81,8 +81,7 @@ async function launchApp(): Promise<Page> {
       TED_UPDATE_LOG: updateLog(),
     },
   })
-  const window = await firstWindow(app)
-  await window.getByRole('navigation', { name: 'Sidebar' }).waitFor()
+  const window = await loadedWindow(app)
   return window
 }
 

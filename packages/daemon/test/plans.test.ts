@@ -145,6 +145,8 @@ describe('Planning chats', () => {
     expect(roundRequest).toMatchObject({ title: 'Who can share', round: { number: 1 } })
 
     const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(run.run.prompt).toContain('## Write clearly for the user')
+    expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
     const folder = path.join(home, 'plans', plan.id)
     expect(run.run.cwd).toBe(path.join(folder, 'widgets'))
     expect(run.run.taskId).toBeUndefined()

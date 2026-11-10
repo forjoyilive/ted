@@ -98,14 +98,16 @@ describe('Task details summaries', () => {
         run({ id: 'r3', state: 'finished', role: 'sub-agent' }),
         run({ id: 'r4', state: 'finished' }),
       ]),
-    ).toBe('Task Lead idle · 3 stopped')
+    ).toBe('Task Lead idle · 0 active sub-agents · 3 stopped')
     expect(
       runsCollapsedSummary([
         run({ state: 'working', onSubAgents: true }),
         run({ id: 'r2', role: 'sub-agent', parentRunId: 'r1', state: 'working' }),
       ]),
-    ).toBe('Task Lead on sub-agents · 1 sub-agent')
-    expect(runsCollapsedSummary([run({ state: 'finished' })])).toBe('1 stopped')
+    ).toBe('Task Lead on sub-agents · 1 active sub-agent')
+    expect(runsCollapsedSummary([run({ state: 'finished' })])).toBe(
+      '0 active sub-agents · 1 stopped',
+    )
   })
 
   test('Code collapses to the pull request, the branch or the repo count', () => {

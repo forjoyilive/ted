@@ -170,6 +170,33 @@ test('a pending create disables submission and an error preserves the draft', as
   )
 })
 
+test('files dropped while the draft loads are attached once it has loaded', async () => {
+  const draft = deferred<{ draft: null }>()
+  const uploaded = vi.fn((name: unknown) => ({
+    hash: 'abc',
+    name,
+    mediaType: 'text/plain',
+    size: 5,
+  }))
+  bridge({
+    ...draftHandlers(),
+    taskDraft: () => draft.promise,
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    uploadAttachment: uploaded,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  expect(screen.getByLabelText('Description').matches(':disabled')).toBe(true)
+  fireEvent.drop(screen.getByRole('group', { name: 'Attachments' }), {
+    dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
+  })
+  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(uploaded).not.toHaveBeenCalled()
+  await act(async () => draft.resolve({ draft: null }))
+  expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
+  expect(uploaded).toHaveBeenCalledWith('notes.txt', 'text/plain', expect.any(Uint8Array))
+  expect(screen.queryByText('Attaching…')).toBeNull()
+})
+
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',

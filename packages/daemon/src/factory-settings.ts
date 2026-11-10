@@ -301,6 +301,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
     const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
+    const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
@@ -326,6 +327,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
               .reverse()
               .find((layer) => layer.settings.stages[id]?.effort !== undefined)?.kind ?? 'ted',
         }),
+        ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
         from: file?.layer ?? 'ted',

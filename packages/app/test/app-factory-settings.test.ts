@@ -83,7 +83,7 @@ describe('Library settings', () => {
       'Read the changelog.',
     )
     expect(await readFile(path.join(library, 'workflow.yaml'), 'utf8')).toMatch(
-      /design:\n {4}gate: false\n {2}review:\n {4}based_on: [0-9a-f]{7}\n/,
+      /design:\n {4}gate: false\n {2}review:\n {4}based_on: "?[0-9a-f]{7}"?\n/,
     )
 
     await window.getByRole('button', { name: 'Reset to default' }).first().click()

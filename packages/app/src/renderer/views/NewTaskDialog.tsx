@@ -97,6 +97,7 @@ function NewTaskForm({
   const headingId = useId()
   const [draft, showDraft] = useState(emptyTaskDraft)
   const [ready, setReady] = useState(false)
+  const [heldFiles, setHeldFiles] = useState<File[]>([])
   const [draftError, setDraftError] = useState<string>()
   const [session] = useState(() =>
     taskDraftSession(factory ?? '', {
@@ -400,7 +401,11 @@ function NewTaskForm({
   }
 
   function attach(files: readonly File[]) {
-    if (!ready || busy) return Promise.resolve()
+    if (busy) return Promise.resolve()
+    if (!ready) {
+      setHeldFiles((held) => [...held, ...files])
+      return Promise.resolve()
+    }
     const pending = upload(files)
     uploads.current.add(pending)
     void pending.finally(() => uploads.current.delete(pending))
@@ -430,6 +435,12 @@ function NewTaskForm({
       }
     }
   }
+
+  useEffect(() => {
+    if (!ready || heldFiles.length === 0) return
+    setHeldFiles([])
+    void attach(heldFiles)
+  })
 
   function onDrop(event: DragEvent) {
     event.preventDefault()
@@ -560,7 +571,9 @@ function NewTaskForm({
               </button>
             </span>
           ))}
-          {uploading > 0 && <span className={styles.chipMeta}>Attaching…</span>}
+          {(uploading > 0 || heldFiles.length > 0) && (
+            <span className={styles.chipMeta}>Attaching…</span>
+          )}
           <button
             type="button"
             className={styles.attach}

@@ -14,6 +14,7 @@ import type {
   RunSlots,
   Task,
   TaskApp,
+  TaskGates,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -285,136 +286,156 @@ describe('the proposal', () => {
     },
   })
 
-  test('Design and Review Gates hold the setup Task, the proposal shows tried Checks, and Validate runs only approved Checks from the branch', async () => {
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'order: [intake, design, work, validate, review, merge]',
-        'stages:',
-        '  design: { gate: false }',
-        '  review: { gate: false }',
-        '',
-      ].join('\n'),
-    })
-    const client = await start()
-    await addWidgets(client, true)
-    const setup = await setupTask(client)
-    const brief = path.join(scratch, 'brief.md')
-    await writeFile(
-      brief,
-      '## Goal\n\nSet up Widgets\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nReading.\n\n## Open questions\n\nNone.\n\n## Next step\n\nPropose.\n',
-    )
-    const missingSetup = path.join(scratch, 'plain.json')
-    await writeFile(missingSetup, JSON.stringify({ summary: 'No setup section.' }))
-    const design = path.join(scratch, 'design.json')
-    await writeFile(
-      design,
-      JSON.stringify(
-        proposal([
-          { name: 'Unit', command: 'true', passed: true, durationMs: 1200 },
-          {
-            name: 'End-to-end',
-            command: 'false',
-            passed: false,
-            durationMs: 900,
-            reason: 'Fails on main: needs the API running',
-          },
-        ]),
-      ),
-    )
-    const branchSettings = path.join(scratch, 'branch-workflow.yaml')
-    await writeFile(
-      branchSettings,
-      [
-        'version: 1',
-        'order: [intake, design, work, validate, review, merge]',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        '      - { name: Unit, run: "true" }',
-        `      - { name: Sneaky, run: "touch ${path.join(scratch, 'sneaky')}" }`,
-        'repos:',
-        '  - name: widgets',
-        '    apps:',
-        '      - name: Web',
-        '        kind: command',
-        `        run: "'${process.execPath}' '${stubApp}'"`,
-        '      - name: Sneaky App',
-        '        kind: command',
-        `        run: "touch ${path.join(scratch, 'sneaky-app')}"`,
-        '      - name: Changed',
-        '        kind: command',
-        `        run: "touch ${path.join(scratch, 'changed-app')}"`,
-        '',
-      ].join('\n'),
-    )
-    const writeSettings = `grep -q Sneaky .ted/workflow.yaml || (cp ${branchSettings} .ted/workflow.yaml && git add .ted && git -c user.name=T -c user.email=t@example.com commit -qm settings)`
-    const each = [
-      { run: ['ted', 'comment', '--tutorial', 'Each Stage, explained.'] },
-      { run: ['ted', 'brief', 'write', '--file', brief] },
-      { run: ['ted', 'outcome', 'advance', '--skip'] },
-      { run: ['ted', 'outcome', 'advance', '--design', missingSetup] },
-      { run: ['ted', 'outcome', 'advance', '--design', design] },
-      { run: ['sh', '-c', writeSettings] },
-      { run: ['ted', 'outcome', 'advance'] },
-      { endTurn: true },
-    ]
-    await client.ok('PUT', `/tasks/${setup.id}`, { title: steps({ everyMessage: each }, ...each) })
-    await client.ok('POST', `/tasks/${setup.id}/start`)
-
-    const answer = async (stage: string) => {
-      const item = await waitUntil(
-        async () => (await inbox(client)).find((i) => i.request.stage === stage),
-        `the ${stage} request`,
+  test.each([
+    ['off', false],
+    ['on', true],
+  ])(
+    'Design and Review Gates hold the setup Task, the proposal shows tried Checks, and Validate runs only approved Checks from the branch (overnight mode %s)',
+    async (_, overnight) => {
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'order: [intake, design, work, validate, review, merge]',
+          'stages:',
+          '  design: { gate: false }',
+          '  review: { gate: false }',
+          '',
+        ].join('\n'),
+      })
+      const client = await start()
+      await addWidgets(client, true)
+      const setup = await setupTask(client)
+      const brief = path.join(scratch, 'brief.md')
+      await writeFile(
+        brief,
+        '## Goal\n\nSet up Widgets\n\n## Decisions so far\n\nNone.\n\n## Current state\n\nReading.\n\n## Open questions\n\nNone.\n\n## Next step\n\nPropose.\n',
       )
-      await client.ok('POST', `/comments/${item.request.id}/answer`, { action: 'approve' })
-      return item.request
-    }
-    await answer('clarify')
-    const review = await answer('design')
-    expect(review).toMatchObject({
-      kind: 'review',
-      title: 'Proposed setup for Widgets',
-      design: {
-        summary: 'One repo with a test script. I ran each Check on main.',
-        setup: {
-          checks: [
+      const missingSetup = path.join(scratch, 'plain.json')
+      await writeFile(missingSetup, JSON.stringify({ summary: 'No setup section.' }))
+      const design = path.join(scratch, 'design.json')
+      await writeFile(
+        design,
+        JSON.stringify(
+          proposal([
             { name: 'Unit', command: 'true', passed: true, durationMs: 1200 },
-            { name: 'End-to-end', passed: false, reason: 'Fails on main: needs the API running' },
-          ],
-          apps: [
-            { name: 'Web', kind: 'web', run: `'${process.execPath}' '${stubApp}'`, passed: true },
-            { name: 'Changed', run: 'true' },
-          ],
-          files: [
-            { path: '.ted/notes.md' },
-            { path: '.ted/workflow.yaml' },
-            { path: '.ted/stages/validate.md' },
-          ],
+            {
+              name: 'End-to-end',
+              command: 'false',
+              passed: false,
+              durationMs: 900,
+              reason: 'Fails on main: needs the API running',
+            },
+          ]),
+        ),
+      )
+      const branchSettings = path.join(scratch, 'branch-workflow.yaml')
+      await writeFile(
+        branchSettings,
+        [
+          'version: 1',
+          'order: [intake, design, work, validate, review, merge]',
+          'stages:',
+          '  validate:',
+          '    checks:',
+          '      - { name: Unit, run: "true" }',
+          `      - { name: Sneaky, run: "touch ${path.join(scratch, 'sneaky')}" }`,
+          'repos:',
+          '  - name: widgets',
+          '    apps:',
+          '      - name: Web',
+          '        kind: command',
+          `        run: "'${process.execPath}' '${stubApp}'"`,
+          '      - name: Sneaky App',
+          '        kind: command',
+          `        run: "touch ${path.join(scratch, 'sneaky-app')}"`,
+          '      - name: Changed',
+          '        kind: command',
+          `        run: "touch ${path.join(scratch, 'changed-app')}"`,
+          '',
+        ].join('\n'),
+      )
+      const writeSettings = `grep -q Sneaky .ted/workflow.yaml || (cp ${branchSettings} .ted/workflow.yaml && git add .ted && git -c user.name=T -c user.email=t@example.com commit -qm settings)`
+      const each = [
+        { run: ['ted', 'comment', '--tutorial', 'Each Stage, explained.'] },
+        { run: ['ted', 'brief', 'write', '--file', brief] },
+        { run: ['ted', 'outcome', 'advance', '--skip'] },
+        { run: ['ted', 'outcome', 'advance', '--design', missingSetup] },
+        { run: ['ted', 'outcome', 'advance', '--design', design] },
+        { run: ['sh', '-c', writeSettings] },
+        { run: ['ted', 'outcome', 'advance'] },
+        { endTurn: true },
+      ]
+      await client.ok('PUT', `/tasks/${setup.id}`, {
+        title: steps({ everyMessage: each }, ...each),
+      })
+      if (overnight) {
+        await client.ok('PATCH', '/settings', { overnightMode: true })
+        const { rows } = await client.ok<TaskGates>('GET', `/tasks/${setup.id}/gates`)
+        for (const stage of ['clarify', 'design', 'review']) {
+          const row = rows.find((r) => r.stage === stage)
+          expect(row).toMatchObject({ effective: true, required: true })
+          expect(row?.overnight).toBeUndefined()
+        }
+      }
+      await client.ok('POST', `/tasks/${setup.id}/start`)
+
+      const answer = async (stage: string) => {
+        const item = await waitUntil(
+          async () => (await inbox(client)).find((i) => i.request.stage === stage),
+          `the ${stage} request`,
+        )
+        await client.ok('POST', `/comments/${item.request.id}/answer`, { action: 'approve' })
+        return item.request
+      }
+      await answer('clarify')
+      const review = await answer('design')
+      expect(review).toMatchObject({
+        kind: 'review',
+        title: 'Proposed setup for Widgets',
+        design: {
+          summary: 'One repo with a test script. I ran each Check on main.',
+          setup: {
+            checks: [
+              { name: 'Unit', command: 'true', passed: true, durationMs: 1200 },
+              { name: 'End-to-end', passed: false, reason: 'Fails on main: needs the API running' },
+            ],
+            apps: [
+              { name: 'Web', kind: 'web', run: `'${process.execPath}' '${stubApp}'`, passed: true },
+              { name: 'Changed', run: 'true' },
+            ],
+            files: [
+              { path: '.ted/notes.md' },
+              { path: '.ted/workflow.yaml' },
+              { path: '.ted/stages/validate.md' },
+            ],
+          },
         },
-      },
-    })
+      })
 
-    const checkRun = await waitUntil(async () => {
-      const runs = await client.ok<CheckRun[]>('GET', `/tasks/${setup.id}/check-runs`)
-      return runs.find((r) => r.checks.every((c) => c.state !== 'waiting' && c.state !== 'running'))
-    }, 'the Validate Checks')
-    expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'TED settings'])
-    expect(existsSync(path.join(scratch, 'sneaky'))).toBe(false)
-    const web = await waitUntil(async () => {
-      const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)
-      return apps.find((a) => a.name === 'Web' && a.state === 'running') && apps
-    }, 'TED to start the proposed App')
-    expect(web.map((a) => a.name)).toEqual(['Web'])
-    expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
-    expect(existsSync(path.join(scratch, 'changed-app'))).toBe(false)
-    await answer('review')
+      const checkRun = await waitUntil(async () => {
+        const runs = await client.ok<CheckRun[]>('GET', `/tasks/${setup.id}/check-runs`)
+        return runs.find((r) =>
+          r.checks.every((c) => c.state !== 'waiting' && c.state !== 'running'),
+        )
+      }, 'the Validate Checks')
+      expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'TED settings'])
+      expect(existsSync(path.join(scratch, 'sneaky'))).toBe(false)
+      const web = await waitUntil(async () => {
+        const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)
+        return apps.find((a) => a.name === 'Web' && a.state === 'running') && apps
+      }, 'TED to start the proposed App')
+      expect(web.map((a) => a.name)).toEqual(['Web'])
+      expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
+      expect(existsSync(path.join(scratch, 'changed-app'))).toBe(false)
+      await answer('review')
 
-    const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
-    expect(comments.filter((c) => c.tutorial).map((c) => c.body)).toContain(
-      'Each Stage, explained.',
-    )
-  }, 60_000)
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
+      expect(comments.filter((c) => c.tutorial).map((c) => c.body)).toContain(
+        'Each Stage, explained.',
+      )
+    },
+    60_000,
+  )
 
   test('the setup Task Lead posts a tutorial Comment with its Run token, even when Claude Code scrubs credentials', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })

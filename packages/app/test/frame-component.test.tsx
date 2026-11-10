@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { required, user } from './support/component.ts'
+import { deferred, required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -31,6 +31,19 @@ test('a live Factory event updates the sidebar', async () => {
     a.emit({ type: 'factory-added', factory: factory({ id: 'f2', key: 'MS', name: 'site' }) }),
   )
   expect(screen.getByRole('button', { name: 'site' })).toBeTruthy()
+})
+
+test('the window is marked loaded once the first Factories load finishes', async () => {
+  const a = appState()
+  const factories = deferred<unknown[]>()
+  a.handle('listFactories', () => factories.promise)
+  const view = a.mount()
+  await screen.findByRole('navigation', { name: 'Sidebar' })
+  const root = required(view.container.querySelector('[data-loaded]'))
+  expect(root.getAttribute('data-loaded')).toBe('false')
+  await act(async () => factories.resolve([factory()]))
+  expect(root.getAttribute('data-loaded')).toBe('true')
+  expect(screen.getByRole('button', { name: 'widgets' })).toBeTruthy()
 })
 
 test('sidebar expansion survives a component remount', async () => {

@@ -139,6 +139,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const full = resolveWorkflow([base.defaults, own])
     const drifts = findDrift([base.defaults], own)
     const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
+    const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
@@ -159,6 +160,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
           }),
           inheritedEffortFrom: 'ted' as const,
         }),
+        ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
         from: libraryFile !== undefined ? 'library' : 'ted',
