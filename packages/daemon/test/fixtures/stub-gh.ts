@@ -13,6 +13,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 interface StubState {
+  mergeGate?: { entered: string; release: string }
   graphqlGate?: { entered: string; release: string; after?: number }
   version?: string
   hosts?: Record<string, unknown[]>
@@ -401,8 +402,13 @@ if (args[0] === '--version') {
     save()
     process.stdout.write(`https://github.com/${repo}/pull/${number}\n`)
   } else if (args[1] === 'list') process.stdout.write('[]\n')
-  else if (args[1] === 'merge') mergePullRequest()
-  else if (args[1] === 'view') process.stdout.write('{"isDraft":false}\n')
+  else if (args[1] === 'merge') {
+    if (state.mergeGate) {
+      writeFileSync(state.mergeGate.entered, 'waiting')
+      while (!existsSync(state.mergeGate.release)) await sleep(5)
+    }
+    mergePullRequest()
+  } else if (args[1] === 'view') process.stdout.write('{"isDraft":false}\n')
   else if (!['ready', 'edit', 'close', 'reopen'].includes(args[1] ?? '')) {
     process.stderr.write(`stub gh: unknown command ${args.join(' ')}\n`)
     process.exit(1)

@@ -1,4 +1,4 @@
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type Comment,
@@ -230,6 +230,59 @@ test('code and nonignored binary changes invalidate durably; returning to old co
   )
   expect((await s.resolve(fresh)).status).toBe(200)
 })
+
+test.each(['changed', 'unavailable'])(
+  'capturing %s context invalidates acceptance before acknowledgement and replay retains the hold',
+  async (observation) => {
+    const s = await setup()
+    const context = await s.capture()
+    const decision = await s.request(await s.record(context.id))
+    expect((await s.resolve(decision)).status).toBe(200)
+    const worktree = s.task.repos[0]?.worktree ?? ''
+    const file = path.join(worktree, 'changed.bin')
+    const moved = `${worktree}-unavailable`
+    if (observation === 'changed') await writeFile(file, new Uint8Array([0, 1, 255]))
+    else await rename(worktree, moved)
+    let observed: FailureCase[] = []
+    try {
+      const response = await s.lead.call('POST', `${s.root}/failure-contexts`, {})
+      expect(response.status).toBe(observation === 'changed' ? 201 : 500)
+      observed = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
+    } finally {
+      if (observation === 'changed') await rm(file)
+      else await rename(moved, worktree)
+    }
+    expect(observed[0]?.invalidations).toHaveLength(1)
+    expect(observed[0]?.resolutions).toEqual(
+      decision.resolutions.concat([expect.objectContaining({ resolution: 'accepted' })]),
+    )
+    await s.client.ok('POST', `${s.root}/stop`)
+    await ctx.daemon?.stop()
+    const directory = path.join(tedPaths(ctx.home).store, 'ted')
+    for (const file of await readdir(directory)) {
+      if (file.startsWith('state')) await rm(path.join(directory, file), { force: true })
+    }
+    ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+    const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+    expect(await client.call('GET', `${s.root}/failures`)).toMatchObject({ body: observed })
+    expect(await client.call('GET', `${s.root}/validation-obligations`)).toMatchObject({
+      status: 200,
+      body: {
+        satisfied: false,
+        blockers: [decision.id],
+        cases: [{ disposition: 'invalidated', context: 'current' }],
+      },
+    })
+    expect(
+      (
+        await client.call('POST', `${s.root}/failures/${decision.id}/resolve`, {
+          requestId: decision.decisions.at(-1)?.commentId,
+          resolution: 'accepted',
+        })
+      ).status,
+    ).toBe(409)
+  },
+)
 
 test('unknown tested contexts can be closed by the human but cannot be accepted', async () => {
   const s = await setup()

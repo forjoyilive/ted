@@ -191,7 +191,12 @@ export function createFailureCases(options: {
     get,
     obligations,
     async capture(task: Task, runId: string) {
-      const context = await options.snapshot(task)
+      const context = await options.snapshot(task).catch(async (error: unknown) => {
+        await obligations(task, null)
+        throw error
+      })
+      options.assertLead(task, runId)
+      await obligations(task, context)
       options.assertLead(task, runId)
       return store.failures.capture(context)
     },

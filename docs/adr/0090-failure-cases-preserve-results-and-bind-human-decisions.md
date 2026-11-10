@@ -9,3 +9,5 @@ Execution identity is part of acceptance eligibility. Version 2 captures include
 Completed Tasks retain historical decisions without recapturing cleaned-up worktrees or unpolled merged PRs. Active holds preserve factual Partly merged state after external merges. Invalidation and its TED notice share one commit; existing Comment delivery tracking carries undelivered notices into health-held saved sessions as well as fresh Runs.
 
 Assessments bind the evidence append position, not wall-clock ordering. Pending legacy assessments with additions need a fresh bound assessment; existing recorded decisions are retained. Context collection waits for GitHub and Workflow inputs before its final local tree reads so a pending remote read cannot authorize an earlier local snapshot.
+
+Context capture is also an observation: changed or unavailable context durably invalidates existing acceptance before the response. Task repo edits share the movement/decision boundary, and verify remaining acceptance before releasing it, so a concurrent edit cannot change membership under a pending context verification or remote merge.

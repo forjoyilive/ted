@@ -2560,7 +2560,17 @@ export function createTasks(options: {
       caller.kind === 'run' ? taskLead(ref, caller, 'changes the Task’s repos').task : find(ref)
     const work = (changingRepos.get(task.id) ?? Promise.resolve())
       .catch(() => undefined)
-      .then(() => changeRepos(task.id, caller, request))
+      .then(async () => {
+        await beginning.get(task.id)?.catch(() => undefined)
+        return holding(find(task.id), async () => {
+          if (caller.kind === 'run') taskLead(ref, caller, 'changes the Task’s repos')
+          try {
+            return await changeRepos(task.id, caller, request)
+          } finally {
+            if (store.failures.list(task.id).length > 0) await failures.obligations(find(task.id))
+          }
+        })
+      })
     changingRepos.set(task.id, work)
     try {
       return await work
