@@ -1449,7 +1449,10 @@ export function createTasks(options: {
 
   function canStartForGitHub(task: StoredTask): boolean {
     const lead = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
-    return canStartFresh(task) && !(lead?.state === 'finished' && lead.ended?.how === 'stopped')
+    return (
+      canStartFresh(task) &&
+      (task.stage === 'merge' || !(lead?.state === 'finished' && lead.ended?.how === 'stopped'))
+    )
   }
 
   async function sendActivity(taskId: string, read: PullRequestRead): Promise<void> {

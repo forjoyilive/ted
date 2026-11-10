@@ -261,6 +261,64 @@ describe('Watching GitHub', () => {
     )
   })
 
+  test.each(['merge', 'off'] as const)(
+    'GitHub activity continues a Merge Task after quit when Merge is %s',
+    async (mode) => {
+      const client = await start({
+        ...(mode === 'off' && { workflow: ['stages:', '  merge: { enabled: false }'] }),
+        merge: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' },
+      })
+      const { task, signoff } = await toSignoff(client, { title: guardedSteps(client) })
+      await approve(client, signoff)
+      await waitUntil(async () => (await getTask(client, task.id)).stage === 'merge', 'Merge')
+      const first = await leadOf(client, task)
+      expect((await client.call('POST', '/shutdown', {})).status).toBe(200)
+      await ctx.daemon?.stop()
+      const daemon = await startDaemon({
+        home: ctx.home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        mergePollMs: 100,
+      })
+      ctx.daemon = daemon
+      const again = api(daemon.port, { appKey: daemon.appToken })
+      const now = async () =>
+        ((await again.call('GET', '/tasks')).body as Task[]).find((t) => t.id === task.id)
+      expect(await now()).toMatchObject({ stage: 'merge', leadRunId: first, runs: [] })
+      expect(await now()).not.toHaveProperty('canResume', true)
+      expect((await again.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
+      await setStub({ logs: { '42': 'Error: CI failed' } })
+      await setGh({
+        reviews: [
+          {
+            id: 'R-after-quit',
+            state: 'CHANGES_REQUESTED',
+            author: { login: 'bo' },
+            body: 'Keep watching this pull request.',
+          },
+        ],
+        ...(mode === 'off' && { checks: [failingCheck], mergeable: 'CONFLICTING' }),
+      })
+      const fresh = await waitUntil(async () => {
+        const lead = (await now())?.runs.find((r) => r.role === 'lead')
+        return lead && lead.id !== first ? lead.id : undefined
+      }, 'GitHub activity to start a fresh Merge Task Lead')
+      const prompt = await waitForMessage(again, fresh, '# Picking up after activity on GitHub')
+      expect(prompt).toContain('## Task brief')
+      await waitForMessage(again, fresh, '@bo requested changes:\nKeep watching this pull request.')
+      if (mode === 'off') {
+        await waitForMessage(again, fresh, 'CI is failing on acme/widgets#7')
+        await waitForMessage(
+          again,
+          fresh,
+          'acme/widgets#7 has merge conflicts with its base branch.',
+        )
+      }
+      expect((await now())?.stage).toBe('merge')
+      expect((await again.getRun(first)).run.state).toBe('finished')
+    },
+  )
+
   test('signing out of gh shows Waiting for GitHub sign-in; signing back in delivers what was missed', async () => {
     const client = await start({
       merge: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' },
