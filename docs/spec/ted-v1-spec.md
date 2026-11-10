@@ -221,6 +221,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
   5. Open TED, New Task… ⌘N, Settings… ⌘,
   6. Quit TED completely ⌘Q, which asks about work running (3.1).
 - Every item is also in the app’s own menus. (KRI-59)
+- **Linux menu bar.** Use the native Electron menu bar, with a TED menu holding the same items as the macOS menu-bar menu. This follows the desktop’s own look and keeps the implementation simple. It supersedes the ☰ menu button shown in Figma. ([KRI-169](https://linear.app/kriyadesign/issue/KRI-169/should-ted-on-linux-use-a-native-menu-bar-instead-of-the-menu-in-figma))
 - **Linux.** Electron’s tray uses StatusNotifierItem, which stock GNOME doesn’t show. So closing the window keeps TED running, as on macOS. The first time the window closes, TED sends one notification: “TED is still running in the background. Open it again from your app launcher.” Opening TED again focuses the running instance (one instance only); `ted open` does the same. Settings → General has **Show tray icon** (on). The Linux app menu holds the same items as the macOS menu-bar menu. The Inbox count shows in the window title (“TED (3)”) and on the launcher icon where supported. (KRI-59, KRI-64)
 
 ---
