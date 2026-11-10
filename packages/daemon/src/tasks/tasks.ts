@@ -138,6 +138,7 @@ import {
   type ResolvedWorkflow,
   setupWorkflow,
   withForcedGates,
+  withoutGates,
   withTaskGates,
 } from '../workflow/resolve.ts'
 import {
@@ -787,14 +788,52 @@ export function createTasks(options: {
   ): Promise<WorkflowResolution> {
     const factory = factoryOf(task)
     const resolution = await resolveWorkflow(factory, options)
-    const forced = withForcedGates(
-      withTaskGates(resolution.workflow, options?.inheritedGates ? {} : task.gateOverrides),
-      task.forcedGates,
+    const chosen = withTaskGates(
+      resolution.workflow,
+      options?.inheritedGates ? {} : task.gateOverrides,
     )
-    const workflow = task.changesSettings ? onDefaultBranch(forced) : forced
-    if (!task.setup) return { ...resolution, workflow }
-    const instructions = await setupInstructions(factory.showTutorial)
-    return { ...resolution, workflow: setupWorkflow(workflow, instructions) }
+    const night =
+      store.settings().overnightMode && !options?.inheritedGates
+        ? withoutGates(chosen)
+        : { workflow: chosen, off: [] }
+    const forced = withForcedGates(night.workflow, task.forcedGates)
+    const based = task.changesSettings ? onDefaultBranch(forced) : forced
+    const workflow = task.setup
+      ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
+      : based
+    const overnightGates = night.off.filter(
+      (id) =>
+        workflow.settings.stages[id]?.gate !== true &&
+        !(id === 'clarify' && task.clarifyDepth === 'grilling'),
+    )
+    if (overnightGates.length === 0) return { ...resolution, workflow }
+    return { ...resolution, workflow: { ...workflow, overnightGates } }
+  }
+
+  function gateRequested(task: Task): boolean {
+    const since = visitStart(task)
+    return store
+      .listComments(task.id)
+      .some((c) => c.gate && c.stage === task.stage && c.createdAt >= since)
+  }
+
+  function gateOn(task: Task, workflow: ResolvedWorkflow, stage: AgentStageId): boolean {
+    if (workflow.settings.stages[stage]?.gate === true) return true
+    if (stage === 'clarify' && task.clarifyDepth === 'grilling') return true
+    return (
+      workflow.overnightGates?.includes(stage) === true &&
+      stage === task.stage &&
+      gateRequested(task)
+    )
+  }
+
+  function gateSkipped(task: Task): boolean {
+    const since = visitStart(task)
+    return store
+      .taskLog(task.id)
+      .some(
+        (e) => e.name === 'v1.GateSkippedOvernight' && e.data.stage === task.stage && e.at >= since,
+      )
   }
 
   async function gatesFor(taskId: string): Promise<TaskGates> {
@@ -802,6 +841,8 @@ export function createTasks(options: {
     const task = find(taskId)
     const overrides = task.gateOverrides ?? {}
     const position = workflow.order.indexOf(task.stage as AgentStageId)
+    const finished = task.archived || task.stage === 'done'
+    const overnightMode = store.settings().overnightMode
     const rows = workflow.order
       .filter((stage) => workflow.stages.includes(stage))
       .map((stage) => {
@@ -812,30 +853,35 @@ export function createTasks(options: {
             : stage === 'clarify' && task.clarifyDepth === 'grilling'
               ? 'Required at grilling depth'
               : undefined
-        const posted = store
-          .listComments(task.id)
-          .some(
-            (comment) =>
-              comment.gate && comment.stage === stage && comment.createdAt >= visitStart(task),
-          )
-        const locked =
-          task.archived || task.stage === 'done'
-            ? 'This Task has finished'
-            : (required ??
-              (stage === 'merge' && task.stage === 'merge'
-                ? 'Merge has started'
-                : workflow.order.indexOf(stage) < position
-                  ? 'Stage already passed'
-                  : stage === task.stage && posted
-                    ? 'Sign-off has been requested; answer it in the thread'
-                    : undefined))
+        const posted = stage === task.stage && gateRequested(task)
+        const locked = finished
+          ? 'This Task has finished'
+          : (required ??
+            (stage === 'merge' && task.stage === 'merge'
+              ? 'Merge has started'
+              : workflow.order.indexOf(stage) < position
+                ? 'Stage already passed'
+                : posted
+                  ? 'Sign-off has been requested; answer it in the thread'
+                  : undefined))
         const inherited = required !== undefined || workflow.settings.stages[stage]?.gate === true
+        const chosen = required !== undefined || (overrides[stage] ?? inherited)
+        const atMerge = stage === 'merge' && task.stage === 'merge'
+        const overnight =
+          chosen &&
+          required === undefined &&
+          !finished &&
+          !posted &&
+          (atMerge && gateSkipped(task)
+            ? true
+            : overnightMode && workflow.order.indexOf(stage) >= position)
         return {
           stage,
           inherited,
-          effective: required !== undefined || (overrides[stage] ?? inherited),
+          effective: chosen && !overnight,
           required: required !== undefined,
           ...(overrides[stage] !== undefined && { override: overrides[stage] }),
+          ...(overnight && { overnight: true as const }),
           ...(locked && { locked }),
         }
       })
@@ -1531,7 +1577,8 @@ export function createTasks(options: {
     if (!workflow.stages.includes('merge')) return 'off'
     const since = visitStart(task)
     if (lastChangesRequested(task) !== '') return 'canceled'
-    if (workflow.settings.stages.merge?.gate !== true) return 'merge'
+    if (!gateOn(task, workflow, 'merge')) return 'merge'
+    if (gateSkipped(task)) return 'merge'
     const approved = store
       .listComments(task.id)
       .some(
@@ -1545,12 +1592,16 @@ export function createTasks(options: {
     return mergeMode(task, workflow) === 'merge'
   }
 
-  function startMerging(task: Task): void {
+  function startMerging(task: Task, workflow: ResolvedWorkflow): void {
     const since = visitStart(task)
     const started = store
       .taskLog(task.id)
       .some((e) => e.name === 'v1.MergeStarted' && e.at >= since)
-    if (!started) store.mergeStarted(task.id)
+    if (started) return
+    if (workflow.overnightGates?.includes('merge') && !gateRequested(task)) {
+      store.gateSkippedOvernight(task.id, 'merge')
+    }
+    store.mergeStarted(task.id)
   }
 
   function openPullRequests(task: Task) {
@@ -2427,7 +2478,7 @@ export function createTasks(options: {
     if (mode === undefined) return 'done'
     if (mode === 'canceled') return (await turnOffAutoMerge(taskId)).length > 0 ? 'wait' : 'done'
     if (mode === 'off') return watchOnlyCycle(taskId, read)
-    if (mode === 'merge') startMerging(task)
+    if (mode === 'merge') startMerging(task, resolution.workflow)
     if (mergeChecksPending(task) && !(await mergeChecks(taskId, resolution))) return 'wait'
     const targets = await mergeTargets(find(taskId), resolution)
     if (targets.length === 0) return finishMerge(taskId)
@@ -4057,7 +4108,7 @@ export function createTasks(options: {
             ? `The human approved the ${gateName(comment)}.`
             : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
         if (now.stage === 'merge') {
-          startMerging(find(task.id))
+          startMerging(find(task.id), resolution.workflow)
           watchMerge(task.id)
           await deliver(
             now,
@@ -4533,7 +4584,7 @@ export function createTasks(options: {
       await deliver(task, message)
     }
     if (next === 'merge') {
-      if (tedMerges(moved, resolution.workflow)) startMerging(moved)
+      if (tedMerges(moved, resolution.workflow)) startMerging(moved, resolution.workflow)
       watchMerge(task.id)
     }
     return moved
@@ -6826,7 +6877,7 @@ export function createTasks(options: {
       const factory = store.getFactory(factoryId)
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
       const resolution = await resolveWorkflow(factory, { fetch: false })
-      return { stages: boardStages(resolution.workflow) }
+      return { stages: boardStages(resolution.workflow, store.settings().overnightMode) }
     },
 
     start,
@@ -7425,16 +7476,20 @@ export function createTasks(options: {
           store.postComment({
             taskId: task.id,
             body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
-              workflow.settings.stages[stage]?.gate === true ? ' Its Gate was skipped too.' : ''
+              gateOn(current, workflow, stage) ? ' Its Gate was skipped too.' : ''
             }`,
             author: { kind: 'ted' },
           })
         }
-        const gate =
-          (workflow.settings.stages[stage]?.gate === true ||
-            (stage === 'clarify' && current.clarifyDepth === 'grilling')) &&
-          outcome.skip !== true
+        const gate = gateOn(current, workflow, stage) && outcome.skip !== true
         if (!gate) {
+          if (
+            outcome.skip !== true &&
+            workflow.overnightGates?.includes(stage) &&
+            !gateSkipped(current)
+          ) {
+            store.gateSkippedOvernight(task.id, stage)
+          }
           if (outcome.design) {
             store.postComment({
               taskId: task.id,

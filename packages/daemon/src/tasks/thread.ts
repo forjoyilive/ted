@@ -528,6 +528,13 @@ export function threadEvents(
       case 'v1.TaskGatesChanged':
         add(entry, 'edit', 'You changed this Task’s Gates')
         break
+      case 'v1.GateSkippedOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+        )
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

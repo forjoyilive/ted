@@ -537,6 +537,7 @@ export interface TedStore {
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
+  gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   mergeCanceled(taskId: string, commentId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
@@ -3044,6 +3045,10 @@ export async function openStore({
     },
     mergeStarted(taskId) {
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    gateSkippedOvernight(taskId, stage) {
+      commit(events.gateSkippedOvernight({ taskId, stage, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     mergeCanceled(taskId, commentId) {

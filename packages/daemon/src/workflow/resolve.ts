@@ -23,6 +23,7 @@ export interface ResolvedWorkflow {
   stages: StageId[]
   order: AgentStageId[]
   settings: WorkflowSettings
+  overnightGates?: readonly AgentStageId[]
   notes?: string
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
   next(current: StageId): StageId
@@ -101,6 +102,18 @@ export function withTaskGates(
     }
   }
   return { ...workflow, settings: { ...workflow.settings, stages } }
+}
+
+export function withoutGates(workflow: ResolvedWorkflow): {
+  workflow: ResolvedWorkflow
+  off: AgentStageId[]
+} {
+  const stages = { ...workflow.settings.stages }
+  const off = agentStageIds.filter(
+    (id) => workflow.stages.includes(id) && stages[id]?.gate === true,
+  )
+  for (const id of off) stages[id] = { ...stages[id], gate: false }
+  return { workflow: { ...workflow, settings: { ...workflow.settings, stages } }, off }
 }
 
 export function withForcedGates(
@@ -182,11 +195,15 @@ export function setupWorkflow(
   )
 }
 
-export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {
+export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): BoardStage[] {
   const { stages } = workflow.settings
-  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => ({
-    id,
-    enabled: id === 'done' || stages[id]?.enabled !== false,
-    gate: id !== 'backlog' && id !== 'done' && stages[id]?.gate === true,
-  }))
+  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => {
+    const gate = id !== 'backlog' && id !== 'done' && stages[id]?.gate === true
+    return {
+      id,
+      enabled: id === 'done' || stages[id]?.enabled !== false,
+      gate,
+      ...(gate && overnightMode && { overnight: true as const }),
+    }
+  })
 }
