@@ -6,6 +6,8 @@ import styles from './RoundCard.module.css'
 interface Draft {
   answer: string
   note: string
+  other?: boolean
+  custom?: string
 }
 
 const recommendedDrafts = (round: Round): Draft[] =>
@@ -37,8 +39,8 @@ function Question({
   onChange: (draft: Draft) => void
 }) {
   const name = useId()
-  const changed = draft.answer.trim() !== question.recommended.trim()
-  const reset = () => onChange({ ...draft, answer: question.recommended })
+  const changed = draft.other || draft.answer.trim() !== question.recommended.trim()
+  const reset = () => onChange({ ...draft, answer: question.recommended, other: false })
   return (
     <div className={styles.question}>
       <fieldset className={styles.fieldset} disabled={disabled}>
@@ -50,7 +52,7 @@ function Question({
           <>
             <div className={styles.options}>
               {question.choices.map((choice) => {
-                const selected = draft.answer === choice
+                const selected = !draft.other && draft.answer === choice
                 const tagged = selected ? changed || choice === question.recommended : false
                 return (
                   <label
@@ -62,7 +64,7 @@ function Question({
                       className={styles.radio}
                       name={name}
                       checked={selected}
-                      onChange={() => onChange({ ...draft, answer: choice })}
+                      onChange={() => onChange({ ...draft, answer: choice, other: false })}
                     />
                     <span className={styles.optionText}>{choice}</span>
                     {tagged ? (
@@ -75,15 +77,40 @@ function Question({
                   </label>
                 )
               })}
+              <label
+                className={draft.other ? `${styles.option} ${styles.selected}` : styles.option}
+              >
+                <input
+                  type="radio"
+                  className={styles.radio}
+                  name={name}
+                  checked={draft.other ?? false}
+                  onChange={() => onChange({ ...draft, other: true })}
+                />
+                <span className={styles.optionText}>Other</span>
+                {draft.other && <Tag changed onReset={reset} />}
+              </label>
             </div>
-            <input
-              type="text"
-              className={styles.note}
-              aria-label={`Add to answer ${number}`}
-              placeholder="Add to this answer…"
-              value={draft.note}
-              onChange={(event) => onChange({ ...draft, note: event.target.value })}
-            />
+            {draft.other ? (
+              <div className={styles.written}>
+                <textarea
+                  className={styles.text}
+                  aria-label={`Your answer ${number}`}
+                  placeholder="Your answer…"
+                  value={draft.custom ?? ''}
+                  onChange={(event) => onChange({ ...draft, custom: event.target.value })}
+                />
+              </div>
+            ) : (
+              <input
+                type="text"
+                className={styles.note}
+                aria-label={`Add to answer ${number}`}
+                placeholder="Add to this answer…"
+                value={draft.note}
+                onChange={(event) => onChange({ ...draft, note: event.target.value })}
+              />
+            )}
           </>
         ) : (
           <div className={changed ? `${styles.written} ${styles.writtenChanged}` : styles.written}>
@@ -121,7 +148,7 @@ export function RoundQuestions({
   const [drafts, setDrafts] = useState(() => recommendedDrafts(round))
   const update = (i: number, draft: Draft) =>
     setDrafts((all) => all.map((d, at) => (at === i ? draft : d)))
-  const complete = drafts.every((d) => d.answer.trim() !== '')
+  const complete = drafts.every((d) => (d.other ? (d.custom ?? '') : d.answer).trim() !== '')
   return (
     <>
       <div className={styles.questions}>
@@ -160,8 +187,8 @@ export function RoundQuestions({
               onSend({
                 action: 'answer-round',
                 answers: drafts.map((d) => ({
-                  answer: d.answer,
-                  ...(d.note.trim() !== '' && { note: d.note }),
+                  answer: d.other ? (d.custom ?? '') : d.answer,
+                  ...(!d.other && d.note.trim() !== '' && { note: d.note }),
                 })),
               })
             }

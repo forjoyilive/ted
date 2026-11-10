@@ -175,12 +175,31 @@ describe('Inbox and Gates', () => {
     expect(await first.getByText('Changed ·').count()).toBe(0)
     await first.getByText('Keep the latest edit').click()
     await card.getByRole('textbox', { name: 'Add to answer 1' }).fill('Clashes are rare.')
-    await card.getByRole('button', { name: 'Submit answers' }).click()
+    await first.getByRole('radio', { name: 'Other', exact: true }).check()
+    const custom = first.getByRole('textbox', { name: 'Your answer 1', exact: true })
+    const submit = card.getByRole('button', { name: 'Submit answers' })
+    expect(await submit.isDisabled()).toBe(true)
+    await custom.fill('   ')
+    expect(await submit.isDisabled()).toBe(true)
+    await custom.fill('Ask me to resolve each conflict.')
+    expect(await first.getByRole('radio', { name: /Keep the latest edit/ }).isChecked()).toBe(false)
+    await first.getByText('Keep the latest edit').click()
+    expect(await first.getByRole('textbox', { name: 'Add to answer 1' }).inputValue()).toBe(
+      'Clashes are rare.',
+    )
+    await first.getByRole('radio', { name: 'Other', exact: true }).check()
+    expect(await custom.inputValue()).toBe('Ask me to resolve each conflict.')
+    await first.getByRole('button', { name: 'Reset' }).click()
+    expect(await first.getByRole('radio', { name: /Keep both and let me merge/ }).isChecked()).toBe(
+      true,
+    )
+    await first.getByRole('radio', { name: 'Other', exact: true }).check()
+    await submit.click()
 
     const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
     await answered.getByText('You answered · 1 recommended, 1 changed').waitFor()
     expect(await answered.getByRole('listitem').allTextContents()).toEqual([
-      '1.Keep the latest edit · Clashes are rare.changed',
+      '1.Ask me to resolve each conflict.changed',
       '2.The edit wins.recommended',
     ])
     const details = window.getByRole('complementary', { name: 'Task details' })
