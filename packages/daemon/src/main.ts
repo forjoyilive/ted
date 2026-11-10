@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
 import { parseArgs } from 'node:util'
-import { tedHome, tedPaths, tedVersion } from '@ted/protocol'
+import { edition, tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
@@ -30,6 +30,15 @@ async function readAppToken(): Promise<string> {
 
 const appToken = values['app-token-stdin'] ? await readAppToken() : undefined
 
+const demoLinear =
+  edition === 'dev' && process.env.TED_DEMO === '1'
+    ? await import('../test/fixtures/stub-linear.ts').then(({ startStubLinear }) =>
+        startStubLinear(),
+      )
+    : undefined
+
+const linearApi = demoLinear?.url || process.env.TED_LINEAR_API
+
 let daemon: RunningDaemon | undefined
 let stopping = false
 
@@ -37,6 +46,7 @@ async function shutdown(): Promise<void> {
   if (stopping) return
   stopping = true
   await daemon?.stop()
+  await demoLinear?.close()
   process.exit(0)
 }
 
@@ -44,6 +54,11 @@ try {
   daemon = await startDaemon({
     home: tedHome(),
     version: tedVersion,
+    ...(edition === 'dev' &&
+      process.env.TED_DEMO === '1' && {
+        mergePollMs: 500,
+        simulators: { supported: true },
+      }),
     onShutdown: () => void shutdown(),
     checkAgentsOnStart: true,
     ...(appToken !== undefined && { appToken }),
@@ -59,7 +74,7 @@ try {
           appendFile(process.env.TED_FIX_LOG as string, `${command}\n`),
       }),
     },
-    ...(process.env.TED_LINEAR_API && { linear: { apiUrl: process.env.TED_LINEAR_API } }),
+    ...(linearApi && { linear: { apiUrl: linearApi } }),
     ...(Number(process.env.TED_NUDGE_AFTER_MS) > 0 && {
       nudgeAfterMs: Number(process.env.TED_NUDGE_AFTER_MS),
     }),
@@ -72,6 +87,7 @@ try {
   })
   console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
 } catch (error) {
+  await demoLinear?.close()
   if (error instanceof DaemonAlreadyRunningError) {
     console.error(error.message)
     process.exit(1)

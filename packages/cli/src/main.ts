@@ -124,6 +124,7 @@ const usage = `Usage:
   ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
                                              when its model isn’t available
   ted workflow check [<path>]                Check workflow.yaml and Stage files (default: .ted)
+  ted dev seed [--reset]                    Seed an isolated TED Dev demo; --reset rebuilds it
   ted dev run show <run-id>                  Show a Run’s state and Conversation
 ${automationUsage}
 
@@ -138,6 +139,7 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
+        reset: { type: 'boolean' },
         choice: { type: 'string', multiple: true },
         attach: { type: 'string', multiple: true },
         agent: { type: 'string' },
@@ -239,6 +241,22 @@ try {
     throw new UsageError('')
   } else if (group === 'help' && command === undefined) {
     console.log(usage)
+  } else if (group === 'dev' && command === 'seed' && rest.length === 0) {
+    if (
+      process.env.TED_RUN ||
+      process.env.TED_TASK ||
+      process.env.TED_PLAN ||
+      runTokenFrom(process.env)
+    )
+      throw new UsageError('Run demo seeding from a local terminal, outside a Run.')
+    const started = Date.now()
+    const { demoHome, demoEnvironment, seedDemoFromCli } = await import('@ted/daemon/demo')
+    const demo = demoHome()
+    const env = demoEnvironment(demo)
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    Object.assign(process.env, env)
+    await seedDemoFromCli(demo, options.reset)
+    console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
   } else if (group === 'status' && command === undefined) {
     await status()
   } else if (group === 'doctor' && command === undefined) {

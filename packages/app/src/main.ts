@@ -925,8 +925,12 @@ async function restartToUpdate(): Promise<void> {
 
 async function quitCompletely(): Promise<void> {
   quitting = true
-  supervisor?.close()
-  await client?.shutdown().catch((error: unknown) => console.error(error))
+  if (edition === 'dev' && process.env.TED_DEMO === '1') {
+    await supervisor?.handOver({ maxWaitMs: 0 }).catch((error: unknown) => console.error(error))
+  } else {
+    supervisor?.close()
+    await client?.shutdown().catch((error: unknown) => console.error(error))
+  }
   app.quit()
 }
 
@@ -1027,6 +1031,11 @@ async function start(): Promise<void> {
   const background =
     startsInBackground(process.argv) || (await takeFile(backgroundMarker())) !== undefined
   if (background) app.dock?.hide()
+  if (process.env.TED_DEMO === '1' && edition === 'dev') {
+    const { checkDemoHome } = await import('@ted/daemon/demo')
+    if (!(await checkDemoHome(tedHome()))?.complete)
+      throw new Error('Prepare the demo home with pnpm app --demo first.')
+  }
   const supervised = await superviseDaemon(tedHome(), {
     app: true,
     ...(testAppToken && { appToken: testAppToken }),
@@ -1095,6 +1104,8 @@ async function start(): Promise<void> {
   await startUpdates(supervised)
   if (background) return
   await createWindow()
+  if (process.env.TED_DEMO_STARTED)
+    console.log(`Demo window ready in ${Date.now() - Number(process.env.TED_DEMO_STARTED)} ms`)
 }
 
 app.setName(appName)
@@ -1112,10 +1123,12 @@ if (!app.requestSingleInstanceLock()) {
     .whenReady()
     .then(start)
     .catch((error: unknown) => {
-      dialog.showErrorBox(
-        `${appName} couldn’t start`,
-        error instanceof Error ? error.message : String(error),
-      )
+      if (testLaunch) console.error('TED could not start:', error)
+      else
+        dialog.showErrorBox(
+          `${appName} couldn’t start`,
+          error instanceof Error ? error.message : String(error),
+        )
       app.exit(1)
     })
 }

@@ -5,8 +5,24 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
+import {
+  DaemonClient,
+  type PostCommentRequest,
+  type ReportOutcomeRequest,
+  readDaemonInfo,
+  runTokenFrom,
+  type SetClarifyDepthRequest,
+} from '@ted/protocol'
+
+type DemoRequest =
+  | { brief: string }
+  | { outcome: ReportOutcomeRequest }
+  | { depth: SetClarifyDepthRequest }
+  | { comment: PostCommentRequest }
+  | { planRequest: Parameters<DaemonClient['postPlanRequest']>[0] }
 
 type Step =
+  | { demoRequest: DemoRequest }
   | { say: string }
   | { hook: string }
   | { lines: number; everyMs: number; pad?: number }
@@ -118,7 +134,7 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
-let everyMessage: Step[] = []
+let everyMessage: Step[] = process.env.TED_DEMO === '1' ? [{ endTurn: true }] : []
 let inputGate: string | undefined
 let interrupted = false
 let gating = false
@@ -144,7 +160,47 @@ function commandEnv(): NodeJS.ProcessEnv {
 }
 
 async function runStep(step: Step): Promise<void> {
-  if ('everyMessage' in step) everyMessage = step.everyMessage
+  if ('demoRequest' in step) {
+    if (process.env.TED_DEMO !== '1') throw new Error('Demo requests require an isolated demo.')
+    if (!process.env.TED_HOME) throw new Error('A demo request needs a home.')
+    const info = await readDaemonInfo(process.env.TED_HOME)
+    const token = runTokenFrom(process.env)
+    const task = process.env.TED_TASK
+    if (!info || !token) throw new Error('A demo request needs a Run.')
+    const client = new DaemonClient(info, token)
+    const request = step.demoRequest
+    try {
+      if ('planRequest' in request) await client.postPlanRequest(request.planRequest)
+      else if (!task) throw new Error('A demo request needs a Task Run.')
+      else if ('comment' in request) await client.postComment(task, request.comment)
+      else if ('brief' in request) await client.writeBrief(task, request.brief)
+      else if ('outcome' in request) {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            await client.reportOutcome(task, request.outcome)
+            break
+          } catch (error) {
+            if (
+              attempt >= 100 ||
+              !(error instanceof Error) ||
+              !/^TED is running .+Checks/.test(error.message)
+            )
+              throw error
+            await sleep(25)
+          }
+        }
+      } else await client.setClarifyDepth(task, request.depth)
+      say(JSON.stringify({ code: 0, stdout: '', stderr: '' }))
+    } catch (error) {
+      say(
+        JSON.stringify({
+          code: 1,
+          stdout: '',
+          stderr: error instanceof Error ? error.message : String(error),
+        }),
+      )
+    }
+  } else if ('everyMessage' in step) everyMessage = step.everyMessage
   else if ('emit' in step) emit(step.emit)
   else if ('tool' in step) {
     const id = `tool-${++nextTool}`
@@ -240,6 +296,7 @@ async function runStep(step: Step): Promise<void> {
   } else if ('exit' in step) process.stdout.write('', () => process.exit(step.exit))
 }
 
+let firstDemoMessage = true
 const messages: { message: { content: string } }[] = []
 let wake: (() => void) | undefined
 let closed = false
@@ -318,7 +375,17 @@ for (;;) {
     hook('Stop')
     continue
   }
-  const own = stepsIn(message.message.content)
+  let own = stepsIn(message.message.content)
+  if (
+    firstDemoMessage &&
+    process.env.TED_DEMO === '1' &&
+    process.env.TED_HOME &&
+    process.env.TED_TASK
+  ) {
+    const scenario = path.join(process.env.TED_HOME, 'inputs', `${process.env.TED_TASK}.json`)
+    if (existsSync(scenario)) own = stepsIn(readFileSync(scenario, 'utf8'))
+  }
+  firstDemoMessage = false
   interrupted = false
   for (const step of own.length > 0 ? own : everyMessage) {
     if (interrupted) break
