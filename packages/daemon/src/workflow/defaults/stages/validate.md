@@ -18,7 +18,7 @@ If the Factory has Checks, TED has already run them, one after another, and thei
    Findings from either review need evidence of the problem and its effect.
 3. Check each acceptance criterion against the Task’s description, Design brief and verification evidence. Confirm reviewer Findings against the files. Look for missing cases, broken behaviour and leftover debugging code.
 4. For UI changes, take screenshots of each changed screen as the preamble describes (headless, never by taking over the human’s screen), judge them against what was wanted, and attach them to your note as evidence.
-5. Confirm both reviews cover the committed change. Sort every code and security Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, including the security review’s scope, method and outcome, with the notes.
+5. Confirm both reviews cover the committed change. Sort every code and security Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Lead the human note with pass or fail and the remaining concerns, explaining their effect. Summarize relevant test coverage and the security review’s scope, method and outcome. Attach the detailed review and test evidence rather than repeating its inventory, revisions and Run IDs in the note.
 
 ## Done when
 
@@ -26,7 +26,7 @@ Code review and security review are complete, there are no blocking Findings and
 
 ## Send back when
 
-There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. From the third send-back TED checks whether the rounds are converging and may ask the human instead; it tells you what happens.
+There is a blocking Finding. Write each one, numbered, in a Findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. Keep the full reproduction and repair evidence in that file; a human update summarizes what remains and whether the previous fixes held. From the third send-back TED checks whether the rounds are converging and may ask the human instead. At the send-back limit it checks progress again, unless Loop checks are disabled, and asks the human regardless of the verdict; it tells you what happens.
 
 ## Ask the human when
 

@@ -11,7 +11,7 @@ Make the change the Task asks for, on this Task’s branch.
 3. Run tests relevant to the changed behaviour within the repo’s test scope rules, and fix what fails. Run the Factory’s Checks with `ted checks` when configured. Reuse passing results until a change or an unresolved concern calls for another run.
 4. Check every acceptance criterion against the result. Record the evidence and any remaining limitations in the brief; resolve missing behaviour before handing off.
 5. Commit your work.
-6. Post a short note for the human saying what changed and how it was checked.
+6. Post a short note leading with the resulting behavior, then the validation outcome and any remaining limitation. Attach detailed evidence when needed, following the preamble’s writing guidance.
 
 ## Done when
 
