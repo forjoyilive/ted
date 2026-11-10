@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { ArchiveDialog, DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
+import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { task } from './support/fixtures.ts'
 
@@ -72,12 +73,30 @@ test('failed data rebuild shows its stopping event and error with Copy report an
   const api = bridge({ copyText: vi.fn(), quit: vi.fn() })
   render(
     <DataScreen
-      status={{ state: 'failed', version: '9.0.0', done: 41, total: 100, error: 'Bad event' }}
+      status={{
+        state: 'failed',
+        version: '9.0.0',
+        done: 41,
+        total: 100,
+        error: 'Bad event',
+        restore: {
+          name: 'before-update',
+          kind: 'pre-update',
+          takenAt: '2026-11-09T12:00:00.000Z',
+          takenBy: '0.0.1',
+          dataFrom: '0.0.1',
+        },
+      }}
     />,
   )
   expect(screen.getByRole('heading', { name: 'TED couldn’t update its data' })).toBeTruthy()
   expect(screen.getByText('Rebuild stopped at event 42 of 100')).toBeTruthy()
   expect(screen.getByText('Error: Bad event')).toBeTruthy()
+  expect(screen.getByText(/Loses changes since.*when TED 0.0.1 last ran/)).toBeTruthy()
+  expect(screen.getByText(/Runs keep going in the background/)).toBeTruthy()
+  expect(
+    screen.getByRole('button', { name: 'Restore the backup from before the update' }),
+  ).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Copy report' }))
   expect(api.request).toHaveBeenCalledWith('copyText', expect.stringContaining('Bad event'))
   await user().click(screen.getByRole('button', { name: 'Quit TED' }))
@@ -106,4 +125,100 @@ test('unfinished setup offers Open setup Task or Start anyway without starting o
   expect(cancel).toHaveBeenCalledOnce()
   await user().click(screen.getByRole('button', { name: 'Start anyway' }))
   expect(start).toHaveBeenCalledOnce()
+})
+
+test('App opens unfinished setup without starting, then starts the ordinary Task only on Start anyway', async () => {
+  const a = appState()
+  const setup = task({
+    id: 'NB-0',
+    displayId: 'NB-0',
+    setup: true,
+    title: 'Set up widgets',
+    stage: 'work',
+  })
+  a.state.tasks = [task(), setup]
+  a.handle('factoryBoard', () => ({
+    stages: [
+      { id: 'backlog', enabled: true, gate: false },
+      { id: 'work', enabled: true, gate: false },
+    ],
+  }))
+  a.handle('startTask', async (id) => {
+    expect(id).toBe('NB-1')
+    const started = task({ stage: 'intake', title: 'Sync notes started' })
+    await a.emitTask(started)
+    return started
+  })
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
+  const notice = await screen.findByRole('dialog', { name: 'Start NB-1?' })
+  expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
+  await u.click(within(notice).getByRole('button', { name: 'Open setup Task' }))
+  expect((await screen.findByRole('region', { name: 'Task thread' })).textContent).toContain(
+    'Set up widgets',
+  )
+  expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toEqual([])
+  expect(a.state.tasks.find((t) => t.id === 'NB-1')?.stage).toBe('backlog')
+  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await u.click(await screen.findByRole('button', { name: 'Start NB-1' }))
+  await u.click(
+    within(screen.getByRole('dialog', { name: 'Start NB-1?' })).getByRole('button', {
+      name: 'Start anyway',
+    }),
+  )
+  await screen.findByText('Sync notes started')
+  expect(a.request).toHaveBeenCalledWith('startTask', 'NB-1')
+  expect(a.request.mock.calls.filter(([name]) => name === 'startTask')).toHaveLength(1)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Start NB-1' })).toBeNull()
+})
+
+test('App switches Delete to Archive, cancels it, then removes the deleted Task from the List', async () => {
+  const a = appState()
+  a.state.tasks = [task(), blocked]
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [],
+    automations: [],
+    factories: [],
+  }))
+  a.handle('deleteTask', async (id, choices) => {
+    expect(id).toBe('NB-1')
+    expect(choices).toEqual({ blocked: 'unblock' })
+    a.state.tasks = [task({ ...blocked, blockedBy: [] })]
+    await act(async () => {
+      a.emit({ type: 'task-deleted', taskId: 'NB-1' })
+      a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
+    })
+  })
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  await u.click(within(screen.getByRole('main')).getByText('Sync notes'))
+  await screen.findByRole('region', { name: 'Task thread' })
+  async function openDelete() {
+    await u.click(screen.getByRole('button', { name: 'Task actions' }))
+    await u.click(screen.getByRole('menuitem', { name: /^Delete…/ }))
+    return screen.findByRole('dialog', { name: 'Delete NB-1?' })
+  }
+
+  await u.click(within(await openDelete()).getByRole('button', { name: 'Archive instead' }))
+  const archive = await screen.findByRole('dialog', { name: 'Archive NB-1?' })
+  expect(screen.queryByRole('dialog', { name: 'Delete NB-1?' })).toBeNull()
+  await u.click(within(archive).getByRole('button', { name: 'Cancel' }))
+  expect(
+    a.request.mock.calls.some(([name]) => name === 'archiveTask' || name === 'deleteTask'),
+  ).toBe(false)
+  await u.click(within(await openDelete()).getByRole('button', { name: 'Delete NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'All Tasks' }))
+  await vi.waitFor(() => expect(document.querySelector('tr[data-task="NB-1"]')).toBeNull())
+  expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).toContain(
+    'Highlight search matches',
+  )
+  expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).not.toContain('Blocked')
+  expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
 })

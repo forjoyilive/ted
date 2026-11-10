@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, within } from '@testing-library/react'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
@@ -102,6 +102,14 @@ test('G navigation and history shortcuts use the App keymap', async () => {
   }
   fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', metaKey: true })
   await screen.findByRole('heading', { name: /widgets.*List/, level: 1 })
+  fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', metaKey: true })
+  await screen.findByRole('heading', { name: /widgets.*Board/, level: 1 })
+  fireEvent.keyDown(window, { key: '[', code: 'BracketLeft', metaKey: true })
+  await screen.findByRole('heading', { name: 'All Tasks', level: 1 })
+  for (const heading of [/widgets.*Board/, /widgets.*List/]) {
+    fireEvent.keyDown(window, { key: ']', code: 'BracketRight', metaKey: true })
+    await screen.findByRole('heading', { name: heading, level: 1 })
+  }
   fireEvent.keyDown(window, { key: ']', code: 'BracketRight', metaKey: true })
   await screen.findByRole('heading', { name: /widgets.*Plans/, level: 1 })
   fireEvent.keyDown(window, { key: 'g' })
@@ -133,11 +141,16 @@ test('New Task shortcuts select the current Factory and keep letters in inputs a
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   fireEvent.keyDown(window, { key: 'n', metaKey: true })
   let dialog = screen.getByRole('dialog', { name: 'New Task' })
-  expect(document.activeElement).toBe(within(dialog).getByLabelText('Description'))
+  await vi.waitFor(() =>
+    expect(document.activeElement).toBe(within(dialog).getByLabelText('Description')),
+  )
   expect((within(dialog).getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
   fireEvent.keyDown(window, { key: 'c' })
   dialog = screen.getByRole('dialog', { name: 'New Task' })
+  await vi.waitFor(() =>
+    expect(within(dialog).getByLabelText('Description').matches(':disabled')).toBe(false),
+  )
   await user().type(within(dialog).getByLabelText('Description'), 'gace')
   expect((within(dialog).getByLabelText('Description') as HTMLInputElement).value).toBe('gace')
 })

@@ -165,3 +165,69 @@ test('the open Task’s palette Delete command opens its dialog and Cancel keeps
   expect(a.state.tasks.map((t) => t.id)).toEqual(['NB-1', 'NB-2'])
   expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
 })
+
+test('App’s no-results action opens New Task with the search query in Description', async () => {
+  const a = appState()
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [],
+    automations: [],
+    factories: [],
+  }))
+  a.mount()
+  await screen.findByRole('button', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+  const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
+  await user().type(within(palette).getByRole('combobox'), 'kanban export')
+  await screen.findByText('No results for ‘kanban export’')
+  await user().keyboard('{Enter}')
+  const dialog = await screen.findByRole('dialog', { name: 'New Task' })
+  await vi.waitFor(() =>
+    expect((within(dialog).getByLabelText('Description') as HTMLTextAreaElement).value).toBe(
+      'kanban export',
+    ),
+  )
+  expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+  await user().click(within(dialog).getByRole('button', { name: 'Close' }))
+})
+
+test('App opens the planning chat selected in search with that plan’s content', async () => {
+  const a = appState()
+  const plan = {
+    id: 'p1',
+    factoryId: 'f1',
+    factoryKey: 'NB',
+    title: 'Offline editing',
+    message: 'Plan the local note cache.',
+    agent: 'claude' as const,
+    status: 'queued' as const,
+    createdAt,
+    createdTasks: 0,
+  }
+  a.handle('listPlans', () => [plan])
+  a.handle('getPlan', (id) => {
+    expect(id).toBe('p1')
+    return { plan, requests: [], tasks: [] }
+  })
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [{ planId: 'p1', factoryId: 'f1', title: plan.title, ended: false }],
+    automations: [],
+    factories: [],
+  }))
+  a.mount()
+  await screen.findByRole('button', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+  const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
+  await user().type(within(palette).getByRole('combobox'), 'offline')
+  await user().click(await within(palette).findByRole('option', { name: 'Offline editing' }))
+  const chat = await screen.findByRole('region', { name: 'Planning chat' })
+  await within(chat).findByText('Plan the local note cache.')
+  expect(within(chat).getByRole('heading', { name: 'Offline editing' })).toBeTruthy()
+  expect(a.request).toHaveBeenCalledWith('getPlan', 'p1')
+  expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+})

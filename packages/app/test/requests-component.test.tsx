@@ -4,6 +4,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
+import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
 import { comment, createdAt, factory, task } from './support/fixtures.ts'
 
@@ -48,6 +49,8 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   expect(submit.disabled).toBe(true)
   await u.clear(f.getByLabelText('Your answer 1'))
   await u.type(f.getByLabelText('Your answer 1'), 'Ask me to resolve each conflict.')
+  await u.click(f.getByRole('button', { name: 'Reset' }))
+  expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   await u.click(f.getByText('Keep latest'))
   expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe('Clashes are rare.')
   await u.click(f.getByRole('radio', { name: 'Other' }))
@@ -258,4 +261,16 @@ test('idle ask quotes the last response and sends Nudge again', async () => {
   expect(screen.getByText('“I’ll check the empty template next.”')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Nudge again' }))
   expect(answer).toHaveBeenCalledWith('c1', { action: 'answer', choice: 'Nudge again' })
+})
+
+test('empty Inbox opens New Task and Show answered opens the empty Answered view', async () => {
+  const a = appState()
+  a.mount()
+  const inbox = await screen.findByRole('region', { name: 'Inbox' })
+  await user().click(within(inbox).getByRole('button', { name: 'New Task' }))
+  const dialog = await screen.findByRole('dialog', { name: 'New Task' })
+  await user().click(within(dialog).getByRole('button', { name: 'Close' }))
+  await a.emitTask(task())
+  await user().click(within(inbox).getByRole('button', { name: 'Show answered' }))
+  expect(within(inbox).getByText('Nothing answered in the last 30 days')).toBeTruthy()
 })

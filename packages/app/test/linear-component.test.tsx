@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import type { LinearLookup } from '@ted/protocol'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, draftHandlers, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 const url = 'https://linear.app/kriyadesign/issue/NOTE-212/search-ignores-accents'
@@ -19,11 +19,12 @@ const found: LinearLookup = {
   },
 }
 
-function open(lookup: LinearLookup) {
+async function open(lookup: LinearLookup) {
   const create = vi.fn((..._args: unknown[]) => task())
   const save = vi.fn((..._args: unknown[]) => ({ state: 'connected' }))
   let result = lookup
   const api = bridge({
+    ...draftHandlers(),
     taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
     lookupLinear: () => result,
     createTask: create,
@@ -34,12 +35,13 @@ function open(lookup: LinearLookup) {
     },
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: url } })
   return { create, save, ...api }
 }
 
 test('Linear lookup fills title and Priority, previews description and submits the source URL', async () => {
-  const { create, request } = open(found)
+  const { create, request } = await open(found)
   await screen.findByText('NOTE-212 · Search ignores accents')
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('Search ignores accents')
   expect((screen.getByLabelText('Priority') as HTMLSelectElement).value).toBe('high')
@@ -57,7 +59,7 @@ test('Linear lookup fills title and Priority, previews description and submits t
 })
 
 test('removing the source leaves the description but omits source from create', async () => {
-  const { create } = open(found)
+  const { create } = await open(found)
   await screen.findByText('NOTE-212 · Search ignores accents')
   await user().click(screen.getByRole('button', { name: 'Remove source' }))
   expect(screen.queryByRole('group', { name: 'Source' })).toBeNull()
@@ -66,14 +68,14 @@ test('removing the source leaves the description but omits source from create', 
 })
 
 test('without a key Create keeps the link without blocking', async () => {
-  const { create } = open({ state: 'no-key' })
+  const { create } = await open({ state: 'no-key' })
   await screen.findByText(/^Add a Linear API key/)
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ source: url, description: url }))
 })
 
 test('inline Save stores the entered key and immediately repeats lookup', async () => {
-  const { request } = open({ state: 'no-key' })
+  const { request } = await open({ state: 'no-key' })
   await screen.findByText(/^Add a Linear API key/)
   await user().type(
     screen.getByLabelText('Linear API key'),
@@ -90,7 +92,7 @@ test('inline Save stores the entered key and immediately repeats lookup', async 
 })
 
 test('failed lookup explains the problem and preserves the source link', async () => {
-  const { create } = open({
+  const { create } = await open({
     state: 'failed',
     error:
       'Couldn’t fetch from Linear: NOTE-212 is unavailable. The Task will be created with the link only.',
@@ -117,14 +119,22 @@ test('Linear Sync switch and declined-team Allow send machine settings', async (
     updateSettings: vi.fn(),
     allowLinearTeam: vi.fn(),
   })
-  render(<LinearGroup sync teams={{}} declined={{ f1: ['NOTE'] }} />)
+  const view = render(<LinearGroup sync teams={{}} declined={{ f1: ['NOTE'] }} />)
   await screen.findByText('Connected as Nabha · Kriya Design')
   const toggle = screen.getByRole('switch', { name: 'Sync status with Linear' })
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   await user().click(toggle)
   expect(api.request).toHaveBeenCalledWith('updateSettings', { linearSync: false })
+  view.rerender(<LinearGroup sync={false} teams={{}} declined={{ f1: ['NOTE'] }} />)
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+  view.rerender(<LinearGroup sync teams={{}} declined={{ f1: ['NOTE'] }} />)
   await user().click(screen.getByRole('button', { name: 'Allow NOTE for Automations in widgets' }))
   expect(api.request).toHaveBeenCalledWith('allowLinearTeam', 'f1', 'NOTE')
+  view.rerender(<LinearGroup sync teams={{ f1: ['NOTE'] }} declined={{}} />)
+  expect(screen.queryByText(/You chose Not now/)).toBeNull()
+  expect(
+    (screen.getByLabelText('Linear teams for Automations in widgets') as HTMLInputElement).value,
+  ).toBe('NOTE')
 })
 
 test('Linear source images render from attachment bytes and retain the source on create', async () => {
@@ -138,12 +148,14 @@ test('Linear source images render from attachment bytes and retain the source on
   }
   const create = vi.fn((..._args: unknown[]) => task())
   const api = bridge({
-    taskDefaults: () => ({ clarifyDepth: 'auto' }),
+    ...draftHandlers(),
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
     lookupLinear: () => ({ ...found, issue: { ...found.issue, files: [file] } }),
     readAttachment: () => ({ data: 'R0lGODlhAQABAAAAADs=' }),
     createTask: create,
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: url } })
   const image = await screen.findByRole('img', { name: 'search results.gif' })
   expect(image.getAttribute('src')).toBe('data:image/gif;base64,R0lGODlhAQABAAAAADs=')
@@ -181,6 +193,7 @@ test('Linear key Save, masking, Test errors and Remove update the connected row'
   await user().click(screen.getByRole('button', { name: 'Save' }))
   await screen.findByText('Connected as Nabha · Kriya Design')
   expect((screen.getByLabelText('Linear API key') as HTMLInputElement).value).toMatch(/•+ABCD$/)
+  expect(screen.getByText(/stored in the macOS Keychain/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('saveLinearKey', 'lin_api_fixtureABCD', false)
   await user().click(screen.getByRole('button', { name: 'Test' }))
   await screen.findByText('Linear didn’t accept this key')

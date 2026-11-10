@@ -110,6 +110,8 @@ test('multiple requests pin one card and chips switch the pinned request', async
     within(thread).getByRole('group', { name: '2 waiting on you' }),
   ).getAllByRole('button')
   expect(chips).toHaveLength(2)
+  expect(within(thread).getAllByRole('button', { name: /waiting ·/ })).toHaveLength(2)
+  expect(within(thread).getByRole('button', { name: /waiting · shown below/ })).toBeTruthy()
   expect(chips[1]?.getAttribute('aria-pressed')).toBe('true')
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
   await user().click(required(chips[0]))

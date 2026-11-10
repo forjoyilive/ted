@@ -5,7 +5,7 @@ import { expect, test, vi } from 'vitest'
 import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, required, user } from './support/component.ts'
+import { bridge, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 function props() {
@@ -51,8 +51,10 @@ test('empty Board keeps Workflow columns and New Task and Plan actions', async (
   expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Gate')).toBeTruthy()
   expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Gate')).toBeNull()
   const u = user()
-  await u.click(required(screen.getAllByRole('button', { name: 'New Task' })[0]))
-  await u.click(required(screen.getAllByRole('button', { name: 'Plan' })[0]))
+  const empty = screen.getByRole('region', { name: 'No Tasks yet' })
+  if (!empty) throw new Error('Missing empty Board')
+  await u.click(within(empty).getByRole('button', { name: 'New Task' }))
+  await u.click(within(empty).getByRole('button', { name: 'Plan' }))
   expect(p.onNewTask).toHaveBeenCalledOnce()
   expect(p.onPlan).toHaveBeenCalledOnce()
 })
@@ -70,11 +72,13 @@ test('Backlog cards show blocked explanations and only start available Tasks', a
           title: 'Export notes',
           blockedBy: ['NB-1'],
           markers: [{ kind: 'blocked-by', by: 'NB-1' }],
+          activity: 'Starts when NB-1 merges',
         }),
       ]}
     />,
   )
   expect(screen.queryByRole('button', { name: 'Start NB-2' })).toBeNull()
+  expect(screen.getByText('Starts when NB-1 merges')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Start NB-1' }))
   expect(a.request).toHaveBeenCalledWith('startTask', 'NB-1')
   expect(document.querySelector('[data-task="NB-1"]')?.hasAttribute('data-nav-item')).toBe(true)
@@ -116,7 +120,7 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
     task({ stage: 'done', merged: { at: now, pullRequests: [] } }),
     task({ id: 'NB-2', displayId: 'NB-2', stage: 'done', merged: { at: now, pullRequests: [] } }),
   ]
-  render(<Board {...p} tasks={done} />)
+  const view = render(<Board {...p} tasks={done} />)
   await screen.findByText('NB-2 · Merged just now')
   await user().click(screen.getByRole('button', { name: 'Show all 2 →' }))
   expect(p.onShowAllDone).toHaveBeenCalledOnce()
@@ -125,6 +129,9 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
   const dialog = screen.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2' }))
   expect(a.request).toHaveBeenCalledWith('archiveDone', 'f1')
+  view.rerender(<Board {...p} tasks={[]} />)
+  expect(screen.queryByRole('button', { name: 'Show all 2 →' })).toBeNull()
+  expect(document.querySelectorAll('[data-stage="done"] [data-task]')).toHaveLength(0)
 })
 
 test('Board Priority filter narrows cards and does not offer Stage or archived filters', async () => {
@@ -208,4 +215,17 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
     },
   })
   expect(a.state.settings.listViews.f1?.filters).toEqual({ stages: ['done'] })
+})
+
+test('Clear filters empties the typed Board search and restores its cards', async () => {
+  api()
+  render(<Board {...props()} tasks={[task()]} />)
+  await screen.findByRole('region', { name: 'Backlog' })
+  const filter = screen.getByRole('searchbox', { name: 'Filter by ID or title' })
+  await user().type(filter, 'No matching Task')
+  expect(document.querySelector('[data-task="NB-1"]')).toBeNull()
+  await user().click(screen.getByRole('button', { name: 'Clear filters' }))
+  expect((filter as HTMLInputElement).value).toBe('')
+  expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
+  expect(screen.queryByText('No Tasks match these filters')).toBeNull()
 })

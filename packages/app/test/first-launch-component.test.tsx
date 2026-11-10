@@ -113,14 +113,51 @@ test('wrong credential permits Continue and offers explicit billing choices', as
   )
   await user().click(claude.getByRole('button', { name: 'Sign in with a subscription instead' }))
   expect(a.request).toHaveBeenCalledWith('fixAgent', 'claude')
+  expect(claude.getByText(/Opened claude auth login/)).toBeTruthy()
+  a.handle('updateSettings', () => a.emit({ type: 'agent-health-changed', health: health() }))
   await user().click(claude.getByRole('button', { name: 'Use API-key billing' }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     billing: { ...defaultMachineSettings.billing, claude: 'api-key' },
   })
+  await claude.findByText('Ready')
+  expect(claude.queryByRole('button', { name: 'Use API-key billing' })).toBeNull()
 })
 
 test('a Ready agent offers no API-key billing prompt', async () => {
   open()
   await screen.findAllByText('Ready')
   expect(screen.queryByRole('button', { name: 'Use API-key billing' })).toBeNull()
+})
+
+test('signed-out GitHub does not block Continue and Sign in opens its fix command', async () => {
+  const a = open()
+  a.handle('runFix', () => ({ command: 'gh auth login --hostname github.com' }))
+  await screen.findAllByText('Ready')
+  await act(async () =>
+    a.emit({
+      type: 'integrations-checked',
+      health: {
+        ...integrations,
+        github: {
+          ...integrations.github,
+          hosts: [
+            {
+              host: 'github.com',
+              state: 'signed-out',
+              scopes: [],
+              usedBy: [],
+              fix: { label: 'Sign in', command: 'gh auth login --hostname github.com' },
+            },
+          ],
+        },
+      },
+    }),
+  )
+  const github = within(screen.getByRole('group', { name: 'GitHub' }))
+  expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  )
+  await user().click(github.getByRole('button', { name: 'Sign in' }))
+  expect(a.request).toHaveBeenCalledWith('runFix', { fix: 'gh-login', host: 'github.com' })
+  expect(github.getByText(/Opened gh auth login/)).toBeTruthy()
 })

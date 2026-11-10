@@ -137,6 +137,24 @@ describe('first launch', () => {
       await sidebar(again).waitFor()
       await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
       await expect.poll(loginLines).toEqual(['on'])
+
+      await closeApp(app)
+      app = undefined
+      const completed = await launchApp()
+      await sidebar(completed).waitFor()
+      expect(await setUp(completed).count()).toBe(0)
+      expect(await settings()).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+      await sidebar(completed)
+        .getByRole('button', { name: /^Settings/ })
+        .click()
+      const login = completed.getByRole('switch', {
+        name: 'Start TED in the background when you log in',
+      })
+      expect(await login.getAttribute('aria-checked')).toBe('true')
+      const before = await loginLines()
+      await login.click()
+      await expect.poll(settings).toMatchObject({ startAtLogin: false })
+      await expect.poll(loginLines).toEqual([...before, 'off'])
     },
   )
 

@@ -3,23 +3,25 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
 import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
-import { bridge, deferred, user } from './support/component.ts'
-import { factory, task } from './support/fixtures.ts'
+import { bridge, deferred, draftHandlers, user } from './support/component.ts'
+import { createdAt, factory, task } from './support/fixtures.ts'
 
-function newTask() {
+async function newTask() {
   const created = vi.fn(() => task())
   const api = bridge({
+    ...draftHandlers(),
     taskDefaults: () => ({ lead: { agent: 'claude' }, clarifyDepth: 'auto' }),
     createTask: created,
   })
   const close = vi.fn()
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={close} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   return { api, created, close }
 }
 
 test('New Task focuses the description and closes without creating', async () => {
-  const { created, close } = newTask()
-  expect(document.activeElement).toBe(screen.getByLabelText('Description'))
+  const { created, close } = await newTask()
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Description')))
   expect((screen.getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
   await user().click(screen.getByRole('button', { name: 'Close' }))
   expect(close).toHaveBeenCalledOnce()
@@ -27,7 +29,7 @@ test('New Task focuses the description and closes without creating', async () =>
 })
 
 test('New Task sends a blank title for daemon inference, description, Priority and Start now false', async () => {
-  const { created, close } = newTask()
+  const { created, close } = await newTask()
   const u = user()
   await u.type(
     screen.getByLabelText('Description'),
@@ -50,7 +52,7 @@ test('New Task sends a blank title for daemon inference, description, Priority a
 })
 
 test('New Task sends an explicit title and starts by default', async () => {
-  const { created } = newTask()
+  const { created } = await newTask()
   const u = user()
   await u.type(screen.getByLabelText('Title'), 'Starts now')
   await u.type(screen.getByLabelText('Description'), 'One')
@@ -61,7 +63,7 @@ test('New Task sends an explicit title and starts by default', async () => {
 })
 
 test('Create more clears both fields, keeps the dialog open and restores focus', async () => {
-  const { created, close } = newTask()
+  const { created, close } = await newTask()
   const u = user()
   await u.type(screen.getByLabelText('Title'), 'First')
   await u.type(screen.getByLabelText('Description'), 'One')
@@ -70,11 +72,11 @@ test('Create more clears both fields, keeps the dialog open and restores focus',
   expect(close).not.toHaveBeenCalled()
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('')
-  expect(document.activeElement).toBe(screen.getByLabelText('Description'))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Description')))
 })
 
 test('More retains Clarify and Task Lead choices when collapsed and submits them', async () => {
-  const { created } = newTask()
+  const { created } = await newTask()
   const u = user()
   await screen.findByText('Clarify depth Auto · Task Lead Claude')
   const more = screen.getByRole('button', { name: /^More/ })
@@ -95,6 +97,7 @@ test('More retains Clarify and Task Lead choices when collapsed and submits them
 test('a blocker from another Factory is sent with its waiting explanation', async () => {
   const created = vi.fn(() => task())
   bridge({
+    ...draftHandlers(),
     taskDefaults: () => ({ lead: { agent: 'claude' }, clarifyDepth: 'auto' }),
     createTask: created,
   })
@@ -114,6 +117,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
     />,
   )
   const u = user()
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   await u.click(screen.getByRole('button', { name: 'Add blocker' }))
   await u.type(screen.getByLabelText('Find a Task'), 'crash')
   await u.click(screen.getByRole('option', { name: /DEV-1/ }))
@@ -137,6 +141,10 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
     model: 'gpt-6-mini',
     effort: 'low',
   })
+  view.rerender(
+    <TaskLeadField task={task({ lead: { agent: 'codex', model: 'gpt-6-mini', effort: 'low' } })} />,
+  )
+  expect(screen.getByText('Codex · gpt-6-mini · low')).toBeTruthy()
   view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', model: 'opus' } })} />)
   expect((screen.getByLabelText('Model') as HTMLInputElement).value).toBe('opus')
   expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude')
@@ -145,8 +153,13 @@ test('Task Lead saves agent/model/effort and follows external updates', async ()
 
 test('a pending create disables submission and an error preserves the draft', async () => {
   const pending = deferred<never>()
-  bridge({ taskDefaults: () => ({ clarifyDepth: 'auto' }), createTask: () => pending.promise })
+  bridge({
+    ...draftHandlers(),
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    createTask: () => pending.promise,
+  })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Keep this' } })
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
@@ -158,8 +171,17 @@ test('a pending create disables submission and an error preserves the draft', as
 })
 
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
+  const run: import('@ted/protocol').Run = {
+    id: 'r1',
+    agent: 'claude',
+    permissions: 'auto',
+    prompt: '',
+    cwd: '/test',
+    state: 'idle',
+    startedAt: createdAt,
+  }
   const api = bridge({
-    getRun: () => ({ id: 'r1', problem: 'model-unavailable' }),
+    getRun: () => ({ ...run, problem: 'model-unavailable' }),
     useDefaultModel: vi.fn(),
   })
   render(
@@ -170,4 +192,6 @@ test('Model unavailable offers the default model and sends the human’s choice'
   await screen.findByText('Model unavailable')
   await user().click(screen.getByRole('button', { name: 'Use the default model' }))
   expect(api.request).toHaveBeenCalledWith('useDefaultModel', 'NB-1')
+  await act(async () => api.emit({ type: 'run-updated', run }))
+  expect(screen.queryByText('Model unavailable')).toBeNull()
 })

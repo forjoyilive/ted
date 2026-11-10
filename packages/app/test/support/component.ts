@@ -1,3 +1,4 @@
+import type { NewTaskDraft } from '@ted/protocol'
 import { cleanup } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
@@ -84,4 +85,17 @@ export const user = () => userEvent.setup()
 export function required<T>(value: T | null | undefined): T {
   if (value === undefined || value === null) throw new Error('Required test element is missing')
   return value
+}
+
+export function draftHandlers() {
+  const drafts = new Map<unknown, NewTaskDraft>()
+  return {
+    taskDraft: (factory: unknown) => ({ draft: drafts.get(factory) ?? null }),
+    saveTaskDraft: (factory: unknown, draft: unknown) => {
+      drafts.set(factory, draft as NewTaskDraft)
+      return { draft }
+    },
+    checkAgentHealth: () =>
+      ['claude', 'codex'].map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
+  }
 }

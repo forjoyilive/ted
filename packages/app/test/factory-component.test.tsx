@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
+import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { factory, settingsView } from './support/fixtures.ts'
+import { factory, settingsView, task } from './support/fixtures.ts'
 
 function props() {
   return {
@@ -93,11 +94,19 @@ test('Workflow, Permissions and notes collect in one Save and require Bypass con
   await u.click(within(dialog).getByRole('checkbox', { name: 'Turn on Bypass for widgets' }))
   expect(button.disabled).toBe(false)
   await u.click(button)
-  expect(api.request).toHaveBeenCalledWith(
-    'saveFactorySettings',
-    'f1',
-    expect.objectContaining({ confirmBypass: true, version: 'v1', mode: 'merge' }),
-  )
+  const changes = {
+    repos: [{ was: 'widgets', repo: 'acme/widgets', name: 'widgets', env: [], copy: [], apps: [] }],
+    stages: { design: { gate: false } },
+    permissions: 'bypass',
+    notes: '# Notebook',
+  }
+  expect(api.request).toHaveBeenCalledWith('previewFactorySettings', 'f1', changes)
+  expect(api.request).toHaveBeenCalledWith('saveFactorySettings', 'f1', {
+    changes,
+    confirmBypass: true,
+    version: 'v1',
+    mode: 'merge',
+  })
 })
 
 test('Remove Factory requires the exact key and sends the pull-request choice', async () => {
@@ -288,4 +297,148 @@ test('repo removal refuses open Tasks and stages an unused repo removal until Sa
   expect(screen.queryByText(/unsaved change/)).toBeNull()
   await u.click(screen.getByRole('button', { name: 'More for acme/api' }))
   expect(screen.getByRole('menuitem', { name: /^Remove from Factory/ })).toBeTruthy()
+})
+
+const changedStage = {
+  basedOn: 'abcdef0',
+  current: '1234567',
+  layer: 'library' as const,
+  diffOf: 'yours' as const,
+  diff: [{ kind: 'added' as const, text: 'Check the Decisions.' }],
+}
+
+test('Factory drift counts lead to Keep mine staging the actual parent draft', async () => {
+  const a = appState()
+  const loaded = settingsView()
+  const review = loaded.stages.find((row) => row.id === 'review')
+  if (!review) throw new Error('Missing Review')
+  Object.assign(review, {
+    factoryFile: '# My review',
+    from: 'factory',
+    basedOn: 'abcdef0',
+    drift: changedStage,
+  })
+  a.handle('drift', () => ({ library: 0, factories: { f1: 1 } }))
+  a.handle('factorySettings', () => loaded)
+  a.handle('homeFolder', () => '/test')
+  a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
+  a.handle('previewFactorySettings', () => ({
+    valid: true,
+    sideEffects: [],
+    turnsOnBypass: false,
+    problems: [],
+    files: [],
+  }))
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  const settings = await screen.findByRole('button', { name: /^Settings\s*1$/ })
+  await u.click(settings)
+  expect((await screen.findByRole('button', { name: /^Workflow\s*1$/ })).textContent).toContain('1')
+  await u.click(
+    within(await screen.findByRole('region', { name: 'Review drift' })).getByRole('button', {
+      name: 'Keep mine',
+    }),
+  )
+  expect(screen.queryByRole('region', { name: 'Review drift' })).toBeNull()
+  expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  expect(a.request).toHaveBeenCalledWith('previewFactorySettings', 'f1', {
+    keepStageFiles: ['review'],
+    repos: [{ was: 'widgets', repo: 'acme/widgets', name: 'widgets', env: [], copy: [], apps: [] }],
+  })
+})
+
+test('Library drift counts and the TED-default explanation lead to a saved Keep mine draft', async () => {
+  const a = appState()
+  const library: import('@ted/protocol').LibraryView = {
+    path: '/test/library',
+    version: 'v1',
+    problems: [],
+    agents: [],
+    stages: [
+      {
+        id: 'review',
+        inOrder: true,
+        enabled: true,
+        gate: true,
+        from: 'library',
+        libraryFile: '# My review',
+        defaultText: '# TED review',
+        basedOn: 'abcdef0',
+        drift: { ...changedStage, layer: 'ted', changedIn: '0.1.5' },
+      },
+    ],
+  }
+  a.handle('drift', () => ({ library: 1, factories: {} }))
+  a.handle('library', () => library)
+  a.handle('saveLibrary', () => ({
+    ...library,
+    version: 'v2',
+    stages: library.stages.map(({ drift: _drift, ...row }) => row),
+  }))
+  a.mount()
+  await a.settings()
+  await user().click(await screen.findByRole('button', { name: /^Library\s*1$/ }))
+  const notice = await screen.findByRole('region', { name: 'Review drift' })
+  expect(notice.textContent).toContain('TED 0.1.5')
+  expect(notice.textContent).toContain('compares your copy with the default')
+  await user().click(within(notice).getByRole('button', { name: 'Keep mine' }))
+  expect(screen.queryByRole('region', { name: 'Review drift' })).toBeNull()
+  expect(screen.getByText('1 unsaved change to the Library')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Save' }))
+  expect(a.request).toHaveBeenCalledWith('saveLibrary', {
+    changes: { keepStageFiles: ['review'] },
+    version: 'v1',
+  })
+  expect(screen.queryByText('1 unsaved change to the Library')).toBeNull()
+})
+
+test('App’s Factory row menu removes that Factory and its Tasks from the sidebar and List', async () => {
+  const a = appState()
+  a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'site', position: 1 }))
+  a.state.tasks = [
+    task(),
+    task({ id: 'MS-1', displayId: 'MS-1', factoryId: 'f2', title: 'Keep this Task' }),
+  ]
+  a.handle('factoryRemoval', () => ({
+    factoryId: 'f1',
+    key: 'NB',
+    name: 'widgets',
+    tasks: 1,
+    runs: 0,
+    worktrees: 0,
+    openPullRequests: 0,
+    clones: ['acme/widgets'],
+    sharedClones: [],
+  }))
+  a.handle('removeFactory', async (id) => {
+    expect(id).toBe('f1')
+    a.state.factories = a.state.factories.filter((f) => f.id !== id)
+    a.state.tasks = a.state.tasks.filter((t) => t.factoryId !== id)
+    await act(async () => {
+      a.emit({ type: 'task-deleted', taskId: 'NB-1' })
+      a.emit({ type: 'factory-removed', factoryId: 'f1' })
+    })
+  })
+  a.mount()
+  const row = await screen.findByRole('article', { name: 'widgets' })
+  fireEvent.contextMenu(within(row).getByRole('button', { name: 'widgets' }))
+  expect((screen.getByRole('menuitem', { name: 'Move up' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  )
+  await user().click(screen.getByRole('menuitem', { name: 'Remove Factory…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Remove Factory widgets?' })
+  await within(dialog).findByText(/Deletes 1 Task/)
+  await user().type(within(dialog).getByLabelText('Type NB to confirm'), 'NB')
+  await user().click(within(dialog).getByRole('button', { name: 'Remove Factory' }))
+  await vi.waitFor(() => expect(screen.queryByRole('article', { name: 'widgets' })).toBeNull())
+  expect(screen.getByRole('article', { name: 'site' })).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'All Tasks' }))
+  expect(document.querySelector('tr[data-task="NB-1"]')).toBeNull()
+  expect(document.querySelector('tr[data-task="MS-1"]')?.textContent).toContain('Keep this Task')
+  expect(a.request).toHaveBeenCalledWith('removeFactory', 'f1', {
+    key: 'NB',
+    closePullRequests: true,
+  })
 })

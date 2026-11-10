@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import type { Banner } from '@ted/protocol'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { BannerStack } from '../src/renderer/components/BannerStack.tsx'
 import { AddFactoryDialog } from '../src/renderer/views/AddFactoryDialog.tsx'
 import { SetupPanel } from '../src/renderer/views/TaskViews.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
-import { createdAt, factory } from './support/fixtures.ts'
+import { createdAt, factory, task } from './support/fixtures.ts'
 
 const warning: Banner = {
   id: 'b1',
@@ -102,6 +102,7 @@ test('clone failure shows Retry and the setup panel follows cloning progress', a
 })
 
 test('Add Factory repo-access and key errors prevent submission', async () => {
+  const openFactory = vi.fn()
   const api = bridge({
     homeFolder: () => '/test',
     getIntegrations: () => ({
@@ -127,7 +128,7 @@ test('Add Factory repo-access and key errors prevent submission', async () => {
       factories={[factory()]}
       onClose={vi.fn()}
       onAdded={vi.fn()}
-      onOpenFactory={vi.fn()}
+      onOpenFactory={openFactory}
       onOpenGitHubSettings={vi.fn()}
     />,
   )
@@ -139,9 +140,77 @@ test('Add Factory repo-access and key errors prevent submission', async () => {
     primary: true,
   })
   expect(screen.getByRole('button', { name: 'Check again' })).toBeTruthy()
-  await u.type(screen.getByLabelText('Key'), 'NB')
+  api.handle('checkRepo', () => ({
+    ok: false,
+    repo: 'acme/widgets',
+    notes: [],
+    problem: {
+      kind: 'primary-elsewhere',
+      text: 'acme/widgets is the primary repo of Factory widgets.',
+      fixes: [{ kind: 'open-factory', factoryId: 'f1', factoryName: 'widgets' }],
+    },
+  }))
+  await u.click(screen.getByRole('button', { name: 'Clear the primary repo' }))
+  await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/widgets{Enter}')
+  await screen.findByText('acme/widgets is the primary repo of Factory widgets.')
+  expect(screen.getByRole('button', { name: 'Open widgets' })).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'NB' } })
   expect(screen.getByText('NB is already the key of widgets.')).toBeTruthy()
+  expect(screen.getByText('Fix the 1 repo problem and the key to continue.')).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Open widgets' }))
+  expect(openFactory).toHaveBeenCalledWith('f1')
   expect((screen.getByRole('button', { name: 'Add Factory' }) as HTMLButtonElement).disabled).toBe(
     true,
   )
+})
+
+test('App removes the initial setup panel after clone Retry recovers', async () => {
+  const a = appState()
+  a.state.factories = [
+    factory({
+      cloned: false,
+      setup: [{ repo: 'acme/widgets', state: 'failed', error: 'No remote' }],
+    }),
+  ]
+  a.handle('retryClone', () => {
+    const recovered = factory()
+    a.state.factories = [recovered]
+    a.emit({ type: 'factory-updated', factory: recovered })
+    return recovered
+  })
+  a.mount()
+  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  const panel = await screen.findByRole('region', { name: 'Setting up widgets' })
+  await user().click(within(panel).getByRole('button', { name: 'Retry' }))
+  await vi.waitFor(() =>
+    expect(screen.queryByRole('region', { name: 'Setting up widgets' })).toBeNull(),
+  )
+  expect(a.request).toHaveBeenCalledWith('retryClone', 'f1')
+})
+
+test('App shows a global agent Fix banner, the paused Board status and clears the resolved banner', async () => {
+  const a = appState()
+  const banner: Banner = {
+    id: 'agent',
+    problem: 'agent-signed-out',
+    severity: 'stops-work',
+    text: 'Claude Code is signed out',
+    action: { label: 'Fix', opens: { kind: 'settings', section: 'agents' } },
+    raisedAt: createdAt,
+  }
+  a.handle('listBanners', () => [banner])
+  a.state.tasks = [
+    task({
+      stage: 'work',
+      statuses: ['paused'],
+      status: { kind: 'paused', reason: 'Claude Code is signed out' },
+    }),
+  ]
+  a.mount()
+  const problems = await screen.findByRole('region', { name: 'Problems' })
+  expect(within(problems).getByRole('button', { name: 'Fix' })).toBeTruthy()
+  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  expect(await screen.findByText('Paused · Claude Code is signed out')).toBeTruthy()
+  await act(async () => a.emit({ type: 'banner-cleared', id: 'agent' }))
+  expect(screen.queryByText('Claude Code is signed out')).toBeNull()
 })

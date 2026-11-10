@@ -155,6 +155,8 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   await user().selectOptions(screen.getByRole('combobox', { name: 'Log' }), 'run-123456')
   await screen.findByText('from the stub')
   expect(api.request).toHaveBeenCalledWith('readRunOutput', 'run-123456')
+  await user().click(screen.getByRole('switch', { name: 'Developer mode' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: false })
   view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
 })
@@ -192,4 +194,33 @@ test('Settings shell lists all sections and opens a Factory’s settings', async
     type: 'open',
     screen: { kind: 'factory', factoryId: 'f1', view: 'settings' },
   })
+})
+
+test('App settings navigation selects real pages and Factory settings leaves the Settings shell', async () => {
+  const a = appState()
+  a.handle('library', () => ({
+    path: '/test/library',
+    version: 'v1',
+    stages: [],
+    agents: [],
+    problems: [],
+  }))
+  a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
+  a.handle('homeFolder', () => '/test')
+  const { settingsView } = await import('./support/fixtures.ts')
+  a.handle('factorySettings', settingsView)
+  a.mount()
+  await a.settings()
+  const nav = screen.getByRole('navigation', { name: 'Settings' })
+  for (const name of ['Notifications', 'Limits', 'Developer', 'Library', 'General']) {
+    await user().click(within(nav).getByRole('button', { name }))
+    expect(within(nav).getByRole('button', { name }).getAttribute('aria-current')).toBe('page')
+    expect(
+      within(screen.getByRole('main', { name })).getByRole('heading', { name, level: 1 }),
+    ).toBeTruthy()
+  }
+  await user().click(within(nav).getByRole('button', { name: 'widgets' }))
+  await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })
+  expect(screen.queryByRole('navigation', { name: 'Settings' })).toBeNull()
+  expect(screen.getByRole('navigation', { name: 'Sidebar' })).toBeTruthy()
 })
