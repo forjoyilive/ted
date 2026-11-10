@@ -32,7 +32,7 @@ export function statusAction(task: Task): StatusAction | undefined {
       help: 'Starts a fresh Task Lead Run from the brief plus the Comments since.',
     }
   }
-  if (task.statuses.includes('stopped')) {
+  if (task.statuses.includes('stopped') || task.canResume) {
     return {
       kind: 'resume',
       label: 'Resume',

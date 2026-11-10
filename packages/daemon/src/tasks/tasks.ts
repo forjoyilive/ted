@@ -4876,7 +4876,7 @@ export function createTasks(options: {
     if (last?.name === 'v1.TaskResumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
-        why: 'The human stopped this Task and has now resumed it.',
+        why: 'The human resumed this Task after its Task Lead stopped.',
       })
     }
     const merged = store
@@ -5303,7 +5303,13 @@ export function createTasks(options: {
     { comment, attachments = [] }: { comment?: string; attachments?: Attachment[] } = {},
   ): Promise<Task> {
     const task = live(ref)
-    if (!task.stopped && task.status?.kind !== 'failed') {
+    const interrupted =
+      task.canResume &&
+      canStartFresh(task) &&
+      !advancing.has(task.id) &&
+      !pendingRevive(task.id) &&
+      !recovering.has(task.leadRunId ?? '')
+    if (!task.stopped && task.status?.kind !== 'failed' && !interrupted) {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
     }
     if (stoppingByHand.has(task.id)) {

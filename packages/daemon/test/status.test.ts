@@ -1,7 +1,52 @@
 import { describe, expect, test } from 'vitest'
-import { type TaskFacts, taskActivity, taskMarkers, taskStatus } from '../src/tasks/status.ts'
+import {
+  commentBox,
+  type TaskFacts,
+  taskActivity,
+  taskCanResume,
+  taskMarkers,
+  taskStatus,
+} from '../src/tasks/status.ts'
 
 const at = (facts: Partial<TaskFacts>): TaskFacts => ({ stage: 'work', runs: [], ...facts })
+
+describe('interrupted Tasks', () => {
+  test('offers continuation and explains it without claiming the human stopped the Task', () => {
+    const facts = at({ interrupted: true, agentActivity: 'Old activity' })
+    expect(taskCanResume(facts)).toBe(true)
+    expect(taskStatus(facts)).toBeUndefined()
+    expect(commentBox(facts, taskStatus(facts))).toBe('stopped')
+    expect(taskActivity(facts)).toBe('The Task Lead has stopped. Resume to carry on.')
+    expect(taskCanResume(at({}))).toBe(false)
+  })
+
+  test.each<Partial<TaskFacts>>([
+    { stage: 'backlog' },
+    { stage: 'done' },
+    { stage: 'merge' },
+    { archived: true },
+    { failed: true },
+    { partlyMerged: { merged: ['api'], open: ['app'] } },
+    { paused: 'Offline' },
+    { runs: ['working'] },
+    { runs: ['idle'] },
+    { runs: ['waiting'] },
+    { leadLive: true },
+    { openRequests: 1 },
+    { queue: { place: 1 } },
+    { queue: { hold: 'Disk full' } },
+    { tedWorking: true },
+    { settingUp: true },
+    { checking: { name: 'Lint', index: 1, total: 1 } },
+    { github: 'ci' },
+    { mergePending: true },
+    { blockedBy: ['NB-2'] },
+    { planningInChat: true },
+    { stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } },
+  ])('does not offer interrupted continuation during another state: %j', (other) => {
+    expect(taskCanResume(at({ interrupted: true, ...other }))).toBe(false)
+  })
+})
 
 describe('taskStatus', () => {
   test('an unstarted Backlog Task and a Done Task have no status', () => {

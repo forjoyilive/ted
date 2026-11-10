@@ -34,6 +34,32 @@ export interface TaskFacts {
   waitingOnPermission?: 'lead' | 'sub-agent'
   waitingOnSimulator?: boolean
   retrying?: boolean
+  interrupted?: boolean
+}
+
+export function taskCanResume(facts: TaskFacts): boolean {
+  return (
+    facts.interrupted === true &&
+    !facts.archived &&
+    !facts.failed &&
+    !facts.stopped &&
+    !facts.partlyMerged &&
+    !facts.paused &&
+    facts.stage !== 'backlog' &&
+    facts.stage !== 'done' &&
+    facts.stage !== 'merge' &&
+    facts.runs.length === 0 &&
+    !facts.leadLive &&
+    (facts.openRequests ?? 0) === 0 &&
+    !facts.queue &&
+    !facts.tedWorking &&
+    !facts.settingUp &&
+    !facts.checking &&
+    !facts.github &&
+    !facts.mergePending &&
+    (facts.blockedBy?.length ?? 0) === 0 &&
+    !facts.planningInChat
+  )
 }
 
 export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
@@ -84,6 +110,7 @@ export function commentBox(facts: TaskFacts, status: TaskStatus | undefined): Co
   if (facts.stage === 'done') return 'done'
   if (status?.kind === 'failed') return 'failed'
   if (status?.kind === 'stopped') return 'stopped'
+  if (taskCanResume(facts)) return 'stopped'
   if (status?.kind === 'paused') return 'paused'
   if (facts.mergePending) return 'merge-pending'
   return facts.leadLive ? 'live' : 'no-run'
@@ -113,6 +140,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
+  if (taskCanResume(facts)) return 'The Task Lead has stopped. Resume to carry on.'
   if (facts.autoMergeLeft) {
     return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
   }

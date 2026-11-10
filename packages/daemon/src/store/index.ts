@@ -81,6 +81,7 @@ import {
   commentBox,
   type TaskFacts,
   taskActivity,
+  taskCanResume,
   taskMarkers,
   taskStatus,
   taskStatuses,
@@ -1192,6 +1193,22 @@ export async function openStore({
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
+    const leadStopped =
+      lead?.state === 'finished' &&
+      lead.ended !== null &&
+      (JSON.parse(lead.ended) as RunEnding).how === 'stopped'
+    const lastFailure = leadStopped
+      ? store
+          .query(queryDb(taskLog.where({ taskId: row.id, name: 'v1.TaskLeadFailed' })))
+          .toSorted((a, b) => sequence(a.id) - sequence(b.id))
+          .at(-1)
+      : undefined
+    const failure = lastFailure && (JSON.parse(lastFailure.data) as Record<string, unknown>)
+    const recovering =
+      lastFailure !== undefined &&
+      failure?.runId === lead?.id &&
+      failure?.recovery === 'resume' &&
+      (lead?.revivedAt === null || (lead?.revivedAt ?? '') < lastFailure.at)
     const opened = repos.filter((r) => !r.removed && r.pullRequest !== undefined)
     const mergedRepos = opened.filter((r) => r.pullRequest?.state === 'merged')
     const openRepos = opened.filter((r) => r.pullRequest?.state !== 'merged')
@@ -1212,6 +1229,11 @@ export async function openStore({
       }),
       stage,
       ...(leadLive && { leadLive }),
+      ...(leadStopped &&
+        !held &&
+        !recovering &&
+        !waitsForBlockers &&
+        repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).length,
@@ -1344,6 +1366,7 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      ...(taskCanResume(facts) && { canResume: true }),
       tabs,
       runs: live
         .sort(

@@ -466,6 +466,7 @@ export interface ChatOptions {
   pinned?: ReactNode
   placeholder?: string
   help?: string
+  endedNote?: string | undefined
   readOnly?: ReactNode
 }
 
@@ -531,6 +532,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
 
   return (
     <div className={styles.composer}>
+      {!live && options.endedNote && <p className={styles.endedNote}>{options.endedNote}</p>}
       <div className={styles.boxWrap}>
         <textarea
           className={styles.box}

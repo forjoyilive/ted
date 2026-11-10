@@ -39,7 +39,7 @@ export function CommentBox({
   const state = task.commentBox
   const typed = text.trim() !== ''
   const ready = (typed || files.length > 0) && uploading === 0
-  const note = notes[state]
+  const note = task.canResume ? undefined : notes[state]
 
   const resumes = state === 'stopped'
   const done = state === 'done'
@@ -131,6 +131,11 @@ export function CommentBox({
       {cancels && (
         <p className={styles.mergeNote}>
           The merge is pending. Sending a Comment now cancels it and counts as Request changes.
+        </p>
+      )}
+      {task.canResume && (
+        <p className={styles.resumeNote}>
+          Resume starts a fresh Task Lead Run from the brief and Comments when a slot is free.
         </p>
       )}
       <textarea

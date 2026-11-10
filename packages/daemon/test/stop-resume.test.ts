@@ -118,6 +118,114 @@ const promptOf = async (client: Client, runId: string) =>
 
 const nudge = 'Continue, or post a Comment if you need the human.'
 
+test('a Task interrupted by full quit can resume directly after reopening', async () => {
+  const client = await startTed()
+  const task = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+  const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(working.leadRunId ?? '')
+  expect(
+    (await api(daemon?.port ?? 0, token).call('POST', `/tasks/${task.id}/brief`, { text: brief }))
+      .status,
+  ).toBe(201)
+  const worktree = path.join(home, 'worktrees', 'NB-1', 'widgets')
+  await writeFile(path.join(worktree, 'unfinished.txt'), 'keep this work')
+
+  await client.ok('POST', '/shutdown')
+  await daemon?.stop()
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const reopened = api(daemon.port, { appKey: daemon.appToken })
+  const interrupted = ((await reopened.call('GET', '/tasks')).body as Task[]).find(
+    (t) => t.id === task.id,
+  )
+  expect(interrupted).toMatchObject({
+    stage: working.stage,
+    leadRunId: working.leadRunId,
+    runs: [],
+    canResume: true,
+    commentBox: 'stopped',
+    activity: 'The Task Lead has stopped. Resume to carry on.',
+  })
+  expect(interrupted?.statuses).not.toContain('stopped')
+  expect((await reopened.getRun(working.leadRunId ?? '')).run.state).toBe('finished')
+
+  const resumed = await reopened.call('POST', `/tasks/${task.id}/resume`, {
+    comment: 'Keep the unfinished work.',
+  })
+  expect(resumed.status).toBe(200)
+  await waitUntil(async () => {
+    const current = ((await reopened.call('GET', '/tasks')).body as Task[]).find(
+      (t) => t.id === task.id,
+    )
+    return current?.runs[0]?.state === 'working' && current.leadRunId !== working.leadRunId
+      ? current
+      : undefined
+  }, 'a fresh Task Lead to start')
+  const latest = ((await reopened.call('GET', '/tasks')).body as Task[]).find(
+    (t) => t.id === task.id,
+  )
+  expect(latest).toMatchObject({ stage: working.stage, commentBox: 'live' })
+  expect(latest).not.toHaveProperty('canResume', true)
+  expect(await stat(path.join(worktree, 'unfinished.txt'))).toBeDefined()
+  const prompt = (await reopened.getRun(latest?.leadRunId ?? '')).run as { prompt?: string }
+  expect(prompt.prompt).toContain('Pin notes to the top.')
+  expect(prompt.prompt).toContain('Keep the unfinished work.')
+  expect((await reopened.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
+})
+
+test('interrupted Resume uses the queue and refuses duplicate and Run-token requests', async () => {
+  const client = await startTed()
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const task = await create(client, steps({ waitFor: '/never' }), { start: true })
+  const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+  await client.ok('POST', '/shutdown')
+  await daemon?.stop()
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const reopened = api(daemon.port, { appKey: daemon.appToken })
+  const second = (
+    await reopened.call('POST', '/tasks', {
+      factory: 'NB',
+      title: steps({ waitFor: '/never' }),
+      start: true,
+    })
+  ).body as Task
+  await waitUntil(async () => {
+    const tasks = (await reopened.call('GET', '/tasks')).body as Task[]
+    return tasks.find((t) => t.id === second.id)?.runs[0]?.state === 'working'
+  }, 'the second Task to take the only slot')
+  const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(working.leadRunId ?? '')
+  expect((await api(daemon.port, token).call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(
+    403,
+  )
+  const attempts = await Promise.all([
+    reopened.call('POST', `/tasks/${task.id}/resume`, { comment: 'Carry on once.' }),
+    reopened.call('POST', `/tasks/${task.id}/resume`, { comment: 'Carry on once.' }),
+  ])
+  expect(attempts.map((a) => a.status).sort()).toEqual([200, 409])
+  const queued = ((await reopened.call('GET', '/tasks')).body as Task[]).find(
+    (t) => t.id === task.id,
+  )
+  expect(queued).toMatchObject({ status: { kind: 'queued' }, runs: [] })
+  expect(queued).not.toHaveProperty('canResume', true)
+  const notes = (await reopened.call('GET', `/tasks/${task.id}/comments`)).body as Comment[]
+  expect(notes.filter((c) => c.body === 'Carry on once.')).toHaveLength(1)
+})
+
+test('interrupted Resume cannot bypass an unanswered request', async () => {
+  const client = await startTed()
+  const task = await create(
+    client,
+    steps({ run: ['ted', 'outcome', 'ask', 'Which endpoint?'] }, { endTurn: true }),
+    { start: true },
+  )
+  await waitFor(client, task, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
+  await client.ok('POST', '/shutdown')
+  const waiting = await getTask(client, task.id)
+  expect(waiting).toMatchObject({ status: { kind: 'waiting-on-you' }, runs: [] })
+  expect(waiting).not.toHaveProperty('canResume', true)
+  expect((await client.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
+  expect((await comments(client, task)).find((c) => c.kind === 'question')?.answer).toBeUndefined()
+})
+
 describe('Stop', () => {
   test('stops every Run, frees the slot, keeps the worktree and shows Stopped', async () => {
     const client = await startTed()
