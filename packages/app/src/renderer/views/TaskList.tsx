@@ -27,7 +27,8 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { ordinal, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { ordinal } from '../components/TaskStatus.tsx'
 import {
   activeFilterCount,
   columnLabels,
@@ -56,6 +57,7 @@ import {
 } from '../list-view.ts'
 import { age, useNow } from '../requests.ts'
 import { startTask } from '../setup-notice.ts'
+import { activeSubAgentCount } from '../sub-agents.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -622,10 +624,10 @@ export function TaskList({
         return stageName(task.stage)
       case 'status':
         if (task.archived) return <span className={styles.meta}>{ending(task)}</span>
-        if (!task.status && task.markers.length === 0) {
+        if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
           return <span className={styles.none}>—</span>
         }
-        return <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+        return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
       case 'blocked-by': {
         const blockers = task.blockedBy.map((id) => displayIds.get(id) ?? id)
         return blockers.length === 0 ? <span className={styles.none}>—</span> : blockers.join(', ')
@@ -879,6 +881,8 @@ export function TaskList({
         <span className={views.headerSpacer} />
         <span className={styles.summary}>
           {summaryLine(inScope, shown, view, scope, factories)}
+          {' · '}
+          <SubAgentTotal tasks={shown} filtered={text !== '' || chips.length > 0} />
         </span>
         {queueMode && (
           <Help>

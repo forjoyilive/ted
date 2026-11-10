@@ -2,6 +2,7 @@ import type { RunSummary } from '@ted/protocol'
 import { useState } from 'react'
 import { runStateWord, runsCollapsedSummary } from '../details.ts'
 import { ago, useNow } from '../requests.ts'
+import { activeSubAgentCount, activeSubAgentLabel } from '../sub-agents.ts'
 import { readableError, ted } from '../ted.ts'
 import { DetailsSection } from './DetailsSection.tsx'
 import { ChevronIcon, RestartIcon, StopIcon } from './icons.tsx'
@@ -48,6 +49,7 @@ export function runsSummary(runs: readonly RunSummary[]): string {
   const cost = keyed.reduce((sum, r) => sum + (r.cost ?? 0), 0)
   return [
     runs.length === 1 ? '1 Run' : `${runs.length} Runs`,
+    activeSubAgentLabel(activeSubAgentCount(runs)),
     ...(tokens > 0 ? [tokenCount(tokens)] : []),
     ...(keyed.length > 0 ? [`${dollars(cost)} on API key`] : []),
   ].join(' · ')

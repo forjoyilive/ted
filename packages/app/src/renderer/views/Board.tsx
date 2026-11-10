@@ -26,7 +26,8 @@ import { Button } from '../components/Button.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { ordinal, RunIcons } from '../components/TaskStatus.tsx'
 import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
 import { activeFilterCount, filterChips, filterTasks, stageName } from '../list-view.ts'
@@ -187,7 +188,8 @@ export function Board({
   const stages = useBoardStages(factoryId, inUse)
   const start = startStage(stages)
   const [text, setText] = useState('')
-  const columns = boardColumns(stages, filterTasks(tasks, filters, text), now)
+  const shown = filterTasks(tasks, filters, text)
+  const columns = boardColumns(stages, shown, now)
   const allDone = tasks.filter((t) => t.stage === 'done' && !t.archived).length
   const [archivingDone, setArchivingDone] = useState(false)
   const [dragging, setDragging] = useState<Dragging>()
@@ -324,7 +326,7 @@ export function Board({
         <button type="button" className={styles.cardTitle} onClick={() => onOpen(task)}>
           {task.title}
         </button>
-        <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+        <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
         {activity !== undefined && <span className={styles.cardActivity}>{activity}</span>}
       </article>
     )
@@ -450,6 +452,10 @@ export function Board({
             </button>
           </span>
         ))}
+        <span className={views.headerSpacer} />
+        <span className={listStyles.summary}>
+          <SubAgentTotal tasks={shown} filtered={text !== '' || chips.length > 0} />
+        </span>
       </div>
       <div className={styles.boardArea}>
         <div className={styles.board} data-rank-order>
