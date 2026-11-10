@@ -7,6 +7,7 @@ import {
   type CoordinatorTask,
   type Factory,
   type RunChat,
+  type RunMessage,
   type RunSlots,
   type Task,
   tedPaths,
@@ -970,4 +971,80 @@ test('Queued Work and Intake Tasks share the same Coordinator waiting group', as
     neighbours: { [b.id]: bv.version },
   })
   expect(result.status).toBe(200)
+})
+
+test('admitted Codex follow-ups wait without failing a slow healthy response', async () => {
+  const s = await setup()
+  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+    agent: 'codex',
+    text: JSON.stringify({ steps: [{ endTurn: true }] }),
+  })
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'initial idle Coordinator')
+  const task = await s.call<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({
+      steps: [{ waitFor: path.join(scratch, 'capacity-end') }, { endTurn: true }],
+    }),
+  })
+  await s.call('POST', `/tasks/${task.id}/start`)
+  await waitUntil(
+    async () => (await s.call<RunSlots>('GET', '/slots')).working === 1,
+    'capacity filled',
+  )
+  const first = JSON.stringify({
+    steps: [
+      { say: 'First admitted follow-up' },
+      { waitFor: path.join(scratch, 'first-response-end') },
+      { endTurn: true },
+    ],
+  })
+  const second = JSON.stringify({
+    steps: [{ say: 'Second admitted follow-up' }, { endTurn: true }],
+  })
+  await s.call('POST', `${s.base}/messages`, { text: first })
+  await s.call('POST', `${s.base}/messages`, { text: second })
+  expect((await s.chat()).status).toBe('queued')
+  await writeFile(path.join(scratch, 'capacity-end'), '')
+  await waitUntil(
+    async () =>
+      (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(
+        (i) => i.kind === 'agent' && i.text === 'First admitted follow-up',
+      ),
+    'first follow-up running',
+  )
+  await new Promise((resolve) => setTimeout(resolve, 11000))
+  expect((await s.chat()).status).toBe('working')
+  const during = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(
+    during.items.some((i) => i.kind === 'human' && i.text === second && i.queued === true),
+  ).toBe(true)
+  const canceled = await s.call<RunMessage>('POST', `/runs/${c.runId}/messages`, {
+    text: 'Canceled later follow-up',
+  })
+  await s.call('DELETE', `/runs/${c.runId}/messages/${canceled.id}`)
+  const input = await readFile(path.join(home, 'runs', c.runId, 'input.jsonl'), 'utf8')
+  expect(input).not.toContain('Second admitted follow-up')
+  expect(input).not.toContain('Canceled later follow-up')
+  const slots = await s.call<RunSlots>('GET', '/slots')
+  expect(slots.working).toBe(1)
+  expect(slots.holders.some((h) => h.kind === 'coordinator' && h.runId === c.runId)).toBe(true)
+  await writeFile(path.join(scratch, 'first-response-end'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'both follow-ups settled')
+  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  for (const [text, answer] of [
+    [first, 'First admitted follow-up'],
+    [second, 'Second admitted follow-up'],
+  ]) {
+    const messages = after.items.filter((i) => i.kind === 'human' && i.text === text)
+    expect(messages).toHaveLength(1)
+    expect(messages.every((i) => i.kind === 'human' && i.sent === true && i.queued !== true)).toBe(
+      true,
+    )
+    expect(after.items.filter((i) => i.kind === 'agent' && i.text === answer)).toHaveLength(1)
+  }
+  expect(await readFile(path.join(home, 'runs', c.runId, 'input.jsonl'), 'utf8')).not.toContain(
+    'Canceled later follow-up',
+  )
+  expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(0)
 })

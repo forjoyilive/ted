@@ -115,7 +115,8 @@ export function createSteering(options: {
         await store.persisted()
         if (!options.canDeliver(run.id, admitted)) return 0
         const pending = new Set(queued(run.id).map((message) => message.id))
-        const dispatch = sending.filter((message) => pending.has(message.id))
+        const available = sending.filter((message) => pending.has(message.id))
+        const dispatch = admitted ? available.slice(0, 1) : available
         if (dispatch.length === 0) return 0
         if (
           !(await runs.dispatch(
