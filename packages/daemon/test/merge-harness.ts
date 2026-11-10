@@ -16,6 +16,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
 
 export const run = promisify(execFile)
 
@@ -236,10 +237,14 @@ export async function approve(client: Client, signoff: Comment) {
 }
 
 export const waitForStage = (client: Client, task: Task, stage: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return current.stage === stage ? current : undefined
-  }, `${task.displayId} to reach ${stage}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === stage ? current : undefined
+    },
+    `${task.displayId} to reach ${stage}`,
+  )
 
 export const ghCalls = async () =>
   (await readFile(ctx.ghLog, 'utf8').catch(() => ''))

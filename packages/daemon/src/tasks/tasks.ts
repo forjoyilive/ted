@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import type {
   AgentKind,
   AgentStageId,
@@ -95,6 +94,7 @@ import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import type { Banners } from '../banners.ts'
+import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
@@ -466,6 +466,7 @@ export function createTasks(options: {
   idle?: IdleTimer
   gh?: Gh
   env?: () => NodeJS.ProcessEnv
+  clock?: Clock
   nudgeAfterMs?: number
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
@@ -531,7 +532,8 @@ export function createTasks(options: {
     [plainText(comment), linesText(comment) ?? ''].filter((part) => part !== '').join('\n\n')
   const drafts = (taskId: string): string[] => store.lineCommentDrafts(taskId).map((c) => c.id)
   const stoppingByHand = new Set<string>()
-  const nudgeTimers = new Map<string, NodeJS.Timeout>()
+  const clock = options.clock ?? systemClock
+  const nudgeTimers = new Map<string, Timer>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
   const stallAfterMs = options.stallAfterMs ?? 30 * 60_000
   const silent = new Map<string, string>()
@@ -690,6 +692,7 @@ export function createTasks(options: {
     options.gh &&
     createPullRequestWatch({
       gh: options.gh,
+      clock,
       everyMs: mergePollMs,
       refs: watchedPullRequests,
       onRead: reactToGitHub,
@@ -709,6 +712,7 @@ export function createTasks(options: {
         moveIssue: linearApi.moveIssue,
         linkUrl: linearApi.linkUrl,
       },
+      clock,
       everyMs: options.linearSyncMs ?? 60_000,
       closed: (taskId, issue) => linearIssueClosed(taskId, issue),
       settled: (taskId, why) => withdrawLinearQuestions(taskId, why),
@@ -1703,9 +1707,7 @@ export function createTasks(options: {
           if (next === 'done') return
           urgent = next === 'busy'
           if (next === 'busy' || read === undefined) {
-            await sleep(next === 'busy' ? 100 : mergePollMs, undefined, {
-              signal: stopping.signal,
-            }).catch(() => undefined)
+            await clockWait(clock, next === 'busy' ? 100 : mergePollMs, stopping.signal)
           }
         }
       } finally {
@@ -1978,7 +1980,7 @@ export function createTasks(options: {
       .filter((c) => c.createdAt >= pushed)
       .flatMap((c) => (c.answer ? [c.answer.at] : []))
       .reduce(latest, '')
-    const now = Date.now()
+    const now = clock.now()
     const stuck = waiting.find(({ pr }) => {
       const from = answeredAt !== '' ? answeredAt : pushed
       const wait =
@@ -3991,12 +3993,12 @@ export function createTasks(options: {
   }
 
   async function untilFree(taskId: string): Promise<void> {
-    const deadline = Date.now() + humanWaitMs
+    const deadline = clock.now() + humanWaitMs
     for (let held = released.get(taskId); held; held = released.get(taskId)) {
-      const left = deadline - Date.now()
+      const left = deadline - clock.now()
       if (left <= 0) return
       const timer = new AbortController()
-      await Promise.race([held, sleep(left, undefined, { signal: timer.signal }).catch(() => {})])
+      await Promise.race([held, clockWait(clock, left, timer.signal)])
       timer.abort()
     }
   }
@@ -5569,7 +5571,7 @@ export function createTasks(options: {
     const ended = run.ended
     const reason = silence ?? endingReason(ended)
     const resumeFailed = silence === undefined && ended?.resumeFailed === true
-    const now = Date.now()
+    const now = clock.now()
     const earlier = recentFailures(log, now)
     const canResume =
       run.sessionId !== undefined &&
@@ -5644,7 +5646,7 @@ export function createTasks(options: {
   function checkSilence(): void {
     if (closed) return
     const paused = store.agentPauses()
-    const now = Date.now()
+    const now = clock.now()
     for (const run of store.listRuns()) {
       if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
         if (run.state === 'waiting') pausedAt.set(run.id, now)
@@ -5738,7 +5740,7 @@ export function createTasks(options: {
   function watchIdle(run: Run): void {
     const timer = nudgeTimers.get(run.id)
     if (run.state !== 'idle') {
-      if (timer) clearTimeout(timer)
+      timer?.cancel()
       nudgeTimers.delete(run.id)
       if (run.state === 'working' && run.taskId !== undefined) {
         if (store.getTask(run.taskId)?.leadRunId === run.id) {
@@ -5748,7 +5750,7 @@ export function createTasks(options: {
       return
     }
     if (timer || run.taskId === undefined) return
-    const next = setTimeout(() => {
+    const next = clock.timeout(() => {
       nudgeTimers.delete(run.id)
       if (!closed) inBackground('nudge the Task Lead', () => nudgeIfIdle(run.id))
     }, nudgeAfterMs)
@@ -5878,7 +5880,7 @@ export function createTasks(options: {
     accepted(run, texts) {
       markAccepted(run, texts)
       const timer = nudgeTimers.get(run.id)
-      if (timer) clearTimeout(timer)
+      timer?.cancel()
       nudgeTimers.delete(run.id)
       setImmediate(() => {
         if (closed) return
@@ -5991,7 +5993,10 @@ export function createTasks(options: {
     }
   }
 
-  const silenceTimer = setInterval(checkSilence, Math.min(60_000, Math.max(50, stallAfterMs / 4)))
+  const silenceTimer = clock.interval(
+    checkSilence,
+    Math.min(60_000, Math.max(50, stallAfterMs / 4)),
+  )
   silenceTimer.unref()
 
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
@@ -7473,8 +7478,8 @@ export function createTasks(options: {
     async close() {
       closed = true
       subAgents.close()
-      clearInterval(silenceTimer)
-      for (const timer of nudgeTimers.values()) clearTimeout(timer)
+      silenceTimer.cancel()
+      for (const timer of nudgeTimers.values()) timer.cancel()
       nudgeTimers.clear()
       unsubscribe()
       stopPumping()

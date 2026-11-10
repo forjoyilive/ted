@@ -15,6 +15,7 @@ import type {
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { openStore } from '../src/store/index.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
@@ -32,6 +33,8 @@ import {
   tokenFor,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -59,6 +62,7 @@ let free = 500e9
 
 async function startTed(
   options: {
+    timers?: Clock
     addFactory?: boolean
     resetSettings?: boolean
     systemTimeZone?: () => string
@@ -71,6 +75,7 @@ async function startTed(
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
     automations: {
+      ...(options.timers && { clock: options.timers }),
       now: () => clock,
       checkEveryMs: 50,
       ...(options.systemTimeZone && { systemTimeZone: options.systemTimeZone }),
@@ -121,7 +126,8 @@ const waitForHistory = (
   check: (rows: AutomationRun[]) => boolean,
   what: string,
 ) =>
-  waitUntil(
+  eventWait(
+    client.subscribe,
     async () => {
       const rows = await history(client, id)
       return check(rows) ? rows : undefined
@@ -252,7 +258,8 @@ describe('app-wide Automation time zone', () => {
 
 describe('Automations', () => {
   test('an Automation fires at its clock time in the app-wide time zone and the Run finishes', async () => {
-    const client = await startTed()
+    const timers = new ManualClock()
+    const client = await startTed({ timers })
     const automation = await create(client, {})
     expect(automation).toMatchObject({
       name: 'Sentry crash intake',
@@ -265,10 +272,11 @@ describe('Automations', () => {
         '2026-11-11T09:00:00.000Z',
       ],
     })
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    timers.advance(300)
     expect(await history(client, automation.id)).toEqual([])
 
     clock = Date.parse('2026-11-09T09:00:10Z')
+    timers.advance(50)
     const [row] = await waitForHistory(
       client,
       automation.id,
@@ -712,7 +720,8 @@ describe('Automations', () => {
   })
 
   test('a full disk holds firings, and held firings are made up once', async () => {
-    const client = await startTed()
+    const timers = new ManualClock()
+    const client = await startTed({ timers })
     const automation = await create(client, {
       schedule: { kind: 'every', every: 15, unit: 'minutes' },
     })
@@ -723,11 +732,18 @@ describe('Automations', () => {
       'the disk-full hold',
     )
     clock = Date.parse('2026-11-09T09:40:00Z')
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    timers.advance(400)
     expect(await history(client, automation.id)).toEqual([])
     const refused = await client.call('POST', `/automations/${automation.id}/run`, {})
     expect(refused.status).toBe(409)
     free = 500e9
+    await eventWait(
+      client.subscribe,
+      async () =>
+        !(await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'disk-full'),
+      'the disk-full hold to clear',
+    )
+    timers.advance(50)
     const rows = await waitForHistory(
       client,
       automation.id,
@@ -855,11 +871,13 @@ test('removing a Factory deletes its Automations and stops their Runs', async ()
 })
 
 test('an Automation that is on keeps a daemon started by ted from exiting when idle', async () => {
+  const timers = new ManualClock()
   let idled = 0
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    clock: timers,
     idleExit: { afterMs: 300, onIdle: () => idled++ },
     automations: { now: () => clock, checkEveryMs: 50 },
   })
@@ -875,10 +893,11 @@ test('an Automation that is on keeps a daemon started by ted from exiting when i
     schedule: { kind: 'daily', at: '02:00' },
   })
   idled = 0
-  await new Promise((resolve) => setTimeout(resolve, 800))
+  timers.advance(800)
   expect(idled).toBe(0)
   await client.call('POST', `/automations/${created.body.id}/disable`, {})
-  await waitUntil(() => idled > 0, 'the idle exit once the Automation is off')
+  timers.advance(300)
+  expect(idled).toBe(1)
 })
 
 describe('Tasks an Automation Run starts', () => {
@@ -951,7 +970,6 @@ describe('Tasks an Automation Run starts', () => {
     const client = await startTed()
     const done = await doneTask(client)
     const { automation, created, followUp } = await fire(client, done)
-    await new Promise((resolve) => setTimeout(resolve, 500))
     for (const task of [created, followUp]) {
       const now = await getTask(client, task.id)
       expect(now.stage).toBe('backlog')
