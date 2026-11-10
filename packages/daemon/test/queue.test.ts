@@ -82,3 +82,15 @@ describe('startsNow', () => {
     expect(started.map((e) => e.id)).toEqual(['a', 'b'])
   })
 })
+
+test('Coordinator turns share the Planning tier and respect Factory caps', () => {
+  const ordered = queueOrder([
+    { id: 'plan', kind: 'planning', rank: 2, factoryId: 'nb' },
+    { id: 'coordinator', kind: 'coordinator', rank: 1, factoryId: 'nb' },
+    { id: 'auto', kind: 'automation', rank: 0, factoryId: 'other' },
+  ])
+  expect(ordered.map((e) => e.id)).toEqual(['coordinator', 'plan', 'auto'])
+  expect(
+    startsNow(ordered, { limit: 3, working: 0, byFactory: {}, caps: { nb: 1 } }).map((e) => e.id),
+  ).toEqual(['coordinator', 'auto'])
+})

@@ -14,6 +14,7 @@ import type { Comment, Task } from './task.ts'
 import type { WaitingRequest } from './waiting.ts'
 
 export type DaemonEvent =
+  | { type: 'coordinator-changed'; factoryId: string }
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
   | { type: 'task-deleted'; taskId: string }

@@ -125,6 +125,8 @@ describe('Line comments', () => {
     await diff.getByRole('button', { name: 'Add comment' }).click()
 
     const card = diff.getByRole('article', { name: 'Line comment on line 3' })
+    const profile = await (await daemonAsApp(home, env())).getProfile()
+    await card.getByText(profile.name, { exact: true }).waitFor()
     await card.getByText('· draft · line 3').waitFor()
     await card.getByText('Keep it lower case.').waitFor()
     await changes.getByRole('heading', { name: 'Changes · 3 files · 1 draft' }).waitFor()

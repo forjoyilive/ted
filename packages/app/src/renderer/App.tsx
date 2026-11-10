@@ -83,6 +83,7 @@ import {
   withHistory,
 } from './navigation.ts'
 import { plansFailedByFactory } from './plans.ts'
+import { ProfileProvider } from './profile.tsx'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
@@ -99,6 +100,7 @@ import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
+import { CoordinatorView } from './views/Coordinator.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
@@ -111,6 +113,7 @@ import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
+  coordinator: 'Coordinator',
   plans: 'Plans',
   settings: 'Factory settings',
 } as const
@@ -633,6 +636,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   function main() {
     const opened = task && (
       <TaskPanes
+        key={task.id}
         task={task}
         tasks={tasks}
         factories={factories}
@@ -821,6 +825,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             />
           )
         }
+        if (screen.view === 'coordinator' && factory)
+          return <CoordinatorView key={factory.id} factory={factory} onOpenTask={openTaskByRef} />
         if (screen.view === 'plans' && factory) {
           const backToPlans = () =>
             dispatch({
@@ -989,9 +995,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const frame = (content: ReactNode) => (
     <div className={styles.window}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
-      <ArmedContext value={armed}>
-        <div className={styles.app}>{content}</div>
-      </ArmedContext>
+      <ProfileProvider settings={settings}>
+        <ArmedContext value={armed}>
+          <div className={styles.app}>{content}</div>
+        </ArmedContext>
+      </ProfileProvider>
     </div>
   )
 

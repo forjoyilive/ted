@@ -340,7 +340,30 @@ export interface DeleteTaskRequest {
   blocked?: BlockedChoice
 }
 
+export interface NewTaskDraft {
+  revision: string
+  title: string
+  description: string
+  priority: Priority
+  blockedBy: string[]
+  attachments: Attachment[]
+  start: boolean
+  moreOpen: boolean
+  clarifyDepth?: ClarifyDepth | undefined
+  lead?: TaskLead | undefined
+  source?: string | undefined
+  dismissed: string[]
+  filled: { title?: string; priority?: Priority }
+}
+
+export interface TaskDraftState {
+  draft: NewTaskDraft | null
+  clearedRevision?: string
+  clearedRevisions?: string[]
+}
+
 export interface CreateTaskRequest {
+  draftRevision?: string
   title?: string
   description?: string
   factory?: string

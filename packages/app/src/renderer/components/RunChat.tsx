@@ -5,6 +5,7 @@ import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/proto
 import { type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChat } from '../data.ts'
+import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
@@ -18,8 +19,8 @@ import { ScrollMemory } from './ScrollMemory.tsx'
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
-    if (!on) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), on ? 1000 : 30_000)
     return () => clearInterval(timer)
   }, [on])
   return now
@@ -291,18 +292,19 @@ function HumanMessage({
   now,
 }: {
   item: Extract<ChatItem, { kind: 'human' }>
-  run: RunSummary
+  run?: Pick<RunSummary, 'id' | 'state'>
   now: number
 }) {
+  const profile = useProfile()
   const queued = item.queued === true
-  const live = run.state !== 'finished'
+  const live = run !== undefined && run.state !== 'finished'
   return (
     <div className={styles.human}>
       <div className={styles.bubble} data-queued={queued}>
         <div className={styles.messageHead}>
-          <span className={styles.author}>You</span>
+          <span className={styles.author}>{profile.name}</span>
           <span className={styles.when}>
-            {' · to this Run only'}
+            {run && ' · to this Run only'}
             {!queued && ` · ${ago(item.at, now)}`}
             {!item.sent && !queued && ' · sending'}
           </span>
@@ -312,12 +314,17 @@ function HumanMessage({
               {live ? 'Queued' : 'Not sent'}
             </span>
           )}
-          {queued && live && <QueuedActions runId={run.id} messageId={item.id} />}
+          {queued && live && run && <QueuedActions runId={run.id} messageId={item.id} />}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
     </div>
   )
+}
+
+export function UnsentMessage({ message }: { message: { id: string; text: string; at: string } }) {
+  const now = useNow()
+  return <HumanMessage item={{ kind: 'human', ...message, sent: false, queued: true }} now={now} />
 }
 
 function InterruptedLine({

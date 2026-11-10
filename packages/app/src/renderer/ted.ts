@@ -29,6 +29,8 @@ import type {
   ClarifyDepth,
   CommandLineStatus,
   Comment,
+  Coordinator,
+  CoordinatorMessage,
   CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
@@ -59,6 +61,7 @@ import type {
   LogText,
   MachineSettings,
   MoveTaskRequest,
+  NewTaskDraft,
   OpenInEditorRequest,
   Plan,
   PlanDetail,
@@ -97,6 +100,7 @@ import type {
   TaskBrief,
   TaskChanges,
   TaskDefaults,
+  TaskDraftState,
   TaskLead,
   TaskReposResult,
   TaskShell,
@@ -140,6 +144,14 @@ export const ted = {
     window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
   listWaiting: () => window.ted.request('listWaiting') as Promise<WaitingRequest[]>,
+  getCoordinator: (id: string) =>
+    window.ted.request('getCoordinator', id) as Promise<Coordinator | null>,
+  messageCoordinator: (id: string, input: CoordinatorMessage) =>
+    window.ted.request('messageCoordinator', id, input) as Promise<Coordinator>,
+  stopCoordinator: (id: string) =>
+    window.ted.request('stopCoordinator', id) as Promise<Coordinator>,
+  retryCoordinator: (id: string) =>
+    window.ted.request('retryCoordinator', id) as Promise<Coordinator>,
   listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
   getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
   startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,
@@ -228,6 +240,10 @@ export const ted = {
   unblockTask: (taskId: string, by: string) =>
     window.ted.request('unblockTask', taskId, by) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
+  taskDraft: (factoryId: string) =>
+    window.ted.request('taskDraft', factoryId) as Promise<TaskDraftState>,
+  saveTaskDraft: (factoryId: string, draft: NewTaskDraft) =>
+    window.ted.request('saveTaskDraft', factoryId, draft) as Promise<TaskDraftState>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   factoryBoard: (factoryId: string) =>

@@ -98,6 +98,7 @@ import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
+import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type {
   LoopCheck,
@@ -411,6 +412,7 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  steering: Steering
   store: TedStore
   runs: RunManager
   workflows: Workflows
@@ -464,7 +466,6 @@ export function createTasks(options: {
   const applying = new Set<string>()
   const asked = new Map<string, string>()
   const stoppingForBlockers = new Set<string>()
-  const sendingComments = new Set<string>()
   const runUploads = new Set<string>()
   const checkOwnFiles = (task: StoredTask, files: readonly Attachment[]) => {
     const known = new Set(store.taskFiles(task.id).map((a) => a.hash))
@@ -2119,7 +2120,7 @@ export function createTasks(options: {
     const current = find(task.id)
     const run = liveLead(current)
     if (run) {
-      await sendComment(run.id, posted)
+      await sendComment(run.id)
       await deliver(
         current,
         'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
@@ -3183,10 +3184,7 @@ export function createTasks(options: {
     return {
       comments: store
         .listComments(taskId)
-        .filter(
-          (c) =>
-            c.author.kind === 'human' && c.delivered === undefined && !sendingComments.has(c.id),
-        ),
+        .filter((c) => c.author.kind === 'human' && c.delivered === undefined),
       answers: store.heldAnswers(taskId),
     }
   }
@@ -3235,7 +3233,7 @@ export function createTasks(options: {
     const brief = withBrief ? store.latestBrief(taskId) : undefined
     return [
       '# Comments since the last Run',
-      'The human wrote these while no Run was working on this Task. Read them before you carry on.',
+      'The human wrote these while no Run was working on this Task. Read them before you carry on. Answer their questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.',
       ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
       items.map((i) => i.line).join('\n'),
     ].join('\n\n')
@@ -3245,18 +3243,14 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
     if (!task || !run) return
-    for (const c of waitingForRun(taskId).comments) await sendComment(run.id, c)
+    if (waitingForRun(taskId).comments.length > 0) await sendComment(run.id)
   }
 
-  async function sendComment(runId: string, comment: Comment): Promise<void> {
-    sendingComments.add(comment.id)
+  async function sendComment(runId: string): Promise<void> {
     try {
-      await runs.send(runId, humanMessage(commentText(comment)))
-      store.commentsDelivered([comment.id], runId)
+      await options.steering.changed(runId)
     } catch (error) {
       console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
-    } finally {
-      sendingComments.delete(comment.id)
     }
   }
 
@@ -3711,7 +3705,7 @@ export function createTasks(options: {
     })
     const run = liveLead(find(task.id))
     if (!run) return posted
-    await sendComment(run.id, posted)
+    await sendComment(run.id)
     return store.getComment(posted.id) ?? posted
   }
 
@@ -3722,7 +3716,10 @@ export function createTasks(options: {
       .filter(
         (c) =>
           c.author.kind === 'human' &&
-          c.delivered?.runId === run.id &&
+          (c.delivered?.runId === run.id ||
+            (c.delivered === undefined &&
+              store.getTask(run.taskId ?? '')?.leadRunId === run.id &&
+              texts.some((text) => flat(text) === flat(humanMessage(commentText(c)))))) &&
           c.readAt === undefined &&
           texts.some((text) => flat(text).includes(flat(commentText(c)))),
       )
@@ -5704,6 +5701,21 @@ export function createTasks(options: {
     turnEnding.add(runId)
   }
 
+  options.steering.addSource({
+    pending(run) {
+      const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+      if (!task || liveLead(task)?.id !== run.id) return []
+      return waitingForRun(task.id).comments.map((comment) => ({
+        id: comment.id,
+        text: humanMessage(commentText(comment)),
+        at: comment.createdAt,
+      }))
+    },
+    delivered(run, ids) {
+      store.commentsDelivered(ids, run.id)
+    },
+  })
+
   runs.observe({
     authFailed(run) {
       if (!signedOutAt.has(run.id)) signedOutAt.set(run.id, new Date().toISOString())
@@ -5953,6 +5965,9 @@ export function createTasks(options: {
       },
       caller = { kind: 'app' },
     ) {
+      if (fields.draftRevision !== undefined && caller.kind !== 'app') {
+        throw new RequestError(403, 'only the app can consume a New Task draft')
+      }
       const automation = automationCaller(caller)
       const key = automation?.factoryKey ?? givenKey
       if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
@@ -7390,7 +7405,7 @@ function editMessage(
 }
 
 function humanMessage(body: string): string {
-  return `The human posted a Comment on this Task:\n\n${body}`
+  return `The human posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
 }
 
 function flat(text: string): string {

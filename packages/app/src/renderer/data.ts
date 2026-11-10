@@ -8,6 +8,7 @@ import type {
   Banner,
   CheckRun,
   Comment,
+  Coordinator,
   DataStatus,
   DescriptionVersion,
   DriftCounts,
@@ -118,6 +119,7 @@ function useLiveList<T extends { id: string }>(
     void epoch
     if (loaded.current !== load) setItems([])
     loaded.current = load
+    let active = true
     let fresh: T[] | undefined = []
     const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
@@ -134,6 +136,7 @@ function useLiveList<T extends { id: string }>(
     })
     void load().then(
       (loaded) => {
+        if (!active) return
         setItems(
           mergeById(loaded, fresh ?? [])
             .filter((item) => !dropped.has(item.id))
@@ -144,7 +147,10 @@ function useLiveList<T extends { id: string }>(
       },
       () => undefined,
     )
-    return unsubscribe
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [load, pick, order, drop, epoch])
 
   return { items, loaded: done }
@@ -537,6 +543,19 @@ const planEvent = (event: TedEvent, planId?: string) =>
   (event.type === 'run-updated' && (planId === undefined || event.run.id === planId)) ||
   event.type === 'slots-changed' ||
   event.type === 'task-updated'
+
+export function useCoordinator(factoryId: string): Coordinator | null | undefined {
+  return useReloading(
+    () => ted.getCoordinator(factoryId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      event.type === 'task-updated' ||
+      event.type === 'run-updated' ||
+      event.type === 'slots-changed' ||
+      event.type === 'agent-health-changed',
+    factoryId,
+  )
+}
 
 export function usePlan(planId: string | undefined): PlanDetail | undefined {
   return useReloading(

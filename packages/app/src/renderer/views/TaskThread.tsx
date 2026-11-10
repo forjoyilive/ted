@@ -74,6 +74,7 @@ import {
   middlePane,
   middlePaneStep,
 } from '../middle-pane.ts'
+import { useProfile } from '../profile.tsx'
 import { useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
@@ -119,13 +120,25 @@ function NoteRow({
   comment: Comment
   lines?: LineLinks | undefined
 }) {
+  const profile = useProfile()
   const agent = leadAgent(task, comment)
   const author =
-    comment.author.kind === 'human' ? 'You' : comment.author.kind === 'ted' ? 'TED' : 'Task Lead'
+    comment.author.kind === 'human'
+      ? profile.name
+      : comment.author.kind === 'ted'
+        ? 'TED'
+        : 'Task Lead'
   const state = delivery(task, comment)
   return (
     <li className={styles.comment}>
-      {agent !== undefined ? <AgentAvatar agent={agent} /> : <PersonAvatar name={author} />}
+      {agent !== undefined ? (
+        <AgentAvatar agent={agent} />
+      ) : (
+        <PersonAvatar
+          name={author}
+          photo={comment.author.kind === 'human' ? profile.photo : undefined}
+        />
+      )}
       <div>
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>

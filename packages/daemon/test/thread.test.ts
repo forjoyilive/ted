@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { Comment, Factory, Task, ThreadEvent } from '@ted/protocol'
+import type { Comment, Factory, RunChat, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -12,6 +12,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -56,19 +57,29 @@ None.
 Build it.
 `
 
-async function startTed(order = '[intake, work, merge]') {
-  await commitToOrigin(scratch, { '.ted/workflow.yaml': `version: 1\norder: ${order}\n` })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+async function startClient() {
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
-  await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  return { ...client, ok }
+}
+
+async function startTed(order = '[intake, work, merge]') {
+  await commitToOrigin(scratch, { '.ted/workflow.yaml': `version: 1\norder: ${order}\n` })
+  const client = await startClient()
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const briefFile = path.join(scratch, 'brief.md')
   await writeFile(briefFile, brief)
-  return { ...client, ok, briefFile }
+  return { ...client, briefFile }
 }
 
 type Client = Awaited<ReturnType<typeof startTed>>
@@ -137,21 +148,16 @@ describe('Comments into the Task Lead’s Run', () => {
     expect(messages.at(-1)).toContain('Use the export button in the note menu.')
   })
 
-  test('a Comment sent mid-turn waits in the Run’s input and is read when the next turn starts', async () => {
+  test('a Comment with no tool boundary waits durably and is read when the turn ends', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
     const task = await create(client, steps({ waitFor: gate }, { endTurn: true }), {
       start: true,
     })
-    const working = await waitFor(
-      client,
-      task,
-      (t) => t.runs[0]?.state === 'working',
-      'to be working',
-    )
+    await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to be working')
 
     const posted = await post(client, task, 'Also handle the empty query.')
-    expect(posted.delivered?.runId).toBe(working.leadRunId)
+    expect(posted.delivered).toBeUndefined()
     await sleep(600)
     expect((await comment(client, task, posted.id)).readAt).toBeUndefined()
 
@@ -160,6 +166,84 @@ describe('Comments into the Task Lead’s Run', () => {
       async () => (await comment(client, task, posted.id)).readAt,
       'the Comment to be read',
     )
+  })
+
+  test.each(['claude', 'codex'] as const)(
+    '%s: a Thread status question is read at a tool boundary before the turn ends',
+    async (agent) => {
+      const client = await startTed()
+      const boundary = path.join(scratch, 'boundary')
+      const finish = path.join(scratch, 'finish')
+      const task = await create(
+        client,
+        steps(
+          { waitFor: boundary },
+          { tool: agent === 'claude' ? 'Bash' : true },
+          { waitFor: finish },
+          { endTurn: true },
+        ),
+        { start: true, lead: { agent } },
+      )
+      const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+      const posted = await post(client, task, 'How are things going?')
+      const second = await post(client, task, 'What remains to be done?')
+      expect(posted.delivered).toBeUndefined()
+      expect(second.delivered).toBeUndefined()
+      expect((await comment(client, task, posted.id)).readAt).toBeUndefined()
+      await writeFile(boundary, '')
+      await waitUntil(
+        async () => (await comment(client, task, second.id)).readAt,
+        'the Thread status question to be read before the turn ends',
+        5_000,
+      )
+      expect((await client.getRun(working.leadRunId ?? '')).run.state).toBe('working')
+      expect((await comment(client, task, posted.id)).delivered?.runId).toBe(working.leadRunId)
+      const chat = await client.ok<RunChat>('GET', `/runs/${working.leadRunId}/chat`)
+      const forwarded = chat.items.flatMap((item) =>
+        item.kind === 'ted' && item.text.includes('The human posted a Comment') ? [item.text] : [],
+      )
+      expect(forwarded).toHaveLength(2)
+      expect(forwarded[0]).toContain(posted.body)
+      expect(forwarded[1]).toContain(second.body)
+      expect(chat.items.filter((item) => item.kind === 'human')).toEqual([])
+      const conversation = (await client.getRun(working.leadRunId ?? '')).conversation
+      expect(
+        conversation.some((entry) =>
+          entry.line.includes('Answer questions in the Thread with ted comment'),
+        ),
+      ).toBe(true)
+      expect(await threadEvents(client, task)).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ text: 'You steered the Task Lead in its Conversation' }),
+        ]),
+      )
+      await writeFile(finish, '')
+    },
+  )
+
+  test('a queued Thread question survives a daemon restart and is read at the next boundary', async () => {
+    let client = await startTed()
+    const boundary = path.join(scratch, 'boundary')
+    const finish = path.join(scratch, 'finish')
+    const task = await create(
+      client,
+      steps({ waitFor: boundary }, { tool: 'Bash' }, { waitFor: finish }, { endTurn: true }),
+      { start: true },
+    )
+    const working = await waitFor(client, task, (t) => t.runs[0]?.state === 'working', 'to work')
+    const posted = await post(client, task, 'How is the fix going?')
+    expect(posted.delivered).toBeUndefined()
+    await daemon?.stop()
+    await rm(path.join(home, 'runs', working.leadRunId ?? '', 'queued'), { force: true })
+    client = { ...client, ...(await startClient()) }
+    await writeFile(boundary, '')
+    await waitUntil(
+      async () => (await comment(client, task, posted.id)).readAt,
+      'the queued Thread question to be read after restart',
+    )
+    expect((await comment(client, task, posted.id)).delivered?.runId).toBe(working.leadRunId)
+    expect((await client.getRun(working.leadRunId ?? '')).run.state).toBe('working')
+    await writeFile(finish, '')
   })
 
   test('a Comment on a Backlog Task is stored and given to the first Run', async () => {

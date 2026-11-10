@@ -1,6 +1,13 @@
 import { type Priority, priorities, type QueuedForSlot, type SlotHolder } from '@ted/protocol'
 
-export const queueKinds = ['setup-task', 'sub-agent', 'planning', 'automation', 'task'] as const
+export const queueKinds = [
+  'setup-task',
+  'sub-agent',
+  'planning',
+  'coordinator',
+  'automation',
+  'task',
+] as const
 
 export type QueueKind = (typeof queueKinds)[number]
 
@@ -24,7 +31,8 @@ export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
     e.kind === 'task' ? priorities.indexOf(e.priority ?? 'none') : 0
   return [...entries].sort(
     (a, b) =>
-      queueKinds.indexOf(a.kind) - queueKinds.indexOf(b.kind) ||
+      queueKinds.indexOf(a.kind === 'coordinator' ? 'planning' : a.kind) -
+        queueKinds.indexOf(b.kind === 'coordinator' ? 'planning' : b.kind) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),

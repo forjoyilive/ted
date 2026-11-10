@@ -452,3 +452,10 @@
   font: inherit;
   cursor: pointer;
 }
+
+.fields {
+  display: contents;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}

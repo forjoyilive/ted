@@ -63,6 +63,7 @@ function Row({
 function holderRuns(holder: SlotHolder): string {
   if (holder.kind === 'automation') return 'Automation Run'
   if (holder.kind === 'planning') return 'Planning Run'
+  if (holder.kind === 'coordinator') return 'Coordinator Run'
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
@@ -129,10 +130,16 @@ export function WorkingRunsPopover({
           {slots.holders.length > 0 && (
             <Group label="Working">
               {slots.holders.map((holder) =>
-                holder.kind === 'automation' || holder.kind === 'planning' ? (
+                holder.kind !== 'task' ? (
                   <Row
                     key={holder.runId}
-                    lead={holder.kind === 'planning' ? 'Plan' : 'Auto'}
+                    lead={
+                      holder.kind === 'planning'
+                        ? 'Plan'
+                        : holder.kind === 'coordinator'
+                          ? 'Coord'
+                          : 'Auto'
+                    }
                     title={holder.name}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                     trailing={slotCount(holder.runs)}
@@ -153,7 +160,7 @@ export function WorkingRunsPopover({
             <Group
               label="Queued"
               count={slots.queue.length}
-              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Planning Runs, Automation Runs, then Tasks by Priority and rank."
+              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Planning and Coordinator Runs, Automation Runs, then Tasks by Priority and rank."
             >
               {slots.queue.map((entry) =>
                 entry.kind === 'sub-agent' ? (
@@ -164,13 +171,15 @@ export function WorkingRunsPopover({
                     title={`${entry.displayId} · ${entry.name}`}
                     detail={`${name(entry.factoryId)} · Sub-agent`}
                   />
-                ) : entry.kind === 'automation' || entry.kind === 'planning' ? (
+                ) : entry.kind === 'automation' ||
+                  entry.kind === 'planning' ||
+                  entry.kind === 'coordinator' ? (
                   <Row
                     key={entry.runId}
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
-                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : 'Automation Run'}`}
+                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'coordinator' ? 'Coordinator Run' : 'Automation Run'}`}
                   />
                 ) : (
                   <Row

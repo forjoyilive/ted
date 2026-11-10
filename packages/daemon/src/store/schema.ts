@@ -29,6 +29,24 @@ export const factoryRepos = State.SQLite.table({
   },
 })
 
+export const taskDrafts = State.SQLite.table({
+  name: 'taskDrafts',
+  columns: {
+    factoryId: State.SQLite.text({ primaryKey: true }),
+    draft: State.SQLite.text({ nullable: true }),
+    clearedRevision: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const taskDraftConsumptions = State.SQLite.table({
+  name: 'taskDraftConsumptions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    revision: State.SQLite.text(),
+  },
+})
+
 export const factoryOrder = State.SQLite.table({
   name: 'factoryOrder',
   columns: {
@@ -632,6 +650,14 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const coordinators = State.SQLite.table({
+  name: 'coordinators',
+  columns: {
+    factoryId: State.SQLite.text({ primaryKey: true }),
+    data: State.SQLite.text(),
+  },
+})
+
 export const plans = State.SQLite.table({
   name: 'plans',
   columns: {
@@ -715,6 +741,14 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  coordinatorChanged: Events.synced({
+    name: 'v1.CoordinatorChanged',
+    schema: Schema.Struct({ factoryId: Schema.String, data: Schema.String }),
+  }),
+  coordinatorRemoved: Events.synced({
+    name: 'v1.CoordinatorRemoved',
+    schema: Schema.Struct({ factoryId: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
   factoryAdded: Events.synced({
     name: 'v1.FactoryAdded',
     schema: Schema.Struct({
@@ -1609,6 +1643,36 @@ export const events = {
   factoriesReordered: Events.synced({
     name: 'v1.FactoriesReordered',
     schema: Schema.Struct({ factoryIds: Schema.Array(Schema.String), at: Schema.String }),
+  }),
+  taskDraftSaved: Events.synced({
+    name: 'v1.TaskDraftSaved',
+    schema: Schema.Struct({ factoryId: Schema.String, draft: Schema.String, at: Schema.String }),
+  }),
+  taskDraftCleared: Events.synced({
+    name: 'v1.TaskDraftCleared',
+    schema: Schema.Struct({ factoryId: Schema.String, revision: Schema.String, at: Schema.String }),
+  }),
+  taskDraftSavedV2: Events.synced({
+    name: 'v2.TaskDraftSaved',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      draft: Schema.String,
+      clearedRevision: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskDraftConsumed: Events.synced({
+    name: 'v1.TaskDraftConsumed',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      revision: Schema.String,
+      draft: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskDraftRemoved: Events.synced({
+    name: 'v1.TaskDraftRemoved',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
   }),
   factoryRemoved: Events.synced({
     name: 'v1.FactoryRemoved',
@@ -2990,6 +3054,30 @@ const materializers = counted(
         factoryOrder.delete(),
         ...factoryIds.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
       ],
+      'v1.TaskDraftSaved': ({ factoryId, draft }) =>
+        taskDrafts.insert({ factoryId, draft }).onConflict('factoryId', 'replace'),
+      'v1.TaskDraftCleared': ({ factoryId, revision }) => [
+        taskDrafts
+          .insert({ factoryId, draft: null, clearedRevision: revision })
+          .onConflict('factoryId', 'replace'),
+        taskDraftConsumptions
+          .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
+          .onConflict('id', 'ignore'),
+      ],
+      'v2.TaskDraftSaved': ({ factoryId, draft, clearedRevision }) =>
+        taskDrafts.insert({ factoryId, draft, clearedRevision }).onConflict('factoryId', 'replace'),
+      'v1.TaskDraftConsumed': ({ factoryId, revision, draft }) => [
+        taskDrafts
+          .insert({ factoryId, draft, clearedRevision: revision })
+          .onConflict('factoryId', 'replace'),
+        taskDraftConsumptions
+          .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
+          .onConflict('id', 'ignore'),
+      ],
+      'v1.TaskDraftRemoved': ({ factoryId }) => [
+        taskDrafts.delete().where({ factoryId }),
+        taskDraftConsumptions.delete().where({ factoryId }),
+      ],
       'v1.FactoryRemoved': ({ factoryId }) => [
         factories.delete().where({ id: factoryId }),
         factoryRepos.delete().where({ factoryId }),
@@ -3090,6 +3178,16 @@ const materializers = counted(
         }),
       'v1.AutomationCommentAnswered': ({ id, text, at }) =>
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
+      'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
+      'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
+        coordinators.delete().where({ factoryId }),
+        ...runIds.flatMap((id) => [
+          runs.delete().where({ id }),
+          conversationEntries.delete().where({ runId: id }),
+          runMessages.delete().where({ runId: id }),
+          runInterrupts.delete().where({ runId: id }),
+        ]),
+      ],
       'v1.PlanStarted': ({ at, ...plan }) =>
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
@@ -3143,6 +3241,8 @@ const materializers = counted(
 
 const state = State.SQLite.makeState({
   tables: {
+    taskDrafts,
+    taskDraftConsumptions,
     factories,
     factoryRepos,
     factoryOrder,
@@ -3189,6 +3289,7 @@ const state = State.SQLite.makeState({
     plans,
     planRequests,
     planTasks,
+    coordinators,
   },
   materializers,
 })
