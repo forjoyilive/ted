@@ -5374,7 +5374,7 @@ export function createTasks(options: {
     const id = blocker.displayId
     return runs.send(
       run.id,
-      `The human made this Task wait for ${id} (“${blocker.title}”). If this Task can’t go on until ${id} merges, run \`ted task block --by ${id}\`, write the Task brief with \`ted brief write\`, and end your turn: TED stops this Run and starts a fresh one when ${id} merges. If you can carry on, say why with \`ted comment\` and keep working.`,
+      `The human made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the human with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
     )
   }
 

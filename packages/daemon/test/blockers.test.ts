@@ -3,7 +3,7 @@ import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, Task } from '@ted/protocol'
+import type { Comment, Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -75,6 +75,36 @@ const create = (client: Client, title: string, extra: Record<string, unknown> = 
 const block = (client: Client, task: Task, by: Task) =>
   client.call('POST', `/tasks/${task.id}/blockers`, { by: by.displayId })
 
+const askAboutBlocker = {
+  run: [
+    'ted',
+    'comment',
+    '--choice',
+    'Wait for blocker',
+    '--choice',
+    'Continue independent work',
+    'NB-1 blocks integration, but I can finish the docs. I recommend continuing independent work. How should I proceed?',
+  ],
+}
+
+async function blockerQuestion(client: Client, task: Task, blocker: Task) {
+  const current = await waitFor(
+    client,
+    task,
+    (t) => t.status?.kind === 'waiting-on-you' && t.runs[0]?.state === 'idle',
+    'to wait for the human’s decision',
+  )
+  expect(current.blockedBy).toEqual([blocker.id])
+  const [question] = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+  expect(question).toMatchObject({
+    kind: 'question',
+    choices: ['Wait for blocker', 'Continue independent work'],
+  })
+  expect(question?.answer).toBeUndefined()
+  if (!question) throw new Error('no blocker question')
+  return question
+}
+
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
   waitUntil(async () => {
     const current = await getTask(client, task.id)
@@ -140,7 +170,7 @@ describe('adding a blocker', () => {
     expect(started.markers).toEqual([])
   })
 
-  test('a running Task’s Task Lead is told, and can stop to wait', async () => {
+  test('a running Task asks the human before stopping to wait, then resumes from its brief', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
     const briefFile = path.join(scratch, 'brief.md')
@@ -156,9 +186,15 @@ describe('adding a blocker', () => {
         { endTurn: true },
         {
           everyMessage: [
-            { run: ['ted', 'task', 'block', '--by', 'NB-1'] },
-            { run: ['ted', 'brief', 'write', '--file', briefFile] },
-            { run: ['ted', 'comment', 'Waiting for NB-1; the parser is half done'] },
+            askAboutBlocker,
+            {
+              everyMessage: [
+                { run: ['ted', 'brief', 'write', '--file', briefFile] },
+                { run: ['ted', 'task', 'block', '--by', 'NB-1'] },
+                { run: ['ted', 'comment', 'Waiting for NB-1; the parser is half done'] },
+                { endTurn: true },
+              ],
+            },
             { endTurn: true },
           ],
         },
@@ -170,6 +206,19 @@ describe('adding a blocker', () => {
 
     expect((await block(client, running, blocker)).status).toBe(200)
 
+    const question = await blockerQuestion(client, running, blocker)
+    const waiting = await getTask(client, running.id)
+    expect(waiting.leadRunId).toBe(runId)
+    const [, message] = await userMessages(client, runId)
+    expect(message).toContain('The human made this Task wait for NB-1')
+    expect(message).toContain('Before doing more work')
+    expect(message).toContain('then end your turn and wait for their answer')
+    expect(message).toContain('Don’t remove the blocker just to continue')
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Wait for blocker',
+    })
+
     const blocked = await waitFor(
       client,
       running,
@@ -179,8 +228,6 @@ describe('adding a blocker', () => {
     expect(blocked).toMatchObject({ stage: 'intake', status: { kind: 'blocked', by: 'NB-1' } })
     expect(blocked.runs).toEqual([])
     expect(blocked.activity).toBe('Starts when NB-1 merges')
-    const [, message] = await userMessages(client, runId)
-    expect(message).toContain('The human made this Task wait for NB-1')
     const worktree = path.join(home, 'worktrees', 'NB-2', 'widgets')
     expect((await stat(worktree)).isDirectory()).toBe(true)
 
@@ -201,7 +248,7 @@ describe('adding a blocker', () => {
     expect((await stat(worktree)).isDirectory()).toBe(true)
   })
 
-  test('a Task Lead that carries on keeps its Run, with the blocker as a marker', async () => {
+  test('a Task Lead waits for permission to continue, then keeps its Run and blocker link', async () => {
     const client = await startTed()
     const blocker = await create(client, 'Blocker')
     const running = await create(
@@ -210,7 +257,19 @@ describe('adding a blocker', () => {
         { endTurn: true },
         {
           everyMessage: [
-            { run: ['ted', 'comment', 'This only touches docs, so I can carry on'] },
+            askAboutBlocker,
+            {
+              everyMessage: [
+                {
+                  run: [
+                    'ted',
+                    'comment',
+                    'I’ll work on independent docs and wait before integration',
+                  ],
+                },
+                { endTurn: true },
+              ],
+            },
             { endTurn: true },
           ],
         },
@@ -220,14 +279,22 @@ describe('adding a blocker', () => {
     const first = await waitFor(client, running, (t) => t.runs[0]?.state === 'idle', 'to go idle')
 
     await block(client, running, blocker)
+    const question = await blockerQuestion(client, running, blocker)
+    expect((await userMessages(client, first.leadRunId ?? '')).length).toBe(2)
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Continue independent work',
+    })
     await waitUntil(
       async () =>
-        (await userMessages(client, first.leadRunId ?? '')).length === 2 &&
-        (await client.ok<unknown[]>('GET', `/tasks/${running.id}/comments`)).length === 1,
+        (await userMessages(client, first.leadRunId ?? '')).length === 3 &&
+        (await client.ok<unknown[]>('GET', `/tasks/${running.id}/comments`)).length === 2,
       'the Task Lead to answer',
     )
     const current = await waitFor(client, running, (t) => t.runs[0]?.state === 'idle', 'idle')
     expect(current.runs).toHaveLength(1)
+    expect(current.leadRunId).toBe(first.leadRunId)
+    expect(current.blockedBy).toEqual([blocker.id])
     expect(current.status?.kind).not.toBe('blocked')
     expect(current.markers).toEqual([{ kind: 'blocked-by', by: 'NB-1' }])
   })
