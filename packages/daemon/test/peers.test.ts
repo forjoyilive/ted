@@ -24,15 +24,7 @@ function lead(taskId: string, id: string = crypto.randomUUID(), parentRunId?: st
   })
 }
 function services() {
-  return createPeers(
-    store,
-    (id) => {
-      const task = store.getTask(id)
-      if (!task) throw new Error('Task missing')
-      return task
-    },
-    notify,
-  )
+  return createPeers(store, notify)
 }
 beforeEach(async () => {
   dir = await mkdtemp(path.join(tmpdir(), 'ted-peers-'))
@@ -233,4 +225,66 @@ test('size, backlog and lifecycle limits prevent unbounded or obsolete coordinat
   await expect(peers.send(caller, recipient, { operation: 'done', text: 'note' })).rejects.toThrow(
     'Done',
   )
+})
+
+test('production snapshots read the Task list once, and details do not rebuild it', async () => {
+  for (let i = 0; i < 30; i++) await store.createTask({ title: `Extra peer ${i}` })
+  const reads = vi.spyOn(store, 'listTasks')
+  peers.list(caller)
+  expect(reads).toHaveBeenCalledTimes(1)
+  reads.mockClear()
+  peers.show(caller, recipient)
+  expect(reads).not.toHaveBeenCalled()
+})
+
+test('watch ignores raw output and other Factories, and coalesces relevant updates', async () => {
+  const factory = store.createFactory({
+    key: 'OTHER',
+    name: 'Other',
+    repos: [],
+    defaultBranch: 'main',
+    showTutorial: false,
+  })
+  const other = await store.createTask({ factoryId: factory.id, title: 'Unrelated peer' })
+  const cursor = peers.list(caller).cursor
+  const reads = vi.spyOn(store, 'listTasks')
+  const controller = new AbortController()
+  const pending = peers.watch(caller, cursor, 1, controller.signal)
+  try {
+    reads.mockClear()
+    if (caller.kind !== 'run') throw new Error('Lead missing')
+    store.recordRunOutput(caller.runId, {
+      toOffset: 1,
+      entries: [{ offset: 0, line: '{"type":"progress"}' }],
+    })
+    await Promise.resolve()
+    expect(reads).not.toHaveBeenCalled()
+    store.setActivity(other.id, 'Other Factory work')
+    await Promise.resolve()
+    expect(reads).not.toHaveBeenCalled()
+    store.setActivity(recipient, 'First update')
+    store.setActivity(recipient, 'Final update')
+    expect((await pending).tasks.find((t) => t.id === recipient)?.activity).toBe('Final update')
+    expect(reads).toHaveBeenCalledTimes(1)
+  } finally {
+    controller.abort()
+    await pending.catch(() => {})
+  }
+})
+
+test('watch observes note timestamps in the public Task snapshot', async () => {
+  const cursor = peers.list(caller).cursor
+  const controller = new AbortController()
+  const pending = peers.watch(caller, cursor, 1, controller.signal)
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date('2027-01-01T00:00:00Z') })
+  try {
+    store.postComment({ taskId: recipient, body: 'Coordination note', author: { kind: 'ted' } })
+    expect((await pending).tasks.find((t) => t.id === recipient)?.updatedAt).toBe(
+      '2027-01-01T00:00:00.000Z',
+    )
+  } finally {
+    controller.abort()
+    await pending.catch(() => {})
+    vi.useRealTimers()
+  }
 })

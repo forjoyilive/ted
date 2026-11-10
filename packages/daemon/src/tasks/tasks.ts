@@ -500,7 +500,7 @@ export function createTasks(options: {
     health,
     attachmentFile,
   } = options
-  const peers = createPeers(store, publicTask, (id) => options.steering.syncQueuedFlag(id))
+  const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()

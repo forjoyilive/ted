@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type {
+  DaemonEvent,
   PeerDetail,
   PeerInbox,
   PeerMessage,
@@ -21,11 +22,7 @@ export interface Peers {
   isMessage(id: string): boolean
 }
 
-export function createPeers(
-  store: TedStore,
-  publicTask: (id: string) => Task,
-  notify: (runId: string) => void,
-): Peers {
+export function createPeers(store: TedStore, notify: (runId: string) => void): Peers {
   function actor(caller: Caller): StoredTask {
     const run = caller.kind === 'run' ? store.getRun(caller.runId) : undefined
     const task = run?.taskId === undefined ? undefined : store.getTask(run.taskId)
@@ -53,8 +50,8 @@ export function createPeers(
   }
 
   function summary(task: Task): PeerSummary {
-    const visible = publicTask(task.id)
-    const leadId = store.getTask(task.id)?.leadRunId
+    const visible = task
+    const leadId = task.leadRunId
     const lead = leadId === undefined ? undefined : store.getRun(leadId)
     const brief = store.latestBrief(task.id)
     return {
@@ -89,6 +86,34 @@ export function createPeers(
     }
   }
 
+  function affectsFactory(event: DaemonEvent, factoryId: string): boolean {
+    switch (event.type) {
+      case 'task-created':
+      case 'task-updated':
+        return event.task.factoryId === factoryId
+      case 'run-updated':
+        return (
+          event.run.taskId !== undefined && store.getTask(event.run.taskId)?.factoryId === factoryId
+        )
+      case 'comment-posted':
+      case 'comment-updated':
+        return store.getTask(event.comment.taskId)?.factoryId === factoryId
+      case 'check-run-updated':
+        return store.getTask(event.checkRun.taskId)?.factoryId === factoryId
+      case 'factory-updated':
+        return event.factory.id === factoryId
+      case 'factory-removed':
+        return event.factoryId === factoryId
+      case 'task-deleted':
+      case 'settings-changed':
+      case 'agent-health-changed':
+      case 'slots-changed':
+        return true
+      default:
+        return false
+    }
+  }
+
   return {
     list: page,
     show(caller, ref) {
@@ -116,31 +141,46 @@ export function createPeers(
         )
       const first = page(caller)
       if (first.cursor !== cursor || timeout === 0 || signal?.aborted) return Promise.resolve(first)
+      const factoryId = actor(caller).factoryId
       return new Promise((resolve, reject) => {
         let unsubscribe = () => {}
-        const finish = (error?: unknown) => {
+        let settled = false
+        let scheduled = false
+        const finish = (error?: unknown, snapshot?: PeerPage) => {
+          if (settled) return
+          settled = true
           clearTimeout(timer)
           unsubscribe()
           signal?.removeEventListener('abort', aborted)
           try {
             if (error) reject(error)
-            else resolve(page(caller))
+            else resolve(snapshot ?? page(caller))
           } catch (error) {
             reject(error)
           }
         }
         const aborted = () => finish()
-        const timer = setTimeout(finish, timeout * 1000)
-        const changed = () => {
+        const timer = setTimeout(() => finish(), timeout * 1000)
+        const refresh = () => {
+          if (settled) return
           try {
-            if (page(caller).cursor !== cursor) finish()
+            const current = page(caller)
+            if (current.cursor !== cursor) finish(undefined, current)
           } catch (error) {
             finish(error)
           }
         }
+        const changed = (event: DaemonEvent) => {
+          if (settled || scheduled || !affectsFactory(event, factoryId)) return
+          scheduled = true
+          queueMicrotask(() => {
+            scheduled = false
+            refresh()
+          })
+        }
         unsubscribe = store.subscribe(changed)
         signal?.addEventListener('abort', aborted, { once: true })
-        changed()
+        refresh()
         if (signal?.aborted) finish()
       })
     },
