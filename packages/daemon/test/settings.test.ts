@@ -57,6 +57,7 @@ describe('machine settings in the store', () => {
       terminalFontSize: 13,
       profilePicture: null,
       developerMode: false,
+      overnightMode: false,
       maxWorkingRuns: 6,
       maxBootedSimulators: 3,
       quitWithWorkRunning: 'ask',
@@ -78,7 +79,7 @@ describe('machine settings in the store', () => {
       linearSyncDeclined: {},
       appsOutsideSandbox: {},
     })
-    first.updateSettings({ terminalFontSize: 16, developerMode: true })
+    first.updateSettings({ terminalFontSize: 16, developerMode: true, overnightMode: true })
     first.updateSettings({ profilePicture: picture })
     first.updateSettings({ appearance: 'light' })
     await first.close()
@@ -87,6 +88,7 @@ describe('machine settings in the store', () => {
     try {
       expect(second.settings()).toMatchObject({
         appearance: 'light',
+        overnightMode: true,
         terminalFontSize: 16,
         profilePicture: picture,
         developerMode: true,
@@ -234,6 +236,7 @@ describe('settings and Factories over the daemon API', () => {
     ['an editor TED doesn’t know', { editor: 'notepad' }],
     ['a custom editor command with an open quote', { editorCommand: '"my editor {path}' }],
     ['a custom editor command over two lines', { editorCommand: 'code\n{path}' }],
+    ['Overnight mode that is not true or false', { overnightMode: 'on' }],
     ['Developer mode that is not true or false', { developerMode: 'yes' }],
     ['Linear sync that is not true or false', { linearSync: 'on' }],
     ['a Linear team key that isn’t one', { linearSyncTeams: { f: ['not a key'] } }],
@@ -346,6 +349,7 @@ describe('settings and Factories over the daemon API', () => {
     expect((await asRun('GET', '/tasks')).status).toBe(200)
     expect((await asRun('GET', '/settings')).status).toBe(403)
     expect((await asRun('PATCH', '/settings', { appearance: 'dark' })).status).toBe(403)
+    expect((await asRun('PATCH', '/settings', { overnightMode: true })).status).toBe(403)
     expect((await asRun('GET', '/factories')).status).toBe(403)
     expect((await asRun('GET', '/profile')).status).toBe(403)
   })
