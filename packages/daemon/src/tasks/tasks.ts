@@ -411,9 +411,9 @@ export interface Tasks {
   reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
   coordinatorTell(ref: string, body: string): Promise<Comment>
-  coordinatorAnswer(commentId: string, answer: { choice?: string; text: string }): Promise<Comment>
+  coordinatorAnswer(commentId: string, answer: AnswerRequest, mark: string): Promise<Comment>
+  coordinatorResume(ref: string, comment?: string): Promise<Task>
   isFailureDecision(commentId: string): boolean
-  humanOnlyChoices(commentId: string): string[]
   talkThrough(commentId: string): Promise<Comment>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
@@ -4173,6 +4173,7 @@ export function createTasks(options: {
     id: string,
     request: AnswerRequest,
     sendDrafts: boolean,
+    mark?: string,
   ): Promise<Comment> {
     const answering = store.getComment(id)
     if (answering) await untilFree(answering.taskId)
@@ -4197,15 +4198,20 @@ export function createTasks(options: {
       )
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
       return holding(task, async () => {
-        await failures.resolve(find(task.id), failure.id, {
-          requestId: id,
-          resolution,
-          ...(request.text !== undefined && { reason: request.text }),
-        })
+        await failures.resolve(
+          find(task.id),
+          failure.id,
+          {
+            requestId: id,
+            resolution,
+            ...(request.text !== undefined && { reason: request.text }),
+          },
+          sendDrafts,
+        )
         return store.getComment(id) as Comment
       })
     }
-    if (comment.kind === 'round') return answerRound(task, comment, request)
+    if (comment.kind === 'round') return answerRound(task, comment, request, mark)
     if (comment.kind === 'proposal') return answerProposal(task, comment, request)
     if (request.action === 'answer-round' || request.action === 'accept-recommended') {
       throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
@@ -4267,7 +4273,7 @@ export function createTasks(options: {
           task,
           comment,
           { kind: 'changes-requested', at, text },
-          drafts(task.id),
+          sendDrafts ? drafts(task.id) : undefined,
         )
         const picksStage = comment.stage === 'review' || comment.stage === 'merge'
         const lines = linesText(answered)
@@ -4611,7 +4617,7 @@ export function createTasks(options: {
     if (!(await deliver(task, text))) store.holdAnswer(comment.id)
   }
 
-  async function answerRound(task: Task, comment: Comment, request: AnswerRequest) {
+  async function answerRound(task: Task, comment: Comment, request: AnswerRequest, mark?: string) {
     if (!comment.round) throw new RequestError(409, 'this round has no questions')
     const answers = roundAnswers(comment.round, request)
     return holding(task, async () => {
@@ -4627,12 +4633,10 @@ export function createTasks(options: {
         kind: 'answered',
         at: new Date().toISOString(),
         answers,
+        ...(mark !== undefined && { text: mark }),
       })
-      await deliverAnswer(
-        task,
-        comment,
-        roundAnswerMessage(comment, answers, find(task.id).clarifyDepth),
-      )
+      const message = roundAnswerMessage(comment, answers, find(task.id).clarifyDepth)
+      await deliverAnswer(task, comment, mark === undefined ? message : `${mark}\n\n${message}`)
       return answered
     })
   }
@@ -7512,18 +7516,12 @@ export function createTasks(options: {
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 
     isFailureDecision: (id) => failures.findDecision(id) !== undefined,
-    humanOnlyChoices: (id) => {
-      const comment = store.getComment(id)
-      if (comment?.author.kind !== 'ted') return []
-      return (comment.choices ?? []).filter(
-        (choice) => choice === mergeAnywayChoice || moveOnAnyway.test(choice),
-      )
-    },
-
     answer: (id, request) => answerAs(id, request, true),
 
-    coordinatorAnswer: (id, { choice, text }) =>
-      answerAs(id, { action: 'answer', ...(choice !== undefined && { choice }), text }, false),
+    coordinatorAnswer: (id, request, mark) => answerAs(id, request, false, mark),
+
+    coordinatorResume: (ref, comment) =>
+      resumeByHand(ref, { ...(comment !== undefined && { comment }), sendDrafts: false }),
 
     async coordinatorTell(ref, body) {
       const task = find(ref)
@@ -8047,7 +8045,6 @@ const skippableStages: readonly StageId[] = ['clarify', 'design']
 const sendToLeadChoice = 'Send to Task Lead'
 const keepWaitingChoice = 'Keep waiting'
 const mergeAnywayChoice = 'Merge anyway'
-const moveOnAnyway = /^Move to .+ anyway$/
 const mergeOffMessage =
   'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
 

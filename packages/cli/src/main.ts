@@ -125,13 +125,17 @@ const usage = `Usage:
                                              (Coordinator only)
   ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
                          [--choice "<answer>"] [--message "<text>"]
-                                             Answer an open question a Run asked, or one TED
-                                             asked that has choices (--choice required), on
-                                             the human’s instruction; never a Gate, sign-off,
-                                             permission prompt, round, proposal, size check,
-                                             Linear team ask or failure decision; reads the
-                                             message from stdin if neither --choice nor
-                                             --message is given
+                         [--approve | --request-changes] [--skip-rows <json>] [--start-unblocked]
+                         [--answers <json> | --recommended]
+                                             Answer an open request on a Task, on the human’s
+                                             instruction: a question (--choice, --message), a
+                                             Gate request, sign-off or proposal (--approve or
+                                             --request-changes), or a Clarify round (--answers
+                                             or --recommended); never a permission prompt,
+                                             simulator ask or the Linear team ask
+                                             (Coordinator only)
+  ted coordinator resume <id> --operation <id> --version <version> [--message "<text>"]
+                                             Resume a stopped or failed Task through the queue
                                              (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
@@ -176,6 +180,12 @@ function parse() {
         neighbours: { type: 'string' },
         message: { type: 'string' },
         request: { type: 'string' },
+        approve: { type: 'boolean' },
+        'request-changes': { type: 'boolean' },
+        answers: { type: 'string' },
+        recommended: { type: 'boolean' },
+        'skip-rows': { type: 'string' },
+        'start-unblocked': { type: 'boolean' },
         after: { type: 'string' },
         before: { type: 'string' },
         choice: { type: 'string', multiple: true },
@@ -344,24 +354,54 @@ try {
             }),
           ),
         )
+      } else if (command === 'resume' && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const message = options.message?.trim()
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message && { message }),
+            }),
+          ),
+        )
       } else if ((command === 'tell' || command === 'answer') && rest.length === 1) {
         if (!options.operation || !options.version)
           throw new UsageError('operation and version are required')
         const choices = options.choice ?? []
-        if (command === 'tell' && (options.request || choices.length > 0))
+        const decided = options.approve || options['request-changes']
+        const round = options.answers !== undefined || options.recommended
+        if (command === 'tell' && (options.request || choices.length > 0 || decided || round))
           throw new UsageError('tell takes only --message')
         if (command === 'answer' && !options.request)
-          throw new UsageError('name the question with --request <comment-id>')
+          throw new UsageError('name the request with --request <comment-id>')
         if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
-        const typed =
-          options.message ?? (command === 'tell' || choices.length === 0 ? await readStdin() : '')
+        if (options.approve && options['request-changes'])
+          throw new UsageError('give --approve or --request-changes, not both')
+        const given = choices.length > 0 || options.approve || round
+        const typed = options.message ?? (command === 'tell' || !given ? await readStdin() : '')
         const message = typed.trim() === '' ? undefined : typed.trim()
-        if (message === undefined && (command === 'tell' || choices.length === 0))
+        if (message === undefined && (command === 'tell' || !given))
           throw new UsageError(
             command === 'tell'
               ? 'give the message with --message "<text>" or on stdin'
-              : 'give --choice, --message, or both',
+              : options['request-changes']
+                ? 'give the changes to ask for with --message "<text>" or on stdin'
+                : 'give --choice, --approve, --request-changes, --answers, --recommended or --message',
           )
+        const json = (name: 'answers' | 'skip-rows') => {
+          const raw = options[name]
+          if (raw === undefined) return undefined
+          try {
+            return JSON.parse(raw) as unknown
+          } catch {
+            throw new UsageError(`--${name} must be JSON`)
+          }
+        }
+        const answers = json('answers')
+        const skipRows = json('skip-rows')
         console.log(
           JSON.stringify(
             await client.coordinatorAct(rest[0] ?? '', command, {
@@ -370,10 +410,19 @@ try {
               ...(message !== undefined && { message }),
               ...(command === 'answer' && { request: options.request }),
               ...(choices[0] !== undefined && { choice: choices[0] }),
+              ...(options.approve && { decision: 'approve' as const }),
+              ...(options['request-changes'] && { decision: 'request-changes' as const }),
+              ...(answers !== undefined && {
+                answers: answers as { answer: string; note?: string }[],
+              }),
+              ...(options.recommended && { recommended: true }),
+              ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
+              ...(options['start-unblocked'] && { startUnblocked: true }),
             }),
           ),
         )
-      } else throw new UsageError('Use coordinator tasks, task, start, move, tell or answer')
+      } else
+        throw new UsageError('Use coordinator tasks, task, start, move, tell, answer or resume')
     })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)
