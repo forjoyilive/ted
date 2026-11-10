@@ -290,7 +290,10 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
       problem: githubProblem,
       severity: 'stops-work',
       text: `${problem.text} · ${affects}`,
-      action: { label: 'Fix', section: 'integrations' },
+      action:
+        'url' in commandFor(problem.fix.fix, problem.fix.host)
+          ? { label: 'Fix', opens: { kind: 'settings', section: 'integrations' } }
+          : { label: 'Fix', section: 'integrations' },
     })
   }
 

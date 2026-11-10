@@ -473,6 +473,10 @@ describe('Linux installation instructions', () => {
       gitBin: path.join(dir, 'missing-git'),
     })
     const health = await integrations.check()
+    expect(store.listBanners()[0]?.action).toEqual({
+      label: 'Fix',
+      opens: { kind: 'settings', section: 'integrations' },
+    })
     expect(health.github.cli.fix).toEqual({
       label: 'Installation instructions ↗',
       url: integrationInstallPages.gh,
@@ -494,6 +498,10 @@ describe('Linux installation instructions', () => {
     await setGh({ version: '2.40.1' })
     const { integrations } = start({ platform: 'linux' })
     const health = await integrations.check()
+    expect(store.listBanners()[0]?.action).toEqual({
+      label: 'Fix',
+      opens: { kind: 'settings', section: 'integrations' },
+    })
     expect(health.github.cli.fix).toEqual({
       label: 'Update instructions ↗',
       url: integrationInstallPages.gh,
@@ -515,4 +523,15 @@ describe('Linux installation instructions', () => {
     })
     expect(opened).toEqual(['xcode-select --install'])
   })
+})
+
+test('Linux signed-out banner still opens the sign-in command', async () => {
+  await setGh({ hosts: {} })
+  const { integrations, banners } = start({ platform: 'linux' })
+  await integrations.check()
+  const banner = store.listBanners()[0]
+  expect(banner?.action).toEqual({ label: 'Fix', section: 'integrations' })
+  if (!banner) throw new Error('Expected sign-in banner')
+  await banners.act(banner.id)
+  expect(opened).toEqual(['gh auth login --web --hostname github.com -s workflow'])
 })
