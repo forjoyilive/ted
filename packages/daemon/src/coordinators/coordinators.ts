@@ -25,12 +25,15 @@ import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
+import { writingGuidance } from '../writing.ts'
 
 export const coordinatorOpening = '## Message from the human'
 export const coordinatorFromTed = '## Message from TED'
 export const coordinatorLine = 'Sent through the Coordinator on the human’s instruction.'
 const instructions = `# You are the Coordinator for one TED Factory
 Help the human compare Tasks and choose next work. Each Task has its own Task Lead.
+${writingGuidance}
+
 Use only these TED commands, which return JSON:
 - ted coordinator tasks [--offset <n>]: current Tasks, paged, each with its status and up to 5 open requests (ID, kind, who asked, question text, choices, when it was asked, and whether you may answer it). now is the current time.
 - ted coordinator task <id> [--offset <n>]: current Task, latest brief, its open requests, paged Comments and a version.

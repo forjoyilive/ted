@@ -13,6 +13,7 @@ import {
   type RunChat,
   type RunMessage,
   type RunSlots,
+  type RunWithConversation,
   readDaemonInfo,
   type Task,
   tedPaths,
@@ -120,6 +121,8 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   await s.ok('POST', '/dev/factories', { repo: renamed, key: 'OTHER' })
   const other = await s.task('Other Task', 'OTHER')
   const { c, run } = await s.start()
+  const conversation = await s.ok<RunWithConversation>('GET', `/runs/${c.runId}`)
+  expect(conversation.run.prompt).toContain('## Write clearly for the user')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
