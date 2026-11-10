@@ -152,6 +152,7 @@ describe('New Task dialog', () => {
     const window = await withFactory()
     await window.keyboard.press('Meta+N')
     const open = dialog(window)
+    await expect.poll(() => open.getByLabel('Description', { exact: true }).isEnabled()).toBe(true)
 
     const dropped = await window.evaluateHandle(() => {
       const data = new DataTransfer()
