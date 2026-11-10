@@ -15,6 +15,7 @@ import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 import { type DragEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
+import { CommentFiles } from '../components/CommentFiles.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { Select } from '../components/Select.tsx'
@@ -507,6 +508,8 @@ function SourceCard({
   const { lookup } = source
   const [showing, setShowing] = useState(false)
   const linearDescription = lookup?.state === 'found' ? lookup.issue.description : undefined
+  const linearFiles = lookup?.state === 'found' ? (lookup.issue.files ?? []) : []
+  const unfetched = lookup?.state === 'found' ? (lookup.issue.unfetched ?? []) : []
   const heading =
     lookup?.state === 'found'
       ? `${lookup.issue.identifier} · ${lookup.issue.title}`
@@ -525,7 +528,8 @@ function SourceCard({
                 Source set.
                 <Help>
                   TED copied the title, Priority and branch name from Linear. The issue’s
-                  description goes to the Task Lead as context.
+                  description goes to the Task Lead as context, and its images and uploaded files
+                  come with the Task.
                 </Help>
                 {linearDescription !== undefined && (
                   <button
@@ -552,6 +556,16 @@ function SourceCard({
           <CloseIcon size={11} />
         </button>
       </fieldset>
+      {linearFiles.length > 0 && (
+        <section className={styles.sourceFiles} aria-label="Files from Linear">
+          <CommentFiles files={linearFiles} />
+        </section>
+      )}
+      {unfetched.length > 0 && (
+        <p className={styles.sourceProblem} role="status">
+          {`Couldn’t fetch ${unfetched.map((f) => f.name).join(', ')} from Linear. The Task keeps ${unfetched.length === 1 ? 'its link' : 'their links'}.`}
+        </p>
+      )}
       {showing && linearDescription !== undefined && (
         <section aria-label="Linear’s description">
           <pre className={styles.sourceDescription}>{linearDescription}</pre>

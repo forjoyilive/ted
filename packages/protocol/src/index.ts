@@ -254,12 +254,14 @@ export {
 } from './integrations.ts'
 export {
   findLinearUrl,
+  type LinearFile,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearKeyState,
   type LinearLookup,
   type LinearLookupRequest,
   type LinearStatus,
+  type LinearUnfetched,
   type LinearUrl,
   linearKeyPage,
   parseLinearUrl,

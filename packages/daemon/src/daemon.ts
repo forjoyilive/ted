@@ -126,9 +126,14 @@ async function readFakeFree(file: string): Promise<number> {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
+  const attachments = createAttachments(paths.attachments)
   const linear = createLinear({
     keyring: options.linear?.keyring ?? (await loadKeyring()),
     keyFile: paths.linearKeyFile,
+    files: {
+      dir: paths.attachments,
+      save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+    },
     ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
   })
   const lock = acquireLock(paths.daemonLock)
@@ -146,7 +151,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
-  const attachments = createAttachments(paths.attachments)
   const data = createData({
     home: paths.home,
     version: options.version,

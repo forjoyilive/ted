@@ -12,6 +12,12 @@ import {
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import {
+  fetchLinearFiles,
+  type LinearFileStore,
+  type LinearIssueAttachment,
+  linearUploadsOrigin,
+} from './files.ts'
 import { type Keyring, KeyringUnavailableError } from './keyring.ts'
 
 export interface Linear {
@@ -49,6 +55,7 @@ export interface LinearOptions {
   timeoutMs?: number
   cacheMs?: number
   now?: () => number
+  files?: LinearFileStore
 }
 
 export const linearApiUrl = 'https://api.linear.app/graphql'
@@ -94,6 +101,7 @@ type KeyRead = { stored: StoredKey } | { stored?: undefined; problem?: 'no-keyri
 export function createLinear(options: LinearOptions): Linear {
   const { keyring, keyFile } = options
   const apiUrl = checkedApiUrl(options.apiUrl ?? linearApiUrl)
+  const fileOrigins = new Set([linearUploadsOrigin, new URL(apiUrl).origin])
   const now = options.now ?? Date.now
   const cacheMs = options.cacheMs ?? 10 * 60_000
   const checked = new Map<string, LinearStatus>()
@@ -244,10 +252,11 @@ export function createLinear(options: LinearOptions): Linear {
           description?: string | null
           priority?: number
           branchName?: string | null
+          attachments?: { nodes?: LinearIssueAttachment[] } | null
         } | null
       }>(
         key,
-        'query TedIssue($id: String!) { issue(id: $id) { identifier title description priority branchName } }',
+        'query TedIssue($id: String!) { issue(id: $id) { identifier title description priority branchName attachments(first: 50) { nodes { url title } } } }',
         { id: link.identifier },
       )
       const issue = data.issue
@@ -261,6 +270,17 @@ export function createLinear(options: LinearOptions): Linear {
         priority: linearPriorities[issue.priority ?? 0] ?? 'none',
         ...(issue.branchName && { branchName: issue.branchName }),
         ...(issue.description && { description: issue.description.slice(0, maxDescription) }),
+      }
+      if (options.files) {
+        const { files, unfetched } = await fetchLinearFiles({
+          key,
+          origins: fileOrigins,
+          description: found.description,
+          attachments: issue.attachments?.nodes ?? [],
+          store: options.files,
+        })
+        if (files.length > 0) found.files = files
+        if (unfetched.length > 0) found.unfetched = unfetched
       }
       return { state: 'found', issue: found }
     } catch (error) {

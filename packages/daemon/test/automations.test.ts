@@ -458,6 +458,13 @@ describe('Automations', () => {
         issues: [{ identifier: 'NB-42', title: 'Search', description: 'Fix search', priority: 2 }],
       },
     })
+    const image = linear.uploadUrl('acme/1/2')
+    linear.uploads.set('/uploads/acme/1/2', {
+      body: Buffer.from('GIF89a tiny'),
+      contentType: 'image/gif',
+    })
+    const issue = linear.accounts.get(key)?.issues?.[0]
+    if (issue) issue.description = `Fix search\n\n![results](${image})`
     try {
       await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
       const client = await startTed({
@@ -495,8 +502,12 @@ describe('Automations', () => {
         stage: 'backlog',
         createdBy: 'automation',
         priority: 'high',
-        source: { url, linear: { identifier: 'NB-42', description: 'Fix search' } },
+        source: { url, linear: { identifier: 'NB-42' } },
+        attachments: [expect.objectContaining({ name: 'results.gif', mediaType: 'image/gif' })],
       })
+      expect(tasks[0]?.source?.linear?.description).toBe(
+        `Fix search\n\n![results](${path.join(tedPaths(home).attachments, `${tasks[0]?.attachments[0]?.hash}.gif`)})`,
+      )
       expect(row?.result.kind).toBe('created')
     } finally {
       await linear.close()

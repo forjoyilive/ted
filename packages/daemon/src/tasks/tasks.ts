@@ -31,6 +31,7 @@ import type {
   FileDiff,
   GitHubWait,
   InboxItem,
+  LinearFile,
   LinearIssue,
   LineComment,
   MergeMethod,
@@ -92,6 +93,7 @@ import * as git from '../git.ts'
 import { type Gh, GhError } from '../github/gh.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
+import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -397,6 +399,14 @@ export interface Tasks {
 }
 
 const slugLength = 40
+
+function withoutRepeats(files: readonly Attachment[]): Attachment[] {
+  const seen = new Map<string, Attachment>()
+  for (const { hash, name, size, mediaType } of files) {
+    seen.set(`${hash}:${name}`, { hash, name, size, mediaType })
+  }
+  return [...seen.values()]
+}
 
 export function createTasks(options: {
   store: TedStore
@@ -2758,6 +2768,43 @@ export function createTasks(options: {
       return undefined
     })
     return lookup?.state === 'found' ? lookup.issue : undefined
+  }
+
+  async function storedFiles(files: readonly LinearFile[]): Promise<LinearFile[]> {
+    const found = await Promise.all(
+      files.map(async (file) =>
+        (await stat(attachmentFile(file)).catch(() => undefined))?.isFile() ? file : undefined,
+      ),
+    )
+    return found.filter((file) => file !== undefined)
+  }
+
+  function withStoredFiles(issue: LinearIssue, files: readonly LinearFile[]): LinearIssue {
+    if (issue.description === undefined || files.length === 0) return issue
+    return {
+      ...issue,
+      description: linkedFilesRewritten(issue.description, files, (file) => attachmentFile(file)),
+    }
+  }
+
+  function noteUnfetched(taskId: string, issue: LinearIssue, stored: readonly LinearFile[]): void {
+    const kept = new Set(stored.map((file) => file.url))
+    const missing = [
+      ...(issue.unfetched ?? []),
+      ...(issue.files ?? [])
+        .filter((file) => !kept.has(file.url))
+        .map((file) => ({ name: file.name, reason: 'TED’s copy is gone' })),
+    ]
+    if (missing.length === 0) return
+    store.postComment({
+      taskId,
+      kind: 'note',
+      author: { kind: 'ted' },
+      body: [
+        `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Linear ${issue.identifier}, so the Task keeps only their links:`,
+        ...missing.map((file) => `- ${file.name}: ${file.reason}`),
+      ].join('\n'),
+    })
   }
 
   async function branchFor(clones: readonly string[], task: Task): Promise<string> {
@@ -5676,6 +5723,7 @@ export function createTasks(options: {
       }
       refuseTracked()
       const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
+      const linearFiles = await storedFiles(issue?.files ?? [])
       const name =
         title?.trim() || issue?.title || firstLine(fields.description ?? '') || sourceUrl || ''
       if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
@@ -5695,11 +5743,14 @@ export function createTasks(options: {
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),
+        ...(linearFiles.length > 0 && {
+          attachments: withoutRepeats([...(fields.attachments ?? []), ...linearFiles]),
+        }),
         title: name,
         ...(fields.priority === undefined && issue && { priority: issue.priority }),
         ...(sourceUrl !== undefined && {
           source: {
-            ...taskSource(sourceUrl, issue),
+            ...taskSource(sourceUrl, issue && withStoredFiles(issue, linearFiles)),
             ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
           },
         }),
@@ -5710,6 +5761,7 @@ export function createTasks(options: {
         ...(automation && { automation: automation.link }),
         linearConsent: caller.kind === 'app',
       })
+      if (issue) noteUnfetched(task.id, issue, linearFiles)
       if (!factory) return task
       if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
       if (!resolution) {
