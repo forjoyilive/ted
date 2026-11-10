@@ -500,6 +500,11 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  function setChecking(taskId: string, on: boolean): void {
+    if (on) checking.add(taskId)
+    else checking.delete(taskId)
+    store.setTaskChecking(taskId, on)
+  }
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   const apps = createApps({
@@ -1170,7 +1175,7 @@ export function createTasks(options: {
   }
 
   async function validateChecks(taskId: string, message?: string): Promise<void> {
-    checking.add(taskId)
+    setChecking(taskId, true)
     try {
       const task = find(taskId)
       const resolution = await taskWorkflow(task, { fetch: false })
@@ -1229,7 +1234,7 @@ export function createTasks(options: {
         )
       }
     } finally {
-      checking.delete(taskId)
+      setChecking(taskId, false)
     }
   }
 
@@ -1437,15 +1442,21 @@ export function createTasks(options: {
       !starting.has(task.id) &&
       !relaunching.has(task.id) &&
       !beginning.has(task.id) &&
+      !checking.has(task.id) &&
       !holds.has(task.id)
     )
+  }
+
+  function canStartForGitHub(task: StoredTask): boolean {
+    const lead = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
+    return canStartFresh(task) && !(lead?.state === 'finished' && lead.ended?.how === 'stopped')
   }
 
   async function sendActivity(taskId: string, read: PullRequestRead): Promise<void> {
     const task = find(taskId)
     if (task.stage === 'backlog' || task.stage === 'done') return
     const run = liveLead(task)
-    const deliverable = run !== undefined || canStartFresh(task)
+    const deliverable = run !== undefined || canStartForGitHub(task)
     const mode =
       task.stage === 'merge'
         ? mergeMode(task, (await taskWorkflow(task, { fetch: false })).workflow)
@@ -1479,7 +1490,7 @@ export function createTasks(options: {
     if (live) {
       await runs.send(live.id, activityMessage(forward, now.stage))
       store.gitHubActivitySent(taskId, live.id, forward)
-    } else if (canStartFresh(now)) {
+    } else if (canStartForGitHub(now)) {
       store.gitHubActivityQueued(taskId, forward)
       void pump()
     }
@@ -1609,7 +1620,7 @@ export function createTasks(options: {
   }
 
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
-    checking.add(taskId)
+    setChecking(taskId, true)
     try {
       const started = await beginChecks(find(taskId), resolution, 'merge')
       if (!started) return true
@@ -1622,11 +1633,11 @@ export function createTasks(options: {
       await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
         mode: 0o600,
       })
-      checking.delete(taskId)
+      setChecking(taskId, false)
       await mergeSendBack(taskId, findings, checkRun.id)
       return false
     } finally {
-      checking.delete(taskId)
+      setChecking(taskId, false)
     }
   }
 
@@ -3922,7 +3933,7 @@ export function createTasks(options: {
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
     } else if (next === 'validate' && message !== undefined) {
-      checking.add(task.id)
+      setChecking(task.id, true)
       inBackground(`run ${task.displayId}’s Checks`, () => validateChecks(task.id, message))
     } else if (message !== undefined) {
       await deliver(task, message)
@@ -5581,10 +5592,11 @@ export function createTasks(options: {
   silenceTimer.unref()
 
   for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
-    store.finishChecks(checkRun.id, 'interrupted')
     const task = store.getTask(checkRun.taskId)
-    if (checkRun.trigger === 'validate' && task?.stage === 'validate') {
-      checking.add(task.id)
+    const restart = checkRun.trigger === 'validate' && task?.stage === 'validate'
+    if (restart) setChecking(task.id, true)
+    store.finishChecks(checkRun.id, 'interrupted')
+    if (restart) {
       inBackground(`run ${task.displayId}’s Checks again`, () => validateChecks(task.id))
     }
   }
@@ -6692,7 +6704,7 @@ export function createTasks(options: {
       if (checking.has(task.id)) {
         throw new RequestError(409, `TED is already running ${task.displayId}’s Checks`)
       }
-      checking.add(task.id)
+      setChecking(task.id, true)
       try {
         const resolution = await taskWorkflow(task, { fetch: false })
         const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
@@ -6726,11 +6738,11 @@ export function createTasks(options: {
               () => undefined,
               () => undefined,
             )
-            .finally(() => checking.delete(task.id)),
+            .finally(() => setChecking(task.id, false)),
         )
         return started.checkRun
       } catch (error) {
-        checking.delete(task.id)
+        setChecking(task.id, false)
         throw error
       }
     },
