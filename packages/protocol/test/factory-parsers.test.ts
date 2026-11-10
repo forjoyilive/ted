@@ -1,0 +1,121 @@
+import { expect, test } from 'vitest'
+import * as P from '../src/index.ts'
+import { rejects, roundTrip } from './parser-cases.ts'
+
+const repos = [
+  {
+    was: 'owner/ted',
+    repo: 'owner/ted',
+    remote: 'https://github.com/owner/ted.git',
+    name: 'ted',
+    baseBranch: 'main',
+    mergeMethod: 'merge',
+    setup: { run: 'pnpm install', timeout: '1m' },
+    teardown: { run: 'cleanup', timeout: '1m' },
+    env: [{ name: 'KEY', value: 'value' }],
+    copy: ['.env'],
+    apps: [{ was: 0, name: 'Dev', kind: 'web', run: 'pnpm dev', url: 'http://localhost:3000' }],
+  },
+] satisfies P.RepoSettingsInput[]
+const library = {
+  stages: { work: { enabled: true, gate: false, maxBack: 2, depth: 'few' } },
+  stageFiles: { work: '# Work', review: null },
+  keepStageFiles: ['work'],
+  agents: { lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' }, reviewer: null },
+} satisfies Required<P.LibraryChanges>
+const settings = {
+  ...library,
+  repos,
+  checks: [{ was: 0, name: 'Check', run: 'pnpm typecheck', repo: 'ted', timeout: '30s' }],
+  permissions: 'auto',
+  maxWorkingRuns: 2,
+  notes: '# Notes',
+} satisfies Required<P.FactorySettingsChanges>
+roundTrip(P.parseAutoStartBacklogRequest, { enabled: true })
+roundTrip(P.parseCreateFactoryRequest, {
+  name: 'TED',
+  key: 'TED',
+  repos: [
+    { name: 'ted', source: { remote: 'https://github.com/owner/ted' } },
+    { name: 'local', source: { folder: '/tmp/local' } },
+  ],
+  showTutorial: true,
+})
+roundTrip(P.parseReorderFactoriesRequest, { factoryIds: ['one', 'two'] })
+roundTrip(P.parseRemoveFactoryRequest, { key: 'TED', closePullRequests: true })
+roundTrip(P.parseCheckRepoRequest, {
+  source: { remote: 'https://github.com/owner/ted' },
+  primary: true,
+})
+roundTrip(P.parseCheckRepoRequest, { source: { folder: '/tmp/local' }, primary: false })
+roundTrip(P.parseSetLocalFolderRequest, { path: '/tmp/local' })
+roundTrip(P.parseSetRepoFolderRequest, { path: '/tmp/local' })
+roundTrip(P.parseStopCheckTryRequest, { name: 'Check' })
+roundTrip(P.parseAddFactoryRequest, { repo: 'owner/ted', key: 'TED', localFolder: '/tmp/local' })
+roundTrip(P.parseCheckTryRequest, {
+  name: 'Check',
+  run: 'pnpm typecheck',
+  repo: 'ted',
+  timeout: '30s',
+})
+roundTrip(P.parseFactorySettingsChanges, settings)
+roundTrip(P.parseSaveSettingsRequest, {
+  changes: settings,
+  mode: 'merge',
+  version: 'rev',
+  confirmBypass: true,
+})
+roundTrip(P.parseSaveSettingsRequest, {
+  changes: settings,
+  mode: 'pull-request',
+  version: 'rev',
+  confirmBypass: false,
+})
+roundTrip(P.parseRenameFactoryRequest, { name: 'New name' })
+roundTrip(P.parseLibraryChanges, library)
+roundTrip(P.parseSaveLibraryRequest, { changes: library, version: 'rev' })
+
+rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
+rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')
+rejects(P.parseRemoveFactoryRequest, {}, 'key must be text')
+rejects(P.parseSetLocalFolderRequest, {}, 'path is required')
+rejects(P.parseSetRepoFolderRequest, { path: '' }, 'path is required')
+rejects(P.parseStopCheckTryRequest, { name: 1 }, 'name must be text')
+rejects(P.parseAddFactoryRequest, {}, 'repo and key are required')
+rejects(
+  P.parseCheckTryRequest,
+  { name: 'Check', run: 'command', timeout: '30' },
+  'timeout must be a duration',
+)
+rejects(P.parseFactorySettingsChanges, { repos: [] }, 'a Factory has 1 to 10 repos')
+rejects(
+  P.parseFactorySettingsChanges,
+  { ...settings, stages: { work: { gate: 'yes' } } },
+  'gate must be true or false',
+)
+rejects(
+  P.parseSaveSettingsRequest,
+  { mode: 'other', version: 'v', changes: settings },
+  'mode must be',
+)
+rejects(P.parseRenameFactoryRequest, { name: 1 }, 'name is required')
+rejects(P.parseLibraryChanges, { keepStageFiles: ['other'] }, 'unknown Stage')
+rejects(P.parseSaveLibraryRequest, { changes: library }, 'version is required')
+
+test('legacy Factory normalization and defaults', () => {
+  expect(P.parseCreateFactoryRequest(null)).toEqual({
+    name: '',
+    key: '',
+    repos: [],
+    showTutorial: false,
+  })
+  expect(P.parseCheckRepoRequest(null)).toEqual({ source: { remote: '' }, primary: false })
+  expect(P.parseRemoveFactoryRequest({ key: 'TED' })).toEqual({
+    key: 'TED',
+    closePullRequests: true,
+  })
+  expect(P.parseLibraryChanges({ unknown: true })).toEqual({})
+  expect(
+    P.parseSaveSettingsRequest({ mode: 'merge', version: 'v', changes: settings }).confirmBypass,
+  ).toBe(false)
+})
