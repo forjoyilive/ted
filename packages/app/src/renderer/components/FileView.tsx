@@ -66,16 +66,19 @@ export function FileView({
           <Button
             size="small"
             variant="quiet"
+            disabled={content?.kind !== 'text'}
             onClick={() => {
-              void openInEditor({ taskId, repo: file.repo, file: file.path }).catch(
+              void openInEditor({ taskId, repo: file.repo, file: file.path, snapshot: true }).catch(
                 (failure: unknown) => setError(readableError(failure)),
               )
             }}
           >
-            Open in editor
+            Open snapshot
           </Button>
         </div>
-        <p className={styles.meta}>Current worktree contents · Read-only</p>
+        <p className={styles.meta}>
+          Current worktree contents · Read-only. Edits to the snapshot do not change Task files.
+        </p>
       </header>
       {error && (
         <p role="alert" className={styles.message}>

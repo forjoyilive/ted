@@ -43,7 +43,8 @@ export async function readTaskFile(
       if (opened.size > filePreviewLimit)
         return {
           kind: 'too-large',
-          message: 'This file is larger than the 1 MB preview limit. Open it in your editor.',
+          message:
+            'This file is larger than the 1 MB preview limit. Open the repository in your editor to inspect it.',
         }
       const bytes = Buffer.alloc(filePreviewLimit + 1)
       let length = 0
@@ -55,7 +56,8 @@ export async function readTaskFile(
       if (length > filePreviewLimit)
         return {
           kind: 'too-large',
-          message: 'This file is larger than the 1 MB preview limit. Open it in your editor.',
+          message:
+            'This file is larger than the 1 MB preview limit. Open the repository in your editor to inspect it.',
         }
       const content = bytes.subarray(0, length)
       try {
@@ -64,13 +66,15 @@ export async function readTaskFile(
         if (text.split('\n').length > 10_000)
           return {
             kind: 'too-large',
-            message: 'This file has more than 10,000 lines. Open it in your editor.',
+            message:
+              'This file has more than 10,000 lines. Open the repository in your editor to inspect it.',
           }
         return { kind: 'text', text }
       } catch {
         return {
           kind: 'binary',
-          message: 'This file can’t be shown as text. Open it in your editor.',
+          message:
+            'This file can’t be shown as text. Open the repository in your editor to inspect it.',
         }
       }
     } finally {

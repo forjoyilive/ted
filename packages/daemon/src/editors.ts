@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { access, mkdtemp, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type EditorId,
@@ -14,6 +14,7 @@ import {
 import { worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import { openRegularFile, type WorktreeFileScope } from './regular-file.ts'
+import { readTaskFile } from './tasks/files.ts'
 
 export interface EditorLaunch {
   program: string
@@ -185,9 +186,31 @@ export function createEditors(options: EditorsOptions): Editors {
     return undefined
   }
 
-  async function place({ worktree, fileScope }: EditorTarget, request: OpenInEditorRequest) {
+  async function place(
+    { worktree, fileScope }: EditorTarget,
+    request: OpenInEditorRequest,
+  ): Promise<(EditorPlace & { snapshotDirectory?: string }) | undefined> {
     if (request.file === undefined) return undefined
     const file = request.file
+    if (request.snapshot) {
+      const content = await readTaskFile(fileScope, file)
+      if (content.kind !== 'text')
+        throw new RequestError(409, 'A snapshot needs an available text preview.')
+      const directory = await mkdtemp(path.join(await realpath(tmpdir()), 'ted-editor-snapshot-'))
+      const snapshot = path.join(directory, path.basename(file))
+      try {
+        await writeFile(snapshot, content.text, { flag: 'wx', mode: 0o600 })
+      } catch (error) {
+        await rm(directory, { recursive: true, force: true })
+        throw error
+      }
+      return {
+        file: snapshot,
+        line: request.line ?? 1,
+        column: request.column ?? 1,
+        snapshotDirectory: directory,
+      }
+    }
     try {
       const handle = await openRegularFile(fileScope, file)
       await handle.close()
@@ -219,31 +242,40 @@ export function createEditors(options: EditorsOptions): Editors {
       const { editor, editorCommand } = options.settings()
       if (editor === null) throw new RequestError(409, 'Choose an editor first.')
       const at = await place(target, request)
-      const env = worktreeCommandEnv({}, {}, options.env())
-      let program: string
-      let args: string[]
-      let name: string
-      if (editor === 'custom') {
-        try {
-          ;({ program, args } = customArgs(editorCommand, target.worktree, at))
-        } catch (error) {
-          if (error instanceof RequestError) throw error
-          throw new RequestError(400, error instanceof Error ? error.message : String(error))
+      const worktree = at?.snapshotDirectory ?? target.worktree
+      try {
+        const env = worktreeCommandEnv({}, {}, options.env())
+        let program: string
+        let args: string[]
+        let name: string
+        if (editor === 'custom') {
+          try {
+            ;({ program, args } = customArgs(editorCommand, worktree, at))
+          } catch (error) {
+            if (error instanceof RequestError) throw error
+            throw new RequestError(400, error instanceof Error ? error.message : String(error))
+          }
+          name = program
+        } else {
+          const file = await find(editor)
+          name = editorNames[editor]
+          if (file === undefined) {
+            throw new RequestError(
+              404,
+              `TED can’t find ${name}. Choose another editor in Settings.`,
+            )
+          }
+          program = file
+          args = editorArgs(editor, worktree, at)
         }
-        name = program
-      } else {
-        const file = await find(editor)
-        name = editorNames[editor]
-        if (file === undefined) {
-          throw new RequestError(404, `TED can’t find ${name}. Choose another editor in Settings.`)
-        }
-        program = file
-        args = editorArgs(editor, target.worktree, at)
+        await launch({ program, args, cwd: worktree }, env).catch((error: unknown) => {
+          const reason = error instanceof Error ? error.message : String(error)
+          throw new RequestError(422, `Couldn’t start ${name}: ${reason}`)
+        })
+      } catch (error) {
+        if (at?.snapshotDirectory) await rm(at.snapshotDirectory, { recursive: true, force: true })
+        throw error
       }
-      await launch({ program, args, cwd: target.worktree }, env).catch((error: unknown) => {
-        const reason = error instanceof Error ? error.message : String(error)
-        throw new RequestError(422, `Couldn’t start ${name}: ${reason}`)
-      })
     },
   }
 }

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -92,8 +92,15 @@ test('browse and quick open inspect unchanged files, open the editor and leave C
       path: path.join(process.env.TED_FILES_SCREENSHOTS, 'files-implemented.png'),
     })
   }
-  await viewer.getByRole('button', { name: 'Open in editor' }).click()
-  await expect.poll(async () => readFile(log, 'utf8').catch(() => '')).toContain('src/hello.ts:1:1')
+  await viewer.getByRole('button', { name: 'Open snapshot' }).click()
+  await expect.poll(async () => readFile(log, 'utf8').catch(() => '')).toContain('hello.ts:1:1')
+  const argumentsText = await readFile(log, 'utf8')
+  expect(argumentsText).not.toContain(worktree)
+  const snapshot = argumentsText.trim().split('\n').at(-1)?.replace(/:1:1$/, '') ?? ''
+  expect(await readFile(snapshot, 'utf8')).toBe(
+    'export const greeting = "Hello from the Task worktree"\n',
+  )
+  await rm(path.dirname(snapshot), { recursive: true, force: true })
   await files.getByRole('button', { name: 'Quick open' }).click()
   const quick = window.getByRole('dialog', { name: 'Quick open' })
   await quick.getByRole('combobox').fill('src/hello')

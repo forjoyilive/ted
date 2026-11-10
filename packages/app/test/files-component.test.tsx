@@ -77,7 +77,7 @@ test('quick open supports path matching, keyboard choice, empty results and clos
   expect(close).toHaveBeenCalledOnce()
 })
 
-test('the text viewer escapes HTML and routes the file to the existing editor action', async () => {
+test('the text viewer escapes HTML and opens a labeled snapshot through the existing editor action', async () => {
   const a = bridge({
     taskFile: () => ({ kind: 'text', text: '<img src=x onerror=alert(1)>\nhello' }),
     getSettings: () => ({ editor: 'code' }),
@@ -86,8 +86,12 @@ test('the text viewer escapes HTML and routes the file to the existing editor ac
   render(<FileView taskId="NB-1" file={{ repo: 'web', path: 'page.html' }} onBack={vi.fn()} />)
   await screen.findByText('<img src=x onerror=alert(1)>')
   expect(screen.getByRole('region', { name: 'File contents' }).querySelector('img')).toBeNull()
-  await user().click(screen.getByRole('button', { name: 'Open in editor' }))
-  expect(a.request).toHaveBeenCalledWith('openInEditor', 'NB-1', 'web', { file: 'page.html' })
+  await user().click(screen.getByRole('button', { name: 'Open snapshot' }))
+  expect(screen.getByText(/Edits to the snapshot do not change Task files/)).toBeTruthy()
+  expect(a.request).toHaveBeenCalledWith('openInEditor', 'NB-1', 'web', {
+    file: 'page.html',
+    snapshot: true,
+  })
 })
 
 test('old responses cannot replace a newly selected file', async () => {
@@ -204,5 +208,18 @@ test.each(['Full brief', 'All changes'])(
     await user().click(screen.getByRole('button', { name: '← Back' }))
     await screen.findByRole('region', { name: previous })
     expect(screen.queryByRole('region', { name: 'File contents' })).toBeNull()
+  },
+)
+
+test.each(['binary', 'too-large', 'unavailable'] as const)(
+  'the viewer disables snapshots for %s content',
+  async (kind) => {
+    const a = bridge({ taskFile: () => ({ kind, message: 'Preview unavailable.' }) })
+    render(<FileView taskId="NB-1" file={{ repo: 'web', path: 'file' }} onBack={vi.fn()} />)
+    await screen.findByText('Preview unavailable.')
+    const button = screen.getByRole('button', { name: 'Open snapshot' })
+    expect(button.hasAttribute('disabled')).toBe(true)
+    await user().click(button)
+    expect(a.request.mock.calls.some(([name]) => name === 'openInEditor')).toBe(false)
   },
 )

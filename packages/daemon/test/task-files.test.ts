@@ -22,7 +22,7 @@ import {
   type TaskFiles,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import type { EditorLaunch } from '../src/editors.ts'
+import type { EditorLaunch, LaunchEditor } from '../src/editors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
@@ -54,7 +54,7 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function fixture() {
+async function fixture(onLaunch?: LaunchEditor) {
   const origin = await makeOriginRepo(scratch)
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
@@ -69,8 +69,9 @@ async function fixture() {
     version: '9.9.9',
     claudeBin: stubClaudePath,
     editors: {
-      launch: async (launch) => {
+      launch: async (launch, env) => {
         launches.push(launch)
+        await onLaunch?.(launch, env)
       },
     },
   })
@@ -395,4 +396,67 @@ test('swapping the Task folder after validation cannot redirect the actual open'
       await rename(parked, parent)
     }
   }
+})
+
+test('snapshot editor handoff survives a source parent swap and edits leave Task files unchanged', async () => {
+  let source = ''
+  let outside = ''
+  let snapshot = ''
+  const f = await fixture(async (launch) => {
+    snapshot = launch.args[0] ?? ''
+    await rename(source, `${source}-parked`)
+    await symlink(outside, source)
+    expect(await readFile(snapshot, 'utf8')).toBe('inside text\n')
+    expect(launch.cwd).toBe(path.dirname(snapshot))
+    await writeFile(snapshot, 'edited snapshot\n')
+  })
+  source = path.join(f.worktree, 'nested')
+  outside = path.join(scratch, 'outside')
+  await mkdir(source)
+  await mkdir(outside)
+  await writeFile(path.join(source, 'file.ts'), 'inside text\n')
+  await writeFile(path.join(outside, 'file.ts'), 'outside sentinel')
+  await f.ok('PATCH', '/settings', { editor: 'custom', editorCommand: '/usr/bin/true {path}' })
+  try {
+    await f.ok('POST', `/tasks/${f.task.id}/repos/${f.repo}/open-in-editor`, {
+      file: 'nested/file.ts',
+      snapshot: true,
+    })
+    expect(snapshot.startsWith(f.worktree)).toBe(false)
+    expect(await readFile(path.join(source, 'file.ts'), 'utf8')).toBe('outside sentinel')
+    expect(await readFile(path.join(`${source}-parked`, 'file.ts'), 'utf8')).toBe('inside text\n')
+    expect(await readFile(snapshot, 'utf8')).toBe('edited snapshot\n')
+  } finally {
+    if (snapshot && !snapshot.startsWith(f.worktree))
+      await rm(path.dirname(snapshot), { recursive: true, force: true })
+  }
+})
+
+test('snapshot requests refuse unsupported or unavailable previews without launching an editor', async () => {
+  const f = await fixture()
+  await f.ok('PATCH', '/settings', { editor: 'custom', editorCommand: '/usr/bin/true {path}' })
+  await writeFile(path.join(f.worktree, 'binary'), Buffer.from([0, 1, 2]))
+  await writeFile(path.join(f.worktree, 'large'), Buffer.alloc(filePreviewLimit + 1, 65))
+  await writeFile(path.join(f.worktree, 'lines'), 'a\n'.repeat(10_001))
+  await symlink(scratch, path.join(f.worktree, 'link'))
+  await run('mkfifo', [path.join(f.worktree, 'pipe')])
+  for (const file of ['binary', 'large', 'lines', 'missing', 'link/secret', 'pipe', '../outside']) {
+    expect(
+      (
+        await f.client.call('POST', `/tasks/${f.task.id}/repos/${f.repo}/open-in-editor`, {
+          file,
+          snapshot: true,
+        })
+      ).status,
+      file,
+    ).toBeGreaterThanOrEqual(400)
+  }
+  expect(
+    (
+      await f.client.call('POST', `/tasks/${f.task.id}/repos/${f.repo}/open-in-editor`, {
+        snapshot: true,
+      })
+    ).status,
+  ).toBe(400)
+  expect(f.launches).toEqual([])
 })
