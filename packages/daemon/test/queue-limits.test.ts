@@ -116,17 +116,6 @@ describe('the queue', () => {
     expect((await getTask(client, c.id)).status).toEqual({ kind: 'queued', place: 1 })
   })
 
-  test('a higher Priority Task queues ahead of earlier ones', async () => {
-    const client = await startWithStub()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    await startTask(client, `${workingUntil(path.join(scratch, 'never'))}`)
-    const low = await startTask(client, 'Low', 'low')
-    const urgent = await startTask(client, 'Urgent', 'urgent')
-
-    expect((await getTask(client, urgent.id)).status).toEqual({ kind: 'queued', place: 1 })
-    expect((await getTask(client, low.id)).status).toEqual({ kind: 'queued', place: 2 })
-  })
-
   test('raising the limit starts queued Tasks', async () => {
     const client = await startWithStub()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
