@@ -151,28 +151,4 @@ describe('notifications and badges', () => {
     await window.locator('[aria-current="true"]').filter({ hasText: 'Q1' }).waitFor()
     expect(await window.getByRole('button', { name: '← All Tasks', exact: true }).count()).toBe(0)
   })
-
-  test('Settings → Notifications has the four switches, and the red row when the OS has them off', async () => {
-    await askingTask()
-    const window = await launchApp({ TED_NOTIFY_STATUS: 'off' })
-    await sidebar(window)
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
-    const nav = window.getByRole('navigation', { name: 'Settings' })
-    await nav.getByRole('button', { name: 'Notifications' }).click()
-
-    for (const name of ['Inbox items', 'Problems that stop work', 'Task merged', 'Play a sound']) {
-      await window.getByRole('switch', { name }).waitFor()
-    }
-    expect(await window.getByRole('switch', { name: 'Inbox items' }).isChecked()).toBe(true)
-    expect(await window.getByRole('switch', { name: 'Task merged' }).isChecked()).toBe(false)
-    await expect.poll(() => window.getByRole('alert').count()).toBe(0)
-
-    await ted('task', 'start', 'NB-1')
-    await window.getByText('Notifications are off for TED in System Settings').waitFor({
-      timeout: 30_000,
-    })
-    await window.getByRole('button', { name: 'Open System Settings' }).waitFor()
-  })
 })

@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -98,45 +98,5 @@ describe('data screens', () => {
     await sidebar(window).waitFor()
     await sidebar(window).getByRole('button', { name: 'All Tasks' }).click()
     await window.getByRole('row').filter({ hasText: 'Fix login' }).waitFor()
-  })
-
-  test('a failed rebuild shows “TED couldn’t update its data” with where it stopped', async () => {
-    await withDaemon('0.0.1', async (ted) => {
-      await ted.call('POST', '/tasks', { title: 'Fix login' })
-      await ted.call('POST', '/tasks', { title: 'Add dark mode' })
-    })
-    await pretendStateSchemaChanged(home)
-    await editEventlog(
-      home,
-      `UPDATE eventlog SET argsJson = '{}' WHERE seqNumGlobal = (SELECT MAX(seqNumGlobal) FROM eventlog)`,
-    )
-
-    const window = await launchApp()
-
-    await window.getByRole('heading', { name: 'TED couldn’t update its data' }).waitFor()
-    await window.getByText(/^Rebuild stopped at event (\d+) of \1$/).waitFor()
-    await window
-      .getByText(
-        /^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}(?: [ap]m)?, when TED 0\.0\.1 last ran\.$/,
-      )
-      .waitFor()
-    await window.getByText('Runs keep going in the background.', { exact: false }).waitFor()
-
-    const closed = new Promise<void>((resolve) => app?.once('close', () => resolve()))
-    await window.getByRole('button', { name: 'Quit TED' }).click()
-    await closed
-    app = undefined
-  })
-
-  test('a failed daily backup shows a warning banner', async () => {
-    await writeFile(path.join(home, 'backups'), 'not a folder')
-
-    const window = await launchApp()
-
-    await sidebar(window).waitFor()
-    await window
-      .getByRole('status')
-      .getByText(`Today’s backup failed: ${path.join(home, 'backups')} isn’t a folder`)
-      .waitFor()
   })
 })

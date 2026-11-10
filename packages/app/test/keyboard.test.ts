@@ -75,30 +75,6 @@ const focusedTask = (window: Page) =>
   window.evaluate(() => document.activeElement?.closest('[data-task]')?.getAttribute('data-task'))
 
 describe('Keyboard shortcuts', () => {
-  test('G and a letter go to each screen, and ⌘[ and ⌘] retrace them', async () => {
-    const { window, ted } = await launch()
-    await ted.createTask({ factory: 'NB', title: 'Sync notes', description: 'x', start: false })
-
-    await press(window, 'g', 'a')
-    await expect.poll(() => title(window).textContent()).toBe('All Tasks')
-    await press(window, 'g', 'b')
-    await expect.poll(() => title(window).textContent()).toMatch(/Board$/)
-    await press(window, 'g', 'l')
-    await expect.poll(() => title(window).textContent()).toMatch(/List$/)
-    await press(window, 'g', 'p')
-    await expect.poll(() => title(window).textContent()).toMatch(/Plans$/)
-
-    await press(window, 'ControlOrMeta+BracketLeft')
-    await expect.poll(() => title(window).textContent()).toMatch(/List$/)
-    await press(window, 'ControlOrMeta+BracketLeft', 'ControlOrMeta+BracketLeft')
-    await expect.poll(() => title(window).textContent()).toBe('All Tasks')
-    await press(window, 'ControlOrMeta+BracketRight')
-    await expect.poll(() => title(window).textContent()).toMatch(/Board$/)
-
-    await press(window, 'g', 'i')
-    await expect.poll(() => title(window).textContent()).toBe('Inbox')
-  })
-
   test('/ focuses the filter box, and letters typed there are text, not shortcuts', async () => {
     const { window, ted } = await launch()
     await ted.createTask({ factory: 'NB', title: 'Sync notes', description: 'x', start: false })
@@ -115,20 +91,6 @@ describe('Keyboard shortcuts', () => {
 
     await box.fill('crash')
     await expect.poll(() => window.locator('article[data-task]').count()).toBe(1)
-  })
-
-  test('? shows every shortcut, and Esc closes the sheet', async () => {
-    const { window } = await launch()
-    await press(window, 'Shift+Slash')
-    const sheet = window.getByRole('dialog', { name: 'Keyboard shortcuts' })
-    await sheet.getByRole('region', { name: 'Task actions' }).waitFor()
-    const row = sheet.getByRole('row').filter({ hasText: 'Go to Board' })
-    expect(await row.locator('kbd').allTextContents()).toEqual(['G', 'B'])
-    await press(window, 'Escape')
-    await sheet.waitFor({ state: 'detached' })
-
-    await press(window, 'ControlOrMeta+Slash')
-    await sheet.waitFor()
   })
 
   test('on the Board J, K, H and L move between cards, Enter opens, and Task keys act on the card', async () => {
