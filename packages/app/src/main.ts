@@ -32,6 +32,7 @@ import {
   type DaemonClient,
   type DaemonEvent,
   DaemonRequestError,
+  type DraftAutomationPromptRequest,
   type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
@@ -92,6 +93,7 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
   type LoginItem,
@@ -494,7 +496,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
-  runFix: (client, request) => client.runFix(request as RunFixRequest),
+  runFix: async (client, request) => {
+    const result = await client.runFix(request as RunFixRequest)
+    if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
+    return result
+  },
   getLinear: (client) => client.getLinear(),
   saveLinearKey: (client, key, inFile) =>
     client.saveLinearKey({ key: String(key), inFile: inFile === true }),
@@ -507,6 +513,10 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
   getAutomation: (client, id) => client.getAutomation(String(id)),
+  draftAutomationPrompt: (client, input) =>
+    client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
+  getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),
+  cancelAutomationPromptDraft: (client, id) => client.cancelAutomationPromptDraft(String(id)),
   automationTemplates: (client) => client.automationTemplates(),
   automationRequests: (client) => client.automationRequests(),
   previewSchedule: (client, schedule) => client.previewSchedule(schedule as AutomationSchedule),

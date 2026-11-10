@@ -19,6 +19,7 @@ import {
   type Effort,
   efforts,
   type Factory,
+  type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
   minGhVersion,
@@ -905,11 +906,15 @@ async function doctor(): Promise<void> {
   if (stops || health.git.state === 'not-installed') process.exitCode = 1
 }
 
+function remedyText(fix: IntegrationRemedy | undefined): string {
+  return fix === undefined ? '' : 'url' in fix ? fix.url : fix.command
+}
+
 function integrationLines({ git, github }: IntegrationsHealth): string[] {
   const identity = [git.name, git.email && `<${git.email}>`].filter(Boolean).join(' ')
   const gitLine =
     git.state === 'not-installed'
-      ? `✗ git not found · ${git.fix?.command ?? ''}`
+      ? `✗ git not found · ${remedyText(git.fix)}`
       : git.state === 'no-identity'
         ? `! git ${git.version} has no name or email set · ${(git.copy ?? []).join(' && ')}`
         : `✓ git ${git.version} · ${identity}`
@@ -918,9 +923,9 @@ function integrationLines({ git, github }: IntegrationsHealth): string[] {
     cli.state === 'ready'
       ? `✓ gh ${cli.version} · ${cli.path}`
       : cli.state === 'not-installed'
-        ? `✗ gh not found · ${cli.fix?.command ?? ''}`
+        ? `✗ gh not found · ${remedyText(cli.fix)}`
         : cli.state === 'too-old'
-          ? `✗ gh ${cli.version} is older than ${minGhVersion} · ${cli.fix?.command ?? ''}`
+          ? `✗ gh ${cli.version} is older than ${minGhVersion} · ${remedyText(cli.fix)}`
           : `✗ gh isn’t working · ${cli.error ?? ''}`
   const hostLines =
     cli.state === 'ready'

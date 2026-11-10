@@ -87,6 +87,12 @@ Ticket: [KRI-63](https://linear.app/kriyadesign/issue/KRI-63).
 | Delete dialog | [27:1732](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-1732) |
 | New Task dialog, More closed / More open with a Linear URL and a blocker | [27:3697](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-3697) / [27:4022](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-4022) |
 
+### Blocked by in Task details
+
+[KRI-176](https://linear.app/kriyadesign/issue/KRI-176/does-the-blocked-by-field-in-task-details-need-its-own-design): keep the existing picker shared with New Task. No dedicated Task details frame or rebuild is needed. The field uses TED’s shared Button, icons and theme tokens; its search menu aligns to the right edge to fit the details pane.
+
+At the 260px pane width, chips preserve the Task ID and remove button while truncating the title. Multiple blockers stack vertically. This compact presentation is the chosen tradeoff.
+
 ## KRI-64 First launch and Settings
 
 Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).

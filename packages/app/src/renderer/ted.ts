@@ -13,6 +13,7 @@ import type {
   AttachmentRef,
   Automation,
   AutomationDetail,
+  AutomationPromptDraft,
   AutomationRequest,
   AutomationRun,
   AutomationSchedule,
@@ -39,6 +40,7 @@ import type {
   DeleteTaskRequest,
   DescriptionVersion,
   Diagnostics,
+  DraftAutomationPromptRequest,
   DraftLineCommentRequest,
   DriftCounts,
   EditAutomationRequest,
@@ -423,6 +425,12 @@ export const ted = {
     window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,
   getAutomation: (id: string) =>
     window.ted.request('getAutomation', id) as Promise<AutomationDetail>,
+  draftAutomationPrompt: (input: DraftAutomationPromptRequest) =>
+    window.ted.request('draftAutomationPrompt', input) as Promise<AutomationPromptDraft>,
+  getAutomationPromptDraft: (id: string) =>
+    window.ted.request('getAutomationPromptDraft', id) as Promise<AutomationPromptDraft>,
+  cancelAutomationPromptDraft: (id: string) =>
+    window.ted.request('cancelAutomationPromptDraft', id) as Promise<AutomationPromptDraft>,
   automationTemplates: () =>
     window.ted.request('automationTemplates') as Promise<AutomationTemplate[]>,
   automationRequests: () =>

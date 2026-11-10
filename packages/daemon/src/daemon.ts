@@ -85,6 +85,7 @@ export interface DaemonEditorsOptions {
 }
 
 export interface DaemonAutomationsOptions {
+  draftTimeoutMs?: number
   systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
@@ -522,7 +523,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         async close() {
           shells.close()
           await coordinators.close()
-          automations.close()
+          await automations.close()
           plans.close()
           libraryWatch.close()
           versionRestarts.close()

@@ -29,6 +29,7 @@ export interface CopyResult {
 export interface CommandResult {
   outcome: WorktreeCommandOutcome | 'interrupted'
   exitCode?: number
+  problem?: string
 }
 
 const defaultTimeoutMs = 15 * 60_000
