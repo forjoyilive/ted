@@ -5,6 +5,7 @@ import {
   archivedFilters,
   type BannerActionInput,
   billings,
+  checkLimits,
   createdByKinds,
   editorIds,
   isLinearTeamKey,
@@ -17,6 +18,7 @@ import {
   type MachineSettings,
   priorities,
   quitChoices,
+  runOutputDayLimits,
   type StatusFilter,
   simulatorSlotLimits,
   taskStatusKinds,
@@ -52,7 +54,10 @@ export const machineRoutes: Route[] = [
     path: /^\/update\/work$/,
     handle: async (_, { store, tasks }) => [
       200,
-      { checks: store.activity().checksRunning, merges: tasks.mergesInFlight() },
+      {
+        checks: store.activity().checksRunning + store.activity().checksWaiting,
+        merges: tasks.mergesInFlight(),
+      },
     ],
   },
   {
@@ -232,12 +237,20 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
+  runOutputDays(value) {
+    const { min, max } = runOutputDayLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `runOutputDays must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   quitWithWorkRunning(value) {
     const choice = quitChoices.find((c) => c === value)
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
     return choice
   },
   overnightMode: onOff('overnightMode'),
+  adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
@@ -248,6 +261,14 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
   linearSync: onOff('linearSync'),
+  lowPriorityWork: onOff('lowPriorityWork'),
+  maxChecksAtOnce(value) {
+    const { min, max } = checkLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxChecksAtOnce must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   factoryPermissions() {

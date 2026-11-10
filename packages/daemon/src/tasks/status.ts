@@ -1,12 +1,13 @@
-import type {
-  BlockerEnded,
-  CommentBox,
-  GitHubWait,
-  RunState,
-  StageId,
-  TaskMarker,
-  TaskStatus,
-  TaskStatusKind,
+import {
+  type BlockerEnded,
+  busyHold,
+  type CommentBox,
+  type GitHubWait,
+  type RunState,
+  type StageId,
+  type TaskMarker,
+  type TaskStatus,
+  type TaskStatusKind,
 } from '@ted/protocol'
 
 export interface TaskFacts {
@@ -19,10 +20,12 @@ export interface TaskFacts {
   tedWorking?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
+  checksWaiting?: { place: number }
   stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
+  heldForLoad?: boolean
   github?: GitHubWait
   mergePending?: boolean
   autoMergeLeft?: boolean
@@ -83,7 +86,10 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
       ...(facts.blockerEnded !== undefined && { ended: facts.blockerEnded }),
     }
   }
-  if (facts.queue) return { kind: 'queued', ...facts.queue }
+  if (facts.queue) {
+    const busy = facts.heldForLoad && 'place' in facts.queue
+    return { kind: 'queued', ...(busy ? { hold: busyHold } : facts.queue) }
+  }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
 }
@@ -148,6 +154,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`
   }
+  if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.planningInChat) return 'Planning in chat'
   if (facts.agentActivity !== undefined) return facts.agentActivity

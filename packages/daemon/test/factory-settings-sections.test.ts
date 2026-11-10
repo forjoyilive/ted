@@ -29,6 +29,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
+  basedOnLine,
   commitToOrigin,
   makeOriginRepo,
   makeTempHome,
@@ -218,7 +219,7 @@ describe('Factory settings: Workflow', () => {
     )
     expect(await originFile('.ted/stages/review.md')).toBe(`${inherited}\nAlso check the docs.\n`)
     expect(await originFile('.ted/workflow.yaml')).toMatch(
-      new RegExp(`review:\\s*\\n\\s+based_on: ${blobHash(inherited)}`),
+      new RegExp(`review:\\s*\\n\\s+${basedOnLine(blobHash(inherited))}`),
     )
     const overridden = await client.settings()
     expect(overridden.stages.find((s) => s.id === 'review')).toMatchObject({

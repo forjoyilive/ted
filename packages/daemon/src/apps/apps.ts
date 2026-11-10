@@ -19,6 +19,7 @@ import {
   isSimulatorApp,
   type SimulatorSlots,
   type TaskApp,
+  tedEnv,
 } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -27,6 +28,7 @@ import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { withRunPermissions } from '../permissions.ts'
+import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
@@ -155,11 +157,12 @@ interface Runner {
     logBytes: number
     authority: LaunchAuthority
     shell?: string[]
+    lowPriority: boolean
   }): Promise<void>
 }
 
 const processRunner: Runner = {
-  async launch({ dir, run, cwd, env, logBytes, shell, authority }) {
+  async launch({ dir, run, cwd, env, logBytes, shell, authority, lowPriority }) {
     const files = appFiles(dir)
     const launch: AppLaunchFile = {
       run,
@@ -171,7 +174,8 @@ const processRunner: Runner = {
     await writeFile(files.launch, JSON.stringify(launch), { mode: 0o600 })
     await rm(files.records, { force: true })
     await appendFile(files.log, `$ ${run}\n`, { mode: 0o600 })
-    const host = nodeEntry(hostMain, [dir])
+    const entry = nodeEntry(hostMain, [dir])
+    const host = workCommand(entry.command, entry.args, lowPriority)
     const child = spawn(host.command, host.args, {
       detached: true,
       stdio: 'ignore',
@@ -200,7 +204,7 @@ const runners: Record<TaskApp['kind'], Runner> = {
 function markers(): Record<string, string> {
   return Object.fromEntries(
     testMarkers.flatMap((name) => {
-      const value = process.env[name]
+      const value = tedEnv(name)
       return value === undefined ? [] : [[name, value]]
     }),
   )
@@ -615,6 +619,7 @@ export function createApps(options: AppsOptions): Apps {
         env: { ...env, ...sandboxed.env },
         logBytes: options.logBytes ?? appLogBytes,
         authority: launchAuthority(store),
+        lowPriority: by !== 'human' && store.settings().lowPriorityWork,
         ...(sandboxed.shell !== undefined && { shell: sandboxed.shell }),
       })
       store.appStarted({

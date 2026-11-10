@@ -319,7 +319,7 @@ describe('Checks at Validate', () => {
 
     await writeFile(go, '')
     await finishedRuns(client, task, 1)
-    expect(await client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
+    await expect.poll(() => client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
   test('a Task whose changes touch .ted/ gets the TED settings Check', async () => {

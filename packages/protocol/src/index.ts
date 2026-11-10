@@ -125,7 +125,10 @@ export type {
   Coordinator,
   CoordinatorAction,
   CoordinatorMessage,
+  CoordinatorOperation,
   CoordinatorReceipt,
+  CoordinatorRequest,
+  CoordinatorStatus,
   CoordinatorTask,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
@@ -148,7 +151,17 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export { type Edition, edition, type Identity, identity } from './edition.ts'
+export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
 export type { DaemonEvent } from './events.ts'
+export {
+  type ExportFormat,
+  type ExportRun,
+  type ExportTask,
+  exportFormat,
+  type FactoryExport,
+  formatExport,
+  type SaveExportResult,
+} from './export.ts'
 export {
   type AddFactoryRequest,
   type CheckRepoRequest,
@@ -298,6 +311,14 @@ export {
   type StatusFilter,
 } from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export type {
+  PeerDetail,
+  PeerInbox,
+  PeerMessage,
+  PeerPage,
+  PeerSummary,
+  SendPeerMessage,
+} from './peers.ts'
 export {
   openPlanRequest,
   type Plan,
@@ -355,6 +376,7 @@ export {
 export {
   type AutomationHit,
   type CommentHit,
+  type ConversationHit,
   type FactoryHit,
   foldText,
   matchesTerms,
@@ -370,11 +392,13 @@ export {
 export {
   type Appearance,
   appearances,
+  checkLimits,
   defaultMachineSettings,
   type MachineSettings,
   type Profile,
   type QuitChoice,
   quitChoices,
+  runOutputDayLimits,
   type TimeFormat,
   terminalFontSizes,
   timeFormats,
@@ -396,6 +420,7 @@ export {
   type TaskShell,
 } from './shell.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
+export { busyHold } from './slots.ts'
 export {
   diskFullHold,
   diskLimits,

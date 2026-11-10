@@ -117,8 +117,30 @@ describe('Board', () => {
     const card = board.getByRole('region', { name: 'Backlog' }).locator('[data-task="NB-1"]')
     await card.waitFor()
 
+    const cardBox = await card.boundingBox()
+    if (!cardBox) throw new Error('no Backlog card')
     await card.hover()
     await window.mouse.down()
+    const work = board.getByRole('region', { name: 'Work' })
+    const workBox = await work.boundingBox()
+    if (!workBox) throw new Error('no Work column')
+    const pointer = { x: workBox.x + 100, y: workBox.y + 100 }
+    await window.mouse.move(pointer.x, pointer.y, { steps: 5 })
+    await window.mouse.move(pointer.x, pointer.y + 1)
+    const hint = board.getByText('Can’t drop here')
+    await hint.waitFor()
+    const hintBox = await hint.boundingBox()
+    if (!hintBox) throw new Error('no refused drop feedback')
+    const previewTop = pointer.y + 1 - cardBox.height / 2
+    expect(
+      hintBox.y + hintBox.height <= previewTop - 12 ||
+        hintBox.y >= previewTop + cardBox.height + 12,
+    ).toBe(true)
+    const viewport = await window.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+    expect(hintBox.x).toBeGreaterThanOrEqual(8)
+    expect(hintBox.x + hintBox.width).toBeLessThanOrEqual(viewport.width - 8)
+    expect(hintBox.y).toBeGreaterThanOrEqual(8)
+    expect(hintBox.y + hintBox.height).toBeLessThanOrEqual(viewport.height - 8)
     const intake = board.getByRole('region', { name: 'Intake' })
     const box = await intake.boundingBox()
     if (!box) throw new Error('no Intake column')
@@ -126,6 +148,7 @@ describe('Board', () => {
     await window.mouse.move(box.x + 110, box.y + 70, { steps: 5 })
 
     await intake.getByText('Drop to Start').waitFor()
+    expect(await hint.count()).toBe(0)
     await intake.getByText('Joins the queue as Queued · 1st').waitFor()
     expect(await board.getByRole('region', { name: 'Work' }).getAttribute('data-drop')).toBe('no')
     await window.mouse.up()

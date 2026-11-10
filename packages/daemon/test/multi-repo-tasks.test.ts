@@ -230,6 +230,8 @@ describe('a multi-repo Task', () => {
     expect(current?.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
     const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
     expect(lines.map((l) => l.text)).toContain('Task Lead set Repos to widgets, api')
+    expect(lines.filter((line) => line.text.startsWith('Setting up api ·'))).toHaveLength(1)
+    expect(lines.filter((line) => line.text === 'Setup finished in api')).toHaveLength(1)
   })
 
   test('removing a repo whose worktree has commits waits for --yes, then removes the worktree', async () => {
@@ -431,8 +433,10 @@ describe('a multi-repo Task', () => {
     expect(
       await readFile(path.join(home, 'logs', 'worktrees', 'NB-1-api-teardown.log'), 'utf8'),
     ).toBe('torn-down\n')
-    const archived = await getTask(client, task.id)
-    expect(archived?.repos.every((r) => r.removed !== undefined)).toBe(true)
+    const archived = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.repos.every((r) => r.removed !== undefined) ? current : undefined
+    }, 'every repo to be recorded as removed')
     expect(archived?.repos.find((r) => r.name === 'api')?.removed?.teardown?.outcome).toBe('passed')
 
     await client.ok('POST', `/tasks/${task.id}/unarchive`)

@@ -282,7 +282,9 @@ export function lastRunText(checkTry: CheckTry, now: number): string {
   if (checkTry.setupFailed === true) return `✗ Setup failed · ${since}`
   switch (checkTry.state) {
     case 'running':
-      return `Running · ${duration(now - Date.parse(checkTry.startedAt))}`
+      return checkTry.waiting === true
+        ? 'Waiting for other Checks to finish'
+        : `Running · ${duration(now - Date.parse(checkTry.startedAt))}`
     case 'passed':
       return `✓ ${took}${since}`
     case 'timed-out':
