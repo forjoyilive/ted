@@ -456,3 +456,16 @@ test('stored failed Checks retain factual outcomes after acceptance and reject b
     'failed',
   )
 })
+
+test('later context cannot turn an unknown original execution into an acceptable waiver', async () => {
+  const s = await setup()
+  const value = await s.record()
+  const context = await s.capture()
+  await s.ok(`/failures/${value.id}/evidence`, {
+    evidence: 'Later observation',
+    contextId: context.id,
+  })
+  const asked = await s.request(value)
+  expect((await s.resolve(asked)).status).toBe(409)
+  expect((await s.resolve(asked, 'fixed', 'The later run verified the repair.')).status).toBe(200)
+})

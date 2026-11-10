@@ -135,8 +135,11 @@ export function createFailureCases(options: {
       .map((c) => c.id)
     if (blockers.length > 0) {
       await store.persisted()
-      await options.onHold(task)
-      if (invalidated.length > 0) await options.onInvalidated(task, invalidated)
+      try {
+        await options.onHold(task)
+      } finally {
+        if (invalidated.length > 0) await options.onInvalidated(task, invalidated)
+      }
     }
     return { satisfied: blockers.length === 0, checkRuns, cases, blockers }
   }
@@ -325,7 +328,7 @@ export function createFailureCases(options: {
       const context = tested(task, decision.contextId)
       if (request.resolution === 'accepted') {
         const current = await options.snapshot(task).catch(() => undefined)
-        if (!context || !current || context.fingerprint !== current.fingerprint)
+        if (!value.contextId || !context || !current || context.fingerprint !== current.fingerprint)
           throw new RequestError(409, 'acceptance requires verified matching tested context')
       }
       const at = new Date().toISOString()

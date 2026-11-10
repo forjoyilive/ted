@@ -6117,11 +6117,18 @@ export function createTasks(options: {
     },
     onHold: async (task) => {
       const stillOn = await turnOffAutoMerge(task.id)
-      if (stillOn.length > 0)
-        throw new RequestError(
-          502,
-          `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. TED will retry.`,
-        )
+      if (stillOn.length > 0) {
+        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
+        if (
+          !store
+            .listComments(task.id)
+            .some((comment) => comment.author.kind === 'ted' && comment.body === message)
+        ) {
+          store.postComment({ taskId: task.id, author: { kind: 'ted' }, body: message })
+          await store.persisted()
+        }
+        throw new RequestError(502, message)
+      }
     },
     tell: async (task, comment) => {
       await deliverAnswer(

@@ -190,6 +190,8 @@ test('failure holds persist even when GitHub refuses to disable auto-merge', asy
   const cases = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
   expect(cases).toHaveLength(1)
   expect(cases[0]?.resolutions).toEqual([])
+  const warnings = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+  expect(warnings.some((comment) => comment.body.includes('GitHub may still merge it'))).toBe(true)
   expect((await getTask(client, task.id)).stage).toBe('merge')
   await setGh({ disableAutoFails: false })
   await waitUntil(
