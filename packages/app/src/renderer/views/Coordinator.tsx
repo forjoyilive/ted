@@ -1,5 +1,7 @@
 import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import dialogs from '../components/ArchiveDialogs.module.css'
+import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
@@ -42,6 +44,7 @@ export function CoordinatorView({
   const [lead, setLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  const [resetting, setResetting] = useState(false)
   useEffect(() => {
     let active = true
     void ted.taskDefaults(factory.id).then(
@@ -61,6 +64,18 @@ export function CoordinatorView({
     setError(undefined)
     try {
       await ted.retryCoordinator(factory.id)
+    } catch (failed) {
+      setError(readableError(failed))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const reset = async () => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.resetCoordinator(factory.id)
+      setResetting(false)
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -87,6 +102,11 @@ export function CoordinatorView({
             {status === 'failed' && (
               <Button size="small" disabled={busy} onClick={() => void retry()}>
                 Retry
+              </Button>
+            )}
+            {coordinator && (
+              <Button size="small" disabled={busy} onClick={() => setResetting(true)}>
+                New conversation
               </Button>
             )}
           </div>
@@ -156,6 +176,33 @@ export function CoordinatorView({
           />
         )}
       </section>
+      {resetting && (
+        <Dialog onClose={() => !busy && setResetting(false)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogs.heading}>
+                Start a new Coordinator conversation?
+              </h2>
+              <p className={dialogs.body}>
+                {`This stops the Coordinator and deletes its conversation for ${factory.name}, with any messages it hasn’t read. Tasks stay as they are, and so does everything the Coordinator already did to them.`}
+              </p>
+              {error !== undefined && (
+                <p className={dialogs.error} role="alert">
+                  {error}
+                </p>
+              )}
+              <div className={dialogs.buttons}>
+                <Button disabled={busy} onClick={() => setResetting(false)}>
+                  Cancel
+                </Button>
+                <Button variant="primary" disabled={busy} onClick={() => void reset()}>
+                  Delete and start new
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
       <DetailsPane className={views.detailsPane} aria-label="Coordinator details">
         <section className={styles.section}>
           <h2>Tasks in this conversation</h2>

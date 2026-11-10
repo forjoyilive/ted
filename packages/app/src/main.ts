@@ -155,6 +155,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
   retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
+  resetCoordinator: (client, id) => client.resetCoordinator(String(id)),
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body, attachments) =>

@@ -151,6 +151,14 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/reset$/,
+    async handle({ params: [id = ''] }, { coordinators }) {
+      await coordinators.reset(id)
+      return [200, null]
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/retry$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.retry(id)],
   },
