@@ -18,8 +18,7 @@
   margin-bottom: 8px;
 }
 
-.search,
-.newTask {
+.search {
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -46,13 +45,6 @@
 .searchLabel {
   flex: 1;
   text-align: left;
-}
-
-.newTask {
-  justify-content: center;
-  width: 30px;
-  padding: 0;
-  color: var(--text-primary);
 }
 
 .row {
@@ -83,7 +75,6 @@
 }
 
 .search:focus-visible,
-.newTask:focus-visible,
 .row:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
