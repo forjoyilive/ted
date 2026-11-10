@@ -5,6 +5,7 @@ import {
   type FailureCase,
   type FailureContext,
   type LineComment,
+  type RunChat,
   type Task,
   tedPaths,
   type ValidationObligations,
@@ -797,4 +798,77 @@ test('invalidation notices survive health suspension and restart and reach the r
       (c) => c.title === notice?.title,
     ),
   ).toHaveLength(1)
+})
+
+test('a failure notice uses steering at the next tool boundary and retains its TED author', async () => {
+  const client = await start({ order: 'intake, work, merge' })
+  const boundary = path.join(ctx.scratch, 'notice-boundary')
+  const finish = path.join(ctx.scratch, 'notice-finish')
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({
+      steps: [{ waitFor: boundary }, { tool: 'Bash' }, { waitFor: finish }, { endTurn: true }],
+    }),
+    factory: 'NB',
+    start: true,
+  })
+  const working = await waitUntil(async () => {
+    const t = await getTask(client, task.id)
+    return t.runs[0]?.state === 'working' ? t : undefined
+  }, 'working Task Lead')
+  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(working.leadRunId ?? ''))
+  const root = `/tasks/${task.id}`
+  const post = async <T>(suffix: string, body: unknown = {}): Promise<T> => {
+    const result = await lead.call('POST', root + suffix, body)
+    expect(result.status, JSON.stringify(result.body)).toBeLessThan(300)
+    return result.body as T
+  }
+  const context = await post<FailureContext>('/failure-contexts')
+  const value = await post<FailureCase>('/failures', {
+    source: { kind: 'finding', runId: working.leadRunId, finding: 'Known failure' },
+    evidence: 'Observed',
+    contextId: context.id,
+  })
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'unrelated',
+    recommendation: 'Accept',
+  })
+  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+  await client.ok('POST', `${root}/failures/${value.id}/resolve`, {
+    requestId: asked.decisions.at(-1)?.commentId,
+    resolution: 'accepted',
+  })
+  await writeFile(path.join(working.repos[0]?.worktree ?? '', 'changed.txt'), 'new context')
+  expect(await client.ok('GET', `${root}/validation-obligations`)).toMatchObject({
+    satisfied: false,
+  })
+  const notices = await client.ok<Comment[]>('GET', `${root}/comments`)
+  const notice = notices.find((c) => c.title === 'Failure acceptance invalidated')
+  expect(notice).toBeDefined()
+  expect(notice?.author).toEqual({ kind: 'ted' })
+  expect(notice?.delivered).toBeUndefined()
+  await writeFile(boundary, '')
+  await waitUntil(async () => {
+    const comments = await client.ok<Comment[]>('GET', `${root}/comments`)
+    return comments.find((c) => c.id === notice?.id)?.delivered?.runId === working.leadRunId
+  }, 'failure notice delivered at tool boundary')
+  expect((await getTask(client, task.id)).runs[0]?.state).toBe('working')
+  const forwarded = await waitUntil(async () => {
+    const chat = await client.ok<RunChat>('GET', `/runs/${working.leadRunId}/chat`)
+    const messages = chat.items.flatMap((item) =>
+      item.kind === 'ted' && item.text.includes(notice?.body ?? 'missing') ? [item.text] : [],
+    )
+    return messages.length > 0 ? messages : undefined
+  }, 'failure notice received in the Run chat')
+  expect(forwarded).toHaveLength(1)
+  expect(forwarded[0]).not.toContain('The human posted a Comment')
+  expect(await client.ok('GET', `${root}/validation-obligations`)).toMatchObject({
+    satisfied: false,
+  })
+  expect(
+    (await client.ok<Comment[]>('GET', `${root}/comments`)).filter(
+      (c) => c.title === notice?.title,
+    ),
+  ).toHaveLength(1)
+  await writeFile(finish, '')
 })

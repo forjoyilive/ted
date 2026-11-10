@@ -3292,9 +3292,7 @@ export function createTasks(options: {
       comments: store
         .listComments(taskId)
         .filter(
-          (c) =>
-            (c.author.kind === 'human' || failureNotice(c)) &&
-            c.delivered === undefined,
+          (c) => (c.author.kind === 'human' || failureNotice(c)) && c.delivered === undefined,
         ),
       answers: store.heldAnswers(taskId),
     }
@@ -5831,7 +5829,10 @@ export function createTasks(options: {
       if (!task || liveLead(task)?.id !== run.id) return []
       return waitingForRun(task.id).comments.map((comment) => ({
         id: comment.id,
-        text: comment.author.kind === 'human' ? humanMessage(commentText(comment)) : commentText(comment),
+        text:
+          comment.author.kind === 'human'
+            ? humanMessage(commentText(comment))
+            : commentText(comment),
         at: comment.createdAt,
       }))
     },
