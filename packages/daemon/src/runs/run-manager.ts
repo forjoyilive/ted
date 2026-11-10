@@ -31,6 +31,7 @@ import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
+import { signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
 import {
   forGeneration,
@@ -784,7 +785,7 @@ async function signalHost(runDir: string, pid: number, name: NodeJS.Signals): Pr
 
 function signal(pid: number | null, name: NodeJS.Signals): void {
   try {
-    if (pid !== null) process.kill(pid, name)
+    signalProcess(pid, name)
   } catch {}
 }
 

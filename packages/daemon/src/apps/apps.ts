@@ -28,6 +28,7 @@ import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { redactSecrets } from '../redact.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
+import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
@@ -654,20 +655,18 @@ export function createApps(options: AppsOptions): Apps {
       const lock = appFiles(dir).lock
       if (pid !== undefined && (await holdsLock(lock, pid))) {
         try {
-          process.kill(pid, 'SIGTERM')
+          signalProcess(pid, 'SIGTERM')
         } catch {}
       }
       while ((await hostAlive(dir)) && Date.now() < deadline) await sleep(50)
       if (pid !== undefined && (await holdsLock(lock, pid))) {
         const child = (await records(dir)).find((r) => r.t === 'start')
-        for (const target of [
-          ...(child?.t === 'start' && child.pid !== null ? [-child.pid] : []),
-          pid,
-        ]) {
-          try {
-            process.kill(target, 'SIGKILL')
-          } catch {}
-        }
+        try {
+          if (child?.t === 'start') signalGroup(child.pid, 'SIGKILL')
+        } catch {}
+        try {
+          signalProcess(pid, 'SIGKILL')
+        } catch {}
       }
       await watching.get(key)
     } finally {
