@@ -67,6 +67,7 @@ export function appState() {
     taskGates: () => ({ overrides: {}, rows: [], revision: 'test' }),
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
+    taskFiles: (taskId) => ({ taskId, repos: [] }),
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],

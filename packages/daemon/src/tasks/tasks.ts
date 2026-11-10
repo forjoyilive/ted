@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentKind,
@@ -71,6 +71,8 @@ import type {
   TaskBrief,
   TaskChanges,
   TaskDefaults,
+  TaskFileContent,
+  TaskFiles,
   TaskGateOverrides,
   TaskGates,
   TaskLead,
@@ -110,6 +112,7 @@ import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
 import { machineLoadRatio } from '../load.ts'
 import { redactSecrets } from '../redact.ts'
+import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
@@ -181,6 +184,7 @@ import {
   revivedMessage,
   silentReason,
 } from './failures.ts'
+import { listTaskFiles, readTaskFile } from './files.ts'
 import {
   activityMessage,
   checkList,
@@ -315,6 +319,7 @@ export interface CreateTaskInput
 }
 
 export interface WorktreeAccess {
+  fileScope: WorktreeFileScope
   taskId: string
   repo: string
   worktree: string
@@ -427,6 +432,8 @@ export interface Tasks {
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
+  files(ref: string): Promise<TaskFiles>
+  file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
   lineComments(ref: string): Promise<LineComment[]>
   draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
@@ -7777,15 +7784,13 @@ export function createTasks(options: {
       const task = find(ref)
       const repo = task.repos.find((r) => r.name === name && !r.removed)
       if (!repo) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
-      const real = await realpath(repo.worktree).catch(() => undefined)
-      const root = await realpath(worktreesDir).catch(() => worktreesDir)
-      if (real === undefined || !(await stat(real)).isDirectory()) {
-        throw new RequestError(409, `${task.displayId}’s worktree for ${name} isn’t on disk`)
-      }
-      if (!real.startsWith(`${root}${path.sep}`)) {
+      let fileScope: WorktreeFileScope
+      try {
+        fileScope = await worktreeFileScope(worktreesDir, repo.worktree)
+      } catch {
         throw new RequestError(
           409,
-          `${task.displayId}’s worktree for ${name} isn’t in TED’s folder`,
+          `${task.displayId}’s worktree for ${name} isn’t on disk or has a linked folder`,
         )
       }
       const env =
@@ -7796,6 +7801,7 @@ export function createTasks(options: {
         taskId: task.id,
         repo: repo.name,
         worktree: repo.worktree,
+        fileScope,
         env: commandEnv(task, env),
       }
     },
@@ -7803,6 +7809,30 @@ export function createTasks(options: {
     async changes(ref) {
       const task = find(ref)
       return taskChanges(task.id, await pullRequestTargets(task))
+    },
+
+    async files(ref) {
+      const task = find(ref)
+      const repos = []
+      for (const repo of task.repos.filter((r) => !r.removed)) {
+        try {
+          const { worktree, fileScope } = await this.worktreeAccess(ref, repo.name)
+          repos.push(await listTaskFiles(worktree, fileScope, repo.name))
+        } catch {
+          repos.push({
+            repo: repo.name,
+            paths: [],
+            partial: false,
+            unavailable: 'Worktree files are unavailable. Refresh to try again.',
+          })
+        }
+      }
+      return { taskId: task.id, repos }
+    },
+
+    async file(ref, name, relative) {
+      const { fileScope } = await this.worktreeAccess(ref, name)
+      return readTaskFile(fileScope, relative)
     },
 
     async fileDiffs(ref, name, file) {

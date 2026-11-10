@@ -107,6 +107,8 @@ import type {
   TaskChanges,
   TaskDefaults,
   TaskDraftState,
+  TaskFileContent,
+  TaskFiles,
   TaskGates,
   TaskLead,
   TaskReposResult,
@@ -287,6 +289,9 @@ export const ted = {
   listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
   openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
     window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,
+  taskFiles: (taskId: string) => window.ted.request('taskFiles', taskId) as Promise<TaskFiles>,
+  taskFile: (taskId: string, repo: string, file: string) =>
+    window.ted.request('taskFile', taskId, repo, file) as Promise<TaskFileContent>,
   taskChanges: (taskId: string) =>
     window.ted.request('taskChanges', taskId) as Promise<TaskChanges>,
   fileDiffs: (taskId: string, repo: string, path?: string) =>

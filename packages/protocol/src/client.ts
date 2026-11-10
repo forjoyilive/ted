@@ -155,6 +155,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
@@ -765,6 +766,17 @@ export class DaemonClient {
       'POST',
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/open-in-editor`,
       request,
+    )
+  }
+
+  taskFiles(ref: string): Promise<TaskFiles> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/files`)
+  }
+
+  taskFile(ref: string, repo: string, file: string): Promise<TaskFileContent> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(file)}`,
     )
   }
 
