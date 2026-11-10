@@ -180,7 +180,7 @@ export interface GitHubNoticeRecord {
 
 export interface RunOutput {
   toOffset: number
-  entries: ConversationEntry[]
+  output?: { lastAt?: string }
   state?: RunState
   sessionId?: string
   problem?: RunProblem
@@ -736,7 +736,7 @@ export interface TedStore {
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
-  conversation(runId: string): ConversationEntry[]
+  storedConversation(runId: string): ConversationEntry[]
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
   queueRunMessage(input: { runId: string; text: string }): RunMessage
@@ -1485,6 +1485,7 @@ export async function openStore({
 
   const toRun = ({
     readOffset: _,
+    lastOutputAt: _lastOutputAt,
     taskId,
     sessionId,
     model,
@@ -3518,6 +3519,7 @@ export async function openStore({
         manualPermissions: false,
         state: 'working',
         readOffset: 0,
+        lastOutputAt: null,
         revivedAt: null,
         ended: null,
       })
@@ -3658,7 +3660,7 @@ export async function openStore({
       runId,
       {
         toOffset,
-        entries,
+        output,
         state,
         sessionId,
         problem,
@@ -3712,10 +3714,10 @@ export async function openStore({
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
       commit(
-        events.runOutputReadV2({
+        events.runOutputReadV3({
           runId,
           toOffset,
-          entries: entries.map((entry) => ({ ...entry, at: entry.at ?? at })),
+          lastOutputAt: output ? (output.lastAt ?? at) : null,
         }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
@@ -3732,7 +3734,7 @@ export async function openStore({
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
       )
-      if (entries.length > 0) emit({ type: 'run-output', runId })
+      if (output) emit({ type: 'run-output', runId })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
       if (asked.length > 0 || withdrawnOnce.length > 0 || retryChanged) {
@@ -3784,10 +3786,7 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    lastOutputAt: (runId) =>
-      store
-        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'desc').limit(1)))
-        .at(0)?.at ?? undefined,
+    lastOutputAt: (runId) => runRow(runId)?.lastOutputAt ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)
@@ -3831,7 +3830,7 @@ export async function openStore({
     },
     listRuns: () => store.query(allRuns).map(toRun),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
-    conversation: (runId) =>
+    storedConversation: (runId) =>
       store
         .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
         .map(({ offset, line, at }) => ({ offset, line, ...(at !== null && { at }) })),

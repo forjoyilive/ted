@@ -96,7 +96,7 @@ describe('TedStore', () => {
     }
   })
 
-  test('records a Run with its session ID, Conversation, read offset and state', async () => {
+  test('records a Run with its session ID, read offset, last output time and state', async () => {
     const first = await openStore({ directory: dir })
     const run = first.startRun({
       id: 'run-1',
@@ -106,32 +106,60 @@ describe('TedStore', () => {
       cwd: '/tmp',
     })
     expect(run).toMatchObject({ id: 'run-1', sessionId: 'session-1', state: 'working' })
+    expect(first.lastOutputAt('run-1')).toBeUndefined()
 
     first.recordRunOutput('run-1', {
       toOffset: 40,
-      entries: [
-        { offset: 10, line: '{"a":1}' },
-        { offset: 25, line: '{"b":2}' },
-      ],
+      output: { lastAt: '2026-01-02T03:04:05.000Z' },
     })
-    first.recordRunOutput('run-1', {
-      toOffset: 60,
-      entries: [{ offset: 40, line: '{"c":3}' }],
-      state: 'idle',
-    })
+    first.recordRunOutput('run-1', { toOffset: 60, state: 'idle' })
     await first.close()
 
     const second = await openStore({ directory: dir })
     try {
       expect(second.getRun('run-1')).toMatchObject({ sessionId: 'session-1', state: 'idle' })
       expect(second.runReadOffset('run-1')).toBe(60)
-      expect(second.conversation('run-1').map((e) => e.line)).toEqual([
-        '{"a":1}',
-        '{"b":2}',
-        '{"c":3}',
-      ])
+      expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:05.000Z')
+      expect(second.storedConversation('run-1')).toEqual([])
       expect(second.listRuns().map((r) => r.id)).toEqual(['run-1'])
       expect(second.getRun('missing')).toBeUndefined()
+    } finally {
+      await second.close()
+    }
+  })
+
+  test('an event log that holds v2.RunOutputRead lines still loads them', async () => {
+    const first = await openStore({ directory: dir })
+    first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })
+    first.recordRunOutput('run-1', { toOffset: 40, output: {} })
+    await first.persisted()
+    await first.close()
+    const old = {
+      runId: 'run-1',
+      toOffset: 60,
+      entries: [
+        { offset: 10, line: '{"a":1}', at: '2026-01-02T03:04:05.000Z' },
+        { offset: 40, line: '{"b":2}', at: '2026-01-02T03:04:06.000Z' },
+      ],
+    }
+    const log = new DatabaseSync((await eventlogFile(dir)) as string)
+    try {
+      log
+        .prepare(`UPDATE eventlog SET name = 'v2.RunOutputRead', argsJson = ? WHERE name = ?`)
+        .run(JSON.stringify(old), 'v3.RunOutputRead')
+    } finally {
+      log.close()
+    }
+    const folder = path.dirname((await eventlogFile(dir)) as string)
+    for (const file of await readdir(folder)) {
+      if (file.startsWith('state')) await rm(path.join(folder, file))
+    }
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.runReadOffset('run-1')).toBe(60)
+      expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:06.000Z')
+      expect(second.storedConversation('run-1')).toEqual(old.entries)
     } finally {
       await second.close()
     }
@@ -276,8 +304,8 @@ describe('TedStore', () => {
         status: { kind: 'working' },
         runs: [{ id: 'run-1', agent: 'codex', state: 'working' }],
       })
-      store.recordRunOutput('run-1', { toOffset: 1, entries: [], state: 'waiting' })
-      store.recordRunOutput('run-1', { toOffset: 2, entries: [], state: 'finished' })
+      store.recordRunOutput('run-1', { toOffset: 1, state: 'waiting' })
+      store.recordRunOutput('run-1', { toOffset: 2, state: 'finished' })
 
       const statuses = seen.flatMap((e) => (e.type === 'task-updated' ? [e.task.status?.kind] : []))
       expect(statuses).toEqual(['working', 'waiting-on-you', undefined])

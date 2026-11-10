@@ -263,7 +263,7 @@ export function createConversations(options: {
   const steering = options.steering
 
   const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
-    const entries = given ?? store.conversation(run.id)
+    const entries = given ?? runs.output.entries(run.id)
     const tokens = tokensOf(agents, run, entries)
     const billing =
       reportedCredential(agents, run, entries) ??
@@ -303,7 +303,7 @@ export function createConversations(options: {
   return {
     async chat(runId) {
       const run = requireRun(runId)
-      const entries = store.conversation(runId)
+      const entries = runs.output.entries(runId)
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
       const coordinated = store.coordinators.forRun(runId) !== undefined

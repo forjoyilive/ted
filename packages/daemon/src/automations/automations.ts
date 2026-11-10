@@ -425,7 +425,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function finalMessage(runId: string): string | undefined {
     const run = store.getRun(runId)
     if (!run) return undefined
-    const entries = agents.get(run.agent).chat(store.conversation(run.id), run.cwd)
+    const entries = agents.get(run.agent).chat(runs.output.entries(run.id), run.cwd)
     const text = entries.findLast((e) => e.kind === 'agent')?.text
     return text === undefined ? undefined : firstLine(text) || undefined
   }

@@ -333,7 +333,7 @@ export function createCoordinators(options: {
         const nextId = randomUUID()
         const context = c.runIds.map((id) => ({
           prompt: store.getRun(id)?.prompt,
-          entries: store.conversation(id).map((e) => e.line),
+          entries: runs.output.entries(id).map((e) => e.line),
           messages: store.runMessages(id),
         }))
         const history = JSON.stringify({ conversations: context, receipts: c.receipts }).slice(

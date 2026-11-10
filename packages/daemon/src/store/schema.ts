@@ -187,6 +187,7 @@ export const runs = State.SQLite.table({
     failure: State.SQLite.text({ nullable: true }),
     state: State.SQLite.text(),
     readOffset: State.SQLite.integer(),
+    lastOutputAt: State.SQLite.text({ nullable: true }),
     startedAt: State.SQLite.text(),
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
@@ -1997,6 +1998,14 @@ export const events = {
       ),
     }),
   }),
+  runOutputReadV3: Events.synced({
+    name: 'v3.RunOutputRead',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      toOffset: Schema.Number,
+      lastOutputAt: Schema.NullOr(Schema.String),
+    }),
+  }),
   runMessageSent: Events.synced({
     name: 'v1.RunMessageSent',
     schema: Schema.Struct({
@@ -3051,12 +3060,21 @@ const materializers = counted(
           conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
         ),
       ],
-      'v2.RunOutputRead': ({ runId, toOffset, entries }) => [
-        runs.update({ readOffset: toOffset }).where({ id: runId }),
-        ...entries.map(({ offset, line, at }) =>
-          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line, at }),
-        ),
-      ],
+      'v2.RunOutputRead': ({ runId, toOffset, entries }) => {
+        const last = entries.at(-1)
+        return [
+          runs
+            .update({ readOffset: toOffset, ...(last && { lastOutputAt: last.at }) })
+            .where({ id: runId }),
+          ...entries.map(({ offset, line, at }) =>
+            conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line, at }),
+          ),
+        ]
+      },
+      'v3.RunOutputRead': ({ runId, toOffset, lastOutputAt }) =>
+        runs
+          .update({ readOffset: toOffset, ...(lastOutputAt !== null && { lastOutputAt }) })
+          .where({ id: runId }),
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
       'v1.RunMessageQueued': ({ id, runId, text, at }) =>
         runMessages.insert({ id, runId, text, at, queued: true }),

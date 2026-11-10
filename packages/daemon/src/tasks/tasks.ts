@@ -4186,7 +4186,7 @@ export function createTasks(options: {
     const human = store.runMessages(runId).filter((m) => m.queued !== true && within(m.at))
     const agent = agents
       .get(run.agent)
-      .chat(store.conversation(runId), run.cwd)
+      .chat(runs.output.entries(runId), run.cwd)
       .filter((entry) => entry.kind === 'agent' && within(entry.at))
     return human.length + agent.length
   }
@@ -5914,10 +5914,11 @@ export function createTasks(options: {
 
   function askAboutIdle(task: StoredTask, run: Run): void {
     const agent = agents.get(run.agent)
-    const said = store
-      .conversation(run.id)
-      .map(({ line }) => agent.agentTextFrom(line))
-      .findLast((text) => text !== undefined && text.trim() !== '')
+    const spoke = runs.output.findLast(run.id, ({ line }) => {
+      const text = agent.agentTextFrom(line)
+      return text !== undefined && text.trim() !== ''
+    })
+    const said = spoke && agent.agentTextFrom(spoke.line)
     const quoted = said === undefined ? undefined : oneLine(said, 500)
     store.postComment({
       taskId: task.id,
@@ -6088,7 +6089,7 @@ export function createTasks(options: {
   for (const run of store.listRuns()) {
     if (run.state === 'finished') continue
     const agent = agents.get(run.agent)
-    const recent = store.conversation(run.id).slice(-5)
+    const recent = runs.output.last(run.id, 5)
     const limit = recent.map(({ line }) => agent.usageFrom(line)).findLast((u) => u !== undefined)
     if (limit?.limited) {
       interrupted.add(run.id)
