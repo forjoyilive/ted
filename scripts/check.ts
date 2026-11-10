@@ -326,10 +326,15 @@ async function checkInParallel(): Promise<boolean> {
     for (const name of result ? failedTests(result.report) : []) console.log(`  × ${name}`)
     for (const problem of result?.problems ?? []) console.error(`  ! ${problem}`)
   }
-  recordTimes(reports.map((result) => result.report))
   const failed = steps
     .filter((step, index) => !step.ok || (index >= 2 && !reports[index - 2]?.ok))
     .map((step) => step.title)
+  try {
+    recordTimes(reports.map((result) => result.report))
+  } catch (error) {
+    console.error(`check: Could not save test timings: ${String(error)}`)
+    failed.push('Timing reporting')
+  }
   try {
     console.log(
       `\n${recordFailureRun(

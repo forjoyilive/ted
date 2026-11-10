@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
   mkdirSync,
@@ -303,6 +303,8 @@ describe('check runner integration with stub processes', () => {
     'missing',
     'malformed',
     'write-error',
+    'timing-error',
+    'timing-error-with-failure',
     'missing-suites',
     'malformed-assertion',
     'malformed-file',
@@ -346,6 +348,7 @@ describe('check runner integration with stub processes', () => {
       'malformed-counter',
       'pending-suite',
       'suite-error',
+      'timing-error-with-failure',
     ].includes(mode)
     const value = report(failed ? 'failed' : 'passed')
     let nodeReport: Record<string, unknown> = value
@@ -413,12 +416,20 @@ describe('check runner integration with stub processes', () => {
       { mode: 0o755 },
     )
     if (mode === 'write-error') mkdirSync(path.join(cache, 'ted-test-failures.json'))
-    const output = execFileSync(process.execPath, [path.join(root, 'run.ts')], {
+    if (mode.startsWith('timing-error')) mkdirSync(path.join(cache, 'ted-test-times.json'))
+    const result = spawnSync(process.execPath, [path.join(root, 'run.ts')], {
       env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH}` },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(0)
+    const output = result.stdout
     expect(output).toContain(`RESULT=${mode === 'passed'}`)
+    if (mode.startsWith('timing-error')) {
+      expect(result.stderr).toContain('Could not save test timings')
+      expect(result.stderr).toContain('Timing reporting')
+    }
     expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
     const commands = readFileSync(path.join(root, 'commands'), 'utf8')
     expect(commands).toContain('"--project","electron","--maxWorkers","3"')
@@ -431,14 +442,15 @@ describe('check runner integration with stub processes', () => {
     if (failed) {
       expect(runs[0]?.failures).toHaveLength(1)
       expect(output).toContain('× ')
-      expect(output).toContain('Slowest test files')
+      if (!mode.startsWith('timing-error')) expect(output).toContain('Slowest test files')
     }
-    if (!['passed', 'failed'].includes(mode)) {
+    if (!['passed', 'failed'].includes(mode) && !mode.startsWith('timing-error')) {
       expect(runs[0]?.problems.length).toBeGreaterThan(0)
       expect(output).toContain('1 incomplete')
     }
     if (mode === 'suite-error') {
       expect(runs[0]?.problems.join('\n')).toContain('afterAll cleanup failed')
+      expect(result.stderr).toContain('afterAll cleanup failed')
     }
   })
 })
