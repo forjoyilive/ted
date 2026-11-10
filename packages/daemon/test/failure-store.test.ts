@@ -306,3 +306,88 @@ test('final observation invalidates earlier consent while committing only the ma
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('CI invalidation is synchronous and delayed hold effects cannot revoke newer consent', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ted-failure-ci-'))
+  const store = await openStore({ directory })
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    const task = await store.createTask({ title: 'Immediate CI observation' })
+    store.startRun({ id: 'lead', taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
+    let reads = 0
+    let delay = false
+    let entered = () => {}
+    const holding = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const notices: string[][] = []
+    const service = createFailureCases({
+      store,
+      snapshot: async () => ({
+        id: `context-${reads++}`,
+        taskId: task.id,
+        version: 2,
+        fingerprint: 'context-A',
+        capturedAt: new Date().toISOString(),
+        repos: [],
+        checks: 'checks',
+        ci: 'CI-A',
+      }),
+      assertLead: () => {},
+      drafts: () => [],
+      tell: async () => {},
+      onHold: async () => {
+        if (delay) {
+          delay = false
+          entered()
+          await gate
+        }
+      },
+      onInvalidated: async (_task, ids) => {
+        notices.push(ids)
+      },
+    })
+    const context = await service.capture(task, 'lead')
+    const value = await service.record(task, 'lead', {
+      source: { kind: 'finding', runId: 'lead', finding: 'Original Finding' },
+      evidence: 'Original evidence',
+      contextId: context.id,
+    })
+    const accept = async () => {
+      await service.assess(task, value.id, 'lead', {
+        assessment: 'unrelated',
+        recommendation: 'Accept A',
+      })
+      const asked = await service.request(task, value.id, 'lead')
+      return service.resolve(task, value.id, {
+        requestId: asked.decisions.at(-1)?.commentId ?? '',
+        resolution: 'accepted',
+      })
+    }
+    const first = await accept()
+    delay = true
+    const effects = service.observeCi(task, 'CI-B')
+    expect(store.failures.get(value.id)?.invalidations).toMatchObject([
+      { requestId: first.resolutions[0]?.requestId },
+    ])
+    await holding
+    await service.observeCi(task, 'CI-A')
+    const fresh = await accept()
+    release()
+    await effects
+    expect(store.failures.get(value.id)?.resolutions).toEqual(fresh.resolutions)
+    expect(store.failures.get(value.id)?.invalidations).toHaveLength(1)
+    expect(notices).toEqual([[value.id]])
+    expect(await service.obligations(task)).toMatchObject({
+      satisfied: true,
+      cases: [{ id: value.id, disposition: 'accepted', context: 'current' }],
+    })
+  } finally {
+    release()
+    await store.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})

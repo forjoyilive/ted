@@ -1505,6 +1505,19 @@ export function createTasks(options: {
   }
 
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
+    if (closed) return
+    for (const task of store.listTasks()) {
+      if (task.archived || task.stage === 'done' || store.failures.list(task.id).length === 0)
+        continue
+      let ci: string | null | undefined
+      try {
+        ci = failureCi(task, read).ci
+      } catch {
+        ci = null
+      }
+      const effects = failures.observeCi(task, ci)
+      inBackground(`apply ${task.displayId}’s failure observation`, () => effects)
+    }
     for (const { id } of store.listTasks()) {
       if (closed) return
       const task = store.getTask(id)
@@ -1517,10 +1530,12 @@ export function createTasks(options: {
           !advancing.has(task.id) &&
           !mergeInFlight.has(task.id)
         ) {
-          await holding(task, async () => {
-            const context = await failureSnapshot(find(task.id), read).catch(() => null)
-            await failures.obligations(find(task.id), context)
-          })
+          inBackground(`verify ${task.displayId}’s failure context`, () =>
+            holding(task, async () => {
+              const context = await failureSnapshot(find(task.id)).catch(() => null)
+              if (!closed) await failures.obligations(find(task.id), context)
+            }),
+          )
         }
         await sendActivity(task.id, read)
       } catch (error) {
@@ -2297,7 +2312,10 @@ export function createTasks(options: {
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {
-        await requireObligations(task, read)
+        await holding(task, async () => {
+          read = await watch?.next({ now: true })
+          await requireObligations(find(task.id), read)
+        })
       } catch {
         return 'wait'
       }
@@ -6058,12 +6076,11 @@ export function createTasks(options: {
 
   const hashContext = (value: unknown) =>
     createHash('sha256').update(JSON.stringify(value)).digest('hex')
-  async function failureSnapshot(task: Task, observed?: PullRequestRead): Promise<FailureContext> {
+  function failureCi(task: Task, read: PullRequestRead | undefined) {
     const prs = task.repos.filter((r) => !r.removed && r.pullRequest)
     let ci: string | undefined
     const ciFailures: string[] = []
     if (prs.length > 0) {
-      const read = observed ?? (await watch?.next({ now: true }))
       if (!read) throw new RequestError(409, 'GitHub context is unavailable')
       ci = hashContext(
         prs.map((r) => {
@@ -6095,6 +6112,15 @@ export function createTasks(options: {
         }),
       )
     }
+    return { ci, ciFailures }
+  }
+  async function failureSnapshot(task: Task, observed?: PullRequestRead): Promise<FailureContext> {
+    const read =
+      observed ??
+      (task.repos.some((repo) => !repo.removed && repo.pullRequest)
+        ? await watch?.next({ now: true })
+        : undefined)
+    const { ci, ciFailures } = failureCi(task, read)
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
     const checks = hashContext({

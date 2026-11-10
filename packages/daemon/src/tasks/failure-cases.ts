@@ -110,7 +110,11 @@ export function createFailureCases(options: {
         cancelled: true,
       })
   }
-  function verify(task: Task, current: FailureContext | null | undefined) {
+  function verify(
+    task: Task,
+    current: FailureContext | null | undefined,
+    observedCi?: { value: string | null | undefined },
+  ) {
     const values = store.failures.list(task.id)
     const checkRuns = store
       .listCheckRuns(task.id)
@@ -132,14 +136,21 @@ export function createFailureCases(options: {
       const context = tested(task, resolution?.contextId ?? value.contextId)
       const state = completed
         ? 'historical'
-        : !current ||
-            !context ||
+        : !context ||
             !sourceContext(value.source, tested(task, value.contextId)) ||
             !sourceContext(value.source, context)
           ? 'unknown'
-          : current.fingerprint === context.fingerprint
-            ? 'current'
-            : 'changed'
+          : observedCi
+            ? observedCi.value === null
+              ? 'unknown'
+              : observedCi.value === context.ci
+                ? 'current'
+                : 'changed'
+            : !current
+              ? 'unknown'
+              : current.fingerprint === context.fingerprint
+                ? 'current'
+                : 'changed'
       if (resolution?.resolution === 'accepted') {
         const invalid = !acceptedResolution(value)
         if (!completed && !invalid && state !== 'current') {
@@ -214,6 +225,10 @@ export function createFailureCases(options: {
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,
+    async observeCi(task: Task, ci: string | null | undefined) {
+      const verification = verify(task, undefined, { value: ci })
+      if (verification.invalidated.length > 0) await applyHold(task, verification)
+    },
     async capture(task: Task, runId: string) {
       const context = await options.snapshot(task).catch(async (error: unknown) => {
         await obligations(task, null)
