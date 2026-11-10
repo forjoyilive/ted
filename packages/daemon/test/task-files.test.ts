@@ -132,6 +132,46 @@ test('lists current tracked and untracked files, hides ignored paths and links, 
   expect(await f.read('new file.ts')).toEqual({ kind: 'text', text: 'new' })
 })
 
+test('preserves common-directory info/exclude rules for linked Task worktrees', async () => {
+  const f = await fixture()
+  const common = path.resolve(
+    f.worktree,
+    (await run('git', ['rev-parse', '--git-common-dir'], { cwd: f.worktree })).stdout.trim(),
+  )
+  expect(common).not.toBe(path.join(f.worktree, '.git'))
+  await writeFile(
+    path.join(common, 'info/exclude'),
+    'local-*.secret\n!local-visible.secret\nsrc/hello.ts\n',
+  )
+  await writeFile(path.join(f.worktree, 'local-hidden.secret'), 'hidden')
+  await writeFile(path.join(f.worktree, 'local-visible.secret'), 'visible')
+  const listed = (await f.list()).repos[0]
+  expect(listed?.paths).toEqual(expect.arrayContaining(['local-visible.secret', 'src/hello.ts']))
+  expect(listed?.paths).not.toContain('local-hidden.secret')
+  expect(listed?.partial).toBe(false)
+})
+
+test('refuses linked, special and oversized repository exclusion files', async () => {
+  const f = await fixture()
+  const common = path.resolve(
+    f.worktree,
+    (await run('git', ['rev-parse', '--git-common-dir'], { cwd: f.worktree })).stdout.trim(),
+  )
+  const exclude = path.join(common, 'info/exclude')
+  await writeFile(exclude, 'a'.repeat(1024 * 1024 + 1))
+  expect((await f.list()).repos[0]?.unavailable).toBeTruthy()
+  await unlink(exclude)
+  const outside = path.join(scratch, 'outside-excludes')
+  await writeFile(outside, 'src/hello.ts\n')
+  await symlink(outside, exclude)
+  expect((await f.list()).repos[0]?.unavailable).toBeTruthy()
+  await unlink(exclude)
+  await run('mkfifo', [exclude])
+  expect((await f.list()).repos[0]?.unavailable).toBeTruthy()
+  await unlink(exclude)
+  expect((await f.list()).repos[0]?.paths).toContain('src/hello.ts')
+})
+
 test('bounds text reads, returns binary and large-file states, and never interprets HTML', async () => {
   const f = await fixture()
   const html = '<script>alert("file contents")</script>'

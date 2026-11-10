@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import type { DiffHunk } from '@ted/protocol'
 import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
+import { openRegularFile } from './regular-file.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -766,10 +767,35 @@ export async function commitAndPush(
   }
 }
 
+async function copyLocalExcludes(common: string, gitDir: string): Promise<void> {
+  const handle = await openRegularFile({ root: common, directory: 'info' }, 'exclude').catch(
+    (error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    },
+  )
+  if (!handle) return
+  try {
+    const limit = 1024 * 1024
+    const bytes = Buffer.alloc(limit + 1)
+    let length = 0
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length)
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > limit) throw new GitError('Repository exclusion rules exceed the 1 MB limit.')
+    await writeFile(path.join(gitDir, 'info', 'exclude'), bytes.subarray(0, length))
+  } finally {
+    await handle.close()
+  }
+}
+
 export async function* worktreeFiles(worktree: string): AsyncGenerator<string> {
   const head = await headCommit(worktree)
   const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
-  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const commonDir = path.resolve(worktree, common)
+  const objects = path.join(commonDir, 'objects')
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-files-'))
   const gitDir = path.join(scratch, 'repo.git')
   const fileEnv = worktreeCommandEnv(
@@ -787,6 +813,7 @@ export async function* worktreeFiles(worktree: string): AsyncGenerator<string> {
   try {
     await run(['init', '--bare', '--quiet', gitDir])
     await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await copyLocalExcludes(commonDir, gitDir)
     await run(['read-tree', head])
     const child = spawn(
       'git',
