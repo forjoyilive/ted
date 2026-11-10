@@ -43,8 +43,18 @@ const testOptions = {
   },
 }
 
+const codexSandbox = process.env.CODEX_SANDBOX !== undefined
+if (codexSandbox) {
+  console.warn(
+    'Skipping the Electron app tests: Codex’s sandbox stops Electron registering with the window server, so every launch aborts. Run them outside the sandbox.',
+  )
+}
+
 export function tedTestConfig(include: string[]) {
-  return defineConfig({ test: { ...testOptions, include } })
+  const exclude = codexSandbox
+    ? globSync(include).filter((file) => launchesElectron(path.resolve(file)))
+    : []
+  return defineConfig({ test: { ...testOptions, include, exclude } })
 }
 
 const electron = electronTestFiles()
@@ -53,7 +63,7 @@ export default defineConfig({
   test: {
     ...testOptions,
     projects: [
-      { extends: true, test: { name: 'electron', include: electron } },
+      { extends: true, test: { name: 'electron', include: codexSandbox ? [] : electron } },
       { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
     ],
   },
