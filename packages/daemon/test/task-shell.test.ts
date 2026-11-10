@@ -279,76 +279,127 @@ describe('Task shell panes', () => {
     }, 'removed worktree to have no live shells')
   })
 
-  test.each(['close', 'restart', 'archive'] as const)(
-    '%s ends HUP-resistant shells and child jobs',
-    async (ending) => {
-      const ted = await startTed()
-      const task = await startedTask(ted)
-      const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
-      const first = firstShell(opened)
-      const ws = await changeWorkspace(ted, task, {
-        kind: 'split',
+  test('failed Close preserves the pane and revision and can be retried', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(opened)
+    await ted.ok('POST', paneRoute(task, first.id, '/input'), {
+      data: 'printf "ROOT_PID=%s\\n" "$$"\r',
+    })
+    const text = await readUntil(ted, task, first, (t) => /ROOT_PID=\d+/.test(t), first.id)
+    const root = Number(/ROOT_PID=(\d+)/.exec(text)?.[1])
+    const kill = process.kill.bind(process)
+    const failure = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === -root && signal === 'SIGSTOP')
+        throw Object.assign(new Error('fixture refuses cleanup'), { code: 'EPERM' })
+      return kill(pid, signal)
+    })
+    try {
+      const refused = await ted.call('POST', `${workspaceRoute(task)}/change`, {
+        kind: 'close',
         revision: opened.revision,
         shellId: first.id,
-        direction: 'right',
-        size,
       })
-      const sibling = ws.shells[1]
-      if (!sibling) throw new Error('no sibling')
-      await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
-        data: 'MARK=kept; echo "sibling=$MARK"\r',
-      })
-      await readUntil(ted, task, sibling, (t) => t.includes('sibling=kept'), sibling.id)
-      await ted.ok('POST', paneRoute(task, first.id, '/input'), {
-        data: 'trap "" HUP; nohup sleep 120 >/dev/null 2>&1 & printf "CHILD_PID="; jobs -p; printf "ROOT_PID=%s\\n" "$$"\r',
-      })
-      const text = await readUntil(
-        ted,
-        task,
-        first,
-        (t) => /CHILD_PID=\d+/.test(t) && /ROOT_PID=\d+/.test(t),
-        first.id,
-      )
-      const child = Number(/CHILD_PID=(\d+)/.exec(text)?.[1])
-      const root = Number(/ROOT_PID=(\d+)/.exec(text)?.[1])
-      try {
+      expect(refused.status).toBeGreaterThanOrEqual(400)
+      expect(await ted.ok('GET', workspaceRoute(task))).toEqual(opened)
+      expect(alive(root)).toBe(true)
+    } finally {
+      failure.mockRestore()
+    }
+    const closed = await changeWorkspace(ted, task, {
+      kind: 'close',
+      revision: opened.revision,
+      shellId: first.id,
+    })
+    expect(closed.layout).toBeNull()
+    expect(closed.revision).toBe(opened.revision + 1)
+    expect(closed.shells).toEqual([])
+    await waitUntil(async () => !alive(root) || undefined, 'the retried Close to end its shell')
+  })
+
+  test.each(
+    (['close', 'restart', 'archive', 'shutdown'] as const).flatMap((ending) =>
+      [false, true].map((exited) => ({ ending, exited })),
+    ),
+  )('$ending ends child jobs (shell exited: $exited)', async ({ ending, exited }) => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(opened)
+    const ws = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: opened.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    })
+    const sibling = ws.shells[1]
+    if (!sibling) throw new Error('no sibling')
+    await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+      data: 'MARK=kept; echo "sibling=$MARK"\r',
+    })
+    await readUntil(ted, task, sibling, (t) => t.includes('sibling=kept'), sibling.id)
+    await ted.ok('POST', paneRoute(task, first.id, '/input'), {
+      data: 'trap "" HUP; nohup sleep 120 >/dev/null 2>&1 & printf "CHILD_PID="; jobs -p; printf "ROOT_PID=%s\\n" "$$"\r',
+    })
+    const text = await readUntil(
+      ted,
+      task,
+      first,
+      (t) => /CHILD_PID=\d+/.test(t) && /ROOT_PID=\d+/.test(t),
+      first.id,
+    )
+    const child = Number(/CHILD_PID=(\d+)/.exec(text)?.[1])
+    const root = Number(/ROOT_PID=(\d+)/.exec(text)?.[1])
+    try {
+      expect(alive(child)).toBe(true)
+      if (exited) {
+        await ted.ok('POST', paneRoute(task, first.id, '/input'), { data: 'exit 7\r' })
+        await waitUntil(async () => {
+          const state = await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))
+          return state.shells.find((s) => s.id === first.id)?.exitCode === 7 || undefined
+        }, 'the parent shell to exit before cleanup')
         expect(alive(child)).toBe(true)
-        if (ending === 'close')
-          await changeWorkspace(ted, task, {
-            kind: 'close',
-            revision: ws.revision,
-            shellId: first.id,
-          })
-        else if (ending === 'restart') {
-          const restarted = await ted.ok<TaskShell>(
-            'POST',
-            paneRoute(task, first.id, '/restart'),
-            size,
-          )
-          expect(restarted.generation).toBeGreaterThan(first.generation)
-        } else {
-          await ted.ok('POST', `/tasks/${task.id}/stop`)
-          await ted.ok('POST', `/tasks/${task.id}/archive`)
-        }
-        await waitUntil(
-          async () => (!alive(root) && !alive(child)) || undefined,
-          'the shell and its HUP-resistant job to exit',
-        )
-        if (ending !== 'archive') {
-          await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
-            data: 'echo "still=$MARK"\r',
-          })
-          await readUntil(ted, task, sibling, (t) => t.includes('still=kept'), sibling.id)
-        }
-      } finally {
-        for (const pid of [child, root]) {
-          try {
-            process.kill(pid, 'SIGKILL')
-          } catch {}
-        }
       }
-    },
-  )
+      if (ending === 'close')
+        await changeWorkspace(ted, task, {
+          kind: 'close',
+          revision: ws.revision,
+          shellId: first.id,
+        })
+      else if (ending === 'restart') {
+        const restarted = await ted.ok<TaskShell>(
+          'POST',
+          paneRoute(task, first.id, '/restart'),
+          size,
+        )
+        expect(restarted.generation).toBeGreaterThan(first.generation)
+      } else if (ending === 'shutdown') {
+        await daemon?.stop()
+        daemon = undefined
+      } else {
+        await ted.ok('POST', `/tasks/${task.id}/stop`)
+        await ted.ok('POST', `/tasks/${task.id}/archive`)
+      }
+      await waitUntil(
+        async () => (!alive(root) && !alive(child)) || undefined,
+        'the shell and its HUP-resistant job to exit',
+      )
+      if (ending !== 'archive' && ending !== 'shutdown') {
+        await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+          data: 'echo "still=$MARK"\r',
+        })
+        await readUntil(ted, task, sibling, (t) => t.includes('still=kept'), sibling.id)
+      }
+    } finally {
+      for (const pid of [child, root]) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {}
+      }
+    }
+  })
 
   test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
     const ted = await startTed()

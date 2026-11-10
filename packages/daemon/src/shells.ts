@@ -60,6 +60,7 @@ interface Shell {
   generation: number
   process: pty.IPty | undefined
   started: string | undefined
+  session?: number
   cleanupTimer?: NodeJS.Timeout
   text: string
   start: number
@@ -142,15 +143,55 @@ export function createShells(options: ShellsOptions): Shells {
     group: number
     state: string
     started: string
+    session: number | undefined
   }[] {
     try {
-      const text = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart='], {
+      const env = worktreeCommandEnv({}, { LC_ALL: 'C' }, options.env?.() ?? process.env)
+      const metadata = 'pid=,ppid=,pgid=,stat=,lstart='
+      const text = execFileSync('/bin/ps', ['-A', '-o', metadata], {
         encoding: 'utf8',
         timeout: 2_000,
         maxBuffer: 8 * 1024 * 1024,
-        env: worktreeCommandEnv({}, { LC_ALL: 'C' }, options.env?.() ?? process.env),
+        env,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
+      // macOS redacts ps’s session field to zero. getsid is syscall 310 in Darwin’s ABI.
+      const sessions =
+        process.platform === 'darwin'
+          ? execFileSync(
+              '/usr/bin/perl',
+              [
+                '-e',
+                'while (<STDIN>) { chomp; my $sid = syscall(310, 0 + $_); print "$_ $sid\\n" if $sid > 0; }',
+              ],
+              {
+                input: `${text
+                  .split('\n')
+                  .flatMap((line) => /^\s*(\d+)/.exec(line)?.[1] ?? [])
+                  .join('\n')}\n`,
+                encoding: 'utf8',
+                timeout: 2_000,
+                maxBuffer: 8 * 1024 * 1024,
+                env,
+                stdio: ['pipe', 'pipe', 'pipe'],
+              },
+            )
+          : execFileSync('/bin/ps', ['-A', '-o', 'pid=,sid='], {
+              encoding: 'utf8',
+              timeout: 2_000,
+              maxBuffer: 8 * 1024 * 1024,
+              env,
+              stdio: ['ignore', 'pipe', 'pipe'],
+            })
+      const sessionOf = new Map(
+        sessions
+          .trim()
+          .split('\n')
+          .map((line) => {
+            const [pid, session] = line.trim().split(/\s+/).map(Number)
+            return [pid, session]
+          }),
+      )
       return text.split('\n').flatMap((line) => {
         const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line)
         return match
@@ -161,6 +202,7 @@ export function createShells(options: ShellsOptions): Shells {
                 group: Number(match[3]),
                 state: match[4] ?? '',
                 started: match[5] ?? '',
+                session: sessionOf.get(Number(match[1])),
               },
             ]
           : []
@@ -180,7 +222,7 @@ export function createShells(options: ShellsOptions): Shells {
 
   function stop(shell: Shell): void {
     const running = shell.process
-    if (running) {
+    if (running || shell.session) {
       const groups = new Set<number>()
       let complete = false
       try {
@@ -190,16 +232,19 @@ export function createShells(options: ShellsOptions): Shells {
           const rows = processGroups()
           const root = rows.find(
             (row) =>
-              row.pid === running.pid &&
+              row.pid === running?.pid &&
               row.parent === process.pid &&
               row.started === shell.started,
           )
-          if (!root) {
-            complete = true
-            break
-          }
           const daemon = rows.find((row) => row.pid === process.pid)
-          const owned = new Set([root.pid])
+          const leader = rows.find((row) => row.pid === shell.session)
+          const sameSession = !leader || leader.started === shell.started
+          const owned = new Set(
+            rows
+              .filter((row) => sameSession && shell.session && row.session === shell.session)
+              .map((row) => row.pid),
+          )
+          if (root) owned.add(root.pid)
           let added = true
           while (added) {
             added = false
@@ -210,11 +255,15 @@ export function createShells(options: ShellsOptions): Shells {
               }
           }
           const children = rows.filter((row) => owned.has(row.pid))
+          if (children.length === 0) {
+            complete = true
+            break
+          }
           if (!daemon || children.some((row) => row.group <= 1 || row.group === daemon.group))
             throw new RequestError(503, 'Couldn’t safely identify this shell’s processes.')
-          const newGroups = [...new Set([root.group, ...children.map((row) => row.group)])].filter(
-            (group) => !groups.has(group),
-          )
+          const newGroups = [
+            ...new Set([...(root ? [root.group] : []), ...children.map((row) => row.group)]),
+          ].filter((group) => !groups.has(group))
           if (newGroups.length === 0 && children.every((row) => /^[TZ]/.test(row.state))) {
             complete = true
             break
@@ -250,6 +299,7 @@ export function createShells(options: ShellsOptions): Shells {
     }
     shell.process = undefined
     shell.started = undefined
+    delete shell.session
     shell.release?.()
     shell.release = undefined
     if (shell.cleanupTimer) clearTimeout(shell.cleanupTimer)
@@ -315,6 +365,7 @@ export function createShells(options: ShellsOptions): Shells {
         !own ||
         !daemon ||
         own.group !== child.pid ||
+        own.session !== child.pid ||
         own.parent !== process.pid ||
         own.group === daemon.group
       )
@@ -334,6 +385,7 @@ export function createShells(options: ShellsOptions): Shells {
     shell.start = 0
     delete shell.exitCode
     shell.process = child
+    shell.session = child.pid
     shell.release = options.idle?.hold()
     const generation = shell.generation
     child.onData((data) => {
@@ -342,7 +394,6 @@ export function createShells(options: ShellsOptions): Shells {
     child.onExit(({ exitCode }) => {
       if (shell.generation !== generation || shell.process !== child) return
       shell.process = undefined
-      shell.started = undefined
       shell.exitCode = exitCode
       shell.release?.()
       shell.release = undefined
@@ -518,8 +569,8 @@ export function createShells(options: ShellsOptions): Shells {
               second: { shellId: added.id },
             })
           } else {
-            workspace.layout = replace(layout, shell.id, null)
             end(shell)
+            workspace.layout = replace(layout, shell.id, null)
           }
         }
         workspace.revision++
