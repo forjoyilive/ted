@@ -146,6 +146,23 @@ describe('TED app', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
 
     await thread.getByRole('img', { name: 'shot.png' }).waitFor()
+    const image = thread.getByRole('button', { name: 'View shot.png', exact: true })
+    await image.click({ timeout: 3000 })
+    const viewer = window.getByRole('dialog', { name: 'shot.png', exact: true })
+    await viewer.getByRole('img', { name: 'shot.png', exact: true }).waitFor()
+    expect(await viewer.getByRole('img').getAttribute('src')).toBe(
+      `data:image/png;base64,${onePixelPng}`,
+    )
+    await viewer.getByRole('button', { name: 'Close', exact: true }).click()
+    await viewer.waitFor({ state: 'detached' })
+    await expect.poll(() => image.evaluate((el) => el === document.activeElement)).toBe(true)
+    for (const key of ['Enter', 'Space']) {
+      await image.press(key)
+      await viewer.waitFor()
+      await viewer.press('Escape')
+      await viewer.waitFor({ state: 'detached' })
+      await expect.poll(() => image.evaluate((el) => el === document.activeElement)).toBe(true)
+    }
     const frame = thread.locator('iframe[title="report.html"]')
     await frame.waitFor()
     expect(await frame.getAttribute('sandbox')).toBe('')
@@ -260,6 +277,13 @@ describe('TED app', () => {
     await card.getByRole('heading', { name: 'Onboarding design: two steps' }).waitFor()
     await card.getByText('Merged the welcome and sync screens into one.').waitFor()
     await card.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
+    const screenshot = card.getByRole('button', { name: 'View Step 1 · Welcome' })
+    await screenshot.click()
+    const imageViewer = window.getByRole('dialog', { name: 'Step 1 · Welcome', exact: true })
+    await imageViewer.getByRole('img', { name: 'Step 1 · Welcome' }).waitFor()
+    await imageViewer.press('Escape')
+    await imageViewer.waitFor({ state: 'detached' })
+    await expect.poll(() => screenshot.evaluate((el) => el === document.activeElement)).toBe(true)
     await card.getByRole('button', { name: 'Play Walkthrough · 0:42' }).click()
     const player = window.getByRole('dialog', { name: 'Walkthrough · 0:42' })
     await player.locator('video').waitFor()

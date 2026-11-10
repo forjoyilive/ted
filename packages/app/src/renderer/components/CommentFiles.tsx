@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './CommentFiles.module.css'
+import { ImageViewer } from './Viewer.tsx'
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'])
 
@@ -26,14 +27,26 @@ export function useBytes({ hash, name }: Attachment): { data?: string; error?: s
 
 function ImageFile({ attachment }: { attachment: Attachment }) {
   const { data, error } = useBytes(attachment)
+  const [open, setOpen] = useState(false)
+  const src = data === undefined ? undefined : `data:${attachment.mediaType};base64,${data}`
   return (
     <figure className={styles.image}>
-      {data !== undefined ? (
-        <img src={`data:${attachment.mediaType};base64,${data}`} alt={attachment.name} />
+      {src !== undefined ? (
+        <button
+          type="button"
+          className={styles.thumbnail}
+          aria-label={`View ${attachment.name}`}
+          onClick={() => setOpen(true)}
+        >
+          <img src={src} alt={attachment.name} />
+        </button>
       ) : (
         <div className={styles.placeholder}>{error ?? 'Loading…'}</div>
       )}
       <figcaption className={styles.caption}>{attachment.name}</figcaption>
+      {open && src !== undefined && (
+        <ImageViewer title={attachment.name} src={src} onClose={() => setOpen(false)} />
+      )}
     </figure>
   )
 }
