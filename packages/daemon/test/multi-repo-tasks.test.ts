@@ -230,6 +230,8 @@ describe('a multi-repo Task', () => {
     expect(current?.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
     const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
     expect(lines.map((l) => l.text)).toContain('Task Lead set Repos to widgets, api')
+    expect(lines.filter((line) => line.text.startsWith('Setting up api ·'))).toHaveLength(1)
+    expect(lines.filter((line) => line.text === 'Setup finished in api')).toHaveLength(1)
   })
 
   test('removing a repo whose worktree has commits waits for --yes, then removes the worktree', async () => {
