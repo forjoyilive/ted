@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
+import { ResourceUsage } from './ResourceUsage.tsx'
 import styles from './Sidebar.module.css'
 import { StatusChip } from './StatusChip.tsx'
 
@@ -32,6 +33,7 @@ interface SidebarProps {
   navigation: Navigation
   factories: readonly Factory[]
   currentFactoryId: string | undefined
+  developerMode?: boolean
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
@@ -167,6 +169,7 @@ export function Sidebar({
   factories,
   currentFactoryId,
   inboxCount,
+  developerMode = false,
   badges = {},
   settingsProblem = false,
   footer = {},
@@ -529,6 +532,7 @@ export function Sidebar({
             )}
           </footer>
         )}
+        {developerMode && <ResourceUsage />}
       </nav>
     </ResizableSidebar>
   )
