@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import type { BrowserCommand, BrowserResult, DaemonClient, TaskApp } from '@ted/protocol'
+import {
+  type BrowserCommand,
+  type BrowserResult,
+  type DaemonClient,
+  DaemonRequestError,
+  type TaskApp,
+} from '@ted/protocol'
 import { isLoopbackUrl } from '@ted/protocol/app'
 import { type BrowserWindow, type Session, session, WebContentsView } from 'electron'
 
@@ -20,7 +26,7 @@ export interface BrowserBounds {
 
 export function createTaskBrowsers(
   getWindow: () => BrowserWindow | undefined,
-  client: DaemonClient,
+  getClient: () => DaemonClient,
   onSelect: (taskId: string, app: TaskApp) => void,
 ) {
   const pages = new Map<string, Page>()
@@ -29,6 +35,9 @@ export function createTaskBrowsers(
   let shown: string | undefined
   let presentation = 0
   let stopped = false
+  let generation = 0
+  const running = new Map<string, AbortController>()
+  const runTasks = new Map<string, string>()
   const owner = randomUUID()
   const attached = new Set<WebContentsView>()
   const hide = (temporary = false) => {
@@ -60,7 +69,7 @@ export function createTaskBrowsers(
     }
   }
   const valid = async (taskId: string, expected: TaskApp) => {
-    const current = await client.browserApp(taskId, expected)
+    const current = await getClient().browserApp(taskId, expected)
     if (
       current?.state !== 'running' ||
       current.removed ||
@@ -74,8 +83,9 @@ export function createTaskBrowsers(
     }
     return current
   }
-  const ensure = async (taskId: string, app: TaskApp) => {
+  const ensure = async (taskId: string, app: TaskApp, check: () => void) => {
     await valid(taskId, app)
+    check()
     const old = pages.get(taskId)
     if (
       old &&
@@ -185,28 +195,41 @@ export function createTaskBrowsers(
             .catch(() => undefined)
         }
       })
+      check()
       await contents.debugger.sendCommand('Page.enable')
+      check()
       await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
+      check()
       await loading
+      check()
       page.ready = true
       return page
     } catch (error) {
-      if (pages.get(taskId) === page) close(taskId)
+      if (pages.get(taskId) === page) close(taskId, false)
       throw error
     }
   }
   const execute = async (
     command: BrowserCommand,
+    check: () => void,
   ): Promise<BrowserResult & { capture?: Uint8Array<ArrayBuffer> }> => {
-    if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
-    if (command.runId && (await client.getRun(command.runId)).run.state === 'finished')
+    check()
+    if (command.runId && (await getClient().getRun(command.runId)).run.state === 'finished')
       throw new Error('This Run has ended')
-    const page = await ensure(command.taskId, command.app)
-    if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
+    const page = await ensure(command.taskId, command.app, check)
+    check()
     const contents = page.view.webContents
     const { action, value, ref } = command.request
-    const script = async <T>(code: string): Promise<T> =>
-      contents.executeJavaScriptInIsolatedWorld(999, [{ code }]) as Promise<T>
+    const script = async <T>(code: string): Promise<T> => {
+      check()
+      const result = (await contents.executeJavaScriptInIsolatedWorld(999, [
+        {
+          code: `(() => { const check = () => { if (Date.now() >= ${command.expiresAt}) throw Error('Browser command expired'); }; check(); return (${code}); })()`,
+        },
+      ])) as T
+      check()
+      return result
+    }
     if (action === 'snapshot') {
       const prefix = randomUUID()
       page.revision = prefix
@@ -234,42 +257,56 @@ export function createTaskBrowsers(
         const point = await script<{ x: number; y: number }>(
           `(() => { ${lookup} e.scrollIntoView({block:'center'}); const r=e.getBoundingClientRect(); if (!r.width || !r.height || e.disabled) throw Error('Element is not clickable'); const x=r.x+r.width/2,y=r.y+r.height/2; if (!e.contains(document.elementFromPoint(x,y))) throw Error('Element is covered'); return {x,y}; })()`,
         )
-        contents.sendInputEvent({
-          type: 'mouseDown',
+        check()
+        await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
           button: 'left',
           clickCount: 1,
-          x: Math.round(point.x),
-          y: Math.round(point.y),
+          x: point.x,
+          y: point.y,
         })
-        contents.sendInputEvent({
-          type: 'mouseUp',
+        check()
+        await contents.debugger.sendCommand('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
           button: 'left',
           clickCount: 1,
-          x: Math.round(point.x),
-          y: Math.round(point.y),
+          x: point.x,
+          y: point.y,
         })
       } else {
         await script(
-          `(() => { ${lookup} if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) || e.disabled || e.readOnly) throw Error('Choose an editable text field'); if(e instanceof HTMLInputElement && !['text','search','email','url','tel','password','number'].includes(e.type)) throw Error('Choose a text field'); e.focus(); const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${JSON.stringify(value ?? '')}); e.dispatchEvent(new Event('input',{bubbles:true})); e.dispatchEvent(new Event('change',{bubbles:true})); })()`,
+          `(() => { ${lookup} if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) || e.disabled || e.readOnly) throw Error('Choose an editable text field'); if(e instanceof HTMLInputElement && !['text','search','email','url','tel','password','number'].includes(e.type)) throw Error('Choose a text field'); check(); e.focus(); check(); const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${JSON.stringify(value ?? '')}); check(); e.dispatchEvent(new Event('input',{bubbles:true})); check(); e.dispatchEvent(new Event('change',{bubbles:true})); })()`,
         )
       }
       page.revision = randomUUID()
     } else if (action === 'press') {
-      const keys: Record<string, string> = {
-        Enter: 'Return',
-        Tab: 'Tab',
-        Escape: 'Escape',
-        ArrowUp: 'Up',
-        ArrowDown: 'Down',
-        ArrowLeft: 'Left',
-        ArrowRight: 'Right',
-        Backspace: 'Backspace',
-        Space: 'Space',
+      const keys: Record<string, number> = {
+        Enter: 13,
+        Tab: 9,
+        Escape: 27,
+        ArrowUp: 38,
+        ArrowDown: 40,
+        ArrowLeft: 37,
+        ArrowRight: 39,
+        Backspace: 8,
+        Space: 32,
       }
       const keyCode = keys[value ?? '']
       if (!keyCode) throw new Error('Use Enter, Tab, Escape, Backspace, Space or an arrow key')
-      contents.sendInputEvent({ type: 'keyDown', keyCode })
-      contents.sendInputEvent({ type: 'keyUp', keyCode })
+      check()
+      const key = value === 'Space' ? ' ' : value
+      await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
+        type: 'keyDown',
+        key,
+        windowsVirtualKeyCode: keyCode,
+        ...(value === 'Enter' ? { text: '\r' } : value === 'Space' ? { text: ' ' } : {}),
+      })
+      check()
+      await contents.debugger.sendCommand('Input.dispatchKeyEvent', {
+        type: 'keyUp',
+        key,
+        windowsVirtualKeyCode: keyCode,
+      })
       page.revision = randomUUID()
     } else if (action === 'navigate') {
       const url = new URL(value ?? '/', command.app.url)
@@ -292,35 +329,83 @@ export function createTaskBrowsers(
     }
     return { url: contents.getURL(), ...(page.error && { text: page.error }) }
   }
+  const invalidate = () => {
+    generation++
+    for (const controller of running.values()) controller.abort()
+  }
+  const run = async (command: BrowserCommand, client: DaemonClient, version: number) => {
+    if (running.has(command.taskId)) {
+      await client
+        .replyBrowser(owner, command.id, { error: 'A browser command is still finishing' })
+        .catch(() => undefined)
+      return
+    }
+    const controller = new AbortController()
+    running.set(command.taskId, controller)
+    if (command.runId) runTasks.set(command.runId, command.taskId)
+    const check = () => {
+      if (stopped || controller.signal.aborted || version !== generation || client !== getClient())
+        throw new Error('The browser connection changed; inspect the page before retrying')
+      if (Date.now() >= command.expiresAt) throw new Error('Browser command expired')
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const canceled = new Promise<never>((_resolve, reject) => {
+      controller.signal.addEventListener(
+        'abort',
+        () => {
+          close(command.taskId, false)
+          reject(new Error('Browser command canceled or expired; inspect the page before retrying'))
+        },
+        { once: true },
+      )
+      timer = setTimeout(() => controller.abort(), Math.max(0, command.expiresAt - Date.now()))
+    })
+    try {
+      const { capture, ...result } = await Promise.race([execute(command, check), canceled])
+      check()
+      await Promise.race([
+        capture
+          ? client.uploadBrowserCapture(owner, command.id, capture)
+          : client.replyBrowser(owner, command.id, { result }),
+        canceled,
+      ])
+      check()
+      if (activeTask === command.taskId && command.request.action === 'open')
+        onSelect(command.taskId, command.app)
+    } catch (error) {
+      void client
+        .replyBrowser(owner, command.id, {
+          error: error instanceof Error ? error.message.slice(0, 1000) : 'Browser command failed',
+        })
+        .catch(() => undefined)
+    } finally {
+      clearTimeout(timer)
+      if (running.get(command.taskId) === controller) running.delete(command.taskId)
+      if (command.runId) runTasks.delete(command.runId)
+    }
+  }
   const loop = async () => {
     while (!stopped) {
+      const client = getClient()
+      const version = generation
       try {
         const command = await client.pollBrowser(owner)
         if (stopped) break
-        if (!command) continue
-        try {
-          const { capture, ...result } = await execute(command)
-          if (capture) await client.uploadBrowserCapture(owner, command.id, capture)
-          else await client.replyBrowser(owner, command.id, { result })
-          if (activeTask === command.taskId && command.request.action === 'open')
-            onSelect(command.taskId, command.app)
-        } catch (error) {
-          await client
-            .replyBrowser(owner, command.id, {
-              error:
-                error instanceof Error ? error.message.slice(0, 1000) : 'Browser command failed',
-            })
-            .catch(() => undefined)
-        }
+        if (client !== getClient() || version !== generation) continue
+        if (command) void run(command, client, version)
       } catch {
-        hide()
-        for (const id of sessions.keys()) close(id)
+        invalidate()
         await new Promise((resolve) => setTimeout(resolve, 1_000))
       }
     }
   }
   void loop()
   return {
+    disconnected: invalidate,
+    ended(runId: string) {
+      const taskId = runTasks.get(runId)
+      if (taskId) running.get(taskId)?.abort()
+    },
     async present(taskId: string, bounds: BrowserBounds) {
       const version = ++presentation
       const page = pages.get(taskId)
@@ -369,12 +454,19 @@ export function createTaskBrowsers(
     changed(taskId: string) {
       const page = pages.get(taskId)
       if (page)
-        void valid(taskId, page.app).catch(() => {
-          if (pages.get(taskId) === page) close(taskId)
+        void valid(taskId, page.app).catch((error: unknown) => {
+          if (
+            pages.get(taskId) === page &&
+            error instanceof Error &&
+            (error.message === 'That web App isn’t running; use ▶ in Apps' ||
+              (error instanceof DaemonRequestError && [403, 404, 409].includes(error.status)))
+          )
+            close(taskId)
         })
     },
     close() {
       stopped = true
+      invalidate()
       hide()
       for (const id of sessions.keys()) close(id)
     },

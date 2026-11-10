@@ -539,7 +539,12 @@ try {
     if (action === 'click' || action === 'fill') request.ref = rest[0] ?? ''
     if (action === 'fill') request.value = rest[1] ?? (await readStdin())
     if (action === 'press' || action === 'navigate') request.value = rest[0] ?? ''
-    const result = await withDaemon(home, (client) => client.browserCommand(taskRef(), request))
+    const ref = taskRef()
+    const browserClient = await withDaemon(home, async (client) => {
+      await client.listApps(ref)
+      return client
+    })
+    const result = await browserClient.browserCommand(ref, request)
     console.log(printable(result.text ?? result.url ?? 'Done'))
     if (result.attachment) {
       const attachment = result.attachment

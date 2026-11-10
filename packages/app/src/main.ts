@@ -664,6 +664,8 @@ function makeLoginItem(): LoginItem {
 }
 
 function forward(event: DaemonEvent): void {
+  if (event.type === 'run-updated' && event.run.state === 'finished')
+    taskBrowsers?.ended(event.run.id)
   if (event.type === 'apps-changed' || event.type === 'task-deleted')
     taskBrowsers?.changed(event.taskId)
   if (event.type === 'task-updated') taskBrowsers?.changed(event.task.id)
@@ -1054,6 +1056,7 @@ async function loadStateWhenReady(): Promise<void> {
 }
 
 function onConnection(connection: DaemonConnection): void {
+  if (connection.state !== 'connected') taskBrowsers?.disconnected()
   sendToRenderer({ type: 'connection', connection })
   if (connection.state === 'connected') {
     notifications.forget()
@@ -1083,7 +1086,7 @@ async function start(): Promise<void> {
   client = supervised.client
   taskBrowsers = createTaskBrowsers(
     () => window,
-    supervised.client,
+    () => supervised.client,
     (taskId, app) => {
       sendToRenderer({
         type: 'browser-open',

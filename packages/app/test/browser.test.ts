@@ -73,7 +73,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       '          STUB_APP_BROWSER: "1"',
     ].join('\n'),
   })
-  const client = await daemonAsApp(home, env)
+  let client = await daemonAsApp(home, env)
   await client.addFactory({ repo: origin, key: 'NB' })
   const task = await client.createTask({ factory: 'NB', title: '{"steps":[{"endTurn":true}]}' })
   await client.startTask(task.id)
@@ -114,6 +114,23 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   if (!field) throw new Error('Name field missing from snapshot')
   await command({ action: 'fill', ref: field, value: 'Ada' })
   await expect(command({ action: 'click', ref: field })).rejects.toThrow(/Stale/)
+  await app.evaluate(async ({ webContents }, url) => {
+    await webContents
+      .getAllWebContents()
+      .find((c) => c.getURL() === new URL(url ?? '').href)
+      ?.executeJavaScript(
+        'globalThis.keyEvents=0; document.addEventListener("keydown",()=>globalThis.keyEvents++)',
+      )
+  }, running.url)
+  await command({ action: 'press', value: 'Enter' })
+  expect(
+    await app.evaluate(async ({ webContents }, url) => {
+      return webContents
+        .getAllWebContents()
+        .find((c) => c.getURL() === new URL(url ?? '').href)
+        ?.executeJavaScript('globalThis.keyEvents')
+    }, running.url),
+  ).toBe(1)
   const next = await command({ action: 'snapshot' })
   const button = next.text?.match(/([^\s]+) button Try it/)?.[1]
   if (!button) throw new Error('Button missing from snapshot')
@@ -195,6 +212,49 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       .find((c) => c.getURL() === url)
       ?.executeJavaScript("document.cookie='taskSession=first'")
   }, firstPage)
+  const beforeRestart = await readDaemonInfo(home)
+  if (!beforeRestart) throw new Error('Missing daemon before restart')
+  process.kill(beforeRestart.pid, 'SIGKILL')
+  await waitUntil(async () => {
+    const info = await readDaemonInfo(home ?? '')
+    return info && info.pid !== beforeRestart.pid ? info : undefined
+  }, 'replacement daemon')
+  client = await daemonAsApp(home, env)
+  await expect
+    .poll(
+      async () => {
+        try {
+          return (await command({ action: 'snapshot' })).text
+        } catch {
+          return ''
+        }
+      },
+      { timeout: 30_000 },
+    )
+    .toContain('Clicked')
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  expect(
+    await app.evaluate(async ({ webContents }, url) => {
+      return webContents
+        .getAllWebContents()
+        .find((c) => c.getURL() === url)
+        ?.executeJavaScript(
+          '({value:document.querySelector("input").value,cookie:document.cookie})',
+        )
+    }, firstPage),
+  ).toEqual({ value: 'Ada', cookie: 'taskSession=first' })
+  await expect
+    .poll(async () =>
+      app?.evaluate(({ BrowserWindow }, url) => {
+        return BrowserWindow.getAllWindows()[0]?.contentView.children.some(
+          (v) =>
+            'webContents' in v &&
+            (v.webContents as import('electron').WebContents).getURL() === url &&
+            v.getBounds().width > 200,
+        )
+      }, firstPage),
+    )
+    .toBe(true)
   const other = await client.createTask({ factory: 'NB', title: '{"steps":[{"endTurn":true}]}' })
   await client.startTask(other.id)
   await waitUntil(

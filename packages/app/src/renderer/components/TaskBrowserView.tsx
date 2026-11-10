@@ -1,6 +1,6 @@
 import type { Attachment, BrowserRequest, Task } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
-import { useTaskApps } from '../data.ts'
+import { useConnection, useTaskApps } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
@@ -18,6 +18,7 @@ export function TaskBrowserView({
   onBack: () => void
   onLog: () => void
 }) {
+  const { epoch, connection } = useConnection()
   const apps = useTaskApps(task.id).filter((a) => a.kind === 'web' && !a.removed)
   const app = apps.find((a) => a.repo === shown.repo && a.name === shown.name)
   const viewport = useRef<HTMLDivElement>(null)
@@ -47,27 +48,40 @@ export function TaskBrowserView({
     }
   }
   useEffect(() => {
+    void epoch
+    void app?.startedAt
     let stopped = false
+    let retry: ReturnType<typeof setTimeout> | undefined
     setReady(false)
-    if (running) {
-      setStatus(app?.startedAt ? 'Opening…' : 'Waiting for the App…')
-      void ted
-        .browserCommand(task.id, { action: 'open', app: { repo: shown.repo, name: shown.name } })
-        .then((result) => {
-          if (stopped) return
-          setReady(true)
-          setAddress(result.url ?? '')
-          setStatus(result.text ?? 'Ready')
+    const open = async () => {
+      try {
+        const result = await ted.browserCommand(task.id, {
+          action: 'open',
+          app: { repo: shown.repo, name: shown.name },
         })
-        .catch((error: unknown) => {
-          if (!stopped) setStatus(readableError(error))
-        })
-    } else setStatus('This App isn’t running. Use ▶ in Apps, then open Preview.')
+        if (stopped) return
+        setReady(true)
+        setAddress(result.url ?? '')
+        setStatus(result.text ?? 'Ready')
+      } catch (error) {
+        if (stopped) return
+        setStatus(readableError(error))
+        retry = setTimeout(() => void open(), 1_000)
+      }
+    }
+    if (running && connection.state === 'connected') {
+      setStatus('Opening…')
+      void open()
+    } else
+      setStatus(
+        running ? 'Reconnecting…' : 'This App isn’t running. Use ▶ in Apps, then open Preview.',
+      )
     return () => {
       stopped = true
+      clearTimeout(retry)
       void ted.hideBrowser()
     }
-  }, [task.id, shown.repo, shown.name, running, app?.startedAt])
+  }, [task.id, shown.repo, shown.name, running, app?.startedAt, epoch, connection.state])
 
   useEffect(() => {
     if (!ready || !running) return
