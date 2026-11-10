@@ -1,10 +1,17 @@
 import { EventEmitter } from 'node:events'
 import { runInNewContext } from 'node:vm'
-import type { BrowserCommand, BrowserReply, DaemonClient, TaskApp } from '@ted/protocol'
+import {
+  type BrowserCommand,
+  type BrowserReply,
+  type DaemonClient,
+  DaemonRequestError,
+  type TaskApp,
+} from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
 
 function makeSession() {
   return {
+    setProxy: vi.fn(async () => {}),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     removeAllListeners: vi.fn(),
@@ -100,6 +107,7 @@ function bridge() {
       extra = {},
       lifetime = 1_000,
       runId?: string,
+      shown: TaskApp = app,
     ) {
       await vi.waitFor(() => expect(deliver).toBeTypeOf('function'), { timeout: 3_000 })
       const next = deliver
@@ -108,7 +116,7 @@ function bridge() {
         id,
         taskId,
         ...(runId && { runId }),
-        app,
+        app: shown,
         expiresAt: Date.now() + lifetime,
         request: { action, ...extra },
       } as BrowserCommand)
@@ -289,4 +297,63 @@ test('ending the requesting Run cancels a delayed click without replay', async (
   expect(
     contents.debugger.sendCommand.mock.calls.some(([method]) => method.startsWith('Input.')),
   ).toBe(false)
+})
+
+test.each(['App stop', 'App restart', 'Task deletion', 'Factory deletion'])(
+  'retained sessions are cleared after cancellation then %s',
+  async (lifecycle) => {
+    const transport = bridge()
+    const controller = createTaskBrowsers(
+      () => undefined,
+      () => transport.client,
+      vi.fn(),
+    )
+    controllers.push(controller)
+    await transport.send('open', 'one', 'open')
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+    const contents = mocks.views[0]?.webContents
+    if (!contents) throw new Error('Missing browser contents')
+    contents.loadURL.mockImplementationOnce(() => new Promise(() => {}))
+    await transport.send('navigate', 'one', 'navigate', { value: '/slow' }, 100)
+    await vi.waitFor(() => expect(contents.close).toHaveBeenCalled())
+    const validate = vi.mocked(transport.client.browserApp)
+    if (lifecycle === 'App stop') validate.mockResolvedValue({ ...app, state: 'stopped' })
+    else if (lifecycle === 'App restart')
+      validate.mockResolvedValue({ ...app, startedAt: 'tomorrow' })
+    else validate.mockRejectedValue(new DaemonRequestError(404, 'Task no longer exists'))
+    controller.changed('one')
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
+    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+    validate.mockResolvedValue(app)
+    await transport.send('reopen', 'one', 'open')
+    await vi.waitFor(() =>
+      expect(transport.replies.some((r) => r.id === 'reopen' && r.result)).toBe(true),
+    )
+    expect(mocks.sessions).toHaveLength(2)
+  },
+)
+
+test('reopening a restarted App clears a canceled guest session before lifecycle validation returns', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  contents.loadURL.mockImplementationOnce(() => new Promise(() => {}))
+  await transport.send('navigate', 'one', 'navigate', { value: '/slow' }, 100)
+  await vi.waitFor(() => expect(contents.close).toHaveBeenCalled())
+  const restarted = { ...app, startedAt: 'tomorrow' }
+  vi.mocked(transport.client.browserApp).mockResolvedValue(restarted)
+  await transport.send('reopen', 'one', 'open', {}, 1_000, undefined, restarted)
+  await vi.waitFor(() =>
+    expect(transport.replies.some((r) => r.id === 'reopen' && r.result)).toBe(true),
+  )
+  expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce()
+  expect(mocks.sessions).toHaveLength(2)
 })

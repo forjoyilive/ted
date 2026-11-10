@@ -18,6 +18,7 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
+import { checkGuestNetwork, checkModalRace } from './browser-probes.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { firstWindow } from './first-window.ts'
@@ -152,6 +153,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await expect(command({ action: 'navigate', value: 'http://127.0.0.1:9/' })).rejects.toThrow(
     /origin/,
   )
+  await checkGuestNetwork(app, new URL(running.url ?? '').href)
   const daemonInfo = await readDaemonInfo(home)
   if (!daemonInfo) throw new Error('Missing daemon info')
   expect(
@@ -182,6 +184,26 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   expect(Buffer.from(bytes.data, 'base64').subarray(0, 8)).toEqual(
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
   )
+  await window.setViewportSize({ width: 900, height: 560 })
+  await client.editTask(task.id, {
+    description: 'A local browser with a description that takes some space above the controls.',
+  })
+  await panel.getByRole('button', { name: 'Screenshot', exact: true }).click()
+  const postCapture = panel.getByRole('button', { name: 'Post screenshot to Task', exact: true })
+  await postCapture.scrollIntoViewIfNeeded()
+  for (const control of [
+    postCapture,
+    panel.getByRole('status'),
+    panel.getByRole('button', { name: '← Thread' }),
+  ]) {
+    const bounds = await control.boundingBox()
+    if (!bounds) throw new Error('Missing browser control')
+    expect(bounds.y).toBeGreaterThanOrEqual(0)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(560)
+  }
+  await panel.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await client.editTask(task.id, { description: '' })
+  await checkModalRace(app, window, new URL(running.url ?? '').href)
   await mkdir('node_modules/.cache/browser-work', { recursive: true })
   await window.screenshot({ path: 'node_modules/.cache/browser-work/panel.png' })
   await writeFile('node_modules/.cache/browser-work/page.png', Buffer.from(bytes.data, 'base64'))
@@ -323,7 +345,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
         ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.contentView.children.length,
       ),
     )
-    .toBe(1)
+    .toBe(0)
   await window.evaluate(() => document.querySelector('#browser-test-dialog')?.remove())
   await app.evaluate(({ webContents }, url) => {
     webContents

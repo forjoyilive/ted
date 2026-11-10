@@ -30,7 +30,7 @@ export function createTaskBrowsers(
   onSelect: (taskId: string, app: TaskApp) => void,
 ) {
   const pages = new Map<string, Page>()
-  const sessions = new Map<string, Session>()
+  const sessions = new Map<string, { session: Session; app: TaskApp }>()
   let activeTask: string | undefined
   let shown: string | undefined
   let presentation = 0
@@ -64,8 +64,8 @@ export function createTaskBrowsers(
     if (forget) {
       const ses = sessions.get(id)
       sessions.delete(id)
-      void ses?.clearStorageData().catch(() => undefined)
-      void ses?.closeAllConnections().catch(() => undefined)
+      void ses?.session.clearStorageData().catch(() => undefined)
+      void ses?.session.closeAllConnections().catch(() => undefined)
     }
   }
   const valid = async (taskId: string, expected: TaskApp) => {
@@ -96,10 +96,22 @@ export function createTaskBrowsers(
       !old.view.webContents.isDestroyed()
     )
       return old
-    close(taskId, false)
-    const ses = sessions.get(taskId) ?? session.fromPartition(`ted-browser-${randomUUID()}`)
-    sessions.set(taskId, ses)
+    const retained = sessions.get(taskId)?.app
+    const restarted =
+      retained?.repo === app.repo &&
+      retained.name === app.name &&
+      (retained.url !== app.url || retained.startedAt !== app.startedAt)
+    close(taskId, restarted)
+    const ses =
+      sessions.get(taskId)?.session ?? session.fromPartition(`ted-browser-${randomUUID()}`)
+    sessions.set(taskId, { session: ses, app })
     const origin = new URL(app.url as string).origin
+    // WebTransport bypasses webRequest but refuses proxied connections.
+    await ses.setProxy({
+      proxyRules: 'socks5://127.0.0.1:9',
+      proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
+    })
+    check()
     const allowed = (address: string) => {
       try {
         const url = new URL(address)
@@ -180,10 +192,9 @@ export function createTaskBrowsers(
         .catch(() => undefined)
     })
     try {
-      // An unstarted renderer cannot answer Page.enable, so begin navigation first.
-      const loading = contents.loadURL(app.url as string).catch(() => {
-        page.error = 'The page couldn’t load. Reload to try again.'
-      })
+      // Bootstrap without repo scripts before installing guards in every guest frame.
+      await contents.loadURL('about:blank')
+      check()
       contents.debugger.attach('1.3')
       contents.debugger.on('detach', () => {
         if (pages.get(taskId) === page) close(taskId)
@@ -198,9 +209,17 @@ export function createTaskBrowsers(
       check()
       await contents.debugger.sendCommand('Page.enable')
       check()
+      await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
+        source: `for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection']) {
+          Object.defineProperty(globalThis, name, {value: undefined, writable: false, configurable: false});
+        }`,
+      })
+      check()
       await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
       check()
-      await loading
+      await contents.loadURL(app.url as string).catch(() => {
+        page.error = 'The page couldn’t load. Reload to try again.'
+      })
       check()
       page.ready = true
       return page
@@ -452,11 +471,11 @@ export function createTaskBrowsers(
       return url
     },
     changed(taskId: string) {
-      const page = pages.get(taskId)
-      if (page)
-        void valid(taskId, page.app).catch((error: unknown) => {
+      const expected = sessions.get(taskId)?.app
+      if (expected)
+        void valid(taskId, expected).catch((error: unknown) => {
           if (
-            pages.get(taskId) === page &&
+            sessions.get(taskId)?.app === expected &&
             error instanceof Error &&
             (error.message === 'That web App isn’t running; use ▶ in Apps' ||
               (error instanceof DaemonRequestError && [403, 404, 409].includes(error.status)))

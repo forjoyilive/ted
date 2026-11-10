@@ -88,7 +88,7 @@ export function TaskBrowserView({
     let stopped = false
     let presenting = false
     const position = () => {
-      if (stopped || presenting) return
+      if (stopped) return
       const rect = viewport.current?.getBoundingClientRect()
       if (
         !rect ||
@@ -99,6 +99,7 @@ export function TaskBrowserView({
         void ted.hideBrowser(true)
         return
       }
+      if (presenting) return
       presenting = true
       void ted
         .presentBrowser(task.id, shown.repo, shown.name, {
