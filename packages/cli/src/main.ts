@@ -698,7 +698,16 @@ try {
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort: effort as Effort }),
     }
-    const task = await withDaemon(home, (client) => client.setTaskLead(ref, lead))
+    const task = await withDaemon(home, async (client) => {
+      const saved = options['stage-effort']
+        ? (await client.listTasks()).find((task) => task.id === ref || task.displayId === ref)?.lead
+            ?.effort
+        : undefined
+      return client.setTaskLead(ref, {
+        ...lead,
+        ...(saved !== undefined && { effort: saved }),
+      })
+    })
     console.log(`${task.displayId}’s Task Lead is ${describeLead(task.lead ?? lead)}`)
   } else if (group === 'workflow' && command === 'check' && rest.length <= 1) {
     await workflowCheck(rest[0] ?? '.ted')
