@@ -1,5 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { ElectronApplication } from 'playwright'
+import { captureFailure } from './failure-capture.ts'
 
 function kill(pid: number): void {
   try {
@@ -12,6 +13,7 @@ export async function closeApp(
   timeoutMs = 10_000,
 ): Promise<void> {
   if (!app) return
+  await captureFailure(app)
   let child: ReturnType<ElectronApplication['process']> | undefined
   try {
     child = app.process()

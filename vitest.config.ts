@@ -23,6 +23,7 @@ function electronTestFiles(): string[] {
 
 const testOptions = {
   testTimeout: 30_000,
+  expect: { poll: { timeout: 10_000 } },
   maxWorkers: 6,
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
   setupFiles: [

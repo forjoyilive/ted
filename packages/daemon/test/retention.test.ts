@@ -306,6 +306,10 @@ describe('Run output retention in the daemon', () => {
       'the open Task’s Run to stop',
     )
     const doneRun = (await runFolders()).find((id) => id !== openRun) as string
+    await waitUntil(
+      async () => (await client.getRun(doneRun)).run.state === 'finished' || undefined,
+      'the Done Task’s Run to finish',
+    )
     expect((await client.getRun(doneRun)).run).toMatchObject({ taskId: done.id, state: 'finished' })
     const before = await client.call('GET', `/runs/${doneRun}/chat`)
     expect(JSON.stringify(before.body.items)).toContain('working on it')

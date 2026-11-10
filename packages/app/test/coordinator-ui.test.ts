@@ -18,7 +18,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -51,9 +51,8 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
   const task = await client.createTask({ factory: 'NB', title: 'Discuss priorities' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
-  await sidebar.waitFor()
   await window.keyboard.press('Meta+1')
   const entry = sidebar.getByRole('button', { name: /^Coordinator/ })
   await entry.click()
@@ -143,9 +142,8 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
     'Task slot',
   )
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
-  await sidebar.waitFor()
   await window.keyboard.press('Meta+1')
   await sidebar.getByRole('button', { name: /^Coordinator/ }).click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })

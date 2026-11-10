@@ -67,7 +67,7 @@ test('chat timestamps keep advancing while idle and after a tool finishes', asyn
 
   const window = await launchApp()
   await window.clock.install()
-  await window.clock.pauseAt(new Date())
+  await window.clock.pauseAt(Date.now() + 1000)
   await openAllTasks(window)
   await taskRow(window, 'NB-1').click()
   await window
