@@ -176,6 +176,15 @@ describe('test slots', () => {
     expect(await readFile(slot(0), 'utf8')).toBe('4242\n')
   })
 
+  test('a run that holds a slot keeps it when a full run takes the suite lock, as its second Vitest project does', async () => {
+    const release = await acquireSlot({ ...slots(), pid: process.pid })
+    await writeFile(file, `${liveProcess()}\n`)
+    const again = await acquireSlot({ ...slots(), pid: process.pid })
+    expect(again).toBeDefined()
+    expect(await readFile(slot(0), 'utf8')).toBe(`${process.pid}\n`)
+    await release?.()
+  })
+
   test('a slot folder that can’t be made runs without a slot', async () => {
     await writeFile(path.join(dir, 'slots'), '')
     expect(await acquireSlot({ ...slots(), pid: 4242 })).toBeUndefined()

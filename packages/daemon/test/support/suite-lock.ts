@@ -117,6 +117,12 @@ export async function acquireSlot(
     () => false,
   )
   if (!made) return undefined
+  const releaseOf = (file: string) => async () => {
+    if ((await holder(file)) === pid) await unlink(file).catch(() => undefined)
+  }
+  for (let index = 0; index < slots; index++) {
+    if ((await holder(slotFile(dir, index))) === pid) return releaseOf(slotFile(dir, index))
+  }
   let reported = false
   for (;;) {
     let waitsFor = await holder(suiteLock)
@@ -126,11 +132,7 @@ export async function acquireSlot(
       let result = await tryTake(file, pid)
       while (result === 'retry') result = await tryTake(file, pid)
       if (result === 'unwritable') return undefined
-      if (result === 'taken') {
-        return async () => {
-          if ((await holder(file)) === pid) await unlink(file).catch(() => undefined)
-        }
-      }
+      if (result === 'taken') return releaseOf(file)
       if (index === slots - 1) waitsFor = result
     }
     if (waitsFor !== undefined && !reported) {
