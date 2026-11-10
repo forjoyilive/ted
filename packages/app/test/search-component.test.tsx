@@ -348,3 +348,52 @@ test('a vanished Conversation match explains what is missing; a deleted Run show
   await user().click(screen.getByRole('option', { name: 'NB-1 unique output' }))
   expect((await screen.findByRole('alert')).textContent).toContain('no such Run')
 })
+
+test.each(['failed', 'running', 'stopped', 'diff', 'read-count'] as const)(
+  'a description-only %s tool match reveals its searchable detail',
+  async (state) => {
+    const a = open({ conversations: [{ ...conversationHit, snippet: 'descriptionneedle' }] })
+    a.handle(
+      'getRunChat',
+      (): RunChat => ({
+        run: {
+          id: 'r1',
+          name: 'Lead',
+          role: 'lead',
+          agent: 'claude',
+          state: 'finished',
+          current: false,
+          startedAt: createdAt,
+        },
+        items: [
+          {
+            kind: 'tool',
+            id: 'tool1',
+            tool: state === 'read-count' ? 'Read' : 'Bash',
+            title: 'Inspect',
+            status: state === 'diff' || state === 'read-count' ? 'done' : state,
+            detail: 'descriptionneedle',
+            ...(state === 'read-count' && { output: 'two\nlines' }),
+            ...(state === 'diff' && {
+              diffs: [
+                {
+                  path: 'notes.ts',
+                  additions: 1,
+                  deletions: 0,
+                  lines: [{ kind: 'added', text: 'new value' }],
+                },
+              ],
+            }),
+          },
+        ],
+      }),
+    )
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'descriptionneedle' } })
+    await user().click(await screen.findByRole('option', { name: 'NB-1 descriptionneedle' }))
+    await screen.findByText('descriptionneedle')
+    expect(screen.getByRole('button', { name: /Inspect/ }).getAttribute('aria-expanded')).toBe(
+      'true',
+    )
+    expect(document.activeElement?.getAttribute('data-chat-item')).toBe('tool1')
+  },
+)

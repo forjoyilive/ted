@@ -1,5 +1,6 @@
 import type { ConversationHit, RunChat } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { ChatSection } from './RunChat.tsx'
@@ -12,9 +13,11 @@ export function ConversationSearchView({
   hit: ConversationHit
   onBack: () => void
 }) {
+  const { epoch } = useConnection()
   const [chat, setChat] = useState<RunChat>()
   const [error, setError] = useState<string>()
   useEffect(() => {
+    void epoch
     let current = true
     let revision = 0
     const load = async () => {
@@ -41,7 +44,7 @@ export function ConversationSearchView({
       current = false
       unsubscribe()
     }
-  }, [hit.runId])
+  }, [hit.runId, epoch])
   const missing = chat !== undefined && !chat.items.some((item) => item.id === hit.itemId)
   return (
     <>

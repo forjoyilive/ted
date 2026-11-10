@@ -204,6 +204,7 @@ function ToolRow({
     ) : (
       (item.detail ?? (outputLines === 1 ? item.output?.trim().slice(0, 80) : undefined))
     )
+  const showDetail = item.detail !== undefined && meta !== item.detail
   return (
     <Collapsible
       open={open}
@@ -212,8 +213,9 @@ function ToolRow({
       meta={meta}
       tone={item.status === 'failed' ? 'failed' : undefined}
     >
-      {(diffs.length > 0 || item.output !== undefined) && (
+      {(showDetail || diffs.length > 0 || item.output !== undefined) && (
         <>
+          {showDetail && <pre className={styles.output}>{item.detail}</pre>}
           {diffs.map(numbered).map(({ n, ...diff }) => (
             <Diff key={n} diff={diff} showPath={diffs.length > 1 || diff.path !== item.title} />
           ))}
