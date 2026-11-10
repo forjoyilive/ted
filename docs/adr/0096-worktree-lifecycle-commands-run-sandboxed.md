@@ -1,0 +1,9 @@
+# Worktree setup and teardown run in TED’s OS sandbox
+
+KRI-164 extends ADR 0091 to Task worktree setup and teardown, changing ADR 0025’s execution boundary. Commands still run automatically, but outside Bypass they use TED’s OS sandbox even when the human starts the Task. Reading the command from the default branch is insufficient: teardown can invoke scripts the Task Lead changed, and a Run can trigger it through `ted task repos remove`.
+
+Setup, added-repo setup, recovered setup and teardown share `tasks/command.ts` with Checks. It wraps the existing process runner, preserves each caller’s shell, timeout and cancellation, and supplies a fresh temp folder and the Task’s private package caches. Setup installs therefore use the same caches as later Checks rather than creating new hard links into the user’s shared package store. Recorded setup command, timeout and env still survive daemon restarts; sandbox policy comes from the Task’s resolved Workflow.
+
+The scope opens only the Task’s surviving worktrees, read-only clones, cache and temp folders under ADR 0091’s path checks. Cleanup excludes worktrees already removed in this pass. The Task folder itself never becomes writable. Missing or unsafe sandbox paths fail the command with a redacted explanation; there is no unsandboxed fallback. Setup failure still starts the Task Lead with the failure report. Teardown failure is recorded and removal continues. The existing sandbox-unavailable banner reports an unavailable sandbox program.
+
+A new confirmation is unnecessary while this boundary applies. Bypass retains its existing unsandboxed behavior. Human-only Factory settings Run now still runs on the default branch in a scratch worktree; human-started Apps keep ADR 0091’s confirmation. Commands that need writes outside the sandbox fail in Auto. Existing shared-cache hard links are not migrated, and ADR 0091’s remaining network, local-service and Linux path-race limits still apply.
