@@ -10,9 +10,11 @@ import type {
 
 export type CoordinatorTaskState = Pick<Task, 'stage' | 'priority' | 'rank' | 'status' | 'archived'>
 
+export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer'
+
 export interface CoordinatorReceipt {
   id: string
-  operation: string
+  operation: CoordinatorOperation
   taskId: string
   text: string
   at: string
@@ -42,16 +44,32 @@ export interface CoordinatorMessage {
   effort?: TaskLead['effort']
 }
 
+export interface CoordinatorRequest {
+  id: string
+  kind: Comment['kind']
+  askedBy: Comment['author']['kind']
+  stage?: Comment['stage']
+  title?: string
+  text: string
+  choices?: string[]
+  humanOnlyChoices?: string[]
+  createdAt: string
+  coordinatorMayAnswer: 'yes' | 'with a choice' | 'no'
+}
+
 export type CoordinatorTaskSummary = Pick<
   Task,
   'id' | 'displayId' | 'title' | 'stage' | 'priority' | 'rank' | 'status' | 'blockedBy' | 'archived'
->
+> & { openRequests?: CoordinatorRequest[]; moreOpenRequests?: number }
 
 export interface CoordinatorTask {
   descriptions: DescriptionVersion[]
   task: Task
   brief?: TaskBrief
   comments: Comment[]
+  openRequests: CoordinatorRequest[]
+  moreOpenRequests?: number
+  now: string
   nextOffset?: number
   version: string
 }
@@ -60,4 +78,7 @@ export interface CoordinatorAction extends MoveTaskRequest {
   operation: string
   version: string
   neighbours?: Record<string, string>
+  message?: string
+  request?: string
+  choice?: string
 }

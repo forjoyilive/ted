@@ -36,7 +36,13 @@ import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { Coordinator, CoordinatorAction, CoordinatorMessage } from './coordinator.ts'
+import type {
+  Coordinator,
+  CoordinatorAction,
+  CoordinatorMessage,
+  CoordinatorOperation,
+  CoordinatorReceipt,
+} from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -317,9 +323,9 @@ export class DaemonClient {
 
   coordinatorAct(
     id: string,
-    action: 'start' | 'move',
+    action: CoordinatorOperation,
     input: CoordinatorAction,
-  ): Promise<import('./coordinator.ts').CoordinatorReceipt> {
+  ): Promise<CoordinatorReceipt> {
     return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
   }
 

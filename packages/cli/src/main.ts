@@ -113,11 +113,25 @@ const usage = `Usage:
   ted peers send <Task> --operation <unique-id> "<text>"
                                              Send an attributed peer note (stdin if no text)
   ted peers inbox [--offset <n>]            Read received messages and delivery receipts
-  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks
-  ted coordinator task <id> [--offset <n>]   Read a Task, brief, Comments and current version
+  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks and their open requests
+  ted coordinator task <id> [--offset <n>]   Read a Task, brief, open requests, Comments and version
   ted coordinator start <id> --operation <id> --version <version>
   ted coordinator move <id> --after <id> / --before <id> --operation <id> --version <version> --neighbours <json>
                                              Start or reorder waiting Tasks (Coordinator only)
+  ted coordinator tell <id> --operation <id> --version <version> [--message "<text>"]
+                                             Send a message to a Task’s Task Lead, on the
+                                             human’s instruction; reads stdin if no --message
+                                             (Coordinator only)
+  ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
+                         [--choice "<answer>"] [--message "<text>"]
+                                             Answer an open question a Run asked, or one TED
+                                             asked that has choices (--choice required), on
+                                             the human’s instruction; never a Gate, sign-off,
+                                             permission prompt, round, proposal, size check,
+                                             Linear team ask or failure decision; reads the
+                                             message from stdin if neither --choice nor
+                                             --message is given
+                                             (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task propose --file <file> [--supersedes <request-id>]
@@ -157,6 +171,8 @@ function parse() {
         operation: { type: 'string' },
         version: { type: 'string' },
         neighbours: { type: 'string' },
+        message: { type: 'string' },
+        request: { type: 'string' },
         after: { type: 'string' },
         before: { type: 'string' },
         choice: { type: 'string', multiple: true },
@@ -321,7 +337,36 @@ try {
             }),
           ),
         )
-      } else throw new UsageError('Use coordinator tasks, task, start or move')
+      } else if ((command === 'tell' || command === 'answer') && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const choices = options.choice ?? []
+        if (command === 'tell' && (options.request || choices.length > 0))
+          throw new UsageError('tell takes only --message')
+        if (command === 'answer' && !options.request)
+          throw new UsageError('name the question with --request <comment-id>')
+        if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
+        const typed =
+          options.message ?? (command === 'tell' || choices.length === 0 ? await readStdin() : '')
+        const message = typed.trim() === '' ? undefined : typed.trim()
+        if (message === undefined && (command === 'tell' || choices.length === 0))
+          throw new UsageError(
+            command === 'tell'
+              ? 'give the message with --message "<text>" or on stdin'
+              : 'give --choice, --message, or both',
+          )
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message !== undefined && { message }),
+              ...(command === 'answer' && { request: options.request }),
+              ...(choices[0] !== undefined && { choice: choices[0] }),
+            }),
+          ),
+        )
+      } else throw new UsageError('Use coordinator tasks, task, start, move, tell or answer')
     })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)

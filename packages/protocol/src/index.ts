@@ -125,7 +125,9 @@ export type {
   Coordinator,
   CoordinatorAction,
   CoordinatorMessage,
+  CoordinatorOperation,
   CoordinatorReceipt,
+  CoordinatorRequest,
   CoordinatorTask,
   CoordinatorTaskSummary,
 } from './coordinator.ts'
