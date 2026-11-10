@@ -12,6 +12,7 @@ import { tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { openStore } from '../src/store/index.ts'
 import { api, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
 
@@ -278,3 +279,170 @@ test('a new execution cannot inherit an earlier failure’s acceptance', async (
     source.kind === 'factory-check' && progress?.executions.at(-1)?.runId === source.checkRunId,
   ).toBe(true)
 })
+
+async function restart() {
+  await ctx.daemon?.stop()
+  ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+  const client = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+  return {
+    ...client,
+    async read<T>(route: string): Promise<T> {
+      const response = await client.call('GET', route)
+      expect(response.status).toBe(200)
+      return response.body as T
+    },
+  }
+}
+
+test('restart reconstructs a persisted failed execution before its case was recorded and preserves remaining Checks', async () => {
+  const s = await setup()
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  const progress = store.failures.progress(s.task.id)
+  expect(progress).toBeDefined()
+  if (!progress) throw new Error('Validate progress missing')
+  const run = store.startChecks({
+    taskId: s.task.id,
+    trigger: 'validate',
+    stage: 'validate',
+    checks: progress.checks.map((check) => ({ ...check, state: 'waiting' })),
+  })
+  store.checkFinished(run.id, 0, { state: 'failed', exitCode: 1, durationMs: 1 })
+  const finished = store.finishChecks(run.id, 'failed')
+  store.failures.saveProgress({
+    ...progress,
+    executions: [
+      ...progress.executions,
+      { runId: run.id, start: 0, ...(progress.contextId && { contextId: progress.contextId }) },
+    ],
+    checks: finished.checks,
+    next: 0,
+    pending: true,
+    failureId: undefined,
+  })
+  await store.persisted()
+  await store.close()
+  const client = await restart()
+  const recovered = await waitUntil(async () => {
+    const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
+    return cases.find((f) => f.source.kind === 'factory-check' && f.source.checkRunId === run.id)
+  }, 'reconstructed failure case')
+  const obligations = await waitUntil(async () => {
+    const value = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
+    return value.progress?.pending === false ? value : undefined
+  }, 'recovered diagnosis hold')
+  expect(obligations.progress?.failureId).toBe(recovered.id)
+  expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+  expect(obligations.satisfied).toBe(false)
+  expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
+  expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).at(-1)).toEqual(finished)
+})
+
+test.each([false, true])(
+  'restart resumes a persisted Finding Fix once (send-back recorded: %s)',
+  async (recorded) => {
+    const s = await setup()
+    await s.answer(await s.ask(s.one), 'Accept this failure')
+    await waitUntil(async () => (await s.obligations()).satisfied, 'Checks complete')
+    const context = await s.post<{ id: string }>('/failure-contexts')
+    const current = await getTask(s.client, s.task.id)
+    const value = await s.post<FailureCase>('/failures', {
+      source: { kind: 'finding', runId: current.leadRunId, finding: 'Authorization missing' },
+      contextId: context.id,
+      evidence: 'A guest can reproduce the protected action.',
+    })
+    const decision = await s.ask(value)
+    await ctx.daemon?.stop()
+    ctx.daemon = undefined
+    const store = await openStore({ directory: tedPaths(ctx.home).store })
+    const saved = store.failures.get(value.id)
+    const requestId = decision.decisions.at(-1)?.commentId
+    const assessmentId = saved?.assessments.at(-1)?.id
+    if (!saved || !requestId || !assessmentId) throw new Error('Finding decision missing')
+    const at = new Date().toISOString()
+    store.resolveFailure(
+      {
+        ...saved,
+        resolutions: [
+          ...saved.resolutions,
+          { requestId, resolution: 'fix', assessmentId, at, contextId: context.id },
+        ],
+      },
+      requestId,
+      { kind: 'answered', at, choice: 'Fix in this Task' },
+      [],
+    )
+    if (recorded) {
+      store.recordSendBack({
+        taskId: s.task.id,
+        from: 'validate',
+        to: 'work',
+        counted: true,
+        round: 1,
+        limit: 1,
+        findings: `Failure ${saved.id} · Fix request ${requestId}\n\nAuthorization missing\n\nA guest can reproduce the protected action.`,
+      })
+    }
+    await store.persisted()
+    await store.close()
+    let client = await restart()
+    await waitUntil(
+      async () =>
+        (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage === 'work',
+      'recovered Fix send-back',
+    )
+    const backs = await client.read<SendBack[]>(`${s.root}/send-backs`)
+    expect(backs).toHaveLength(1)
+    expect(backs[0]).toMatchObject({ counted: true, round: 1 })
+    expect(backs[0]?.findings).toContain('Authorization missing')
+    expect(backs[0]?.findings).toContain('A guest can reproduce the protected action.')
+    client = await restart()
+    expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual(backs)
+    expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
+      'work',
+    )
+  },
+)
+
+test.each([false, true])(
+  'restart preserves a handled Fix escalation (answered: %s)',
+  async (answered) => {
+    const s = await setup()
+    await s.assess(s.one, 'regression')
+    await s.post('/outcome', { outcome: 'back', to: 'work', findings: s.one.evidence })
+    await s.post('/outcome', { outcome: 'advance' })
+    const second = await s.failure(2)
+    await s.answer(await s.ask(second), 'Fix in this Task')
+    const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+    const question = comments.find((c) => !c.answer && c.title?.includes('its limit'))
+    if (!question) throw new Error('Send-back limit question missing')
+    if (answered) {
+      expect(
+        (
+          await s.client.call('POST', `/comments/${question.id}/answer`, {
+            action: 'answer',
+            text: 'Keep this Task in Validate while I investigate.',
+          })
+        ).status,
+      ).toBe(200)
+    }
+    const before = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+    const client = await restart()
+    await waitUntil(
+      async () =>
+        !(await client.read<Task[]>('/tasks'))
+          .find((t) => t.id === s.task.id)
+          ?.activity?.startsWith('Running Checks'),
+      'Validate recovery to settle',
+    )
+    const after = await client.read<Comment[]>(`${s.root}/comments`)
+    expect(after.filter((c) => c.title?.includes('its limit'))).toEqual(
+      before.filter((c) => c.title?.includes('its limit')),
+    )
+    expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
+    expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
+      'validate',
+    )
+  },
+)

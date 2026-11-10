@@ -2,9 +2,15 @@ import type { CheckResult, FailureCase, ValidationProgress } from '@ted/protocol
 import { validationExecution } from '@ted/protocol'
 import { describeResult } from './checks.ts'
 
+export function failureCaseReference(value: FailureCase): string {
+  const decision = value.resolutions.at(-1)
+  return `Failure ${value.id}${decision?.resolution === 'fix' ? ` · Fix request ${decision.requestId}` : ''}`
+}
+
 export function failureCaseFindings(value: FailureCase): string {
   return [
-    `Failure ${value.id}`,
+    failureCaseReference(value),
+    ...(value.source.kind === 'finding' ? [value.source.finding] : []),
     value.evidence,
     ...value.additions.map((a) => a.evidence),
     `Assessment: ${value.assessments.at(-1)?.assessment ?? 'uncertain'}`,

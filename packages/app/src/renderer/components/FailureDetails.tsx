@@ -42,6 +42,12 @@ export function FailureDetails({ failure }: { failure: FailureCase }) {
       <p className={styles.sectionBody}>
         Failure {failure.id} · {disposition}
       </p>
+      {failure.source.kind === 'finding' && (
+        <>
+          <h3 className={styles.sectionHeading}>Finding</h3>
+          <p className={styles.sectionBody}>{failure.source.finding}</p>
+        </>
+      )}
       <h3 className={styles.sectionHeading}>Assessment</h3>
       <p className={styles.sectionBody}>{assessment?.assessment ?? 'Investigation in progress'}</p>
       <h3 className={styles.sectionHeading}>Evidence</h3>

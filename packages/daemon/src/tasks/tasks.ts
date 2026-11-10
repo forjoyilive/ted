@@ -250,7 +250,12 @@ import {
 } from './split.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
-import { failureCaseFindings, sameCheckPlan, validationReport } from './validation.ts'
+import {
+  failureCaseFindings,
+  failureCaseReference,
+  sameCheckPlan,
+  validationReport,
+} from './validation.ts'
 import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
@@ -1467,11 +1472,65 @@ export function createTasks(options: {
     return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
   }
 
+  function validationFixes(task: Task): FailureCase[] {
+    return store.failures.list(task.id).filter((value) => {
+      const decision = value.resolutions.at(-1)
+      return (
+        value.validation &&
+        decision?.resolution === 'fix' &&
+        decision.at >= visitStart(task) &&
+        !value.verifications?.length
+      )
+    })
+  }
+
+  async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
+    const reference = `${failureCaseReference(value)}\n\n`
+    const matches = (record: { findings: string }) => record.findings.startsWith(reference)
+    if (store.sendBackAsks(task.id).some(matches) || store.loopChecks(task.id).some(matches)) return
+    if (
+      pendingLoopCheck(task.id) ||
+      store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
+    )
+      return
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
+    const sent = store.listSendBacks(task.id).find(matches)
+    if (sent) {
+      if (sent.at >= visitStart(task))
+        await move(
+          task,
+          resolution,
+          'work',
+          backStageMessage(resolution.workflow, 'work', 'validate', sent.findings),
+        )
+      return
+    }
+    judge(task, 'sent-back', undefined)
+    await sendBack(
+      task,
+      resolution,
+      'validate',
+      { outcome: 'back', to: 'work', findings: failureCaseFindings(value) },
+      value.source.kind === 'factory-check' ? value.source.checkRunId : undefined,
+    )
+  }
+
   async function resumeValidation(taskId: string): Promise<void> {
     const task = find(taskId)
     const progress = store.failures.progress(taskId)
     if (task.stage !== 'validate' || task.archived || task.stopped) {
       setChecking(taskId, false)
+      return
+    }
+    const fixes = validationFixes(task)
+    if (fixes.length) {
+      setChecking(taskId, false)
+      await holding(task, async () => {
+        for (const value of fixes) {
+          if (find(taskId).stage !== 'validate') break
+          await applyValidationFix(find(taskId), value)
+        }
+      })
       return
     }
     if (!progress) {
@@ -1509,24 +1568,6 @@ export function createTasks(options: {
           next: Math.max(progress.next, execution.start + position + 1),
           pending: true,
         })
-      } else if (decision?.resolution === 'fix') {
-        setChecking(taskId, false)
-        if (
-          pendingLoopCheck(taskId) ||
-          store.sendBackAsks(taskId).some((ask) => !store.getComment(ask.commentId)?.answer)
-        )
-          return
-        const resolution = await taskWorkflow(find(task.id), { fetch: false })
-        await holding(task, () =>
-          sendBack(
-            find(taskId),
-            resolution,
-            'validate',
-            { outcome: 'back', to: 'work', findings: failureCaseFindings(value) },
-            run.id,
-          ),
-        )
-        return
       } else if (decision?.resolution === 'retry') {
         store.failures.saveProgress({
           ...progress,
@@ -6182,6 +6223,53 @@ export function createTasks(options: {
     return true
   })
 
+  const failures = createFailureCases({
+    store,
+    snapshot: (task, bindCi) => failureSnapshot(task, undefined, bindCi),
+    assertLead: (task, runId) => {
+      taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
+    },
+    drafts,
+    onInvalidated: async (task) => {
+      await sendWaiting(task.id)
+    },
+    onHold: async (task) => {
+      const current = find(task.id)
+      const split = mergeSplit(current)
+      if (current.stage !== 'done' && split && !current.statuses.includes('partly-merged')) {
+        store.mergeStoppedPartway(task.id, split)
+        await store.persisted()
+      }
+      const stillOn = await turnOffAutoMerge(task.id)
+      if (stillOn.length > 0) {
+        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
+        if (
+          !store
+            .listComments(task.id)
+            .some((comment) => comment.author.kind === 'ted' && comment.body === message)
+        ) {
+          store.postComment({ taskId: task.id, author: { kind: 'ted' }, body: message })
+          await store.persisted()
+        }
+        throw new RequestError(502, message)
+      }
+    },
+    tell: async (task, comment) => {
+      await deliverAnswer(
+        task,
+        comment,
+        redactSecrets(
+          withLines(
+            failureText(
+              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+            ),
+            comment,
+          ),
+        ),
+      )
+    },
+  })
+
   const paused = store.agentPauses()
   for (const run of store.listRuns()) {
     if (run.state === 'finished') continue
@@ -6269,8 +6357,7 @@ export function createTasks(options: {
       task.stage === 'validate' &&
       !task.archived &&
       !find(task.id).stopped &&
-      progress &&
-      (progress.pending || decided) &&
+      (progress?.pending || decided || validationFixes(task).length > 0) &&
       !checking.has(task.id)
     ) {
       setChecking(task.id, true)
@@ -6448,52 +6535,6 @@ export function createTasks(options: {
       fingerprint: hashContext(context),
     }
   }
-  const failures = createFailureCases({
-    store,
-    snapshot: (task, bindCi) => failureSnapshot(task, undefined, bindCi),
-    assertLead: (task, runId) => {
-      taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
-    },
-    drafts,
-    onInvalidated: async (task) => {
-      await sendWaiting(task.id)
-    },
-    onHold: async (task) => {
-      const current = find(task.id)
-      const split = mergeSplit(current)
-      if (current.stage !== 'done' && split && !current.statuses.includes('partly-merged')) {
-        store.mergeStoppedPartway(task.id, split)
-        await store.persisted()
-      }
-      const stillOn = await turnOffAutoMerge(task.id)
-      if (stillOn.length > 0) {
-        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
-        if (
-          !store
-            .listComments(task.id)
-            .some((comment) => comment.author.kind === 'ted' && comment.body === message)
-        ) {
-          store.postComment({ taskId: task.id, author: { kind: 'ted' }, body: message })
-          await store.persisted()
-        }
-        throw new RequestError(502, message)
-      }
-    },
-    tell: async (task, comment) => {
-      await deliverAnswer(
-        task,
-        comment,
-        redactSecrets(
-          withLines(
-            failureText(
-              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
-            ),
-            comment,
-          ),
-        ),
-      )
-    },
-  })
   async function resolveValidationFailure(task: Task, id: string, input: ResolveFailureRequest) {
     const value = failures.get(task, id)
     if (!value.validation) {
@@ -6514,14 +6555,7 @@ export function createTasks(options: {
       throw new RequestError(409, 'this failure is not the outstanding Check')
     const result = await failures.resolve(task, id, input)
     if (input.resolution === 'fix') {
-      judge(find(task.id), 'sent-back', undefined)
-      await sendBack(
-        find(task.id),
-        resolution,
-        'validate',
-        { outcome: 'back', to: 'work', findings: failureCaseFindings(result) },
-        value.source.kind === 'factory-check' ? value.source.checkRunId : undefined,
-      )
+      await applyValidationFix(find(task.id), result)
     } else if (
       value.source.kind === 'factory-check' &&
       (input.resolution === 'retry' || input.resolution === 'accepted') &&

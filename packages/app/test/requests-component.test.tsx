@@ -314,6 +314,7 @@ test('Validate failure decisions display evidence and send the selected action',
     />,
   )
   await screen.findByText('Reproduced before the changed code executes.')
+  expect(screen.getByText('Visual failure')).toBeTruthy()
   expect(screen.getByText('uncertain')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
