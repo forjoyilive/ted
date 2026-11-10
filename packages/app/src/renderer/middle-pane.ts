@@ -1,4 +1,4 @@
-import type { Task } from '@ted/protocol'
+import type { Task, TaskFileRef } from '@ted/protocol'
 import type { ChangedFile } from './changes.ts'
 import type { ShownApp } from './components/AppsSection.tsx'
 import type { LineFocus } from './components/DiffViews.tsx'
@@ -6,6 +6,7 @@ import type { LineFocus } from './components/DiffViews.tsx'
 export type ChangesView = { kind: 'diff'; file: ChangedFile; focus?: LineFocus } | { kind: 'all' }
 
 export interface MiddlePaneState {
+  file?: { taskId: string; file: TaskFileRef } | undefined
   run?: { taskId: string; runId: string | undefined } | undefined
   changes?: { taskId: string; view: ChangesView } | undefined
   app?: { taskId: string; app: ShownApp } | undefined
@@ -14,6 +15,7 @@ export interface MiddlePaneState {
 }
 
 export type MiddlePaneAction =
+  | { kind: 'file'; file: TaskFileRef | undefined }
   | { kind: 'run'; runId: string | undefined }
   | { kind: 'changes'; view: ChangesView | undefined }
   | { kind: 'app'; app: ShownApp | undefined }
@@ -26,21 +28,24 @@ export function middlePaneStep(
   taskId: string,
   action: MiddlePaneAction,
 ): MiddlePaneState {
-  const { run, changes, app, brief, shell } = state
+  const { run, changes, app, brief, shell, file } = state
   switch (action.kind) {
+    case 'file':
+      if (action.file === undefined) return { run, changes, app, brief, shell }
+      return { run, changes, app, brief, shell, file: { taskId, file: action.file } }
     case 'run':
       return { run: { taskId, runId: action.runId } }
     case 'changes':
-      if (action.view === undefined) return { run, app, brief, shell }
+      if (action.view === undefined) return { run, app, brief, shell, file }
       return { run, shell, changes: { taskId, view: action.view } }
     case 'app':
-      if (action.app === undefined) return { run, changes, brief, shell }
+      if (action.app === undefined) return { run, changes, brief, shell, file }
       return { run, app: { taskId, app: action.app } }
     case 'brief':
-      if (!action.open) return { run, changes, app, shell }
+      if (!action.open) return { run, changes, app, shell, file }
       return { run, brief: taskId }
     case 'shell':
-      if (action.repo === undefined) return { run, changes, app, brief }
+      if (action.repo === undefined) return { run, changes, app, brief, file }
       return { run, shell: { taskId, repo: action.repo } }
     case 'answered':
       return { shell }
@@ -48,6 +53,7 @@ export function middlePaneStep(
 }
 
 export interface MiddlePane {
+  file: TaskFileRef | undefined
   run: string | undefined
   changes: ChangesView | undefined
   app: ShownApp | undefined
@@ -72,14 +78,20 @@ export function middlePane(
     shellRepo !== undefined && task.repos.some((r) => !r.removed && r.name === shellRepo)
       ? shellRepo
       : undefined
-  const all = changes?.kind === 'all' && changesLoaded
+  const requestedFile = state.file?.taskId === task.id ? state.file.file : undefined
+  const file =
+    requestedFile && task.repos.some((r) => !r.removed && r.name === requestedFile.repo)
+      ? requestedFile
+      : undefined
+  const all = file === undefined && changes?.kind === 'all' && changesLoaded
   return {
     run,
-    changes,
+    changes: file === undefined ? changes : undefined,
     app,
-    brief,
+    brief: file === undefined && brief,
     shell,
     all,
-    covered: all || changes?.kind === 'diff' || brief,
+    file,
+    covered: file !== undefined || all || changes?.kind === 'diff' || brief,
   }
 }

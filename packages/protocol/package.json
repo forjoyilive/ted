@@ -29,6 +29,7 @@
     "./release": "./src/release.ts",
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
-    "./plan": "./src/plan.ts"
+    "./plan": "./src/plan.ts",
+    "./export-file": "./src/export-file.ts"
   }
 }

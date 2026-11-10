@@ -64,7 +64,15 @@ function taskField(
 export function search(store: TedStore, { query, factoryId }: SearchRequest): SearchResults {
   const terms = searchTerms(query)
   if (terms.length === 0) {
-    return { query, tasks: [], comments: [], factories: [], plans: [], automations: [] }
+    return {
+      query,
+      conversations: [],
+      tasks: [],
+      comments: [],
+      factories: [],
+      plans: [],
+      automations: [],
+    }
   }
   const exact = foldText(query.trim())
   const tasks = store.listTasks()
@@ -150,6 +158,7 @@ export function search(store: TedStore, { query, factoryId }: SearchRequest): Se
 
   return {
     query,
+    conversations: [],
     tasks: taskHits.slice(0, searchLimits.tasks),
     comments: commentHits.slice(0, searchLimits.comments),
     factories: factoryHits.slice(0, searchLimits.factories),

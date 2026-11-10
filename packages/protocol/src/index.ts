@@ -151,7 +151,17 @@ export type {
   TokenUse,
 } from './diagnostics.ts'
 export { type Edition, edition, type Identity, identity } from './edition.ts'
+export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
 export type { DaemonEvent } from './events.ts'
+export {
+  type ExportFormat,
+  type ExportRun,
+  type ExportTask,
+  exportFormat,
+  type FactoryExport,
+  formatExport,
+  type SaveExportResult,
+} from './export.ts'
 export {
   type AddFactoryRequest,
   type CheckRepoRequest,
@@ -366,6 +376,7 @@ export {
 export {
   type AutomationHit,
   type CommentHit,
+  type ConversationHit,
   type FactoryHit,
   foldText,
   matchesTerms,
@@ -543,6 +554,14 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export {
+  fileListLimit,
+  filePreviewLimit,
+  type RepoFiles,
+  type TaskFileContent,
+  type TaskFileRef,
+  type TaskFiles,
+} from './task-files.ts'
 export type {
   SetTaskGatesRequest,
   TaskGateOverrides,

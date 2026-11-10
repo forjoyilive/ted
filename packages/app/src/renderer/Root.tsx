@@ -1,16 +1,23 @@
 import { useEffect, useState } from 'react'
 import { App } from './App.tsx'
 import { ConnectionNotice } from './ConnectionNotice.tsx'
-import { useDataStatus, useSettings } from './data.ts'
+import { LoadingError, LoadingScreen } from './components/Loading.tsx'
+import { useDataStatusState, useSettingsState } from './data.ts'
 import { useTimeSettings } from './TimeSettings.ts'
 import { DataScreen } from './views/DataScreen.tsx'
 import { FirstLaunch } from './views/FirstLaunch.tsx'
 
 function Opened() {
-  const settings = useSettings()
+  const resource = useSettingsState()
+  const settings = resource.settings
   useTimeSettings(settings)
   const [addFactoryFirst, setAddFactoryFirst] = useState(false)
-  if (!settings) return null
+  if (!settings)
+    return resource.error ? (
+      <LoadingError error={resource.error} retry={resource.retry} />
+    ) : (
+      <LoadingScreen />
+    )
   if (!settings.firstLaunchDone) {
     return <FirstLaunch settings={settings} onFinish={setAddFactoryFirst} />
   }
@@ -18,7 +25,8 @@ function Opened() {
 }
 
 export function Root() {
-  const status = useDataStatus()
+  const resource = useDataStatusState()
+  const status = resource.status
   const [generation, setGeneration] = useState(0)
   const [opened, setOpened] = useState(false)
   const state = status?.state
@@ -34,7 +42,13 @@ export function Root() {
   return (
     <>
       <ConnectionNotice />
-      {status && status.state !== 'opening' && <DataScreen status={status} />}
+      {resource.error ? (
+        <LoadingError error={resource.error} retry={resource.retry} />
+      ) : status && status.state !== 'opening' ? (
+        <DataScreen status={status} />
+      ) : (
+        <LoadingScreen />
+      )}
     </>
   )
 }

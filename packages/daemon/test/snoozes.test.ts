@@ -14,6 +14,7 @@ import {
   tokenFor,
   waitUntil,
 } from './helpers.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -75,6 +76,42 @@ const lead = (client: Client, task: Task) =>
   }, `${task.displayId} to start`)
 
 describe('Backlog snoozes', () => {
+  test('the shared Clock drives due starts and cancels the snooze timer on close', async () => {
+    const clock = new ManualClock(Date.parse('2099-11-10T00:00:00Z'))
+    const { client } = await start({ clock })
+    const task = await create(client)
+    await client.ok('PUT', `/tasks/${task.id}/snooze`, { snoozedUntil: '2099-11-10T00:01:00.000Z' })
+    clock.advance(59_999)
+    expect((await get(client, task)).stage).toBe('backlog')
+    clock.advance(1)
+    await lead(client, task)
+    expect((await get(client, task)).snoozedUntil).toBeUndefined()
+    await daemon?.stop()
+    daemon = undefined
+    expect(clock.pending).toEqual([])
+  })
+
+  test('a pending snooze holds idle exit until cancellation', async () => {
+    const clock = new ManualClock(Date.parse('2099-11-10T00:00:00Z'))
+    let idles = 0
+    const { client } = await start({
+      clock,
+      idleExit: {
+        afterMs: 500,
+        onIdle: () => {
+          idles++
+        },
+      },
+    })
+    const task = await create(client)
+    await client.ok('PUT', `/tasks/${task.id}/snooze`, { snoozedUntil: '2099-11-11T00:00:00.000Z' })
+    clock.advance(1000)
+    expect(idles).toBe(0)
+    await client.ok('PUT', `/tasks/${task.id}/snooze`, { snoozedUntil: null })
+    clock.advance(500)
+    expect(idles).toBe(1)
+  })
+
   const until = '2099-11-11T17:00:00.000Z'
   const snooze = (client: Client, task: Task, snoozedUntil: string | null = until) =>
     client.ok<Task>('PUT', `/tasks/${task.id}/snooze`, { snoozedUntil })

@@ -142,7 +142,8 @@
 
   --sidebar-width: 210px;
   --list-pane-width: 330px;
-  --details-pane-width: 260px;
+  --details-pane-width: 320px;
+  --changes-index-width: 260px;
   --settings-column-width: 720px;
 
   --terminal-font-size: 13px;

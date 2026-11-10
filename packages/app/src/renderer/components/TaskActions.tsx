@@ -223,6 +223,8 @@ export function TaskActionsMenu({
   }, [task.id, task.archived, task.stage])
 
   const action = statusAction(task)
+  const lead = task.runs.find((run) => run.id === task.leadRunId && run.role === 'lead')
+  const [restarting, setRestarting] = useState(false)
   const linear = task.source?.linear
 
   const act = (work: () => Promise<unknown>) => {
@@ -318,6 +320,25 @@ export function TaskActionsMenu({
                     : act(() => runStatusAction(action.kind, task))
                 }
               />
+              {lead !== undefined && lead.state !== 'finished' && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.item}
+                  disabled={restarting || lead.state === 'working'}
+                  title={
+                    lead.state === 'working' ? 'Restart works when the Run is idle' : undefined
+                  }
+                  onClick={() =>
+                    act(() => {
+                      setRestarting(true)
+                      return ted.restartRun(lead.id).finally(() => setRestarting(false))
+                    })
+                  }
+                >
+                  <span className={styles.label}>Restart</span>
+                </button>
+              )}
               <hr className={styles.separator} />
             </>
           )}

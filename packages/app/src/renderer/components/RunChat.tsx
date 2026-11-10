@@ -4,7 +4,7 @@
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useRunChat } from '../data.ts'
+import { useRunChatState } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -12,6 +12,7 @@ import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
+import { LoadingError, Skeleton } from './Loading.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
 import { ScrollMemory } from './ScrollMemory.tsx'
@@ -123,7 +124,7 @@ function Collapsible({
   label: ReactNode
   mono?: ReactNode
   meta?: ReactNode
-  open?: boolean
+  open?: boolean | undefined
   tone?: 'failed' | undefined
   children?: ReactNode
 }) {
@@ -175,7 +176,15 @@ export function Diff({ diff, showPath }: { diff: ChatDiff; showPath: boolean }) 
   )
 }
 
-function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now: number }) {
+function ToolRow({
+  item,
+  now,
+  open,
+}: {
+  item: Extract<ChatItem, { kind: 'tool' }>
+  now: number
+  open?: boolean
+}) {
   const diffs = item.diffs ?? []
   const additions = diffs.reduce((sum, d) => sum + d.additions, 0)
   const deletions = diffs.reduce((sum, d) => sum + d.deletions, 0)
@@ -196,15 +205,18 @@ function ToolRow({ item, now }: { item: Extract<ChatItem, { kind: 'tool' }>; now
     ) : (
       (item.detail ?? (outputLines === 1 ? item.output?.trim().slice(0, 80) : undefined))
     )
+  const showDetail = item.detail !== undefined && meta !== item.detail
   return (
     <Collapsible
+      open={open}
       label={item.tool}
       mono={item.title}
       meta={meta}
       tone={item.status === 'failed' ? 'failed' : undefined}
     >
-      {(diffs.length > 0 || item.output !== undefined) && (
+      {(showDetail || diffs.length > 0 || item.output !== undefined) && (
         <>
+          {showDetail && <pre className={styles.output}>{item.detail}</pre>}
           {diffs.map(numbered).map(({ n, ...diff }) => (
             <Diff key={n} diff={diff} showPath={diffs.length > 1 || diff.path !== item.title} />
           ))}
@@ -232,15 +244,7 @@ function AgentMessage({
       <div className={styles.messageBody}>
         <div className={styles.messageHead}>
           <span className={styles.author}>{run.name}</span>
-          {item.at !== undefined && (
-            <span className={item.writing ? styles.writing : styles.when}>
-              {ago(item.at, now)}
-              {item.writing && ' · writing…'}
-            </span>
-          )}
-          {item.at === undefined && item.writing && (
-            <span className={styles.writing}>writing…</span>
-          )}
+          {item.at !== undefined && <span className={styles.when}>{ago(item.at, now)}</span>}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
@@ -305,7 +309,7 @@ function HumanMessage({
   item: Extract<ChatItem, { kind: 'human' }>
   run?: Pick<RunSummary, 'id' | 'state'>
   now: number
-  options?: Pick<ChatOptions, 'live' | 'interrupt'>
+  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect'>
 }) {
   const profile = useProfile()
   const unsent = item.unsent === true
@@ -327,7 +331,7 @@ function HumanMessage({
               {live ? 'Queued' : 'Not sent'}
             </span>
           )}
-          {queued && live && run && (
+          {queued && live && run && !options.inspect && (
             <QueuedActions
               runId={run.id}
               messageId={item.id}
@@ -374,7 +378,15 @@ function permissionAnswer(request: ChatPermission['request']):
 
 type ChatPermission = Extract<ChatItem, { kind: 'permission' }>
 
-function PermissionRow({ item, now }: { item: ChatPermission; now: number }) {
+function PermissionRow({
+  item,
+  now,
+  inspect,
+}: {
+  item: ChatPermission
+  now: number
+  inspect?: boolean | undefined
+}) {
   const { request } = item
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
@@ -412,6 +424,8 @@ function PermissionRow({ item, now }: { item: ChatPermission; now: number }) {
           </span>
           {` ${answer.text} · ${ago(answer.at, now)}`}
         </p>
+      ) : inspect ? (
+        <p className={styles.permissionAnswer}>Awaiting an answer in the original Conversation.</p>
       ) : (
         <div className={styles.permissionButtons}>
           {error !== undefined && (
@@ -478,9 +492,9 @@ function ChatRow({
     case 'interrupted':
       return <InterruptedLine item={item} now={now} />
     case 'tool':
-      return <ToolRow item={item} now={now} />
+      return <ToolRow item={item} now={now} open={options.matchItemId === item.id} />
     case 'permission':
-      return <PermissionRow item={item} now={now} />
+      return <PermissionRow item={item} now={now} inspect={options.inspect} />
   }
 }
 
@@ -491,6 +505,9 @@ export interface ChatExtra {
 }
 
 export interface ChatOptions {
+  inspect?: boolean
+  matchItemId?: string
+
   header?: ((run: RunSummary) => ReactNode) | undefined
   bar?: boolean
   extra?: readonly ChatExtra[]
@@ -695,31 +712,34 @@ export function ChatBody({
 
   return (
     <>
-      {options.header
-        ? options.header(run)
-        : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />}
+      {!options.inspect &&
+        (options.header
+          ? options.header(run)
+          : options.bar !== false && <RunBar run={run} onStopTask={onStopTask} />)}
       <ScrollMemory
-        spot={`run:${run.id}`}
+        spot={options.inspect ? `search:${run.id}:${options.matchItemId}` : `run:${run.id}`}
+        reveal={options.matchItemId}
         count={rows.length}
         grows={lastText}
         className={styles.items}
       >
         {rows.map((row) =>
           'item' in row ? (
-            <ChatRow
+            <div
               key={`${row.item.kind}:${row.item.id}`}
-              item={row.item}
-              run={run}
-              now={now}
-              options={options}
-            />
+              data-chat-item={row.item.id}
+              tabIndex={options.matchItemId === row.item.id ? -1 : undefined}
+              className={options.matchItemId === row.item.id ? styles.searchMatch : undefined}
+            >
+              <ChatRow item={row.item} run={run} now={now} options={options} />
+            </div>
           ) : (
             <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
           ),
         )}
       </ScrollMemory>
       {options.pinned}
-      {options.readOnly ?? <RunComposer run={run} options={options} />}
+      {!options.inspect && (options.readOnly ?? <RunComposer run={run} options={options} />)}
     </>
   )
 }
@@ -732,28 +752,43 @@ export function RunChat({
   runId: string
   onStopTask?: (() => void) | undefined
 } & ChatOptions) {
-  const chat = useRunChat(runId)
-  return <ChatSection chat={chat} onStopTask={onStopTask} options={options} />
+  const resource = useRunChatState(runId)
+  return (
+    <ChatSection
+      chat={resource.value}
+      error={resource.error}
+      retry={resource.retry}
+      onStopTask={onStopTask}
+      options={options}
+    />
+  )
 }
 
 export function ChatSection({
   chat,
   loading = 'Loading the Run…',
+  error,
+  retry,
   onStopTask,
   options = {},
 }: {
   chat: Chat | undefined
   loading?: string
+  error?: string | undefined
+  retry?: (() => void) | undefined
   onStopTask?: (() => void) | undefined
   options?: ChatOptions
 }) {
   return (
     <section className={styles.chat} aria-label="Run chat">
+      {error && retry && <LoadingError error={error} retry={retry} />}
       {chat ? (
         <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
-      ) : (
-        <p className={styles.loading}>{loading}</p>
-      )}
+      ) : !error ? (
+        <div className={styles.loading}>
+          <Skeleton shape="history" label={loading} />
+        </div>
+      ) : null}
     </section>
   )
 }

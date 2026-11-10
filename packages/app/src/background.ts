@@ -230,7 +230,7 @@ export function quitDialog(activity: Activity): QuitDialog {
   return {
     title: 'Quit TED?',
     message: quitQuestion(activity),
-    buttons: ['Keep running', 'Stop them and quit', 'Cancel'],
+    buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
     defaultId: 0,
     cancelId: 2,
     checkboxLabel: 'Don’t ask again',

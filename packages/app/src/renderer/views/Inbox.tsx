@@ -76,7 +76,7 @@ export function Inbox({
 
   return (
     <>
-      <section className={`${views.pane} ${views.listPane}`} aria-label="Inbox">
+      <section className={`${views.pane} ${views.listPane}`} aria-label="Inbox" data-fixed-pane>
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1 className={views.listTitle}>Inbox</h1>

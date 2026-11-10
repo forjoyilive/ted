@@ -31,11 +31,18 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { DotIcon } from '../components/icons.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useAutomation, useAutomations, useAutomationTemplates, useRunChat } from '../data.ts'
+import {
+  useAutomationState,
+  useAutomationsState,
+  useAutomationTemplates,
+  useRunChatState,
+} from '../data.ts'
 import { useNow } from '../requests.ts'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
@@ -78,7 +85,6 @@ function TaskLinks({
     <>
       {tasks.map((task, index) => (
         <span key={task.displayId}>
-          {index > 0 && ', '}
           <button
             type="button"
             className={styles.taskLink}
@@ -89,6 +95,7 @@ function TaskLinks({
           >
             {task.displayId}
           </button>
+          {index < tasks.length - 1 && ', '}
         </span>
       ))}
     </>
@@ -153,7 +160,8 @@ export function AutomationsPage({
   onNew: (template: TemplateChoice) => void
   onOpenTask: (ref: string) => void
 }) {
-  const automations = useAutomations(factory?.id)
+  const resource = useAutomationsState(factory?.id)
+  const automations = resource.value
   const templates = useAutomationTemplates()
   const now = useNow()
   const [error, setError] = useState<string>()
@@ -167,7 +175,13 @@ export function AutomationsPage({
         </p>
       )}
       <div className={views.body}>
-        {automations === undefined ? null : automations.length === 0 ? (
+        {automations === undefined ? (
+          resource.error ? (
+            <LoadingError error={resource.error} retry={resource.retry} />
+          ) : (
+            <Skeleton shape="settings" label="Loading Automations…" />
+          )
+        ) : automations.length === 0 ? (
           <AutomationsEmpty templates={templates} onNew={onNew} />
         ) : (
           <table className={styles.table}>
@@ -463,12 +477,30 @@ export function AutomationView({
   onOpenAutomation: (automation: Automation) => void
   onOpenTask: (ref: string) => void
 }) {
-  const detail = useAutomation(automationId)
+  const resource = useAutomationState(automationId)
+  const detail = resource.value
   const now = useNow()
   const [error, setError] = useState<string>()
   const [deleting, setDeleting] = useState(false)
   const [promptOpen, setPromptOpen] = useState(false)
-  if (detail === undefined) return <section className={views.pane} aria-label="Automation" />
+  if (detail === undefined)
+    return (
+      <section className={views.pane} aria-label="Automation">
+        <header className={styles.viewHeader}>
+          <button type="button" className={styles.backLink} onClick={onBack}>
+            ← Automations
+          </button>
+          <h1 className={styles.title}>Automation</h1>
+        </header>
+        <div className={views.body}>
+          {resource.error ? (
+            <LoadingError error={resource.error} retry={resource.retry} />
+          ) : (
+            <Skeleton shape="history" label="Loading Automation…" />
+          )}
+        </div>
+      </section>
+    )
   if (detail === null) {
     return (
       <section className={views.pane} aria-label="Automation">
@@ -526,6 +558,7 @@ export function AutomationView({
           <p className={styles.line}>{line}</p>
         </header>
         {banners}
+        {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
         {error !== undefined && (
           <p className={styles.error} role="alert">
             {error}
@@ -623,7 +656,7 @@ export function AutomationView({
           />
         )}
       </section>
-      <aside className={views.detailsPane} aria-label="Automation details">
+      <DetailsPane className={views.detailsPane} aria-label="Automation details">
         <Details title="Schedule">
           <p className={styles.detailText}>
             {scheduleDescription(automation).replace(/ · [^·]+$/, '')}
@@ -677,7 +710,7 @@ export function AutomationView({
             by you
           </p>
         </Details>
-      </aside>
+      </DetailsPane>
     </>
   )
 }
@@ -822,8 +855,15 @@ export function AutomationRunView({
   onOpenTask: (ref: string) => void
   onOpenAutomation: () => void
 }) {
-  const detail = useAutomation(automationId)
-  const chat = useRunChat(runId)
+  const resource = useAutomationState(automationId)
+  const detail = resource.value
+  const chatResource = useRunChatState(runId)
+  const chat = chatResource.value
+  const loadError = resource.error ?? chatResource.error
+  const retry = () => {
+    resource.retry()
+    chatResource.retry()
+  }
   const [error, setError] = useState<string>()
   if (detail === null) {
     return (
@@ -838,7 +878,19 @@ export function AutomationRunView({
   if (!detail || !chat) {
     return (
       <section className={views.pane} aria-label="Automation Run">
-        <p className={views.empty}>Loading the Run…</p>
+        <header className={styles.viewHeader}>
+          <button type="button" className={styles.backLink} onClick={onBack}>
+            ← Automations
+          </button>
+          <h1 className={styles.title}>Automation Run</h1>
+        </header>
+        <div className={views.empty}>
+          {loadError ? (
+            <LoadingError error={loadError} retry={retry} />
+          ) : (
+            <Skeleton shape="history" label="Loading the Run…" />
+          )}
+        </div>
       </section>
     )
   }
@@ -875,6 +927,7 @@ export function AutomationRunView({
               .join(' · ')}
           </p>
         </header>
+        {loadError && <LoadingError error={loadError} retry={retry} />}
         {error !== undefined && (
           <p className={styles.error} role="alert">
             {error}
@@ -901,7 +954,7 @@ export function AutomationRunView({
           />
         </div>
       </section>
-      <aside className={views.detailsPane} aria-label="Run details">
+      <DetailsPane className={views.detailsPane} aria-label="Run details">
         <Details title={`Tasks created · ${created.length}`}>
           {created.length === 0 ? (
             <p className={styles.detailNote}>None yet.</p>
@@ -945,7 +998,7 @@ export function AutomationRunView({
           </p>
           <p className={styles.detailNote}>{scheduleDescription(automation)}</p>
         </Details>
-      </aside>
+      </DetailsPane>
     </>
   )
 }

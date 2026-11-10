@@ -46,6 +46,7 @@ export function isModelName(value: unknown): value is string {
 }
 
 export interface TaskLead {
+  effortMode?: 'stage'
   agent: AgentKind
   model?: string
   effort?: Effort
@@ -193,6 +194,7 @@ export interface Task {
   clarifyDepth: ClarifyDepth
   clarifyDepthBy?: ClarifyDepthChooser
   lead?: TaskLead
+  stageEffort?: Effort
   blockedBy: string[]
   attachments: Attachment[]
   source?: TaskSource

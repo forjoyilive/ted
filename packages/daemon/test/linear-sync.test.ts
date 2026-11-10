@@ -24,6 +24,8 @@ import {
   useMergeHarness,
   waitForStage,
 } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
 
@@ -124,7 +126,8 @@ describe('TED → Linear', () => {
   })
 
   test('with sync off or no key, TED doesn’t touch Linear', async () => {
-    const client = await startWithLinear()
+    const clock = new ManualClock()
+    const client = await startWithLinear({ daemon: { clock } })
     await client.ok('PATCH', '/settings', { linearSync: false })
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
@@ -134,7 +137,12 @@ describe('TED → Linear', () => {
     })
     await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
     const before = linear.requests.length
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    clock.advance(400)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(50),
+      'the Linear sync cycle to finish',
+    )
 
     expect(linear.requests.slice(before)).toEqual([])
     expect(asked('TedIssueStates')).toEqual([])
@@ -142,7 +150,8 @@ describe('TED → Linear', () => {
   })
 
   test('without a key, the sync makes no request', async () => {
-    const client = await startWithLinear({ withKey: false })
+    const clock = new ManualClock()
+    const client = await startWithLinear({ withKey: false, daemon: { clock } })
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
       factory: 'NB',
@@ -150,7 +159,12 @@ describe('TED → Linear', () => {
       start: true,
     })
     await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    clock.advance(400)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(50),
+      'the Linear sync cycle to finish',
+    )
 
     expect(linear.requests).toEqual([])
   })
@@ -180,7 +194,16 @@ describe('Linear → TED', () => {
   })
 
   test('an issue with the same identifier in another workspace leaves its Task alone', async () => {
-    const client = await startWithLinear()
+    const clock = new ManualClock()
+    const client = await startWithLinear({ daemon: { clock } })
+    const poll = async () => {
+      clock.advance(50)
+      await eventWait(
+        clock.subscribe,
+        () => clock.pending.includes(50),
+        'the workspace sync cycle to finish',
+      )
+    }
     const ours = await client.ok<Task>('POST', '/tasks', {
       title: 'Offline notes',
       factory: 'NB',
@@ -191,14 +214,16 @@ describe('Linear → TED', () => {
       factory: 'NB',
       source: 'https://linear.app/elsewhere/issue/NOTE-1/other',
     })
-    await seenAfterNow()
+    await poll()
 
     issue().state = 'Canceled'
-    await waitUntil(
+    await poll()
+    await eventWait(
+      client.subscribe,
       async () => (await getTask(client, ours.id)).archived !== undefined,
       'our Task to be archived',
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await poll()
 
     expect((await getTask(client, theirs.id)).archived).toBeUndefined()
     expect(await lines(client, theirs)).not.toContain(

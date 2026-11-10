@@ -70,6 +70,11 @@ export const tasks = State.SQLite.table({
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
     snoozedUntil: State.SQLite.text({ nullable: true }),
+    leadEffortMode: State.SQLite.text({ nullable: true }),
+    stageEffort: State.SQLite.text({ nullable: true }),
+    pendingLeadMessage: State.SQLite.text({ nullable: true }),
+    pendingLeadDeliveries: State.SQLite.text({ nullable: true }),
+    leadRestartPending: State.SQLite.boolean({ default: false }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
@@ -193,6 +198,7 @@ export const runs = State.SQLite.table({
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
     retrying: State.SQLite.boolean({ default: false }),
+    steeringRelease: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1709,6 +1715,38 @@ export const events = {
     name: 'v1.TaskStageEntered',
     schema: Schema.Struct(stageEnteredFields),
   }),
+  taskStageEnteredV3: Events.synced({
+    name: 'v3.TaskStageEntered',
+    schema: Schema.Struct({
+      ...stageEnteredFields,
+      order: Schema.String,
+      effort: Schema.NullOr(Schema.String),
+    }),
+  }),
+  taskLeadEffortModeSet: Events.synced({
+    name: 'v1.TaskLeadEffortModeSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      mode: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadRestartPendingSet: Events.synced({
+    name: 'v1.TaskLeadRestartPendingSet',
+    schema: Schema.Struct({ taskId: Schema.String, pending: Schema.Boolean, at: Schema.String }),
+  }),
+  taskLeadMessageHeld: Events.synced({
+    name: 'v1.TaskLeadMessageHeld',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      text: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskLeadMessagesHeld: Events.synced({
+    name: 'v1.TaskLeadMessagesHeld',
+    schema: Schema.Struct({ taskId: Schema.String, messages: Schema.String, at: Schema.String }),
+  }),
   taskStageEnteredV2: Events.synced({
     name: 'v2.TaskStageEntered',
     schema: Schema.Struct({ ...stageEnteredFields, order: Schema.String }),
@@ -2083,6 +2121,10 @@ export const events = {
   runMessageDeleted: Events.synced({
     name: 'v1.RunMessageDeleted',
     schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
+  }),
+  runSteeringReleased: Events.synced({
+    name: 'v1.RunSteeringReleased',
+    schema: Schema.Struct({ runId: Schema.String, release: Schema.String }),
   }),
   runTurnInterrupted: Events.synced({
     name: 'v1.RunTurnInterrupted',
@@ -2584,6 +2626,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskPlanEnded': (args) => task(args, { planId: args.planId, outcome: args.outcome }),
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v3.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
   'v2.TaskSentBack': (args) =>
@@ -3136,6 +3179,8 @@ const materializers = counted(
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),
+      'v1.RunSteeringReleased': ({ runId, release }) =>
+        runs.update({ steeringRelease: release }).where({ id: runId }),
       'v1.RunTurnInterrupted': ({ id, runId, hold, at }) =>
         runInterrupts.insert({ id, runId, hold, at }),
       'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
@@ -3177,6 +3222,20 @@ const materializers = counted(
         runs.update({ sessionId }).where({ id: runId }),
       'v1.TaskStageEntered': (entry) => stageEntries.insert(entry),
       'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
+      'v3.TaskStageEntered': ({ effort, ...entry }) => [
+        stageEntries.insert(entry),
+        tasks.update({ stageEffort: effort }).where({ id: entry.taskId }),
+      ],
+      'v1.TaskLeadEffortModeSet': ({ taskId, mode }) =>
+        tasks.update({ leadEffortMode: mode }).where({ id: taskId }),
+      'v1.TaskLeadRestartPendingSet': ({ taskId, pending }) =>
+        tasks.update({ leadRestartPending: pending }).where({ id: taskId }),
+      'v1.TaskLeadMessageHeld': ({ taskId, text }) =>
+        tasks.update({ pendingLeadMessage: text }).where({ id: taskId }),
+      'v1.TaskLeadMessagesHeld': ({ taskId, messages }) =>
+        tasks
+          .update({ pendingLeadDeliveries: messages, pendingLeadMessage: null })
+          .where({ id: taskId }),
       'v1.TaskActivitySet': ({ taskId, text, stageEntries: count }) =>
         tasks.update({ activity: text, activityEntries: count }).where({ id: taskId }),
       'v1.TaskWorktreeCreated': ({ taskId, name, copied, skipped, at, ...row }) =>

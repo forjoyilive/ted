@@ -13,12 +13,12 @@ import {
   type Task,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
   appClient,
-  basedOnLine,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -129,17 +129,10 @@ describe('Library settings', () => {
 
     const after = await client.save(changes, before.version)
     expect(await libraryFile('stages/review.md')).toBe(edited)
-    expect(await libraryFile('workflow.yaml')).toBe(
-      [
-        'version: 1',
-        'stages:',
-        '  design:',
-        '    gate: false',
-        '  review:',
-        `    ${basedOnLine(blobHash(review))}`,
-        '',
-      ].join('\n'),
-    )
+    expect(parse((await libraryFile('workflow.yaml')) ?? '')).toEqual({
+      version: 1,
+      stages: { design: { gate: false }, review: { based_on: blobHash(review) } },
+    })
     expect(after.stages.find((s) => s.id === 'review')).toMatchObject({
       from: 'library',
       libraryFile: edited,
@@ -360,4 +353,20 @@ describe('restart idle Runs onto new agent versions', () => {
     await new Promise((resolve) => setTimeout(resolve, 1000))
     expect(await starts()).toHaveLength(1)
   })
+})
+
+test('Stage effort saves and removing it restores inheritance without losing other Stage settings', async () => {
+  const client = await start()
+  const before = await client.view()
+  const after = await client.save(
+    { stages: { work: { effort: 'high', maxBack: 2 } } },
+    before.version,
+  )
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({ effort: 'high', maxBack: 2 })
+  const reset = await client.save({ stages: { work: { effort: null } } }, after.version)
+  expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ effort: null, maxBack: 2 })
+  expect(await libraryFile('workflow.yaml')).not.toContain('effort:')
+  for (const stages of [{ work: { effort: 'huge' } }, { done: { effort: 'high' } }]) {
+    expect((await client.call('POST', '/library/preview', { stages })).status).toBe(400)
+  }
 })

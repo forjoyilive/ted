@@ -14,9 +14,12 @@
 }
 
 .detailsPane {
-  flex: 0 0 var(--details-pane-width);
+  flex: 1;
+  min-width: 0;
+  width: 100%;
   box-sizing: border-box;
   padding: 18px 16px;
+  overflow-x: hidden;
   overflow-y: auto;
   border-left: 1px solid var(--border-subtle);
   background: var(--surface-app);

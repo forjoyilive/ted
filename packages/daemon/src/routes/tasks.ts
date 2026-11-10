@@ -582,6 +582,23 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/files$/,
+    async handle({ params: [ref = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read files')
+      return [200, await tasks.files(ref)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/repos\/([^/?]+)\/file(?:\?.*)?$/,
+    async handle({ req, params: [ref = '', repo = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read files')
+      const relative = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? ''
+      return [200, await tasks.file(ref, repo, relative)]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/tasks\/([^/?]+)\/changes$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.changes(ref)],
   },
@@ -876,7 +893,9 @@ function taskLead(body: unknown, name?: string): TaskLead {
   if (agent === undefined) {
     throw new HttpError(400, `${name === undefined ? '' : `${name}.`}agent must be claude or codex`)
   }
-  return { agent, ...rest }
+  const mode = (body as Record<string, unknown>).effortMode
+  if (mode !== undefined && mode !== 'stage') throw new HttpError(400, 'effortMode must be stage')
+  return { agent, ...rest, ...(mode === 'stage' && { effortMode: mode }) }
 }
 
 async function createTaskInput(body: unknown, attachments: Attachments): Promise<CreateTaskInput> {
