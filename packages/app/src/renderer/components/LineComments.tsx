@@ -3,6 +3,7 @@ import { lineLabel } from '@ted/protocol/changes'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { useConnection } from '../data.ts'
+import { useProfile } from '../profile.tsx'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { rowKey } from './DiffTable.tsx'
@@ -159,12 +160,13 @@ const anchor = (row: DiffRow) => ({
 })
 
 function LineCommentCard({ comment, onEdit }: { comment: LineComment; onEdit: () => void }) {
+  const profile = useProfile()
   const draft = isDraft(comment)
   const [error, setError] = useState<string>()
   return (
     <article className={styles.card} aria-label={`Line comment on ${lineLabel(comment)}`}>
       <div className={styles.head}>
-        <span className={styles.author}>You</span>
+        <span className={styles.author}>{profile.name}</span>
         <span className={styles.meta}>
           · {draft ? 'draft' : 'sent'} · {lineLabel(comment)}
         </span>

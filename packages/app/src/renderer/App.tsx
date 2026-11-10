@@ -83,6 +83,7 @@ import {
   withHistory,
 } from './navigation.ts'
 import { plansFailedByFactory } from './plans.ts'
+import { ProfileProvider } from './profile.tsx'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import {
@@ -990,9 +991,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const frame = (content: ReactNode) => (
     <div className={styles.window}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
-      <ArmedContext value={armed}>
-        <div className={styles.app}>{content}</div>
-      </ArmedContext>
+      <ProfileProvider settings={settings}>
+        <ArmedContext value={armed}>
+          <div className={styles.app}>{content}</div>
+        </ArmedContext>
+      </ProfileProvider>
     </div>
   )
 

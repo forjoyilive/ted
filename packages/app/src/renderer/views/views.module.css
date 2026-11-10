@@ -285,12 +285,14 @@
 
 .commentHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   font-size: var(--text-13);
 }
 
 .author {
+  overflow-wrap: anywhere;
   font-weight: var(--weight-semibold);
 }
 
