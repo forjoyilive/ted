@@ -59,6 +59,7 @@ import type {
   LogText,
   MachineSettings,
   MoveTaskRequest,
+  NewTaskDraft,
   OpenInEditorRequest,
   Plan,
   PlanDetail,
@@ -97,6 +98,7 @@ import type {
   TaskBrief,
   TaskChanges,
   TaskDefaults,
+  TaskDraftState,
   TaskLead,
   TaskReposResult,
   TaskShell,
@@ -228,6 +230,10 @@ export const ted = {
   unblockTask: (taskId: string, by: string) =>
     window.ted.request('unblockTask', taskId, by) as Promise<Task>,
   getSlots: () => window.ted.request('getSlots') as Promise<RunSlots>,
+  taskDraft: (factoryId: string) =>
+    window.ted.request('taskDraft', factoryId) as Promise<TaskDraftState>,
+  saveTaskDraft: (factoryId: string, draft: NewTaskDraft) =>
+    window.ted.request('saveTaskDraft', factoryId, draft) as Promise<TaskDraftState>,
   taskDefaults: (factoryId: string) =>
     window.ted.request('taskDefaults', factoryId) as Promise<TaskDefaults>,
   factoryBoard: (factoryId: string) =>

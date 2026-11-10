@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -7,6 +7,7 @@ import {
   type DaemonClient,
   DaemonRequestError,
   type Factory,
+  type NewTaskDraft,
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
@@ -353,5 +354,142 @@ describe('Task defaults', () => {
     const client = await start()
 
     expect(await statusOf(client.taskDefaults('nope'))).toBe(404)
+  })
+})
+
+const draft = (changes: Partial<NewTaskDraft> = {}): NewTaskDraft => ({
+  revision: 'draft-1',
+  title: 'Draft title',
+  description: 'Unfinished',
+  priority: 'high',
+  blockedBy: [],
+  attachments: [],
+  start: false,
+  moreOpen: true,
+  clarifyDepth: 'few',
+  lead: { agent: 'codex', model: 'gpt-5.5', effort: 'medium' },
+  dismissed: [],
+  filled: {},
+  ...changes,
+})
+
+describe('durable New Task drafts', () => {
+  test('round trips every field across a daemon restart, independently per Factory', async () => {
+    const { client, factory } = await withFactory()
+    const file = await client.uploadAttachment(
+      { name: 'draft.txt', mediaType: 'text/plain' },
+      bytes('draft bytes'),
+    )
+    const blocker = await client.createTask({ factory: 'NB', title: 'Blocker' })
+    const saved = draft({
+      attachments: [file],
+      blockedBy: [blocker.id],
+      source: 'https://linear.app/kriyadesign/issue/KRI-229',
+      dismissed: ['https://linear.app/kriyadesign/issue/KRI-228'],
+      filled: { title: 'Linear title', priority: 'low' },
+    })
+    expect(await client.saveTaskDraft(factory.id, saved)).toEqual({ draft: saved })
+    await daemon?.stop()
+    daemon = undefined
+    const restarted = await start()
+    expect(await restarted.taskDraft(factory.id)).toEqual({ draft: saved })
+    const otherOrigin = await makeOriginRepo(path.join(scratch, 'other'))
+    const otherRepo = path.join(path.dirname(otherOrigin), 'other.git')
+    await rename(otherOrigin, otherRepo)
+    const other = await restarted.addFactory({ repo: otherRepo, key: 'OTHER' })
+    expect(await restarted.taskDraft(other.id)).toEqual({ draft: null })
+    await restarted.saveTaskDraft(other.id, draft({ title: 'Other draft' }))
+    expect(await restarted.taskDraft(factory.id)).toEqual({ draft: saved })
+  })
+
+  test('failed creation keeps a draft; successful creation clears it atomically and rejects a late copy', async () => {
+    const { client, factory } = await withFactory()
+    const saved = draft()
+    await client.saveTaskDraft(factory.id, saved)
+    expect(
+      await statusOf(
+        client.createTask({ factory: 'NB', title: '', draftRevision: saved.revision }),
+      ),
+    ).toBe(400)
+    expect(await client.taskDraft(factory.id)).toEqual({ draft: saved })
+    await client.createTask({
+      factory: 'NB',
+      description: saved.description,
+      draftRevision: saved.revision,
+    })
+    expect(await client.taskDraft(factory.id)).toEqual({
+      draft: null,
+      clearedRevision: saved.revision,
+    })
+    expect(await client.saveTaskDraft(factory.id, saved)).toEqual({
+      draft: null,
+      clearedRevision: saved.revision,
+    })
+    await daemon?.stop()
+    daemon = undefined
+    expect(await (await start()).taskDraft(factory.id)).toEqual({
+      draft: null,
+      clearedRevision: saved.revision,
+    })
+  })
+
+  test('drafts protect uploaded bytes when a Task sharing the attachment is deleted', async () => {
+    const { client, factory } = await withFactory()
+    const file = await client.uploadAttachment(
+      { name: 'shared.txt', mediaType: 'text/plain' },
+      bytes('shared draft'),
+    )
+    const task = await client.createTask({ factory: 'NB', title: 'Delete me', attachments: [file] })
+    await client.saveTaskDraft(factory.id, draft({ attachments: [file] }))
+    await client.deleteTask(task.id)
+    const created = await client.createTask({
+      factory: 'NB',
+      title: 'From draft',
+      attachments: [file],
+      draftRevision: 'draft-1',
+    })
+    expect(created.attachments).toEqual([file])
+  })
+
+  test('draft routes refuse file and Run tokens, reject invalid data, and clear Factory data on removal', async () => {
+    const { client, factory } = await withFactory()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon')
+    const path = `/factories/${factory.id}/task-draft`
+    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('draft-run')
+    for (const token of [info.token, runToken]) {
+      expect(
+        (
+          await rawRequest(info.port, {
+            method: 'PUT',
+            path,
+            headers: { authorization: `Bearer ${token}` },
+            body: JSON.stringify(draft()),
+          })
+        ).status,
+      ).toBe(403)
+    }
+    expect(
+      (await rawRequest(info.port, { path, headers: { authorization: `Bearer ${runToken}` } }))
+        .status,
+    ).toBe(403)
+    expect(
+      await statusOf(client.saveTaskDraft(factory.id, draft({ priority: 'invalid' as never }))),
+    ).toBe(400)
+    expect(
+      await statusOf(
+        client.saveTaskDraft(
+          factory.id,
+          draft({
+            attachments: [
+              { hash: 'a'.repeat(64), name: 'ghost', mediaType: 'text/plain', size: 1 },
+            ],
+          }),
+        ),
+      ),
+    ).toBe(400)
+    await client.saveTaskDraft(factory.id, draft())
+    await client.removeFactory(factory.id, { key: factory.key, closePullRequests: true })
+    expect(await statusOf(client.taskDraft(factory.id))).toBe(404)
   })
 })

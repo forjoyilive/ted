@@ -29,6 +29,15 @@ export const factoryRepos = State.SQLite.table({
   },
 })
 
+export const taskDrafts = State.SQLite.table({
+  name: 'taskDrafts',
+  columns: {
+    factoryId: State.SQLite.text({ primaryKey: true }),
+    draft: State.SQLite.text({ nullable: true }),
+    clearedRevision: State.SQLite.text({ nullable: true }),
+  },
+})
+
 export const factoryOrder = State.SQLite.table({
   name: 'factoryOrder',
   columns: {
@@ -1610,6 +1619,18 @@ export const events = {
     name: 'v1.FactoriesReordered',
     schema: Schema.Struct({ factoryIds: Schema.Array(Schema.String), at: Schema.String }),
   }),
+  taskDraftSaved: Events.synced({
+    name: 'v1.TaskDraftSaved',
+    schema: Schema.Struct({ factoryId: Schema.String, draft: Schema.String, at: Schema.String }),
+  }),
+  taskDraftCleared: Events.synced({
+    name: 'v1.TaskDraftCleared',
+    schema: Schema.Struct({ factoryId: Schema.String, revision: Schema.String, at: Schema.String }),
+  }),
+  taskDraftRemoved: Events.synced({
+    name: 'v1.TaskDraftRemoved',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
   factoryRemoved: Events.synced({
     name: 'v1.FactoryRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
@@ -2990,6 +3011,13 @@ const materializers = counted(
         factoryOrder.delete(),
         ...factoryIds.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
       ],
+      'v1.TaskDraftSaved': ({ factoryId, draft }) =>
+        taskDrafts.insert({ factoryId, draft }).onConflict('factoryId', 'replace'),
+      'v1.TaskDraftCleared': ({ factoryId, revision }) =>
+        taskDrafts
+          .insert({ factoryId, draft: null, clearedRevision: revision })
+          .onConflict('factoryId', 'replace'),
+      'v1.TaskDraftRemoved': ({ factoryId }) => taskDrafts.delete().where({ factoryId }),
       'v1.FactoryRemoved': ({ factoryId }) => [
         factories.delete().where({ id: factoryId }),
         factoryRepos.delete().where({ factoryId }),
@@ -3143,6 +3171,7 @@ const materializers = counted(
 
 const state = State.SQLite.makeState({
   tables: {
+    taskDrafts,
     factories,
     factoryRepos,
     factoryOrder,

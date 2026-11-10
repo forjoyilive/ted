@@ -115,6 +115,7 @@ import type {
   FollowUpRequest,
   InboxItem,
   MoveTaskRequest,
+  NewTaskDraft,
   OutcomeResult,
   PostCommentRequest,
   Priority,
@@ -130,6 +131,7 @@ import type {
   Task,
   TaskBrief,
   TaskDefaults,
+  TaskDraftState,
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
@@ -302,6 +304,14 @@ export class DaemonClient {
 
   listTasks(): Promise<Task[]> {
     return this.#request('GET', '/tasks')
+  }
+
+  taskDraft(factoryId: string): Promise<TaskDraftState> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/task-draft`)
+  }
+
+  saveTaskDraft(factoryId: string, draft: NewTaskDraft): Promise<TaskDraftState> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/task-draft`, draft)
   }
 
   createTask(input: CreateTaskRequest): Promise<Task> {

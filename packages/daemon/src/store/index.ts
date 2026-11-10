@@ -4,6 +4,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
+import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -133,6 +134,7 @@ import {
   taskBlockers,
   taskBriefs,
   taskDescriptions,
+  taskDrafts,
   taskLog,
   taskQueue,
   taskRepos,
@@ -275,6 +277,7 @@ export interface BlockerLink {
 export type AfterBlocking = 'backlog' | 'wait'
 
 export interface NewTask {
+  draftRevision?: string
   title: string
   factoryId?: string
   description?: string
@@ -625,6 +628,9 @@ export interface TedStore {
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
   taskFiles(taskId: string): Attachment[]
+  taskDraft(factoryId: string): TaskDraftState
+  saveTaskDraft(factoryId: string, draft: NewTaskDraft): TaskDraftState
+  removeTaskDraft(factoryId: string): void
   filesInUse(): Set<string>
   getComment(id: string): Comment | undefined
   answerComment(id: string, answer: CommentAnswer, lineComments?: readonly string[]): Comment
@@ -844,6 +850,14 @@ export async function openStore({
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
+  const taskDraft = (factoryId: string): TaskDraftState => {
+    const row = store.query(queryDb(taskDrafts.where({ factoryId })))[0]
+    return {
+      draft: row?.draft ? (JSON.parse(row.draft) as NewTaskDraft) : null,
+      ...(row?.clearedRevision ? { clearedRevision: row.clearedRevision } : {}),
+    }
+  }
+
   const allFactoryOrder = queryDb(factoryOrder.orderBy('position', 'asc'))
   const listFactories = (): StoredFactory[] => {
     const repos = store.query(allFactoryRepos)
@@ -2145,6 +2159,7 @@ export async function openStore({
     listFactories,
     getFactory: (id) => listFactories().find((f) => f.id === id),
     async createTask({
+      draftRevision,
       title,
       linearConsent = false,
       factoryId = placeholderFactory.id,
@@ -2175,6 +2190,9 @@ export async function openStore({
       const id = randomUUID()
       const at = new Date().toISOString()
       commit(
+        ...(draftRevision && factoryId !== placeholderFactory.id
+          ? [events.taskDraftCleared({ factoryId, revision: draftRevision, at })]
+          : []),
         events.taskCreatedV2({
           id,
           factoryId,
@@ -3046,8 +3064,30 @@ export async function openStore({
         .query(queryDb(commentAttachments.where({ taskId })))
         .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType })),
     ],
+    taskDraft,
+    saveTaskDraft(factoryId, draft) {
+      requireFactory(factoryId)
+      if (taskDraft(factoryId).clearedRevision !== draft.revision) {
+        commit(
+          events.taskDraftSaved({
+            factoryId,
+            draft: JSON.stringify(draft),
+            at: new Date().toISOString(),
+          }),
+        )
+      }
+      return taskDraft(factoryId)
+    },
+    removeTaskDraft(factoryId) {
+      commit(events.taskDraftRemoved({ factoryId, at: new Date().toISOString() }))
+    },
     filesInUse: () =>
       new Set([
+        ...store
+          .query(queryDb(taskDrafts))
+          .flatMap((row) =>
+            row.draft ? (JSON.parse(row.draft) as NewTaskDraft).attachments.map((a) => a.hash) : [],
+          ),
         ...store.query(queryDb(taskAttachments)).map((a) => a.hash),
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
       ]),

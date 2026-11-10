@@ -16,6 +16,7 @@ import {
   makeOriginRepo,
   removeHome,
   stopDaemonIn,
+  waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
@@ -112,6 +113,7 @@ async function openNewTask(): Promise<Page> {
 }
 
 async function paste(field: ReturnType<Page['getByLabel']>, text: string): Promise<void> {
+  await waitUntil(() => field.isEnabled(), 'the loaded draft')
   await field.focus()
   await field.page().keyboard.insertText(text)
 }

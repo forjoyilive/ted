@@ -5945,6 +5945,9 @@ export function createTasks(options: {
       },
       caller = { kind: 'app' },
     ) {
+      if (fields.draftRevision !== undefined && caller.kind !== 'app') {
+        throw new RequestError(403, 'only the app can consume a New Task draft')
+      }
       const automation = automationCaller(caller)
       const key = automation?.factoryKey ?? givenKey
       if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
