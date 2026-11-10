@@ -118,6 +118,7 @@ function useLiveList<T extends { id: string }>(
     void epoch
     if (loaded.current !== load) setItems([])
     loaded.current = load
+    let active = true
     let fresh: T[] | undefined = []
     const dropped = new Set<string>()
     const unsubscribe = ted.onEvent((event) => {
@@ -134,6 +135,7 @@ function useLiveList<T extends { id: string }>(
     })
     void load().then(
       (loaded) => {
+        if (!active) return
         setItems(
           mergeById(loaded, fresh ?? [])
             .filter((item) => !dropped.has(item.id))
@@ -144,7 +146,10 @@ function useLiveList<T extends { id: string }>(
       },
       () => undefined,
     )
-    return unsubscribe
+    return () => {
+      active = false
+      unsubscribe()
+    }
   }, [load, pick, order, drop, epoch])
 
   return { items, loaded: done }
