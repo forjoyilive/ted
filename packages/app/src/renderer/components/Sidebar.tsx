@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
-import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
+import { ChevronIcon, DotIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
 import { ResourceUsage } from './ResourceUsage.tsx'
 import styles from './Sidebar.module.css'
@@ -212,14 +212,6 @@ export function Sidebar({
             <SearchIcon className={styles.searchIcon} />
             <span className={styles.searchLabel}>Search</span>
             <span className={styles.shortcut}>⌘K</span>
-          </button>
-          <button
-            type="button"
-            className={styles.newTask}
-            aria-label="New Task"
-            onClick={() => onNewTask()}
-          >
-            <PlusIcon />
           </button>
         </div>
 
