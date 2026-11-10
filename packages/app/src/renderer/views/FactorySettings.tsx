@@ -41,6 +41,7 @@ import {
   InvalidNotice,
   NotesSection,
   PermissionsSection,
+  Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
@@ -371,6 +372,22 @@ function SectionHeading({
 function GeneralSection({ factory }: { factory: Factory }) {
   const nameId = useId()
   const keyId = useId()
+  const [autoStartBacklog, setAutoStartBacklog] = useState(factory.autoStartBacklog)
+  const [savingAutoStart, setSavingAutoStart] = useState(false)
+  const [autoStartError, setAutoStartError] = useState<string>()
+  useEffect(() => setAutoStartBacklog(factory.autoStartBacklog), [factory.autoStartBacklog])
+  async function saveAutoStart(enabled: boolean) {
+    setSavingAutoStart(true)
+    setAutoStartError(undefined)
+    try {
+      const saved = await ted.setFactoryAutoStartBacklog(factory.id, enabled)
+      setAutoStartBacklog(saved.autoStartBacklog)
+    } catch (failure) {
+      setAutoStartError(readableError(failure))
+    } finally {
+      setSavingAutoStart(false)
+    }
+  }
   const [name, setName] = useState(factory.name)
   const [error, setError] = useState<string>()
   useEffect(() => setName(factory.name), [factory.name])
@@ -420,6 +437,29 @@ function GeneralSection({ factory }: { factory: Factory }) {
             readOnly
           />
         </div>
+      </div>
+      <div className={styles.autoStartRow}>
+        <div className={styles.field}>
+          <span className={styles.label}>Start Backlog Tasks automatically</span>
+          <span className={styles.caption}>
+            Start the next eligible Task when a working-Run slot is free. Uses Priority and manual
+            order, skips blocked Tasks, and gives Queued work precedence.
+          </span>
+          <span className={styles.caption}>
+            Takes effect immediately. Turning this off leaves started Tasks running.
+          </span>
+          {autoStartError !== undefined && (
+            <span className={styles.fieldError} role="alert">
+              {autoStartError}
+            </span>
+          )}
+        </div>
+        <Toggle
+          label="Start Backlog Tasks automatically"
+          checked={autoStartBacklog}
+          disabled={savingAutoStart}
+          onChange={(enabled) => void saveAutoStart(enabled)}
+        />
       </div>
     </section>
   )

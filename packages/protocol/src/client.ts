@@ -864,6 +864,12 @@ export class DaemonClient {
     )
   }
 
+  setFactoryAutoStartBacklog(factoryId: string, enabled: boolean): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/auto-start-backlog`, {
+      enabled,
+    })
+  }
+
   renameFactory(factoryId: string, name: string): Promise<Factory> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/name`, {
       name,

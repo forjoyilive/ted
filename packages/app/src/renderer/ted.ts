@@ -315,6 +315,8 @@ export const ted = {
     window.ted.request('stopCheckTry', factoryId, name) as Promise<void>,
   checkTryOutput: (factoryId: string, name: string) =>
     window.ted.request('checkTryOutput', factoryId, name) as Promise<CheckTryOutput>,
+  setFactoryAutoStartBacklog: (factoryId: string, enabled: boolean) =>
+    window.ted.request('setFactoryAutoStartBacklog', factoryId, enabled) as Promise<Factory>,
   renameFactory: (factoryId: string, name: string) =>
     window.ted.request('renameFactory', factoryId, name) as Promise<Factory>,
   reorderFactories: (factoryIds: string[]) =>

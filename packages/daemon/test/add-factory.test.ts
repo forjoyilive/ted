@@ -327,63 +327,69 @@ describe('adding a Factory', () => {
     expect(await client.ok<Factory[]>('GET', '/factories')).toEqual([])
   })
 
-  test('a failed clone raises the banner, holds queued Tasks, and Retry recovers', async () => {
-    const client = await start()
-    const origin = path.join(scratch, 'acme', 'widgets.git')
-    const hidden = path.join(scratch, 'hidden.git')
-    await rename(origin, hidden)
+  test.each([false, true])(
+    'a failed clone holds work until Retry (automatic Backlog starting: %s)',
+    async (automatic) => {
+      const client = await start()
+      const origin = path.join(scratch, 'acme', 'widgets.git')
+      const hidden = path.join(scratch, 'hidden.git')
+      await rename(origin, hidden)
 
-    const factory = await client.ok<Factory>('POST', '/factories', {
-      name: 'Widgets',
-      key: 'WI',
-      repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-      showTutorial: false,
-    })
-    let banner: Banner | undefined
-    await waitUntil(async () => {
-      banner = (await client.ok<Banner[]>('GET', '/banners')).find(
-        (b) => b.problem === 'clone-failed' && b.factoryId === factory.id,
-      )
-      return banner !== undefined
-    }, 'the clone-failed banner')
-    expect(banner).toMatchObject({
-      severity: 'stops-work',
-      text: 'Couldn’t clone acme/widgets · Widgets can’t start Tasks until it’s cloned',
-      action: { label: 'Retry' },
-    })
-    const failed = (await client.ok<Factory[]>('GET', '/factories'))[0]
-    expect(failed?.setup?.[0]).toMatchObject({ repo: 'acme/widgets', state: 'failed' })
-    expect(failed?.setup?.[0]?.error).toBeTruthy()
+      const factory = await client.ok<Factory>('POST', '/factories', {
+        name: 'Widgets',
+        key: 'WI',
+        repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
+        showTutorial: false,
+      })
+      let banner: Banner | undefined
+      await waitUntil(async () => {
+        banner = (await client.ok<Banner[]>('GET', '/banners')).find(
+          (b) => b.problem === 'clone-failed' && b.factoryId === factory.id,
+        )
+        return banner !== undefined
+      }, 'the clone-failed banner')
+      expect(banner).toMatchObject({
+        severity: 'stops-work',
+        text: 'Couldn’t clone acme/widgets · Widgets can’t start Tasks until it’s cloned',
+        action: { label: 'Retry' },
+      })
+      const failed = (await client.ok<Factory[]>('GET', '/factories'))[0]
+      expect(failed?.setup?.[0]).toMatchObject({ repo: 'acme/widgets', state: 'failed' })
+      expect(failed?.setup?.[0]?.error).toBeTruthy()
 
-    const task = await client.ok<Task>('POST', '/tasks', {
-      factory: 'WI',
-      title: JSON.stringify({ steps: [{ say: 'hi' }, { idle: true }] }),
-      start: true,
-    })
-    const queued = await client
-      .ok<Task>('GET', `/tasks/${task.id}`)
-      .catch(async () => (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id))
-    expect(queued?.leadRunId).toBeUndefined()
+      if (automatic) {
+        await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
+      }
+      const task = await client.ok<Task>('POST', '/tasks', {
+        factory: 'WI',
+        title: JSON.stringify({ steps: [{ say: 'hi' }, { idle: true }] }),
+        start: !automatic,
+      })
+      const queued = await client
+        .ok<Task>('GET', `/tasks/${task.id}`)
+        .catch(async () => (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id))
+      expect(queued?.leadRunId).toBeUndefined()
 
-    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 1 })
+      expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 1 })
 
-    await rename(hidden, origin)
-    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
-    await client.ok('POST', `/banners/${encodeURIComponent(banner?.id ?? '')}/action`)
-    await untilCloned(client, factory.id)
-    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 0 })
-    await waitUntil(async () => {
-      const slots = await client.ok<RunSlots>('GET', '/slots')
-      return slots.factories.some((f) => f.factoryId === factory.id && f.cap === 1)
-    }, 'the Factory’s own cap to apply once cloned')
-    expect(
-      (await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'clone-failed'),
-    ).toBe(false)
-    await waitUntil(async () => {
-      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
-      return found?.leadRunId !== undefined
-    }, 'the queued Task to start once the clone is done')
-  })
+      await rename(hidden, origin)
+      await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+      await client.ok('POST', `/banners/${encodeURIComponent(banner?.id ?? '')}/action`)
+      await untilCloned(client, factory.id)
+      expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ factoriesSettingUp: 0 })
+      await waitUntil(async () => {
+        const slots = await client.ok<RunSlots>('GET', '/slots')
+        return slots.factories.some((f) => f.factoryId === factory.id && f.cap === 1)
+      }, 'the Factory’s own cap to apply once cloned')
+      expect(
+        (await client.ok<Banner[]>('GET', '/banners')).some((b) => b.problem === 'clone-failed'),
+      ).toBe(false)
+      await waitUntil(async () => {
+        const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+        return found?.leadRunId !== undefined
+      }, 'the queued Task to start once the clone is done')
+    },
+  )
 })
 
 describe('local folder banner', () => {

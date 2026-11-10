@@ -120,6 +120,13 @@
   color: var(--status-success-fg);
 }
 
+.autoStartRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
 .fieldRow {
   display: grid;
   grid-template-columns: 1fr 1fr;

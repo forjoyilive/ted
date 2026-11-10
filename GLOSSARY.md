@@ -29,7 +29,7 @@ One step of a Workflow (for example Clarify or Validate), defined by a Stage fil
 _Avoid_: Step, phase, column
 
 **Backlog**:
-The holding Stage at the start of a Workflow where Tasks wait until they are started, by the human or an Automation. A blocked Task that was created to start leaves Backlog when its last blocker merges; one created with Start now unchecked stays. Nothing runs on a Task in Backlog.
+The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or the Factory’s automatic Backlog starting option. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
 
 **Done**:

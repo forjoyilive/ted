@@ -38,6 +38,7 @@ export interface Factories {
   create(request: CreateFactoryRequest): Promise<Factory>
   retry(factoryId: string): Promise<Factory>
   setLocalFolder(key: string, folder: string): Promise<Factory>
+  setAutoStartBacklog(factoryId: string, enabled: boolean): Promise<Factory>
   rename(factoryId: string, name: string): Promise<Factory>
   setRepoFolder(factoryId: string, repoName: string, folder: string | undefined): Promise<Factory>
   syncRepos(factoryId: string, repos: StoredFactoryRepo[]): Promise<void>
@@ -604,6 +605,10 @@ export function createFactories(options: FactoriesOptions): Factories {
     create,
     retry,
     setLocalFolder,
+    async setAutoStartBacklog(factoryId, enabled) {
+      find(factoryId)
+      return publish(store.setFactoryAutoStartBacklog(factoryId, enabled))
+    },
     rename: renameFactory,
     setRepoFolder,
     syncRepos,
