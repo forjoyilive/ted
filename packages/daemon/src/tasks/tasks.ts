@@ -771,6 +771,7 @@ export function createTasks(options: {
           stage,
           inherited,
           effective: required !== undefined || (overrides[stage] ?? inherited),
+          required: required !== undefined,
           ...(overrides[stage] !== undefined && { override: overrides[stage] }),
           ...(locked && { locked }),
         }

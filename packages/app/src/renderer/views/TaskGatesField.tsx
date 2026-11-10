@@ -111,7 +111,15 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
                 id={`gate-${taskId}-${row.stage}`}
                 className={styles.select}
                 disabled={busy || changed || !!row.locked}
-                value={draft[row.stage] === undefined ? 'inherit' : draft[row.stage] ? 'on' : 'off'}
+                value={
+                  row.required
+                    ? 'required'
+                    : draft[row.stage] === undefined
+                      ? 'inherit'
+                      : draft[row.stage]
+                        ? 'on'
+                        : 'off'
+                }
                 onChange={(event) => {
                   const value = event.target.value
                   setDraft((before) => {
@@ -122,6 +130,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
                   })
                 }}
               >
+                {row.required && <option value="required">On · Required</option>}
                 <option value="inherit">Use Workflow ({row.inherited ? 'On' : 'Off'})</option>
                 <option value="on">On</option>
                 <option value="off">Off</option>
@@ -129,6 +138,11 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
               <p className={styles.rowNote}>
                 {row.locked ?? `Workflow: ${row.inherited ? 'On' : 'Off'}`}
               </p>
+              {row.required && row.override === false && (
+                <p className={styles.rowNote}>
+                  Your Off choice applies when this Gate is optional.
+                </p>
+              )}
               {row.stage === 'merge' && (
                 <p className={styles.mergeNote}>
                   Off lets TED merge automatically after its readiness checks pass.

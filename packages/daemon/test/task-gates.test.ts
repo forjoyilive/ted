@@ -110,18 +110,23 @@ test('only the app can write, and invalid or unavailable Stages are refused', as
 
 test('grilling and archived Tasks cannot have their Gates overridden', async () => {
   const { client, task, route, get } = await start()
+  await client.call('PUT', `/tasks/${task.id}/clarify-depth`, { depth: 'few' })
+  const optional = await get()
+  await client.call('PUT', route, { overrides: { clarify: false }, revision: optional.revision })
   expect(
     (await client.call('PUT', `/tasks/${task.id}/clarify-depth`, { depth: 'grilling' })).status,
   ).toBe(200)
   const grilling = await get()
   expect(grilling.rows.find((r) => r.stage === 'clarify')).toMatchObject({
     effective: true,
+    override: false,
+    required: true,
     locked: 'Required at grilling depth',
   })
   expect(
     (
       await client.call('PUT', route, {
-        overrides: { clarify: false },
+        overrides: {},
         revision: grilling.revision,
       })
     ).status,

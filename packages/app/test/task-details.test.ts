@@ -253,6 +253,54 @@ describe('Task details in the app', () => {
     }
   })
 
+  test('a required Gate displays On while retaining a previously saved Off choice', async () => {
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const daemon = await daemonAsApp(home, env())
+    await daemon.addFactory({ repo: origin, key: 'NB' })
+    const task = await daemon.createTask({
+      factory: 'NB',
+      title: 'Choose the Clarify Gate',
+      clarifyDepth: 'few',
+    })
+    const before = await daemon.taskGates(task.id)
+    await daemon.setTaskGates(task.id, { overrides: { clarify: false }, revision: before.revision })
+    const window = await launch()
+    const details = window.getByRole('complementary', { name: 'Task details' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    const editor = details.getByRole('region', { name: 'Gates for this Task' })
+    const clarify = editor.getByLabel('Clarify', { exact: true })
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await daemon.setClarifyDepth(task.id, { depth: 'grilling' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    await expect(clarify.inputValue()).resolves.toBe('required')
+    await expect(clarify.isDisabled()).resolves.toBe(true)
+    await editor.getByText('Required at grilling depth', { exact: true }).waitFor()
+    await editor.getByText('Your Off choice applies when this Gate is optional.').waitFor()
+    expect((await daemon.taskGates(task.id)).overrides.clarify).toBe(false)
+    if (process.env.TED_REQUIRED_GATE_SCREENSHOT) {
+      if (app)
+        await app.evaluate(({ BrowserWindow }) =>
+          BrowserWindow.getAllWindows()[0]?.setSize(1400, 1050),
+        )
+      for (const theme of ['light', 'dark'] as const) {
+        await window.emulateMedia({ colorScheme: theme })
+        await window.evaluate((mode) => {
+          document.documentElement.style.colorScheme = mode
+        }, theme)
+        await editor.scrollIntoViewIfNeeded()
+        await window.screenshot({
+          path: `${process.env.TED_REQUIRED_GATE_SCREENSHOT}-${theme}.png`,
+        })
+      }
+    }
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await daemon.setClarifyDepth(task.id, { depth: 'few' })
+    await details.getByRole('button', { name: '1 overridden · Edit' }).click()
+    await expect(clarify.inputValue()).resolves.toBe('off')
+    await expect(clarify.isDisabled()).resolves.toBe(false)
+  })
+
   test('sections run in order, collapse to a summary line and stay collapsed after a restart', async () => {
     await taskAtDesignGate()
     let window = await launch()

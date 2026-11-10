@@ -6,6 +6,7 @@ export interface TaskGateRow {
   stage: AgentStageId
   inherited: boolean
   effective: boolean
+  required: boolean
   override?: boolean
   locked?: string
 }
