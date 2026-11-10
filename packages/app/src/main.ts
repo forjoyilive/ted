@@ -316,6 +316,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openInEditor: (client, taskId, repo, at) => {
     const given = (at ?? {}) as Record<string, unknown>
     return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
       ...(typeof given.file === 'string' && { file: given.file }),
       ...(typeof given.line === 'number' && { line: given.line }),
       ...(typeof given.column === 'number' && { column: given.column }),
