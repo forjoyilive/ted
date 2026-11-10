@@ -15,7 +15,9 @@ import {
   type RunWithConversation,
   readDaemonInfo,
   signRequest,
+  tedPaths,
 } from '@ted/protocol'
+import { loadRunTokens } from '../src/run-token.ts'
 import { signalGroup, signalProcess } from '../src/signal.ts'
 import { killMarked } from './support/processes.ts'
 
@@ -223,6 +225,11 @@ export function api(port: number, auth: string | { appKey: string }) {
       return res.body as RunWithConversation
     },
   }
+}
+
+export async function devRunToken(home: string, port: number, appKey: string): Promise<string> {
+  const run = await api(port, { appKey }).startRun([{ endTurn: true }], home)
+  return (await loadRunTokens(tedPaths(home).runTokenKey)).issue(run.id)
 }
 
 export function assistantTexts(conversation: ConversationEntry[]): string[] {

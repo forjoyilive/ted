@@ -16,7 +16,6 @@ import type {
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
@@ -24,6 +23,7 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
+  devRunToken,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -334,7 +334,7 @@ describe('Automations', () => {
     ]
     const asRun = api(
       daemon?.port ?? 0,
-      (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1'),
+      await devRunToken(home, daemon?.port ?? 0, daemon?.appToken ?? ''),
     )
     for (const [method, route, body] of changes) {
       expect(await asRun.call(method, route, body), `${method} ${route}`).toEqual({

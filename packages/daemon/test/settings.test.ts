@@ -6,13 +6,19 @@ import {
   type DaemonEvent,
   defaultMachineSettings,
   readDaemonInfo,
-  tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
-import { appClient, appHeaders, makeTempHome, rawRequest } from './helpers.ts'
+import {
+  appClient,
+  appHeaders,
+  devRunToken,
+  killRunHosts,
+  makeTempHome,
+  rawRequest,
+  stubClaudePath,
+} from './helpers.ts'
 
 const picture =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg=='
@@ -173,6 +179,7 @@ describe('settings and Factories over the daemon API', () => {
   afterEach(async () => {
     await daemon?.stop()
     daemon = undefined
+    await killRunHosts(home)
     await cleanup()
   })
 
@@ -326,8 +333,8 @@ describe('settings and Factories over the daemon API', () => {
   })
 
   test('Runs can’t read or change settings or list Factories', async () => {
-    daemon = await startDaemon({ home, version: '9.9.9' })
-    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    const runToken = await devRunToken(home, daemon.port, daemon.appToken)
     const asRun = (method: string, route: string, body?: unknown) =>
       rawRequest(daemon?.port ?? 0, {
         method,

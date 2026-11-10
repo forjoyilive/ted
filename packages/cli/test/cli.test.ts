@@ -515,8 +515,8 @@ describe('ted open', () => {
   })
 
   test('inside a Run, ted open is refused like every route closed to Runs', async () => {
-    await ted(['task', 'list'])
-    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
+    const runId = await startDevRun(JSON.stringify({ steps: [{ endTurn: true }] }))
+    const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(runId)
 
     await expect(
       run(process.execPath, [cliPath, 'open'], {
