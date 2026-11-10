@@ -389,6 +389,8 @@ export const ted = {
   testLinear: () => window.ted.request('testLinear') as Promise<LinearStatus>,
   removeLinearKey: () => window.ted.request('removeLinearKey') as Promise<LinearStatus>,
   lookupLinear: (url: string) => window.ted.request('lookupLinear', url) as Promise<LinearLookup>,
+  allowLinearTeam: (factoryId: string, team: string) =>
+    window.ted.request('allowLinearTeam', factoryId, team) as Promise<MachineSettings>,
   openLinearKeyPage: () => window.ted.request('openLinearKeyPage') as Promise<void>,
   listAutomations: (factoryId?: string) =>
     window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,

@@ -10,9 +10,11 @@ import settingsStyles from './settings.module.css'
 export function LinearGroup({
   sync,
   teams,
+  declined,
 }: {
   sync: boolean
   teams: MachineSettings['linearSyncTeams']
+  declined: MachineSettings['linearSyncDeclined']
 }) {
   const factories = useFactories()
   const [status, setStatus] = useState<LinearStatus>()
@@ -151,7 +153,9 @@ export function LinearGroup({
       )}
       {stored &&
         sync &&
-        factories.map((factory) => <TeamsRow key={factory.id} factory={factory} teams={teams} />)}
+        factories.map((factory) => (
+          <TeamsRow key={factory.id} factory={factory} teams={teams} declined={declined} />
+        ))}
     </SettingsGroup>
   )
 }
@@ -159,11 +163,15 @@ export function LinearGroup({
 function TeamsRow({
   factory,
   teams,
+  declined,
 }: {
   factory: Factory
   teams: MachineSettings['linearSyncTeams']
+  declined: MachineSettings['linearSyncDeclined']
 }) {
-  const saved = (teams[factory.id] ?? []).join(', ')
+  const listed = teams[factory.id] ?? []
+  const saved = listed.join(', ')
+  const notNow = (declined[factory.id] ?? []).filter((team) => !listed.includes(team))
   const [draft, setDraft] = useState(saved)
   const [problem, setProblem] = useState<string>()
   const fieldId = useId()
@@ -181,12 +189,37 @@ function TeamsRow({
       .catch((error: unknown) => setProblem(message(error)))
   }
 
+  function allow(team: string) {
+    setProblem(undefined)
+    ted.allowLinearTeam(factory.id, team).catch((error: unknown) => setProblem(message(error)))
+  }
+
   return (
     <SettingRow
       title={`Linear teams for Automations in ${factory.name}`}
       labelFor={fieldId}
-      help="TED syncs a Task an Automation made only when its issue is in one of these Linear teams. For any other, open the Task’s menu and choose Sync with Linear."
-      detail={problem}
+      help="TED syncs a Task an Automation made only when its issue is in one of these Linear teams. The first time an Automation makes a Task from another team, TED asks you in the Inbox. For a single Task, open its menu and choose Sync with Linear."
+      detail={
+        problem ??
+        (notNow.length > 0 ? (
+          <span className={styles.notNow}>
+            You chose Not now for
+            {notNow.map((team) => (
+              <span key={team} className={styles.notNowTeam}>
+                {team}
+                <button
+                  type="button"
+                  className={styles.link}
+                  aria-label={`Allow ${team} for Automations in ${factory.name}`}
+                  onClick={() => allow(team)}
+                >
+                  Allow
+                </button>
+              </span>
+            ))}
+          </span>
+        ) : undefined)
+      }
     >
       <input
         id={fieldId}

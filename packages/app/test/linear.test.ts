@@ -155,6 +155,30 @@ describe('Settings → Integrations → Linear', () => {
     await expect.poll(() => sync.getAttribute('aria-checked')).toBe('false')
   })
 
+  test('a team the human said Not now to shows under its Factory, and Allow turns it on', async () => {
+    await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const daemon = await daemonAsApp(home, env())
+    const factory = await daemon.addFactory({ repo: origin, key: 'NB' })
+    await daemon.updateSettings({ linearSyncDeclined: { [factory.id]: ['NOTE'] } })
+    const window = await launchApp()
+    await openIntegrations(window)
+    const group = linearGroup(window)
+    await group.getByText('You chose Not now for').waitFor()
+
+    await group
+      .getByRole('button', { name: `Allow NOTE for Automations in ${factory.name}` })
+      .click()
+
+    await expect
+      .poll(async () => (await (await client()).getSettings()).linearSyncTeams)
+      .toEqual({ [factory.id]: ['NOTE'] })
+    await group.getByText('You chose Not now for').waitFor({ state: 'detached' })
+    expect(
+      await group.getByLabel(`Linear teams for Automations in ${factory.name}`).inputValue(),
+    ).toBe('NOTE')
+  })
+
   test('with no keyring, the key is saved to a file only after the human chooses it', async () => {
     await writeFile(stubKeyringFile(home), JSON.stringify({ state: 'no-keyring' }))
     const window = await launchApp()

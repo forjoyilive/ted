@@ -304,6 +304,7 @@ export const comments = State.SQLite.table({
     talkDoneAt: State.SQLite.text({ nullable: true }),
     design: State.SQLite.text({ nullable: true }),
     tutorial: State.SQLite.boolean({ default: false }),
+    linearTeam: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -2070,6 +2071,10 @@ export const events = {
     name: 'v1.CommentMarkedTutorial',
     schema: Schema.Struct({ commentId: Schema.String }),
   }),
+  commentLinearTeamAsked: Events.synced({
+    name: 'v1.CommentLinearTeamAsked',
+    schema: Schema.Struct({ commentId: Schema.String, key: Schema.String, name: Schema.String }),
+  }),
   automationTaskCreated: Events.synced({
     name: 'v1.AutomationTaskCreated',
     schema: Schema.Struct({
@@ -2532,6 +2537,8 @@ const materializers = counted(
       'v1.SetupTaskCreated': ({ taskId }) => tasks.update({ setup: true }).where({ id: taskId }),
       'v1.CommentMarkedTutorial': ({ commentId }) =>
         comments.update({ tutorial: true }).where({ id: commentId }),
+      'v1.CommentLinearTeamAsked': ({ commentId, key, name }) =>
+        comments.update({ linearTeam: JSON.stringify({ key, name }) }).where({ id: commentId }),
       'v1.CommentDesignAttached': ({ commentId, design }) =>
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>

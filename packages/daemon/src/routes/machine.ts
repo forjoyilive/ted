@@ -7,6 +7,7 @@ import {
   billings,
   createdByKinds,
   editorIds,
+  isLinearTeamKey,
   isTimeZone,
   type ListFilters,
   type ListView,
@@ -246,26 +247,8 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
   linearSync: onOff('linearSync'),
-  linearSyncTeams(value) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new HttpError(400, 'linearSyncTeams must be an object of team keys by Factory ID')
-    }
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([factoryId, teams]) => {
-        if (
-          !Array.isArray(teams) ||
-          teams.length > 50 ||
-          teams.some((t) => typeof t !== 'string' || !linearTeamKey.test(t))
-        ) {
-          throw new HttpError(
-            400,
-            'linearSyncTeams lists Linear team keys like ENG for each Factory',
-          )
-        }
-        return [factoryId, [...new Set(teams.map((t: string) => t.toUpperCase()))]]
-      }),
-    )
-  },
+  linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
+  linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'billing must be an object of billing by agent')
@@ -305,7 +288,23 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
 
 const maxEditorCommand = 2000
 
-const linearTeamKey = /^[A-Za-z][A-Za-z0-9_]{0,19}$/
+function teamsByFactory(name: string, value: unknown): Record<string, string[]> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new HttpError(400, `${name} must be an object of team keys by Factory ID`)
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([factoryId, teams]) => {
+      if (
+        !Array.isArray(teams) ||
+        teams.length > 50 ||
+        teams.some((t) => typeof t !== 'string' || !isLinearTeamKey(t))
+      ) {
+        throw new HttpError(400, `${name} lists Linear team keys like ENG for each Factory`)
+      }
+      return [factoryId, [...new Set(teams.map((t: string) => t.toUpperCase()))]]
+    }),
+  )
+}
 
 function onOff(name: keyof MachineSettings): (value: unknown) => boolean {
   return (value) => {

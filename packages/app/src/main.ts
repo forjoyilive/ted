@@ -479,6 +479,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   testLinear: (client) => client.testLinear(),
   removeLinearKey: (client) => client.removeLinearKey(),
   lookupLinear: (client, url) => client.lookupLinear(String(url)),
+  allowLinearTeam: (client, factoryId, team) =>
+    client.allowLinearTeam(String(factoryId), String(team)),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),

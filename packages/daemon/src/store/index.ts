@@ -43,6 +43,7 @@ import {
   type GitHubWait,
   type LayerKind,
   type LayerUse,
+  type LinearTeam,
   type LineComment,
   type LineSide,
   type MachineSettings,
@@ -392,6 +393,7 @@ export interface NewComment {
   lineComments?: readonly string[]
   design?: DesignReview
   tutorial?: boolean
+  linearTeam?: LinearTeam
 }
 
 export interface NewLineComment {
@@ -493,6 +495,11 @@ export interface TedStore {
   linearPullRequestsLinked(taskId: string, identifier: string, urls: readonly string[]): void
   linearSync(taskId: string): LinearSyncRecord
   linearSyncAllowed(taskId: string, identifier: string): Task
+  allowLinearTeam(
+    factoryId: string,
+    team: string,
+    consents: readonly { taskId: string; identifier: string }[],
+  ): MachineSettings
   worktreeCreated(
     taskId: string,
     repo: {
@@ -1238,7 +1245,7 @@ export async function openStore({
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
-      openRequests: openRequestRows(row.id).length,
+      openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
       ...permissionWait(row.id, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
@@ -1487,6 +1494,7 @@ export async function openStore({
     talkDoneAt,
     design,
     tutorial,
+    linearTeam,
     ...row
   }: typeof comments.Type): Comment => ({
     ...row,
@@ -1518,6 +1526,7 @@ export async function openStore({
     ...(readAt !== null && { readAt }),
     ...(failedRunId !== null && { failed: { runId: failedRunId } }),
     ...(tutorial && { tutorial: true as const }),
+    ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
     ...(design !== null && { design: JSON.parse(design) as DesignReview }),
     ...withFiles(row.id),
     ...withLineComments(row.id),
@@ -1784,6 +1793,7 @@ export async function openStore({
       attachments = [],
       design,
       tutorial = false,
+      linearTeam,
     }: NewComment,
     createdAt: string,
   ) => {
@@ -1829,6 +1839,7 @@ export async function openStore({
         ? []
         : [events.commentDesignAttached({ commentId: id, design: JSON.stringify(design) })]),
       ...(tutorial ? [events.commentMarkedTutorial({ commentId: id })] : []),
+      ...(linearTeam ? [events.commentLinearTeamAsked({ commentId: id, ...linearTeam })] : []),
     ]
     return { id, event, attached }
   }
@@ -2747,6 +2758,37 @@ export async function openStore({
         events.linearSyncAllowed({ taskId, identifier, by: 'menu', at: new Date().toISOString() }),
       )
       return updatedTask(taskId)
+    },
+    allowLinearTeam(factoryId, team, consents) {
+      const at = new Date().toISOString()
+      const current = settings()
+      const listed = current.linearSyncTeams[factoryId] ?? []
+      const { [factoryId]: declined = [], ...otherDeclined } = current.linearSyncDeclined
+      const stillDeclined = declined.filter((t) => t !== team)
+      const changes: Partial<MachineSettings> = {
+        ...(!listed.includes(team) && {
+          linearSyncTeams: { ...current.linearSyncTeams, [factoryId]: [...listed, team] },
+        }),
+        ...(stillDeclined.length !== declined.length && {
+          linearSyncDeclined:
+            stillDeclined.length > 0
+              ? { ...otherDeclined, [factoryId]: stillDeclined }
+              : otherDeclined,
+        }),
+      }
+      const changed = Object.keys(changes).length > 0
+      const batch = [
+        ...(changed
+          ? [events.machineSettingsChanged({ changes: JSON.stringify(changes), at })]
+          : []),
+        ...consents.map(({ taskId, identifier }) =>
+          events.linearSyncAllowed({ taskId, identifier, by: 'team', at }),
+        ),
+      ]
+      if (batch.length > 0) commit(...batch)
+      if (changed) emit({ type: 'settings-changed', settings: settings() })
+      for (const { taskId } of consents) updatedTask(taskId)
+      return settings()
     },
     linearIssueMoved(taskId, identifier, step, state) {
       commit(

@@ -762,6 +762,10 @@ export class DaemonClient {
     return this.#request('POST', '/integrations/linear/lookup', { url })
   }
 
+  allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {
+    return this.#request('POST', '/integrations/linear/teams', { factoryId, team })
+  }
+
   getActivity(): Promise<Activity> {
     return this.#request('GET', '/activity')
   }

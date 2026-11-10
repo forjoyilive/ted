@@ -30,10 +30,16 @@ export interface LinearIssue {
   identifier: string
   title: string
   priority: Priority
+  team?: LinearTeam
   branchName?: string
   description?: string
   files?: LinearFile[]
   unfetched?: LinearUnfetched[]
+}
+
+export interface LinearTeam {
+  key: string
+  name: string
 }
 
 export interface LinearFile extends Attachment {
@@ -75,6 +81,10 @@ export function findLinearUrl(text: string): LinearUrl | undefined {
     workspace: workspace.toLowerCase(),
     identifier: identifier.toUpperCase(),
   }
+}
+
+export function isLinearTeamKey(text: string): boolean {
+  return /^[A-Za-z][A-Za-z0-9_]{0,19}$/.test(text)
 }
 
 export function parseLinearUrl(text: string): LinearUrl | undefined {

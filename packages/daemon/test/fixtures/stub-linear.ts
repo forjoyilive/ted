@@ -15,6 +15,7 @@ export interface StubLinearIssue {
   priority?: number
   branchName?: string
   state?: string
+  teamName?: string
 }
 
 export interface StubLinearAccount {
@@ -178,6 +179,10 @@ export async function startStubLinear(
               description: issue.description ?? null,
               priority: issue.priority ?? 0,
               branchName: issue.branchName ?? '',
+              team: {
+                key: issue.identifier.split('-')[0],
+                name: issue.teamName ?? issue.identifier.split('-')[0],
+              },
               url: `https://linear.app/${account.workspace.urlKey}/issue/${issue.identifier}`,
             },
           },

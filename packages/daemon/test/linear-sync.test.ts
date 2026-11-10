@@ -1,6 +1,13 @@
 import { writeFile } from 'node:fs/promises'
-import type { InboxItem, Task } from '@ted/protocol'
+import {
+  type Comment,
+  type InboxItem,
+  type MachineSettings,
+  type Task,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { loadRunTokens } from '../src/run-token.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import {
   type StubLinear,
@@ -14,6 +21,7 @@ import {
   type Client,
   ctx,
   getTask,
+  leadSteps,
   lines,
   setGh,
   start,
@@ -33,7 +41,11 @@ beforeEach(async () => {
     [key]: {
       name: 'Nabha',
       workspace: { name: 'Kriya Design', urlKey: 'kriyadesign' },
-      issues: [{ identifier: 'NOTE-1', title: 'Offline notes', state: 'Todo' }],
+      issues: [
+        { identifier: 'NOTE-1', title: 'Offline notes', state: 'Todo', teamName: 'Notes' },
+        { identifier: 'NOTE-2', title: 'Sync notes', state: 'Todo', teamName: 'Notes' },
+        { identifier: 'NOTE-3', title: 'Share notes', state: 'Todo', teamName: 'Notes' },
+      ],
     },
   })
 })
@@ -48,11 +60,13 @@ const account = () => {
   return found
 }
 
-const issue = (): StubLinearIssue => {
-  const found = account().issues?.find((i) => i.identifier === 'NOTE-1')
-  if (!found) throw new Error('no NOTE-1')
+const issue = (identifier = 'NOTE-1'): StubLinearIssue => {
+  const found = account().issues?.find((i) => i.identifier === identifier)
+  if (!found) throw new Error(`no ${identifier}`)
   return found
 }
+
+const issueUrl = (identifier: string) => `https://linear.app/kriyadesign/issue/${identifier}`
 
 const asked = (name: string) => linear.requests.filter((r) => r.query.includes(name))
 
@@ -317,29 +331,55 @@ describe('Linear → TED', () => {
 describe('Tasks an Automation made', () => {
   let clock = Date.parse('2026-11-09T08:55:00Z')
 
-  async function fromAutomation(): Promise<{ client: Client; task: Task }> {
+  async function startForAutomations(
+    options: Parameters<typeof startWithLinear>[0] = {},
+  ): Promise<Client> {
     clock = Date.parse('2026-11-09T08:55:00Z')
     const client = await startWithLinear({
+      ...options,
       daemon: { automations: { now: () => clock, checkEveryMs: 50 } },
     })
     await client.ok('PATCH', '/settings', { timeZone: 'Europe/London' })
+    return client
+  }
+
+  async function automationMakes(client: Client, at: string, sources: string[]): Promise<Task[]> {
+    clock = Date.parse(`2026-11-09T${at}:00Z`) - 60_000
     await client.ok('POST', '/automations', {
-      name: 'Linear intake',
+      name: `Linear intake ${at}`,
       factory: 'NB',
-      schedule: { kind: 'daily', at: '09:00' },
+      schedule: { kind: 'daily', at },
       prompt: JSON.stringify({
         steps: [
-          { run: ['ted', 'task', 'create', '--source', url, waiting(ctx.scratch)] },
+          ...sources.map((source) => ({
+            run: ['ted', 'task', 'create', '--source', source, waiting(ctx.scratch)],
+          })),
           { endTurn: true },
         ],
       }),
     })
-    clock = Date.parse('2026-11-09T09:00:05Z')
-    const task = await waitUntil(
-      async () => (await client.ok<Task[]>('GET', '/tasks')).at(0),
-      'the Automation to create a Task',
+    clock = Date.parse(`2026-11-09T${at}:05Z`)
+    return waitUntil(
+      async () => {
+        const all = await client.ok<Task[]>('GET', '/tasks')
+        const made = sources.map((s) => all.find((t) => t.source?.url === s))
+        return made.every((t) => t !== undefined) ? (made as Task[]) : undefined
+      },
+      'the Automation to create its Tasks',
       20_000,
     )
+  }
+
+  const teamAsks = async (client: Client) =>
+    (await client.ok<InboxItem[]>('GET', '/inbox')).filter((i) => i.request.linearTeam)
+
+  const firstAsk = (client: Client) =>
+    waitUntil(async () => (await teamAsks(client)).at(0), 'the question to sync the team')
+
+  async function fromAutomation(): Promise<{ client: Client; task: Task }> {
+    const client = await startForAutomations()
+    const [task] = await automationMakes(client, '09:00', [url])
+    if (!task) throw new Error('no Task')
     expect(task).toMatchObject({ createdBy: 'automation', linearSync: 'ask' })
     await client.ok('POST', `/tasks/${task.id}/start`)
     await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
@@ -355,7 +395,9 @@ describe('Tasks an Automation made', () => {
     await seenAfterNow()
     expect((await getTask(client, task.id)).archived).toBeUndefined()
     expect(
-      (await client.ok<InboxItem[]>('GET', '/inbox')).filter((i) => i.task.id === task.id),
+      (await client.ok<InboxItem[]>('GET', '/inbox')).filter(
+        (i) => i.task.id === task.id && !i.request.linearTeam,
+      ),
     ).toEqual([])
     issue().state = 'Todo'
     await seenAfterNow()
@@ -399,5 +441,137 @@ describe('Tasks an Automation made', () => {
 
     await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
     expect((await getTask(client, task.id)).linearSync).toBe('on')
+  })
+
+  test('the first Task from a team asks once, and more Tasks from that team add nothing', async () => {
+    const client = await startForAutomations()
+    const factory = (await client.ok<{ id: string; name: string }[]>('GET', '/factories'))[0]
+
+    const [first, second] = await automationMakes(client, '09:00', [
+      issueUrl('NOTE-1'),
+      issueUrl('NOTE-2'),
+    ])
+    const ask = await firstAsk(client)
+    await automationMakes(client, '10:00', [issueUrl('NOTE-3')])
+
+    expect(await teamAsks(client)).toHaveLength(1)
+    expect(ask.task.id).toBe(first?.id)
+    expect(ask.request).toMatchObject({
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: `Sync Notes (NOTE) issues with Linear for Automations in ${factory?.name}?`,
+      choices: ['Allow', 'Not now'],
+      linearTeam: { key: 'NOTE', name: 'Notes' },
+    })
+    expect(ask.request.body).toContain('In Progress')
+    expect(ask.request.body).toContain('pull requests')
+    expect((await getTask(client, second?.id ?? '')).linearSync).toBe('ask')
+    expect((await getTask(client, first?.id ?? '')).status?.kind).not.toBe('waiting-on-you')
+  })
+
+  test('Allow adds the team and turns on sync for its Tasks, catching up a Done Task’s issue', async () => {
+    const client = await startForAutomations({ workflow: mergeOff })
+    const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
+    const done = (
+      await withFileToken.call('POST', '/tasks', {
+        title: leadSteps(client),
+        factory: 'NB',
+        source: url,
+      })
+    ).body as Task
+    expect(done.linearSync).toBe('ask')
+    await client.ok('POST', `/tasks/${done.id}/start`)
+    const signoff = await waitUntil(async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      return items.find((i) => i.request.kind === 'signoff' && i.task.id === done.id)
+    }, 'the Review sign-off')
+    await approve(client, signoff.request)
+    await setGh({ merged: true })
+    await waitForStage(client, done, 'done')
+    await seenAfterNow()
+    expect(issue().state).toBe('Todo')
+
+    const [fresh] = await automationMakes(client, '09:00', [issueUrl('NOTE-2')])
+    const ask = await firstAsk(client)
+    await client.ok('POST', `/comments/${ask.request.id}/answer`, {
+      action: 'answer',
+      choice: 'Allow',
+    })
+
+    expect((await client.ok<MachineSettings>('GET', '/settings')).linearSyncTeams).toEqual({
+      [done.factoryId]: ['NOTE'],
+    })
+    expect((await getTask(client, done.id)).linearSync).toBe('on')
+    expect((await getTask(client, fresh?.id ?? '')).linearSync).toBe('on')
+    expect(await teamAsks(client)).toEqual([])
+    await waitUntil(() => issue().state === 'Done' || undefined, 'NOTE-1 to catch up to Done')
+    expect(issue('NOTE-2').state).toBe('Todo')
+    expect(await lines(client, done)).toContain(
+      'You let TED sync NOTE issues with Linear for Automations in this Factory',
+    )
+  })
+
+  test('Not now stops TED asking about that team in that Factory, and Settings can still allow it', async () => {
+    const client = await startForAutomations()
+    const [first] = await automationMakes(client, '09:00', [url])
+    const ask = await firstAsk(client)
+    await client.ok('POST', `/comments/${ask.request.id}/answer`, {
+      action: 'answer',
+      choice: 'Not now',
+    })
+    const factoryId = first?.factoryId ?? ''
+
+    const settings = await client.ok<MachineSettings>('GET', '/settings')
+    expect(settings.linearSyncDeclined).toEqual({ [factoryId]: ['NOTE'] })
+    expect(settings.linearSyncTeams).toEqual({})
+    const [second] = await automationMakes(client, '10:00', [issueUrl('NOTE-2')])
+    await seenAfterNow()
+    expect(await teamAsks(client)).toEqual([])
+    expect((await getTask(client, second?.id ?? '')).linearSync).toBe('ask')
+    expect(moves()).toEqual([])
+
+    await client.ok('POST', '/integrations/linear/teams', { factoryId, team: 'note' })
+
+    const after = await client.ok<MachineSettings>('GET', '/settings')
+    expect(after.linearSyncTeams).toEqual({ [factoryId]: ['NOTE'] })
+    expect(after.linearSyncDeclined).toEqual({})
+    expect((await getTask(client, first?.id ?? '')).linearSync).toBe('on')
+    expect((await getTask(client, second?.id ?? '')).linearSync).toBe('on')
+  })
+
+  test('only the human answers it: a Run token or the daemon.json token can’t answer, allow or post it', async () => {
+    const { client, task } = await fromAutomation()
+    const ask = await firstAsk(client)
+    const runId = (await getTask(client, task.id)).leadRunId ?? ''
+    const asRun = api(
+      ctx.daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(runId),
+    )
+    const asFile = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
+    const tries: [string, string, unknown][] = [
+      ['POST', `/comments/${ask.request.id}/answer`, { action: 'answer', choice: 'Allow' }],
+      ['POST', '/integrations/linear/teams', { factoryId: task.factoryId, team: 'NOTE' }],
+      ['PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['NOTE'] } }],
+    ]
+    for (const caller of [asRun, asFile]) {
+      for (const [method, route, body] of tries) {
+        expect((await caller.call(method, route, body)).status, `${method} ${route}`).toBe(403)
+      }
+    }
+    const lookalike = await asRun.call('POST', `/tasks/${task.id}/comments`, {
+      body: 'Sync Notes (NOTE) issues with Linear for Automations?',
+      choices: ['Allow', 'Not now'],
+    })
+    expect(lookalike.status).toBe(201)
+    await client.ok('POST', `/comments/${(lookalike.body as Comment).id}/answer`, {
+      action: 'answer',
+      choice: 'Allow',
+    })
+
+    const settings = await client.ok<MachineSettings>('GET', '/settings')
+    expect(settings.linearSyncTeams).toEqual({})
+    expect(settings.linearSyncDeclined).toEqual({})
+    expect((await getTask(client, task.id)).linearSync).toBe('ask')
+    expect(await teamAsks(client)).toHaveLength(1)
   })
 })

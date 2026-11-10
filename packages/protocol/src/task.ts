@@ -1,6 +1,7 @@
 import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
+import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
 
 export const agentStageIds = [
@@ -523,6 +524,7 @@ export interface Comment {
   lineComments?: LineComment[]
   design?: DesignReview
   tutorial?: true
+  linearTeam?: LinearTeam
 }
 
 export interface DesignFile {
