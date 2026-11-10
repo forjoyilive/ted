@@ -81,6 +81,7 @@ export interface StageRowView {
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind
@@ -274,6 +275,7 @@ export interface LibraryStageRow {
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind
