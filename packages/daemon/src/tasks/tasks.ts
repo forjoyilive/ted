@@ -2809,6 +2809,14 @@ export function createTasks(options: {
   }
 
   function noteUnfetched(taskId: string, issue: LinearIssue, stored: readonly LinearFile[]): void {
+    if (issue.discussionWarning) {
+      store.postComment({
+        taskId,
+        kind: 'note',
+        author: { kind: 'ted' },
+        body: `${issue.discussionWarning}\n\nRead the full discussion in Linear: ${issue.url}`,
+      })
+    }
     const kept = new Set(stored.map((file) => file.url))
     const missing = [
       ...(issue.unfetched ?? []),

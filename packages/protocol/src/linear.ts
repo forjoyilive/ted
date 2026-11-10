@@ -35,6 +35,7 @@ export interface LinearIssue {
   description?: string
   files?: LinearFile[]
   unfetched?: LinearUnfetched[]
+  discussionWarning?: string
 }
 
 export interface LinearTeam {

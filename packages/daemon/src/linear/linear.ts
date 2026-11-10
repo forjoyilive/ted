@@ -14,6 +14,7 @@ import {
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
+import { fetchDiscussion } from './discussion.ts'
 import {
   fetchLinearFiles,
   type LinearFileStore,
@@ -195,7 +196,7 @@ export function createLinear(options: LinearOptions): Linear {
     key: string,
     text: string,
     variables?: object,
-    { partial = false }: { partial?: boolean } = {},
+    { partial = false, strict = false }: { partial?: boolean; strict?: boolean } = {},
   ): Promise<T> {
     let response: Response
     try {
@@ -229,7 +230,7 @@ export function createLinear(options: LinearOptions): Linear {
     if (errors.some((e) => /not found/i.test(e.message ?? ''))) {
       throw new LinearApiError('not-found', 'not found')
     }
-    if (!response.ok || !body?.data) {
+    if (!response.ok || !body?.data || (strict && errors.length > 0)) {
       const said = errors[0]?.message
       throw new LinearApiError(
         'failed',
@@ -249,6 +250,7 @@ export function createLinear(options: LinearOptions): Linear {
       }
       const data = await query<{
         issue?: {
+          id?: string
           identifier?: string
           title?: string
           description?: string | null
@@ -259,7 +261,7 @@ export function createLinear(options: LinearOptions): Linear {
         } | null
       }>(
         key,
-        'query TedIssue($id: String!) { issue(id: $id) { identifier title description priority branchName team { key name } attachments(first: 50) { nodes { url title } } } }',
+        'query TedIssue($id: String!) { issue(id: $id) { id identifier title description priority branchName team { key name } attachments(first: 50) { nodes { url title } } } }',
         { id: link.identifier },
       )
       const issue = data.issue
@@ -275,6 +277,18 @@ export function createLinear(options: LinearOptions): Linear {
         ...teamOf(issue.team),
         ...(issue.description && { description: issue.description.slice(0, maxDescription) }),
       }
+      const discussion = await fetchDiscussion(
+        <T>(text: string, variables: object) => query<T>(key, text, variables, { strict: true }),
+        issue.id ?? link.identifier,
+      )
+      if (discussion.text) {
+        found.description = [
+          found.description ?? '(no description)',
+          discussion.text,
+          `Discussion source: ${link.url}`,
+        ].join('\n\n')
+      }
+      if (discussion.warning) found.discussionWarning = discussion.warning
       if (options.files) {
         const { files, unfetched } = await fetchLinearFiles({
           key,
