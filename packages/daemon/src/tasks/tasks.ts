@@ -682,6 +682,8 @@ export function createTasks(options: {
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
+  const autoStartFailures = new Set<string>()
+  let backlogVersion = 0
 
   function hold(taskId: string): () => void {
     holds.set(taskId, (holds.get(taskId) ?? 0) + 1)
@@ -815,15 +817,51 @@ export function createTasks(options: {
     })
   }
 
+  function backlogEligible(task: StoredTask, preparing = false): boolean {
+    return (
+      task.stage === 'backlog' &&
+      !task.archived &&
+      !task.setup &&
+      !task.stopped &&
+      !task.statuses.includes('failed') &&
+      (preparing || !starting.has(task.id)) &&
+      !holds.has(task.id) &&
+      !autoStartFailures.has(task.id) &&
+      !deleting.has(task.id) &&
+      !removingFactories.has(task.factoryId) &&
+      cloned(task.factoryId) &&
+      store.getFactory(task.factoryId)?.autoStartBacklog === true &&
+      unmergedBlockers(task.id).length === 0
+    )
+  }
+
   async function fill(): Promise<void> {
-    if (store.newWorkHold() !== undefined) return
+    if (closed || store.newWorkHold() !== undefined) return
+    const version = backlogVersion
+    const backlog = queueOrder<QueueEntry>(
+      store
+        .listTasks()
+        .flatMap((task) => {
+          const stored = store.getTask(task.id)
+          return stored && backlogEligible(stored) ? [stored] : []
+        })
+        .map((task) => ({
+          id: task.id,
+          kind: 'task',
+          rank: task.rank,
+          priority: task.priority,
+          factoryId: task.factoryId,
+        })),
+    )
     const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0 && revives.length === 0) return
+    if (queued.length === 0 && held.length === 0 && revives.length === 0 && backlog.length === 0)
+      return
     const { use } = await slotUse(
-      [...revives, ...held, ...queued].flatMap((q) => q.factoryId ?? []),
+      [...revives, ...held, ...queued, ...backlog].flatMap((q) => q.factoryId ?? []),
     )
+    if (closed || store.newWorkHold() !== undefined) return
     const heldIds = new Set(held.map((h) => h.id))
     const reviveIds = new Set(revives.map((r) => r.id))
     const sourceOf = new Map(
@@ -837,6 +875,29 @@ export function createTasks(options: {
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
       else if (!holds.has(entry.id)) begin(entry.id)
+    }
+    for (const entry of backlog) {
+      if (closed || store.newWorkHold() !== undefined) return
+      const task = store.getTask(entry.id)
+      if (!task || !backlogEligible(task)) continue
+      try {
+        const { use } = await slotUse([task.factoryId])
+        if (version !== backlogVersion) return
+        const before = [...revivesReady(), ...heldReady(), ...ready()]
+        if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
+        if (await queueStart(task.id, version)) {
+          begin(task.id)
+          again = true
+          return
+        }
+        if (version !== backlogVersion) return
+      } catch (error) {
+        autoStartFailures.add(task.id)
+        console.error(
+          `couldn’t automatically start ${task.displayId}:`,
+          redactSecrets(textOf(error)),
+        )
+      }
     }
   }
 
@@ -953,6 +1014,7 @@ export function createTasks(options: {
     const release = hold(taskId)
     const work = launchQueued(taskId)
       .catch((error: unknown) => {
+        autoStartFailures.add(taskId)
         if (store.queue().some((q) => q.id === taskId)) {
           if (store.getTask(taskId)?.repos.some((r) => !r.removed)) store.waitForBlockers(taskId)
           else store.moveToBacklog(taskId)
@@ -4874,17 +4936,66 @@ export function createTasks(options: {
 
   async function start(ref: string): Promise<Task> {
     const task = live(ref)
+    autoStartFailures.delete(task.id)
+    if (!(await queueStart(task.id))) return publicTask(task.id)
+    await pump()
+    await beginning.get(task.id)
+    return publicTask(task.id)
+  }
+
+  async function queueStart(ref: string, version?: number): Promise<boolean> {
+    const automatic = version !== undefined
+    const task = live(ref)
     const factory = factoryOf(task)
     if (task.stage !== 'backlog' || starting.has(task.id)) {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
-    if (unmergedBlockers(task.id).length > 0) return store.setStartRequested(task.id, true)
+    if (unmergedBlockers(task.id).length > 0) {
+      if (!automatic) store.setStartRequested(task.id, true)
+      return false
+    }
     starting.add(task.id)
     try {
       await clearingAway.get(task.id)?.catch(() => undefined)
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await taskWorkflow(task, { fetch: false })
-      if (!task.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
+      const current = live(task.id)
+      if (automatic) {
+        const lead = current.lead ?? leadFrom(resolution.workflow.settings)
+        if (
+          closed ||
+          store.newWorkHold() !== undefined ||
+          version !== backlogVersion ||
+          !backlogEligible(current, true) ||
+          store.agentPauses()[lead.agent] !== undefined
+        )
+          return false
+        const { use } = await slotUse([current.factoryId])
+        if (
+          closed ||
+          store.newWorkHold() !== undefined ||
+          version !== backlogVersion ||
+          store.agentPauses()[(live(task.id).lead ?? lead).agent] !== undefined ||
+          !backlogEligible(live(task.id), true) ||
+          !startsNow(
+            [
+              ...revivesReady(),
+              ...heldReady(),
+              ...ready(),
+              {
+                id: current.id,
+                kind: 'task',
+                rank: current.rank,
+                priority: current.priority,
+                factoryId: current.factoryId,
+              },
+            ],
+            use,
+          ).some((entry) => entry.id === current.id)
+        )
+          return false
+      }
+      if (!current.lead) store.setTaskLead(task.id, leadFrom(resolution.workflow.settings))
       const planned = find(task.id).markers.some((m) => m.kind === 'needs-planning')
       const stage = resolution.workflow.next('backlog')
       if (planned) {
@@ -4896,9 +5007,7 @@ export function createTasks(options: {
     } finally {
       starting.delete(task.id)
     }
-    await pump()
-    await beginning.get(task.id)
-    return publicTask(task.id)
+    return true
   }
 
   async function launchQueued(taskId: string): Promise<void> {
@@ -5755,6 +5864,24 @@ export function createTasks(options: {
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'task-created' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted' ||
+      event.type === 'factory-removed' ||
+      event.type === 'factory-updated' ||
+      event.type === 'settings-changed'
+    )
+      backlogVersion++
+    if (event.type === 'factory-updated') {
+      for (const id of autoStartFailures) {
+        if (store.getTask(id)?.factoryId === event.factory.id) autoStartFailures.delete(id)
+      }
+    }
+    if (event.type === 'task-deleted') autoStartFailures.delete(event.taskId)
+    if (event.type === 'factory-removed') {
+      for (const id of autoStartFailures) if (!store.getTask(id)) autoStartFailures.delete(id)
+    }
     if (event.type === 'run-updated' && event.run.state === 'idle' && event.run.taskId) {
       const taskId = event.run.taskId
       setImmediate(() => {
@@ -5775,7 +5902,10 @@ export function createTasks(options: {
       event.type === 'run-updated' ||
       event.type === 'task-created' ||
       event.type === 'task-updated' ||
-      event.type === 'settings-changed'
+      event.type === 'task-deleted' ||
+      event.type === 'factory-removed' ||
+      event.type === 'settings-changed' ||
+      event.type === 'factory-updated'
     ) {
       void pump()
     }

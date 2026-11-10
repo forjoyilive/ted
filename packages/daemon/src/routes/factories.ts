@@ -31,6 +31,16 @@ import { agentChoice, bodyObject, optionalText, type Route, readJson, text } fro
 
 export const factoryRoutes: Route[] = [
   {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/auto-start-backlog$/,
+    async handle({ req, params: [id = ''] }, { factories }) {
+      const body = record(await readJson(req))
+      if (typeof body.enabled !== 'boolean')
+        throw new HttpError(400, 'enabled must be true or false')
+      return [200, await factories.setAutoStartBacklog(id, body.enabled)]
+    },
+  },
+  {
     method: 'GET',
     path: /^\/factories$/,
     handle: async (_, { factories }) => [200, await factories.list()],

@@ -30,6 +30,7 @@ export interface Factory {
   localFolder?: LocalFolder
   repos: FactoryRepo[]
   showTutorial: boolean
+  autoStartBacklog: boolean
   cloned: boolean
   hasSettings?: true
   setup?: RepoSetup[]

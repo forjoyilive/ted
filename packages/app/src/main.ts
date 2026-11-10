@@ -375,6 +375,10 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   drift: (client) => client.drift(),
   mergeInherited: (client, factoryId, stage) =>
     client.mergeInherited(String(factoryId), stage as AgentStageId),
+  setFactoryAutoStartBacklog: (client, factoryId, enabled) => {
+    if (typeof enabled !== 'boolean') throw new Error('enabled must be true or false')
+    return client.setFactoryAutoStartBacklog(String(factoryId), enabled)
+  },
   renameFactory: (client, factoryId, name) => client.renameFactory(String(factoryId), String(name)),
   reorderFactories: (client, factoryIds) =>
     client.reorderFactories(Array.isArray(factoryIds) ? factoryIds.map(String) : []),

@@ -533,6 +533,7 @@ export interface TedStore {
   isMerged(taskId: string): boolean
   setLocalFolder(repo: string, path: string): void
   clearLocalFolder(repo: string): void
+  setFactoryAutoStartBacklog(factoryId: string, enabled: boolean): StoredFactory
   renameFactory(factoryId: string, name: string): StoredFactory
   reorderFactories(factoryIds: readonly string[]): StoredFactory[]
   removeFactory(factoryId: string): void
@@ -2910,6 +2911,15 @@ export async function openStore({
     },
     clearLocalFolder(repo) {
       commit(events.localFolderCleared({ repo, at: new Date().toISOString() }))
+    },
+    setFactoryAutoStartBacklog(factoryId, enabled) {
+      requireFactory(factoryId)
+      commit(
+        events.factoryAutoStartBacklogChanged({ factoryId, enabled, at: new Date().toISOString() }),
+      )
+      const factory = requireFactory(factoryId)
+      emit({ type: 'factory-updated', factory: basicFactory(factory) })
+      return factory
     },
     renameFactory(factoryId, name) {
       commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
