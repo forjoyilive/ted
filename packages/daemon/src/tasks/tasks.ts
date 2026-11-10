@@ -1507,8 +1507,7 @@ export function createTasks(options: {
   async function reactToGitHub(read: PullRequestRead): Promise<void> {
     if (closed) return
     for (const task of store.listTasks()) {
-      if (task.archived || task.stage === 'done' || store.failures.list(task.id).length === 0)
-        continue
+      if (task.archived || task.stage === 'done') continue
       let ci: string | null | undefined
       try {
         ci = failureCi(task, read).ci
@@ -1532,7 +1531,7 @@ export function createTasks(options: {
         ) {
           inBackground(`verify ${task.displayId}’s failure context`, () =>
             holding(task, async () => {
-              const context = await failureSnapshot(find(task.id)).catch(() => null)
+              const context = await failures.snapshot(find(task.id)).catch(() => null)
               if (!closed) await failures.obligations(find(task.id), context)
             }),
           )
@@ -4895,6 +4894,7 @@ export function createTasks(options: {
       const last = find(task.id)
       const runIds = store.taskRunList(task.id).map((r) => r.id)
       const files = store.taskFiles(task.id)
+      failures.forget(task.id)
       store.deleteTask(task.id)
       await store.persisted()
       await removeFiles(last, runIds, files)
@@ -6114,13 +6114,18 @@ export function createTasks(options: {
     }
     return { ci, ciFailures }
   }
-  async function failureSnapshot(task: Task, observed?: PullRequestRead): Promise<FailureContext> {
+  async function failureSnapshot(
+    task: Task,
+    observed?: PullRequestRead,
+    bindCi?: () => void,
+  ): Promise<FailureContext> {
     const read =
       observed ??
       (task.repos.some((repo) => !repo.removed && repo.pullRequest)
         ? await watch?.next({ now: true })
         : undefined)
     const { ci, ciFailures } = failureCi(task, read)
+    bindCi?.()
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
     const checks = hashContext({
@@ -6170,7 +6175,7 @@ export function createTasks(options: {
   }
   const failures = createFailureCases({
     store,
-    snapshot: failureSnapshot,
+    snapshot: (task, bindCi) => failureSnapshot(task, undefined, bindCi),
     assertLead: (task, runId) => {
       taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
     },
@@ -6216,7 +6221,11 @@ export function createTasks(options: {
   })
   async function requireObligations(task: Task, observed?: PullRequestRead): Promise<void> {
     if (store.failures.list(task.id).length === 0) return
-    const context = observed ? await failureSnapshot(task, observed).catch(() => null) : undefined
+    const context = observed
+      ? await failures
+          .snapshot(task, (bindCi) => failureSnapshot(task, observed, bindCi))
+          .catch(() => null)
+      : undefined
     const result = await failures.obligations(task, context)
     if (!result.satisfied)
       throw new RequestError(

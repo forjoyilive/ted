@@ -60,7 +60,7 @@ export function failureText(value: string): string {
 
 export function createFailureCases(options: {
   store: TedStore
-  snapshot(task: Task): Promise<FailureContext>
+  snapshot(task: Task, bindCi: () => void): Promise<FailureContext>
   assertLead(task: Task, runId: string): void
   drafts(taskId: string): readonly string[]
   onHold(task: Task): Promise<void>
@@ -68,6 +68,31 @@ export function createFailureCases(options: {
   tell(task: Task, comment: Comment): Promise<void>
 }) {
   const { store } = options
+  const observations = new Map<string, { ci: string | null | undefined; generation: number }>()
+  const collections = new WeakMap<FailureContext, number>()
+  async function snapshot(
+    task: Task,
+    collect = (bindCi: () => void) => options.snapshot(task, bindCi),
+  ) {
+    let generation = observations.get(task.id)?.generation ?? 0
+    const context = await collect(() => {
+      generation = observations.get(task.id)?.generation ?? 0
+    })
+    collections.set(context, generation)
+    return context
+  }
+  function verifiedContext(task: Task, context: FailureContext | null | undefined) {
+    if (!context) return context
+    const generation = collections.get(context)
+    const observation = observations.get(task.id)
+    return generation !== undefined &&
+      observation &&
+      (generation !== observation.generation ||
+        observation.ci === null ||
+        observation.ci !== context.ci)
+      ? null
+      : context
+  }
   const get = (task: Task, id: string) => {
     const value = store.failures.get(id)
     if (!value || value.taskId !== task.id)
@@ -115,6 +140,7 @@ export function createFailureCases(options: {
     current: FailureContext | null | undefined,
     observedCi?: { value: string | null | undefined },
   ) {
+    current = verifiedContext(task, current)
     const values = store.failures.list(task.id)
     const checkRuns = store
       .listCheckRuns(task.id)
@@ -201,10 +227,12 @@ export function createFailureCases(options: {
   ): Promise<ValidationObligations> {
     let current = observed
     if (task.stage !== 'done' && current === undefined && store.failures.list(task.id).length > 0)
-      current = await options.snapshot(task).catch(() => null)
+      current = await snapshot(task).catch(() => null)
     const verification = verify(task, current)
     await applyHold(task, verification)
-    return verification.result
+    const final = verify(task, current)
+    if (final.invalidated.length > 0) await applyHold(task, final)
+    return final.result
   }
   function pendingDecision(task: Task, id: string, requestId: string) {
     const value = get(task, id)
@@ -225,18 +253,30 @@ export function createFailureCases(options: {
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,
+    snapshot,
+    forget: (taskId: string) => observations.delete(taskId),
     async observeCi(task: Task, ci: string | null | undefined) {
+      const previous = observations.get(task.id)
+      observations.set(task.id, {
+        ci,
+        generation: (previous?.generation ?? 0) + (previous && previous.ci !== ci ? 1 : 0),
+      })
+      if (store.failures.list(task.id).length === 0) return
       const verification = verify(task, undefined, { value: ci })
       if (verification.invalidated.length > 0) await applyHold(task, verification)
     },
     async capture(task: Task, runId: string) {
-      const context = await options.snapshot(task).catch(async (error: unknown) => {
+      const context = await snapshot(task).catch(async (error: unknown) => {
         await obligations(task, null)
         throw error
       })
       options.assertLead(task, runId)
       await obligations(task, context)
       options.assertLead(task, runId)
+      if (!verifiedContext(task, context)) {
+        await obligations(task, null)
+        throw new RequestError(409, 'tested context was superseded during capture')
+      }
       return store.failures.capture(context)
     },
     async record(task: Task, runId: string, request: RecordFailureRequest): Promise<FailureCase> {
@@ -416,7 +456,7 @@ export function createFailureCases(options: {
         throw new RequestError(400, 'closing a failure needs a reason')
       const current =
         request.resolution === 'accepted'
-          ? await options.snapshot(task).catch(() => null)
+          ? verifiedContext(task, await snapshot(task).catch(() => null))
           : undefined
       const verification = current === undefined ? undefined : verify(task, current)
       try {
