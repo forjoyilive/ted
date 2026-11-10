@@ -35,7 +35,7 @@ describe('Factory settings sections', () => {
     await window.getByText('Always last').waitFor()
     const jump = window.getByRole('navigation', { name: 'Jump to a section' })
 
-    for (const section of ['Workflow', 'Factory notes']) {
+    for (const section of ['Workflow', 'Factory notes', 'Danger zone']) {
       await jump.getByRole('button', { name: section }).click()
       await sleep(300)
       const main = await window.getByRole('main').boundingBox()
@@ -44,6 +44,24 @@ describe('Factory settings sections', () => {
       expect(main?.y).toBe(0)
       expect(inbox?.y).toBeGreaterThan(0)
     }
+
+    const dangerZone = window.getByRole('region', { name: 'Danger zone', exact: true })
+    expect(
+      await window
+        .getByRole('region', { name: 'General', exact: true })
+        .getByRole('button', {
+          name: 'Remove Factory…',
+        })
+        .count(),
+    ).toBe(0)
+    await dangerZone.getByRole('button', { name: 'Remove Factory…' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Remove Factory widgets?' })
+    await dialog.waitFor()
+    expect(
+      await dialog.getByRole('button', { name: 'Remove Factory', exact: true }).isDisabled(),
+    ).toBe(true)
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await dialog.waitFor({ state: 'detached' })
   })
 
   test('Workflow, Permissions and notes edits collect into one Save, and Bypass needs confirming', async () => {
