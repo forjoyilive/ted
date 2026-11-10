@@ -790,6 +790,49 @@ describe('local Factory permission consent', () => {
     expect((await client.getRun(run.id)).run.permissions).toBe('auto')
   })
 
+  test('a timed-out restart kills the old Bypass agent before releasing consent', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const original = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+      pid: number
+      argv: string[]
+    }
+    expect(original.argv[original.argv.indexOf('--permission-mode') + 1]).toBe('bypassPermissions')
+    const alive = () => {
+      try {
+        process.kill(original.pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    const gate = path.join(scratch, 'timeout-shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.call('POST', `/runs/${run.id}/restart`)
+    try {
+      await waitUntil(
+        () =>
+          readFile(`${gate}.waiting`)
+            .then(() => true)
+            .catch(() => false),
+        'shutdown gate',
+      )
+      await client.ok('PUT', route, { mode: 'auto' })
+      expect((await restarting).status).toBeGreaterThanOrEqual(400)
+      await waitUntil(() => !alive(), 'old agent terminated after restart timeout', 2_000)
+      await client.ok('POST', `/tasks/${task.id}/stop`)
+      expect(alive()).toBe(false)
+    } finally {
+      await writeFile(gate, '')
+      await restarting
+    }
+  })
+
   test('old-host replacement reads consent after a delayed shutdown', async () => {
     const client = await start('version: 1\n', true)
     const [factory] = await client.ok<Factory[]>('GET', '/factories')

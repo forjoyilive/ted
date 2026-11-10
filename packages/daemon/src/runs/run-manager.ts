@@ -41,7 +41,7 @@ import { nodeEntry, shellScript } from '../node-entry.ts'
 import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
-import { signalProcess } from '../signal.ts'
+import { signalGroup, signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
 import {
   forGeneration,
@@ -255,7 +255,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             const env = await prepareReplacement(runId)
             const host = spawnHost(path.join(runsDir, runId), env)
             await waitForStart(path.join(runsDir, runId), before, () => {
-              host.kill('SIGKILL')
+              killSpawnedHostGroup(host)
             })
           })
           awaitingStart = Date.now() + stopGraceMs
@@ -489,6 +489,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     return child
   }
 
+  function killSpawnedHostGroup(host: ReturnType<typeof spawnHost>): void {
+    if (host.exitCode === null && host.signalCode === null) killGroup(host.pid)
+  }
+
   async function waitForStart(
     runDir: string,
     before: number,
@@ -498,7 +502,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (waited >= stopGraceMs) {
         await kill()
         throw new Error(
-          'The agent did not start; TED stopped its host before releasing the permission handoff',
+          'The agent did not start; TED stopped its host and agent before releasing the permission handoff',
         )
       }
       await sleep(pollMs)
@@ -693,7 +697,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         follow(id)
         handedOff = true
         void waitForStart(runDir, 0, () => {
-          host.kill('SIGKILL')
+          killSpawnedHostGroup(host)
         })
           .catch((error: unknown) => console.error('The Run host did not start:', error))
           .finally(release)
@@ -753,7 +757,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         follow(runId, { revived: true })
         handedOff = true
         void waitForStart(runDir, before, () => {
-          host.kill('SIGKILL')
+          killSpawnedHostGroup(host)
         })
           .catch((error: unknown) => console.error('The revived Run host did not start:', error))
           .finally(release)
@@ -793,7 +797,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const restarted = store.restartRun(runId, flags)
         const pid = await hostPid(runDir, start)
         await signalHost(runDir, pid, 'SIGHUP')
-        await waitForStart(runDir, before, () => signalHost(runDir, pid, 'SIGKILL'))
+        await waitForStart(runDir, before, () => killHostGroup(runDir, pid))
         return restarted
       })
     },
@@ -1075,6 +1079,16 @@ const startRecordCount = async (runDir: string) => (await startRecords(runDir)).
 // after a reboot, so only signal a pid that still holds the Run's host lock.
 async function signalHost(runDir: string, pid: number, name: NodeJS.Signals): Promise<void> {
   if (await holdsLock(runFiles(runDir).lock, pid)) signal(pid, name)
+}
+
+async function killHostGroup(runDir: string, pid: number): Promise<void> {
+  if (await holdsLock(runFiles(runDir).lock, pid)) killGroup(pid)
+}
+
+function killGroup(pid: number | undefined): void {
+  try {
+    signalGroup(pid, 'SIGKILL')
+  } catch {}
 }
 
 function signal(pid: number | null, name: NodeJS.Signals): void {
