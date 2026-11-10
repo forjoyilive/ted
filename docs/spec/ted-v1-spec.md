@@ -201,7 +201,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
   - **Play a sound** (off).
 - More than 3 notifications within a minute fold into one: “5 new items in your Inbox”. Clicking opens the Task, or the Settings section for a problem. (KRI-59)
 - No notifications for warnings, updates, failed Automation Runs or Tasks starting. No per-Factory mute or quiet hours; the OS’s Focus covers it. No Dock bounce, no separate feed. (KRI-59, KRI-20)
-- **Badges:** the sidebar Inbox count, the Dock badge and the menu-bar count all show the number of waiting requests, read or not. (KRI-56)
+- **Badges:** the sidebar Inbox count, the Dock badge and the menu-bar count all show the number of open Inbox requests, read or not, across Tasks, Automations and planning chats. Two open requests on one Task count as two; a waiting Run without an Inbox request adds nothing. Notes and answered requests don’t count, and archived Tasks’ requests are excluded. (KRI-56, KRI-168; ADR 0088)
 
 ### 3.9 Menu-bar menu, and Linux without a tray
 
