@@ -8,6 +8,8 @@ import type {
   Weekday,
 } from '@ted/protocol'
 import { weekdays } from '@ted/protocol/schedule'
+import { defaultMachineSettings } from '@ted/protocol/settings'
+import { effectiveTimeZone, uses12HourTime } from '@ted/protocol/time'
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import {
   draftOf,
@@ -20,8 +22,9 @@ import {
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import { ScheduleTime } from '../components/ScheduleTime.tsx'
 import { Select } from '../components/Select.tsx'
-import { useAutomationTemplates } from '../data.ts'
+import { useAutomationTemplates, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
 import { LeadFields } from './NewTaskDialog.tsx'
@@ -58,13 +61,6 @@ const dayNames: Record<Weekday, string> = {
   sun: 'Sunday',
 }
 
-const systemZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
-
-function zones(current: string): string[] {
-  const all = Intl.supportedValuesOf?.('timeZone') ?? []
-  return all.includes(current) ? all : [current, ...all]
-}
-
 export function AutomationDialog({
   factories,
   factoryId,
@@ -94,7 +90,8 @@ export function AutomationDialog({
   const [draft, setDraft] = useState<ScheduleDraft>(() =>
     draftOf(editing?.schedule ?? blankSchedule),
   )
-  const [timeZone, setTimeZone] = useState(editing?.timeZone ?? systemZone())
+  const settings = useSettings()
+  const timeZone = effectiveTimeZone(settings ?? defaultMachineSettings)
   const [lead, setLead] = useState<TaskLead | undefined>(
     editing && {
       agent: editing.agent,
@@ -152,14 +149,18 @@ export function AutomationDialog({
   })
 
   const schedule = scheduleOf(draft)
-  const scheduleKey = JSON.stringify([schedule, timeZone])
+  const scheduleKey = JSON.stringify([
+    schedule,
+    timeZone,
+    uses12HourTime(settings ?? defaultMachineSettings),
+  ])
   useEffect(() => {
     const parsed = JSON.parse(scheduleKey) as [ReturnType<typeof scheduleOf>, string]
-    const [given, zone] = parsed
+    const [given] = parsed
     if (typeof given === 'string') return setPreview(undefined)
     let current = true
     const timer = setTimeout(() => {
-      ted.previewSchedule(given, zone).then(
+      ted.previewSchedule(given).then(
         (result) => {
           if (current) setPreview(result)
         },
@@ -191,7 +192,6 @@ export function AutomationDialog({
       name: name.trim(),
       prompt,
       schedule,
-      timeZone,
       on,
       ...(lead && {
         agent: lead.agent,
@@ -394,13 +394,7 @@ export function AutomationDialog({
                 )
               })}
             {(draft.kind === 'daily' || draft.kind === 'weekdays' || draft.kind === 'weekly') && (
-              <input
-                type="time"
-                aria-label="Time"
-                className={`${styles.input} ${styles.time}`}
-                value={draft.at}
-                onChange={(event) => setDraftField({ at: event.target.value })}
-              />
+              <ScheduleTime value={draft.at} onChange={(at) => setDraftField({ at })} />
             )}
             {draft.kind === 'custom' && (
               <input
@@ -423,32 +417,13 @@ export function AutomationDialog({
             preview.nextFirings.length > 0 && (
               <span className={styles.note} data-next-firings>
                 {draft.kind === 'custom' && `${preview.text.replace(/ · [^·]+$/, '')}. `}
-                Next: {preview.nextFirings.map((at) => firingDate(at, timeZone)).join(' · ')}
+                Next: {preview.nextFirings.map((at) => firingDate(at)).join(' · ')}
               </span>
             )
           )}
         </fieldset>
 
-        <div className={styles.field}>
-          <span className={styles.labelRow}>
-            <label className={styles.label} htmlFor={`${id}-zone`}>
-              Timezone
-            </label>
-            <Help>Clock times in the schedule are in this zone. It stays put if you travel.</Help>
-          </span>
-          <Select
-            id={`${id}-zone`}
-            className={styles.wide}
-            value={timeZone}
-            onChange={(event) => setTimeZone(event.target.value)}
-          >
-            {zones(timeZone).map((zone) => (
-              <option key={zone} value={zone}>
-                {zone}
-              </option>
-            ))}
-          </Select>
-        </div>
+        <p className={styles.note}>Time zone: {timeZone} · App-wide in General settings</p>
 
         {lead && (
           <LeadFields

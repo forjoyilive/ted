@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   type AgentHealth,
   type Banner,
+  defaultMachineSettings,
   type Factory,
   type RunChat,
   type RunWithConversation,
@@ -118,6 +119,35 @@ const limitReached = {
 }
 
 describe('Usage limits', () => {
+  test('changing time preferences updates active usage-limit reasons and banners', async () => {
+    const client = await start()
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600
+    const at = new Date(resetsAt * 1000).toISOString()
+    await startTask(
+      client,
+      steps(
+        limitEvent('rejected', { resetsAt, rateLimitType: 'five_hour', utilization: 1 }),
+        limitReached,
+        { endTurn: true },
+      ),
+    )
+    await waitUntil(
+      async () => (await healthOf(client, 'claude'))?.state === 'usage-limit',
+      'the usage limit',
+    )
+    for (const preferences of [
+      { timeFormat: '24-hour', timeZone: 'UTC' },
+      { timeFormat: '12-hour', timeZone: 'Asia/Tokyo' },
+    ] as const) {
+      await client.ok('PATCH', '/settings', preferences)
+      const shown = resetTime(at, undefined, preferences)
+      expect((await healthOf(client, 'claude'))?.reason).toBe(`Claude usage limit, resets ${shown}`)
+      expect((await bannerWith(client, 'agent-usage-limit:app:claude'))?.text).toContain(
+        `resets ${shown}`,
+      )
+    }
+  })
+
   test('a Claude usage limit pauses Claude until the reset time, then the Run carries on by itself', async () => {
     const client = await start()
     const resetsAt = Math.floor(Date.now() / 1000) + 2
@@ -130,7 +160,11 @@ describe('Usage limits', () => {
       ),
     )
     const runId = await leadRunOf(client, task.id)
-    const shown = resetTime(new Date(resetsAt * 1000).toISOString())
+    const shown = resetTime(
+      new Date(resetsAt * 1000).toISOString(),
+      undefined,
+      defaultMachineSettings,
+    )
 
     const health = await waitUntil(async () => {
       const h = await healthOf(client, 'claude')

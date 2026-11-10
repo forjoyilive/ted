@@ -23,6 +23,7 @@ import {
   nextFiring,
   nowChip,
   retryable,
+  scheduleDescription,
   templateScheduleText,
   trigger,
 } from '../automations.ts'
@@ -38,6 +39,7 @@ import { useAutomation, useAutomations, useAutomationTemplates, useRunChat } fro
 import { useNow } from '../requests.ts'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import type { TemplateChoice } from './AutomationDialog.tsx'
 import styles from './Automations.module.css'
 import { stageName } from './TaskViews.tsx'
@@ -208,7 +210,7 @@ export function AutomationsPage({
                       >
                         {automation.name}
                       </button>
-                      <span className={styles.sub}>{automation.scheduleText}</span>
+                      <span className={styles.sub}>{scheduleDescription(automation)}</span>
                     </td>
                     <td className={styles.muted}>{nextFiring(automation, now)}</td>
                     <td>
@@ -481,9 +483,9 @@ export function AutomationView({
   const zone = automation.timeZone
   const canRetry = retryable(history)
   const line = [
-    automation.scheduleText,
+    scheduleDescription(automation),
     automation.on && automation.nextFirings[0] !== undefined
-      ? `next ${firingDate(automation.nextFirings[0], zone)}`
+      ? `next ${firingDate(automation.nextFirings[0])}`
       : 'Off',
     agentLabels[automation.agent],
     automation.model,
@@ -545,8 +547,8 @@ export function AutomationView({
               </thead>
               <tbody>
                 {history.map((run) => {
-                  const why = trigger(run, history, zone)
-                  const result = historyResult(run, zone)
+                  const why = trigger(run, history)
+                  const result = historyResult(run)
                   const runId = run.runId
                   return (
                     <tr
@@ -623,7 +625,9 @@ export function AutomationView({
       </section>
       <aside className={views.detailsPane} aria-label="Automation details">
         <Details title="Schedule">
-          <p className={styles.detailText}>{automation.scheduleText.replace(/ · [^·]+$/, '')}</p>
+          <p className={styles.detailText}>
+            {scheduleDescription(automation).replace(/ · [^·]+$/, '')}
+          </p>
           <p className={styles.detailNote}>{zone}</p>
         </Details>
         <Details title="Next firings">
@@ -632,7 +636,7 @@ export function AutomationView({
           ) : (
             automation.nextFirings.map((at) => (
               <p key={at} className={styles.detailText}>
-                {firingDate(at, zone)}
+                {firingDate(at)}
               </p>
             ))
           )}
@@ -665,7 +669,7 @@ export function AutomationView({
         </Details>
         <Details title="Created">
           <p className={styles.detailNote}>
-            {new Date(automation.createdAt).toLocaleDateString(undefined, {
+            {formatDate(automation.createdAt, {
               day: 'numeric',
               month: 'short',
               year: 'numeric',
@@ -844,7 +848,7 @@ export function AutomationRunView({
   const open = requests.filter((r) => r.kind === 'question' && r.answer === undefined)
   const run = chat.run
   const startedAt = row?.startedAt ?? run.startedAt
-  const why = row ? trigger(row, history, automation.timeZone) : undefined
+  const why = row ? trigger(row, history) : undefined
   const created = row?.created ?? []
   return (
     <>
@@ -939,7 +943,7 @@ export function AutomationRunView({
               {automation.name}
             </button>
           </p>
-          <p className={styles.detailNote}>{automation.scheduleText}</p>
+          <p className={styles.detailNote}>{scheduleDescription(automation)}</p>
         </Details>
       </aside>
     </>

@@ -1,8 +1,11 @@
 import { type Appearance, type QuitChoice, terminalFontSizes } from '@ted/protocol/settings'
+import { systemTimeZone } from '@ted/protocol/time'
 import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
+import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
+import { formatTime } from '../time.ts'
 import { AboutGroup, CommandLineGroup } from './CommandLineGroup.tsx'
 import {
   Button,
@@ -15,6 +18,7 @@ import {
 } from './controls.tsx'
 import { EditorRow } from './EditorRow.tsx'
 import type { SettingsPageProps } from './sections.tsx'
+import styles from './settings.module.css'
 
 const appearanceOptions: { value: Appearance; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -70,6 +74,9 @@ function loginItemNote(state: LoginItemState | undefined): string | undefined {
 }
 
 export function GeneralPage({ settings }: SettingsPageProps) {
+  const now = useNow()
+  const systemZone = systemTimeZone()
+  const zones = [...new Set([systemZone, 'UTC', ...(Intl.supportedValuesOf?.('timeZone') ?? [])])]
   const name = useProfileName()
   const loginItem = useLoginItem()
   const loginNote = settings.startAtLogin ? loginItemNote(loginItem) : undefined
@@ -125,6 +132,53 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(terminalFontSize) => void ted.updateSettings({ terminalFontSize })}
           />
         </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup label="Date and time">
+        <SettingRow title="Time format" detail="Used throughout TED.">
+          <Segmented
+            label="Time format"
+            name="time-format"
+            value={settings.timeFormat}
+            options={[
+              { value: 'system', label: 'System' },
+              { value: '12-hour', label: '12-hour' },
+              { value: '24-hour', label: '24-hour' },
+            ]}
+            onChange={(timeFormat) => void ted.updateSettings({ timeFormat })}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Time zone"
+          labelFor="time-zone"
+          detail="Used for displayed times and all Automation schedules."
+        >
+          <Select
+            id="time-zone"
+            value={settings.timeZone}
+            options={[
+              { value: 'system', label: `System · ${systemZone}` },
+              ...[
+                ...new Set([
+                  ...zones,
+                  ...(settings.timeZone === 'system' ? [] : [settings.timeZone]),
+                ]),
+              ].map((zone) => ({ value: zone, label: zone.replaceAll('_', ' ') })),
+            ]}
+            onChange={(timeZone) => void ted.updateSettings({ timeZone })}
+            width={265}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Current time"
+          detail={`${settings.timeZone === 'system' ? 'Following system' : 'Fixed zone'} · ${settings.timeZone === 'system' ? systemZone : settings.timeZone}`}
+        >
+          <output>{formatTime(new Date(now))}</output>
+        </SettingRow>
+        <p className={styles.timeNote}>
+          Automations keep their scheduled clock times when the zone changes. Choose a fixed zone to
+          keep schedules in that zone when you travel.
+        </p>
       </SettingsGroup>
 
       <SettingsGroup label="Startup and quitting">

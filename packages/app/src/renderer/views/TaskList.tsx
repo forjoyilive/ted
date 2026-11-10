@@ -58,6 +58,7 @@ import { age, useNow } from '../requests.ts'
 import { startTask } from '../setup-notice.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import styles from './TaskList.module.css'
 import views from './views.module.css'
 
@@ -91,7 +92,7 @@ function report(error: unknown) {
 }
 
 function shortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  return formatDate(iso, { day: 'numeric', month: 'short' })
 }
 
 function ending(task: Task): string {

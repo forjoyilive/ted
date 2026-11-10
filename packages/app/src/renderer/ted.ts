@@ -398,8 +398,8 @@ export const ted = {
     window.ted.request('automationTemplates') as Promise<AutomationTemplate[]>,
   automationRequests: () =>
     window.ted.request('automationRequests') as Promise<AutomationRequest[]>,
-  previewSchedule: (schedule: AutomationSchedule, timeZone?: string) =>
-    window.ted.request('previewSchedule', schedule, timeZone) as Promise<SchedulePreview>,
+  previewSchedule: (schedule: AutomationSchedule) =>
+    window.ted.request('previewSchedule', schedule) as Promise<SchedulePreview>,
   createAutomation: (input: CreateAutomationRequest) =>
     window.ted.request('createAutomation', input) as Promise<Automation>,
   editAutomation: (id: string, input: EditAutomationRequest) =>

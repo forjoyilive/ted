@@ -3,19 +3,25 @@ import { formatBytes } from '@ted/protocol/storage'
 import { useCallback, useEffect, useState } from 'react'
 import { useConnection } from '../data.ts'
 import { ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import { plural } from '../words.ts'
 import { Button, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './storage.module.css'
 
-const when = new Intl.DateTimeFormat('en-GB', {
-  day: 'numeric',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-})
-const day = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+const when = {
+  format: (at: Date) =>
+    formatDate(at, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+}
+const day = {
+  format: (at: Date) => formatDate(at, { day: 'numeric', month: 'short', year: 'numeric' }),
+}
 
 function backupTitle(backup: StoredBackup): string {
   const at = new Date(backup.takenAt)

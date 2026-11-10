@@ -13,6 +13,7 @@ import { StatusChip } from '../components/StatusChip.tsx'
 import { useAgentHealth } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
+import { timePreferences } from '../time.ts'
 import { AgentDefaults } from './AgentDefaults.tsx'
 import styles from './AgentsPage.module.css'
 import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
@@ -81,7 +82,7 @@ function limitLine(health: AgentHealth): string {
   }
   const full = health.planUsage?.windows.find((w) => w.percent >= 100)
   const which = full ? `the ${windowNames[full.window].toLowerCase()}` : 'the limit'
-  return `Paused until ${which} resets at ${resetTime(health.limitResetsAt)}.`
+  return `Paused until ${which} resets at ${resetTime(health.limitResetsAt, undefined, timePreferences())}.`
 }
 
 function freshness(health: AgentHealth, usage: PlanUsage, now: number): string {
@@ -99,7 +100,10 @@ function tone(percent: number): 'full' | 'warn' | 'ok' {
 function UsageBar({ window }: { window: PlanWindow }) {
   const percent = Math.round(window.percent)
   const shown = tone(window.percent)
-  const resets = window.resetsAt !== undefined ? ` · resets ${resetTime(window.resetsAt)}` : ''
+  const resets =
+    window.resetsAt !== undefined
+      ? ` · resets ${resetTime(window.resetsAt, undefined, timePreferences())}`
+      : ''
   return (
     <div className={styles.usage} data-tone={shown}>
       <div className={styles.usageLabels}>

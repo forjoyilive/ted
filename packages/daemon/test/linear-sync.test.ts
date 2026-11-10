@@ -322,10 +322,10 @@ describe('Tasks an Automation made', () => {
     const client = await startWithLinear({
       daemon: { automations: { now: () => clock, checkEveryMs: 50 } },
     })
+    await client.ok('PATCH', '/settings', { timeZone: 'Europe/London' })
     await client.ok('POST', '/automations', {
       name: 'Linear intake',
       factory: 'NB',
-      timeZone: 'Europe/London',
       schedule: { kind: 'daily', at: '09:00' },
       prompt: JSON.stringify({
         steps: [

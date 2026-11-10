@@ -16,11 +16,13 @@ import {
   describeSchedule,
   type EditAutomationRequest,
   type Effort,
+  effectiveTimeZone,
   nextFirings,
   type QueuedForSlot,
   type RunSlots,
   type SchedulePreview,
   type SlotHolder,
+  systemTimeZone,
 } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
@@ -53,6 +55,7 @@ export interface AutomationsOptions {
   workflows: Workflows
   queue: AutomationQueue
   idle?: IdleTimer
+  systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
   graceMs?: number
@@ -60,7 +63,7 @@ export interface AutomationsOptions {
 
 export interface Automations {
   templates(): readonly AutomationTemplate[]
-  preview(schedule: AutomationSchedule, timeZone?: string): SchedulePreview
+  preview(schedule: AutomationSchedule): SchedulePreview
   list(caller: Caller, factory?: string): Promise<Automation[]>
   detail(ref: string, caller: Caller, factory?: string): Promise<AutomationDetail>
   create(input: CreateAutomationRequest, caller: Caller): Promise<Automation>
@@ -93,8 +96,6 @@ const refuseRun = (caller: Caller) => {
   if (caller.kind === 'run') throw new RequestError(403, 'Ask the human to change Automations')
 }
 
-const systemZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-
 function firstLine(text: string, max = 300): string {
   const line = text.split('\n').find((l) => l.trim() !== '') ?? ''
   const trimmed = line.trim()
@@ -118,7 +119,33 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const factoryOf = (automation: StoredAutomation) => store.getFactory(automation.factoryId)
   const live = () => saved.list().filter((a) => factoryOf(a) !== undefined)
 
+  const effectiveZone = () =>
+    effectiveTimeZone(store.settings(), (options.systemTimeZone ?? systemTimeZone)())
+
+  function reconcileZones(): void {
+    const timeZone = effectiveZone()
+    const at = iso(now())
+    for (const automation of live()) {
+      if (automation.timeZone === timeZone) continue
+      const { name, prompt, schedule, agent, model, effort } = automation
+      saved.edit(
+        automation.id,
+        {
+          name,
+          prompt,
+          schedule,
+          agent,
+          timeZone,
+          ...(model !== undefined && { model }),
+          ...(effort !== undefined && { effort }),
+        },
+        at,
+      )
+    }
+  }
+
   function find(ref: string, factory?: string): StoredAutomation {
+    reconcileZones()
     const inFactory = factory === undefined ? undefined : factoryByRef(factory)
     const candidates = live().filter((a) => !inFactory || a.factoryId === inFactory.id)
     const exact = candidates.find((a) => a.id === ref)
@@ -293,6 +320,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const pump = options.queue.addQueueSource(source)
 
   async function launch(id: string): Promise<void> {
+    reconcileZones()
+    await store.persisted()
     const firing = saved.firing(id)
     const automation = firing && saved.get(firing.automationId)
     const factory = automation && factoryOf(automation)
@@ -509,6 +538,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   const unsubscribe = store.subscribe((event) => {
     if (closed) return
+    if (event.type === 'settings-changed') {
+      reconcileZones()
+      changed()
+    }
     if (event.type === 'run-updated' && event.run.state === 'working') limited.delete(event.run.id)
     if (event.type === 'run-updated' && event.run.state === 'idle' && saved.firing(event.run.id)) {
       const runId = event.run.id
@@ -538,6 +571,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   function check(): void {
     if (closed) return
+    reconcileZones()
     const at = now()
     let fired = false
     if (store.newWorkHold() === undefined) {
@@ -679,7 +713,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
       prompt: automation.prompt,
       schedule: automation.schedule,
       timeZone: automation.timeZone,
-      scheduleText: describeSchedule(automation.schedule, automation.timeZone),
+      scheduleText: describeSchedule(
+        automation.schedule,
+        automation.timeZone,
+        store.settings().timeFormat,
+      ),
       agent: automation.agent,
       ...(automation.model !== undefined && { model: automation.model }),
       ...(automation.effort !== undefined && { effort: automation.effort }),
@@ -793,15 +831,18 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   return {
     templates: () => automationTemplates,
-    preview(schedule, timeZone = systemZone()) {
+    preview(schedule) {
+      reconcileZones()
+      const timeZone = effectiveZone()
       const error = checkSchedule(schedule, timeZone, now())
       return {
-        text: describeSchedule(schedule, timeZone),
+        text: describeSchedule(schedule, timeZone, store.settings().timeFormat),
         nextFirings: error === undefined ? nextFirings(schedule, timeZone, now(), 3).map(iso) : [],
         ...(error !== undefined && { error }),
       }
     },
     async list(caller, given) {
+      reconcileZones()
       const factory = readScope(caller, given)
       const inFactory = factory === undefined ? undefined : factoryByRef(factory)
       const slots = await slotsNow()
@@ -824,9 +865,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     async create(input, caller) {
       refuseRun(caller)
       const factory = factoryFor(input.factory, caller)
-      const timeZone = input.timeZone ?? systemZone()
-      scheduleError(input.schedule, timeZone)
       const lead = await defaultLead(factory)
+      const timeZone = effectiveZone()
+      scheduleError(input.schedule, timeZone)
       const agent = input.agent ?? lead.agent
       const same = agent === lead.agent
       const model = input.model ?? (same ? lead.model : undefined)
@@ -854,8 +895,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       refuseRun(caller)
       const automation = find(ref, factory)
       const schedule = input.schedule ?? automation.schedule
-      const timeZone = input.timeZone ?? automation.timeZone
-      if (input.schedule !== undefined || input.timeZone !== undefined) {
+      const timeZone = effectiveZone()
+      if (input.schedule !== undefined) {
         scheduleError(schedule, timeZone)
       }
       const agent = input.agent ?? automation.agent

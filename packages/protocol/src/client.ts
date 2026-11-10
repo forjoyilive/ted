@@ -202,10 +202,9 @@ export class DaemonClient {
     return this.#request('GET', '/automations/requests')
   }
 
-  previewSchedule(schedule: AutomationSchedule, timeZone?: string): Promise<SchedulePreview> {
+  previewSchedule(schedule: AutomationSchedule): Promise<SchedulePreview> {
     return this.#request('POST', '/automations/schedule-preview', {
       schedule,
-      ...(timeZone !== undefined && { timeZone }),
     })
   }
 

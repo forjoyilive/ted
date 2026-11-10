@@ -7,6 +7,7 @@ import {
   billings,
   createdByKinds,
   editorIds,
+  isTimeZone,
   type ListFilters,
   type ListView,
   listColumns,
@@ -19,6 +20,7 @@ import {
   simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
+  timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
 import { parseEditorCommand } from '../editors.ts'
@@ -167,6 +169,17 @@ function listView(value: unknown): ListView {
 }
 
 const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+  timeFormat(value) {
+    const format = timeFormats.find((format) => format === value)
+    if (!format) throw new HttpError(400, `timeFormat must be ${timeFormats.join(', ')}`)
+    return format
+  },
+  timeZone(value) {
+    if (typeof value !== 'string' || (value !== 'system' && !isTimeZone(value))) {
+      throw new HttpError(400, 'timeZone must be system or a valid IANA time zone')
+    }
+    return value
+  },
   listViews(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'listViews must be an object of List views by scope')

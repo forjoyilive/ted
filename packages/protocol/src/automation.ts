@@ -101,7 +101,6 @@ export interface AutomationInput {
   name: string
   prompt: string
   schedule: AutomationSchedule
-  timeZone?: string
   agent?: AgentKind
   model?: string
   effort?: Effort
