@@ -90,6 +90,19 @@ function built(
   }
 }
 
+export function withTaskGates(
+  workflow: ResolvedWorkflow,
+  overrides: import('@ted/protocol').TaskGateOverrides = {},
+): ResolvedWorkflow {
+  const stages = { ...workflow.settings.stages }
+  for (const id of agentStageIds) {
+    if (overrides[id] !== undefined && workflow.stages.includes(id)) {
+      stages[id] = { ...stages[id], gate: overrides[id] }
+    }
+  }
+  return { ...workflow, settings: { ...workflow.settings, stages } }
+}
+
 export function withForcedGates(
   workflow: ResolvedWorkflow,
   forced: readonly AgentStageId[],

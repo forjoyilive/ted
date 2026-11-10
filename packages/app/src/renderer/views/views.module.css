@@ -751,3 +751,7 @@
   font-weight: var(--weight-medium);
   line-height: 1.45;
 }
+
+.details .gatesValue:has(section) {
+  grid-column: 1 / -1;
+}

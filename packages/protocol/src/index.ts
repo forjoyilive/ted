@@ -521,6 +521,12 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export type {
+  SetTaskGatesRequest,
+  TaskGateOverrides,
+  TaskGateRow,
+  TaskGates,
+} from './task-gates.ts'
 export {
   effectiveTimeZone,
   formatClockTime,

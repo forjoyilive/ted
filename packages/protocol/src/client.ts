@@ -136,6 +136,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -370,6 +371,14 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  taskGates(ref: string): Promise<TaskGates> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/gates`)
+  }
+
+  setTaskGates(ref: string, request: SetTaskGatesRequest): Promise<TaskGates> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/gates`, request)
   }
 
   setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {

@@ -86,6 +86,7 @@ export const tasks = State.SQLite.table({
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
+    gateOverrides: State.SQLite.text({ nullable: true }),
     changesSettings: State.SQLite.boolean({ default: false }),
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
@@ -959,6 +960,10 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskGatesChanged: Events.synced({
+    name: 'v1.TaskGatesChanged',
+    schema: Schema.Struct({ taskId: Schema.String, overrides: Schema.String, at: Schema.String }),
   }),
   taskGatesForced: Events.synced({
     name: 'v1.TaskGatesForced',
@@ -2328,6 +2333,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -2624,6 +2630,8 @@ const materializers = counted(
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskGatesChanged': ({ taskId, overrides, at }) =>
+        tasks.update({ gateOverrides: overrides, changedAt: at }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>
         tasks.update({ forcedGates: JSON.stringify(stages) }).where({ id: taskId }),
       'v1.TaskChangesSettings': ({ taskId }) =>

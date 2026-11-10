@@ -159,6 +159,7 @@ export interface TaskSource {
 }
 
 export interface Task {
+  gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string
   number: number
