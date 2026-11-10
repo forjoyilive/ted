@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -336,6 +337,7 @@ describe('project reports', () => {
 describe('check runner integration with stub processes', () => {
   test.each([
     'passed',
+    'install-failed',
     'retried',
     'failed',
     'missing',
@@ -357,7 +359,7 @@ describe('check runner integration with stub processes', () => {
     mkdirSync(scripts, { recursive: true })
     mkdirSync(support, { recursive: true })
     mkdirSync(cache, { recursive: true })
-    for (const file of ['check.ts', 'check-history.ts']) {
+    for (const file of ['check.ts', 'check-history.ts', 'check-measurement.ts']) {
       copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
     }
     writeFileSync(
@@ -442,6 +444,7 @@ describe('check runner integration with stub processes', () => {
         const fs = require('node:fs')
         const args = process.argv.slice(2)
         fs.appendFileSync(${JSON.stringify(path.join(root, 'commands'))}, JSON.stringify(args) + '\\n')
+        if (args[0] === 'install' && ${JSON.stringify(mode === 'install-failed')}) process.exit(1)
         if (args[0] === 'exec') {
           const project = args[args.indexOf('--project') + 1]
           const file = args[args.indexOf('--outputFile.json') + 1]
@@ -460,7 +463,11 @@ describe('check runner integration with stub processes', () => {
     if (mode === 'write-error') mkdirSync(path.join(cache, 'ted-test-failures.json'))
     if (mode.startsWith('timing-error')) mkdirSync(path.join(cache, 'ted-test-times.json'))
     const result = spawnSync(process.execPath, [path.join(root, 'run.ts')], {
-      env: { ...process.env, PATH: `${root}${path.delimiter}${process.env.PATH}` },
+      env: {
+        ...process.env,
+        PATH: `${root}${path.delimiter}${process.env.PATH}`,
+        TED_CHECK_EVIDENCE_DIR: root,
+      },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -472,7 +479,21 @@ describe('check runner integration with stub processes', () => {
       expect(result.stderr).toContain('Could not save test timings')
       expect(result.stderr).toContain('Timing reporting')
     }
+    if (mode === 'install-failed') {
+      expect(existsSync(path.join(root, 'unlocked'))).toBe(false)
+      const measured = JSON.parse(readFileSync(path.join(root, 'check-measurement.json'), 'utf8'))
+      expect(measured.ok).toBe(false)
+      expect(measured.lockWaitMs).toBeNull()
+      expect(measured.artifacts).toEqual({})
+      expect(readFileSync(path.join(root, 'commands'), 'utf8')).not.toContain('vitest')
+      return
+    }
     expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
+    const measured = JSON.parse(readFileSync(path.join(root, 'check-measurement.json'), 'utf8'))
+    expect(measured.phases.lock.endMs).toBeGreaterThanOrEqual(measured.phases.lock.startMs)
+    expect(measured.testProcessEnvelopeMs).toBeGreaterThan(0)
+    expect(measured.workMs + measured.lockWaitMs).toBeCloseTo(measured.totalMs)
+    expect(measured.ok).toBe(mode === 'passed' || mode === 'retried')
     const commands = readFileSync(path.join(root, 'commands'), 'utf8')
     expect(commands).toContain('"--project","electron","--maxWorkers","3"')
     expect(commands).toContain('"--project","node","--maxWorkers","6"')

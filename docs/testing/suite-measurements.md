@@ -1,0 +1,173 @@
+# Suite measurements (KRI-256, stage 5)
+
+Measurements are pending. This document provides the procedure; it is not evidence
+that the speed or reliability targets have passed. Agents must never run these
+full-suite commands. The human runs them in a normal terminal outside an agent
+Run or TED Task shell. No GitHub workflow is needed.
+
+## Accepted experiment
+
+The human accepted this adjustment in TED-46’s Clarify Round 1: three quiet
+Checks, then three Checks alongside a separate CPU workload on the same Mac.
+The workload runs `ceil(logical CPUs / 2)` busy Node worker threads. Every worker
+signals readiness before the Check starts, and the workload stays running until
+the Check finishes. Its exact command, worker count, machine and one-second
+load-average samples are recorded. Load average describes recent scheduler
+pressure, not instantaneous CPU utilization; it can lag workload start/stop.
+
+This demonstrates busy-machine reliability, **not simultaneous-suite reliability**.
+KRI-256 originally asked for another full suite running concurrently. The global
+lock serializes full suites, including across checkouts; a queued second suite
+is not a competing test workload. The human explicitly accepted the CPU workload
+instead. The lock and caps (3 Electron, 6 node) stay unchanged. These measurements
+do not authorize raising them.
+
+## Before running
+
+Use one clean commit containing stages 1–4 and this collector, on the same Mac
+for every attempt. The branch starts from `fba8346c` (stage 4 merged), which also
+contains stage 1 (`da699a07`), stage 2 (`7599ff4e`) and stage 3 (`da21600e`). Record
+the actual full tested commit from `run.json`; the starting commit is not the
+measurement commit. Do not switch branches or update code/dependencies between
+attempts. A code change needs a fresh six-run series.
+
+Arrange a quiet period: let other TED Checks and focused tests finish, pause
+new agent work using the app, and close other known CPU-heavy workloads. Do not
+kill another Task’s processes or remove its locks. Record any remaining apps,
+background workload, power source and thermal constraints alongside the results.
+Use AC power consistently. Keep the same preparation across quiet and loaded
+runs; let the Mac settle back to its quiet baseline between attempts. The first
+quiet Check is included, even if installation or caches make it slower. Keep
+all failures, interruptions and retries; do not select only fast passing runs.
+
+Do not set lock-owner variables, change worker counts, or run a second collector
+at the same time. Install runs before the suite lock, so concurrent collectors
+could otherwise compete during dependency installation. The collector refuses
+a dirty tree, existing run label, or agent Run environment. Do not clear agent
+context variables to defeat that refusal; use your own normal terminal.
+
+## Six human-run commands
+
+From this repo’s root, run each command separately and wait for it to finish:
+
+```sh
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-1
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-2
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-3
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-1
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-2
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-3
+```
+
+Each invocation starts exactly one `pnpm check`. Loaded mode starts its own
+separate `node scripts/check-load.ts <worker-count>` process, waits for readiness,
+and stops that workload on completion or interruption. It never stops another
+Task’s App. Ctrl-C terminates the collector’s own Check process group and CPU
+workload; an interrupted attempt is incomplete evidence, not a pass. SIGKILL or
+machine failure cannot guarantee cleanup or complete artifacts; report that
+attempt and inspect any surviving owned processes before continuing.
+
+Every run has a new directory under
+`node_modules/.cache/suite-measurements/<label>/`. A used label is refused to
+preserve the previous evidence. If a run fails, preserve it and report why. A
+fresh loaded passing streak requires additional human-run commands with new
+labels; the initial six attempts must remain in the report.
+
+## Evidence and timing
+
+- `run.json`: actual start/end commits and cleanliness, machine hostname/OS/CPU/
+  memory, Node/pnpm versions, exact Check/workload commands, worker count, load
+  samples, collector wall time, exit status, interruption and workload failure.
+- `console.log`: complete Check output, including the recurring-failure report.
+- `check-measurement.json`: monotonic phase boundaries in milliseconds from the
+  Check’s start, total duration, lock wait, work duration and combined test-process
+  envelope; artifact hashes identify the fresh files copied under the suite lock.
+- `ted-test-report-{electron,node}.json`, `ted-test-retries-{electron,node}.json`,
+  `ted-test-times.json`, `ted-test-failures.json`: per-project results/retries,
+  per-file durations and rolling last-20-run failure history. The collector does
+  not reset history; distinguish earlier runs from the six measured attempts.
+- `assessment.json`: preliminary completeness/reliability and speed assessment.
+  A pass on retry makes `reliablePass` false even if `pnpm check` exited zero.
+  Read the raw artifacts before making the final acceptance claim.
+
+`totalMs` measures installation through Check reporting, before evidence copying
+and lock release. `lockWaitMs` covers acquisition of both the full-suite lock and
+all slots. `workMs = totalMs - lockWaitMs` includes installation, typecheck, lint,
+test startup/execution/teardown and reporting. Use `workMs <= 180000` for the
+agreed full-Check speed target; also publish the raw total and lock wait. Never
+present lock wait as test execution time. Collector wall time additionally
+includes metadata collection, CPU-workload startup/shutdown and evidence export.
+
+`phases['Test electron']` and `phases['Test node']` give separate child-process
+start/end boundaries. `testProcessEnvelopeMs` spans the earliest project start
+to the latest project completion; both projects overlap. These intervals include
+Vitest startup, collection and teardown. The project JSON reports also record
+per-file start/end timestamps; report their envelope separately if
+reported test-file execution is needed. Summing per-file times overstates wall
+time with parallel workers. No instrumentation claims an exact CPU-only duration.
+
+Missing/incomplete timing or artifacts are a finding. Unchanged old timing or
+failure-history files are not copied as fresh evidence. Retry/project files
+are cleared by the existing Check runner under the lock before test execution;
+new identical empty retry reports are still preserved. Artifact copying also
+happens under the lock, before another suite can overwrite them. Installation
+failure or interruption before tests cannot borrow another run’s cached reports.
+
+## Results to post in KRI-256
+
+Include the acceptance adjustment, full commit, machine identity/configuration,
+Node/pnpm versions, exact workload and worker count, quiet/background conditions,
+and links to all attempt artifacts. Preserve `console.log` and the full rolling
+failure-history file to support the top-10 recurring-failure report, including
+passes on retry. Unexpected skips or missing Electron execution require an
+explanation; a zero exit alone does not prove full coverage ran.
+
+| Attempt | Commit / Mac | Total s | Lock wait s | Check work s | Test-process envelope s | Exit / failures / retries | CPU load observations |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| quiet-1 | Pending | — | — | — | — | Pending | Pending |
+| quiet-2 | Pending | — | — | — | — | Pending | Pending |
+| quiet-3 | Pending | — | — | — | — | Pending | Pending |
+| loaded-1 | Pending | — | — | — | — | Pending | Pending |
+| loaded-2 | Pending | — | — | — | — | Pending | Pending |
+| loaded-3 | Pending | — | — | — | — | Pending | Pending |
+
+Report every attempt against 180 seconds, without averaging away a slow run.
+Require three consecutive loaded passes with complete evidence, no retry defects
+and a live workload throughout. If a criterion fails, record the failure and
+create a scoped TED-project Linear follow-up after checking for duplicates.
+The follow-up names the failing tests/phase and evidence, desired result and
+focused validation. Keep KRI-256 open while agreed criteria are unproven or
+unmet; measurements alone are not completion.
+
+## Coverage audit
+
+The audit is of source coverage responsibilities; execution of all native paths
+remains pending the human’s full runs. No tests are removed by stage 5.
+
+- [Daemon migration](daemon-decision-coverage.md): all four removed cases name
+  exact unit replacements. Source confirms both Linear decision cases, queue
+  Priority ordering and Claude permission fields are covered at their production
+  seams. Retained `linear-sync.test.ts` lifecycle, `queue-limits.test.ts` slot
+  release, and `permissions.test.ts` approval/delivery cases still exercise their
+  complete integration paths. Status, merge and schedule main paths were not
+  removed; merge-to-Done and Automation firing/finish remain integration tests.
+- [Renderer migration](renderer-component-coverage.md): the 98 baseline-case
+  rows retain named replacements or consolidation destinations. All 312 named
+  local source links were checked for the named title in their current test
+  file. One stale Coordinator title was updated to the retained, expanded
+  reopen/new-Run case. The baseline diff’s changed List default title belongs
+  to the separately merged Stage-grouping change, not a removed native feature.
+  The inventory explicitly retains native launch, Inbox answer, Validate/sign-off,
+  settings/reload, OS integration, transport, persistence and security paths;
+  component tests claim only their DOM/bridge responsibilities. Native coverage
+  remains above the original roughly-30-test target; this is already documented
+  as a deliberate boundary-coverage tradeoff, not a fulfilled count target.
+- [Timer changes](timer-control-coverage.md): no feature test was deleted. Source
+  changes replace synchronization with controlled clock advancement and actual
+  completion barriers. Existing GitHub, nudge, recovery, steering, merge,
+  Automation and Linear main paths remain; focused clock tests supplement them.
+
+The named-replacement and retained-main-path source audit found no missing
+replacement or removed feature main path. This does not certify passing native
+execution, nor prove the 180-second target. Confirm the actual tested commit
+still includes these paths when reviewing the supplied run artifacts.

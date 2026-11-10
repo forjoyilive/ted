@@ -8,6 +8,7 @@ import {
   waitingMessage,
 } from '../packages/daemon/test/support/suite-lock.ts'
 import { recordFailureRun } from './check-history.ts'
+import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
@@ -43,7 +44,9 @@ function run(
   args: string[],
   onLine?: (line: string) => void,
   more: Record<string, string> = {},
+  measurement?: CheckMeasurement,
 ): Promise<Step> {
+  measurement?.start(title)
   return new Promise((resolve) => {
     const env = {
       ...process.env,
@@ -68,6 +71,7 @@ function run(
       output += String(error)
     })
     child.on('close', (code) => {
+      measurement?.end(title)
       if (onLine && partial) onLine(partial)
       resolve({ title, ok: code === 0, output })
     })
@@ -295,21 +299,38 @@ function recordTimes(reports: JsonReport[]): void {
 }
 
 export async function runChecks(): Promise<boolean> {
-  console.log('\n== Install')
-  if (spawnSync('pnpm', ['install', '--frozen-lockfile'], { cwd: root, stdio: 'inherit' }).status) {
-    console.error('check: Install failed')
-    return false
-  }
-  mkdirSync(cacheDir, { recursive: true })
-  const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
+  const measurement = measureCheck(process.env.TED_CHECK_EVIDENCE_DIR, cacheDir)
+  let unlock: (() => Promise<void>) | undefined
+  let ok = false
   try {
-    return await checkInParallel()
+    console.log('\n== Install')
+    measurement?.start('install')
+    const installed =
+      spawnSync('pnpm', ['install', '--frozen-lockfile'], {
+        cwd: root,
+        stdio: 'inherit',
+      }).status === 0
+    measurement?.end('install')
+    if (!installed) {
+      console.error('check: Install failed')
+      return false
+    }
+    mkdirSync(cacheDir, { recursive: true })
+    measurement?.start('lock')
+    unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
+    measurement?.end('lock')
+    ok = await checkInParallel(measurement)
+    return ok
   } finally {
-    await unlock()
+    try {
+      measurement?.finish(ok)
+    } finally {
+      await unlock?.()
+    }
   }
 }
 
-async function checkInParallel(): Promise<boolean> {
+async function checkInParallel(measurement?: CheckMeasurement): Promise<boolean> {
   for (const group of testGroups) {
     rmSync(reportFile(group.project), { force: true })
     rmSync(retryFile(group.project), { force: true })
@@ -345,6 +366,7 @@ async function checkInParallel(): Promise<boolean> {
       ],
       (line) => console.log(`${tag} ${line}`),
       { TED_RETRY_REPORT: retryFile(group.project) },
+      measurement,
     )
   })
   const steps = await Promise.all([
