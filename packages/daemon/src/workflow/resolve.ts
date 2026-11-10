@@ -26,7 +26,7 @@ export interface ResolvedWorkflow {
   order: AgentStageId[]
   settings: WorkflowSettings
   overnightGates?: readonly AgentStageId[]
-  overnightKept?: { reason: OvernightGuard; stages: readonly AgentStageId[] }
+  overnightKept?: { reason: OvernightGuard; stages: readonly AgentStageId[]; unseen?: boolean }
   notes?: string
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
   next(current: StageId): StageId

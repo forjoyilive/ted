@@ -567,7 +567,7 @@ export function createTasks(options: {
   const pausedAt = new Map<string, number>()
   const recovering = new Set<string>()
   const overnightSeen = new Map<string, boolean>()
-  const mergeGuards = new Map<string, { visit: string; guard: OvernightGuard | undefined }>()
+  const mergeGuards = new Map<string, { key: string; guard: OvernightGuard | undefined }>()
   let overnightChangedAt = new Date().toISOString()
   const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
@@ -841,31 +841,43 @@ export function createTasks(options: {
     return { ...resolution, workflow: { ...workflow, overnightGates } }
   }
 
+  function primaryRepo(task: StoredTask, workflow: ResolvedWorkflow) {
+    const entries = factoryRepos(workflow, factoryOf(task))
+    const repo = task.repos.find(
+      (r) => !r.removed && (repoEntry(entries, r)?.name ?? r.name) === (entries[0]?.name ?? ''),
+    )
+    return { repo, baseBranch: repo && repoEntry(entries, repo)?.baseBranch, repos: entries.length }
+  }
+
   async function settingsGuard(
     task: StoredTask,
     workflow: ResolvedWorkflow,
   ): Promise<OvernightGuard | undefined> {
-    const live = task.repos.filter((r) => !r.removed)
-    if (live.length === 0) return task.stage === 'backlog' ? undefined : 'unreadable'
-    const visit = visitStart(task)
-    const cached = task.stage === 'merge' ? mergeGuards.get(task.id) : undefined
-    if (cached?.visit === visit) return cached.guard
-    const entries = factoryRepos(workflow, factoryOf(task))
-    const primary = live.find(
-      (r) => (repoEntry(entries, r)?.name ?? r.name) === (entries[0]?.name ?? ''),
-    )
-    if (!primary) return entries.length > 1 ? undefined : 'unreadable'
-    let guard: OvernightGuard | undefined
+    if (!task.repos.some((r) => !r.removed)) {
+      return task.stage === 'backlog' ? undefined : 'unreadable'
+    }
+    const { repo, baseBranch, repos } = primaryRepo(task, workflow)
+    if (!repo) return repos > 1 ? undefined : 'unreadable'
     try {
-      const base =
-        repoEntry(entries, primary)?.baseBranch ?? (await git.defaultBranch(primary.worktree))
-      const files = await git.changedFiles(primary.worktree, `origin/${base}`)
-      guard = touchesSettings(files) ? 'settings' : undefined
+      const atMerge = task.stage === 'merge'
+      const signed = atMerge ? repo.pullRequest?.signedOff : undefined
+      const head = atMerge ? await git.headCommit(repo.worktree) : ''
+      const key = `${visitStart(task)}:${head}:${signed ?? ''}`
+      const cached = atMerge ? mergeGuards.get(task.id) : undefined
+      if (cached?.key === key) return cached.guard
+      const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
+      let touched = touchesSettings(await git.changedFiles(repo.worktree, base))
+      if (!touched && signed !== undefined && signed !== head) {
+        const from = await git.mergeBase(repo.worktree, base, signed)
+        const merging = await git.changesBetween(repo.worktree, { from, to: signed })
+        touched = touchesSettings(merging.map((f) => f.path))
+      }
+      const guard = touched ? ('settings' as const) : undefined
+      if (atMerge) mergeGuards.set(task.id, { key, guard })
+      return guard
     } catch {
       return 'unreadable'
     }
-    if (task.stage === 'merge') mergeGuards.set(task.id, { visit, guard })
-    return guard
   }
 
   async function gateWorkflow(
@@ -876,22 +888,59 @@ export function createTasks(options: {
     if (!store.settings().overnightMode) return plain
     const guard = await settingsGuard(task, plain.workflow)
     if (guard === undefined) return plain
-    return taskWorkflow(task, { fetch: false, keepGates: guard })
+    const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
+    const { workflow } = kept
+    if (task.stage !== 'merge' || !workflow.overnightKept) return kept
+    const unseen = !(await approvalBound(task, workflow))
+    return {
+      ...kept,
+      workflow: { ...workflow, overnightKept: { ...workflow.overnightKept, unseen } },
+    }
   }
 
-  function signedOffSinceWork(task: Task): boolean {
+  async function approvalBound(task: StoredTask, workflow: ResolvedWorkflow): Promise<boolean> {
+    const { repo } = primaryRepo(task, workflow)
+    const signed = repo?.pullRequest?.signedOff
+    if (!repo || signed === undefined) return false
     const since =
       store.listStageEntries(task.id).findLast((e) => e.stage !== 'review' && e.stage !== 'merge')
         ?.at ?? ''
-    return store
+    const bound = new Set(
+      store
+        .taskLog(task.id)
+        .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === signed)
+        .map((e) => e.data.commentId),
+    )
+    const approved = store
       .listComments(task.id)
-      .some(
-        (c) =>
-          c.gate &&
-          (c.stage === 'review' || c.stage === 'merge') &&
-          c.answer?.kind === 'approved' &&
-          c.answer.at >= since,
+      .filter(
+        (c) => c.gate && c.answer?.kind === 'approved' && c.answer.at >= since && bound.has(c.id),
       )
+    if (approved.some((c) => c.stage === 'merge')) return true
+    if (!approved.some((c) => c.stage === 'review')) return false
+    return git.headCommit(repo.worktree).then(
+      (head) => head === signed,
+      () => false,
+    )
+  }
+
+  async function bindApproval(
+    task: StoredTask,
+    comment: Comment,
+    workflow: ResolvedWorkflow,
+  ): Promise<void> {
+    if (comment.stage !== 'review' && comment.stage !== 'merge') return
+    const { repo, baseBranch } = primaryRepo(task, workflow)
+    if (!repo) return
+    let commit = repo.pullRequest?.signedOff
+    if (comment.stage === 'review') {
+      commit = await (async () => {
+        const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
+        const changes = await git.workingChanges(repo.worktree, base)
+        return changes.files.some((f) => f.uncommitted) ? undefined : changes.head
+      })().catch(() => undefined)
+    }
+    if (commit !== undefined) store.gateApprovalBound(task.id, comment.id, repo.name, commit)
   }
 
   function gateKept(task: Task): boolean {
@@ -1703,9 +1752,10 @@ export function createTasks(options: {
     if (!workflow.stages.includes('merge')) return 'off'
     const since = visitStart(task)
     if (lastChangesRequested(task) !== '') return 'canceled'
-    const unseen = workflow.overnightKept !== undefined && !signedOffSinceWork(task)
-    if (!gateOn(task, workflow, 'merge') && !unseen) return 'merge'
-    if (gateSkipped(task)) return 'merge'
+    const kept = workflow.overnightKept
+    if (kept?.unseen) return 'gate'
+    if (!gateOn(task, workflow, 'merge')) return 'merge'
+    if (kept === undefined && gateSkipped(task)) return 'merge'
     const approved = store
       .listComments(task.id)
       .some(
@@ -2744,7 +2794,8 @@ export function createTasks(options: {
       return 'wait'
     }
     for (const { target, pr, noCi } of ready) {
-      if (mergeMode(find(taskId), resolution.workflow) !== 'merge') return 'done'
+      const fresh = await gateWorkflow(find(taskId), { fetch: false })
+      if (mergeMode(find(taskId), fresh.workflow) !== 'merge') return 'done'
       const method = chooseMethod(target.method, pr.allowed)
       if (!method) {
         console.error(`GitHub allows no merge method on ${target.repo}`)
@@ -4231,6 +4282,7 @@ export function createTasks(options: {
           at,
           ...(text !== '' && { text }),
         })
+        await bindApproval(now, comment, resolution.workflow)
         if (!liveLead(now)) store.holdAnswer(comment.id)
         const approved =
           text === ''
