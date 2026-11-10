@@ -21,3 +21,8 @@
 .eventTime { color: var(--text-muted); font-size: var(--text-10); white-space: nowrap; }
 .earlier { padding: 8px 24px; font-size: var(--text-12); color: var(--text-tertiary); }
 .history { height: 300px; display: flex; }
+
+.unsentHistory {
+  max-height: 240px;
+  overflow-y: auto;
+}

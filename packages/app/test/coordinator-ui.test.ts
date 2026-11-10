@@ -95,3 +95,58 @@ test('Coordinator opens from the sidebar, sends, shows receipts and preserves hi
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
   expect(((await client.coordinator(factory.id)) as Coordinator).runId).toBe(c.runId)
 })
+
+test('Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened', async () => {
+  home = await mkdtemp(path.join(tmpdir(), 'ted-coordinator-unsent-ui-'))
+  const env = {
+    ...process.env,
+    TED_HOME: home,
+    TED_IDLE_EXIT_MS: '30000',
+    TED_HIDDEN_WINDOW: '1',
+    TED_CLAUDE_BIN: fileURLToPath(
+      new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
+    ),
+  }
+  const client = await daemonAsApp(home, env)
+  const origin = await makeOriginRepo(path.join(home, 'origin'))
+  const factory = await client.addFactory({ repo: origin, key: 'NB' })
+  await client.updateSettings({ maxWorkingRuns: 1 })
+  const task = await client.createTask({
+    factory: 'NB',
+    title: JSON.stringify({ steps: [{ waitFor: path.join(home, 'task-end') }, { endTurn: true }] }),
+  })
+  await client.startTask(task.id)
+  await waitUntil(
+    async () => (await client.listTasks()).find((t) => t.id === task.id)?.leadRunId !== undefined,
+    'Task slot',
+  )
+  app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
+  const window = await app.firstWindow()
+  const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
+  await sidebar.waitFor()
+  await window.keyboard.press('Meta+1')
+  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
+  await pane
+    .getByRole('textbox', { name: 'Message Coordinator' })
+    .fill('Compare the release Tasks before starting anything.')
+  await pane.getByRole('button', { name: 'Send', exact: true }).click()
+  await pane.getByRole('button', { name: 'Stop response', exact: true }).click()
+  await pane.getByText('Not sent', { exact: true }).waitFor()
+  await pane
+    .getByText('Compare the release Tasks before starting anything.', { exact: true })
+    .waitFor()
+  expect((await client.coordinator(factory.id))?.started).toBe(false)
+  await sidebar.getByRole('button', { name: 'List', exact: true }).click()
+  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  await pane.getByText('Not sent', { exact: true }).waitFor()
+  await pane
+    .getByText('Compare the release Tasks before starting anything.', { exact: true })
+    .waitFor()
+  for (const mode of ['light', 'dark'] as const) {
+    await window.emulateMedia({ colorScheme: mode })
+    await window.screenshot({
+      path: path.join(process.cwd(), `node_modules/.cache/ted-40/coordinator-unsent-${mode}.png`),
+    })
+  }
+})

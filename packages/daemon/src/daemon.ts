@@ -423,6 +423,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           coordinators?.deliveryAllowed(runId, admitted) === true,
       })
       coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })
+      for (const run of store.listRuns()) {
+        if (store.coordinators.forRun(run.id) && run.state !== 'finished')
+          steering.syncQueuedFlag(run.id)
+      }
       wake = () => {
         tasks.wake()
         automations.check()
@@ -515,7 +519,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         editors,
         async close() {
           shells.close()
-          coordinators.close()
+          await coordinators.close()
           automations.close()
           plans.close()
           libraryWatch.close()

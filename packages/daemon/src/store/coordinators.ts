@@ -1,5 +1,5 @@
 import { queryDb, type Store } from '@livestore/livestore'
-import type { CoordinatorReceipt, TaskLead } from '@ted/protocol'
+import type { CoordinatorReceipt, RunMessage, TaskLead } from '@ted/protocol'
 import { coordinators, events, type schema } from './schema.ts'
 
 export interface StoredCoordinator {
@@ -12,13 +12,15 @@ export interface StoredCoordinator {
   error?: string | undefined
   receipts: CoordinatorReceipt[]
   taskIds: string[]
+  unsentMessages?: RunMessage[]
+  launch?: { prompt: string; sourceRunId: string; messages: RunMessage[] } | undefined
 }
 
 export interface CoordinatorStore {
   list(): StoredCoordinator[]
   get(factoryId: string): StoredCoordinator | undefined
   forRun(runId: string): StoredCoordinator | undefined
-  save(value: StoredCoordinator): void
+  save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
   remove(factoryId: string): void
 }
 
@@ -35,9 +37,12 @@ export function createCoordinatorStore(options: {
     list,
     get: (id) => list().find((c) => c.factoryId === id),
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
-    save(value) {
+    save(value, canceled = []) {
       options.commit(
         events.coordinatorChanged({ factoryId: value.factoryId, data: JSON.stringify(value) }),
+        ...canceled.map(({ id, runId }) =>
+          events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
+        ),
       )
       options.changed(value.factoryId)
     },

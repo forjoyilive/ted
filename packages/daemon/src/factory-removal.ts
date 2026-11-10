@@ -27,7 +27,7 @@ export function createFactoryRemovals(options: {
   banners: Banners
   tasks: Pick<Tasks, 'removeFactoryTasks'>
   automations: Pick<Automations, 'removeFactory'>
-  coordinators?: Pick<Coordinators, 'removeFactory'>
+  coordinators?: Pick<Coordinators, 'removeFactory' | 'holdFactoryRemoval'>
   plans: Pick<Plans, 'removeFactory'>
   factories: Pick<Factories, 'forget'>
   checkTries: Pick<CheckTries, 'forget'>
@@ -80,6 +80,7 @@ export function createFactoryRemovals(options: {
         throw new RequestError(409, `${factory.name} is already being removed`)
       }
       removing.add(factory.id)
+      const releaseCoordinator = options.coordinators?.holdFactoryRemoval(factory.id)
       try {
         await options.factories.forget(factory.id)
         await options.automations.removeFactory(factory.id)
@@ -111,6 +112,7 @@ export function createFactoryRemovals(options: {
             console.error(`couldn’t remove ${factory.name}’s clones:`, error)
           })
       } finally {
+        releaseCoordinator?.()
         removing.delete(factory.id)
       }
     },

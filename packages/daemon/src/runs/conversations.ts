@@ -372,6 +372,12 @@ export function createConversations(options: {
       return steering.sendNow(runId, messageId)
     },
     deleteMessage(runId, messageId) {
+      const coordinator = store.coordinators.forRun(runId)
+      if (coordinator && coordinator.runId !== runId)
+        throw new RequestError(
+          409,
+          'This Coordinator Run was replaced; use Stop response in the current chat',
+        )
       const removed = steering.remove(runId, messageId)
       options.coordinators?.messageRemoved(runId)
       return removed

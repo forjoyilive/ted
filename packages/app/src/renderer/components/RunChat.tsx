@@ -291,18 +291,18 @@ function HumanMessage({
   now,
 }: {
   item: Extract<ChatItem, { kind: 'human' }>
-  run: RunSummary
+  run?: Pick<RunSummary, 'id' | 'state'>
   now: number
 }) {
   const queued = item.queued === true
-  const live = run.state !== 'finished'
+  const live = run !== undefined && run.state !== 'finished'
   return (
     <div className={styles.human}>
       <div className={styles.bubble} data-queued={queued}>
         <div className={styles.messageHead}>
           <span className={styles.author}>You</span>
           <span className={styles.when}>
-            {' · to this Run only'}
+            {run && ' · to this Run only'}
             {!queued && ` · ${ago(item.at, now)}`}
             {!item.sent && !queued && ' · sending'}
           </span>
@@ -312,12 +312,17 @@ function HumanMessage({
               {live ? 'Queued' : 'Not sent'}
             </span>
           )}
-          {queued && live && <QueuedActions runId={run.id} messageId={item.id} />}
+          {queued && live && run && <QueuedActions runId={run.id} messageId={item.id} />}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
     </div>
   )
+}
+
+export function UnsentMessage({ message }: { message: { id: string; text: string; at: string } }) {
+  const now = useNow()
+  return <HumanMessage item={{ kind: 'human', ...message, sent: false, queued: true }} now={now} />
 }
 
 function InterruptedLine({

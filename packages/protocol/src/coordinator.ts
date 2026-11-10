@@ -1,3 +1,4 @@
+import type { RunMessage } from './chat.ts'
 import type {
   Comment,
   DescriptionVersion,
@@ -29,6 +30,7 @@ export interface Coordinator {
   lead: TaskLead
   status: 'ready' | 'queued' | 'working' | 'paused' | 'failed'
   error?: string
+  unsentMessages: RunMessage[]
   receipts: CoordinatorReceipt[]
   tasks: Task[]
 }

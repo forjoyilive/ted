@@ -1,7 +1,7 @@
 import type { Factory, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
-import { RunChat } from '../components/RunChat.tsx'
+import { RunChat, UnsentMessage } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
@@ -107,6 +107,16 @@ export function CoordinatorView({
           <p>{factory.name} · One conversation for this Factory</p>
           {chat?.error && <p role="alert">{chat.error}</p>}
         </header>
+        {chat && chat.unsentMessages.length > 0 && (
+          <details className={styles.earlier} open>
+            <summary>Unsent messages · {chat.unsentMessages.length}</summary>
+            <div className={styles.unsentHistory}>
+              {chat.unsentMessages.map((message) => (
+                <UnsentMessage key={message.id} message={message} />
+              ))}
+            </div>
+          </details>
+        )}
         {chat?.runIds
           .filter((id) => id !== chat.runId)
           .map((id) => (
