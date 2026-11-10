@@ -41,6 +41,8 @@ import {
   defaultMachineSettings,
   type Effort,
   type Factory,
+  type FailureCase,
+  failureChoices,
   type GitHubWait,
   type LayerKind,
   type LayerUse,
@@ -90,6 +92,7 @@ import {
 } from '../tasks/status.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
+import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
@@ -765,6 +768,15 @@ export interface TedStore {
   onWriteResult(listener: (error?: unknown) => void): () => void
   automations: AutomationStore
   coordinators: CoordinatorStore
+  failures: FailureStore
+  invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
+  postFailureDecision(value: FailureCase, body: string): FailureCase
+  resolveFailure(
+    value: FailureCase,
+    commentId: string,
+    answer: CommentAnswer,
+    drafts: readonly string[],
+  ): FailureCase
   plans: PlanStore
   close(): Promise<void>
 }
@@ -2134,6 +2146,14 @@ export async function openStore({
     changed: () => noteActivity(),
   })
 
+  const failureStore = createFailureStore({
+    store,
+    commit,
+    changed: (id) => {
+      updatedTask(id)
+    },
+  })
+
   const planStore = createPlanStore({
     store,
     commit,
@@ -2157,6 +2177,62 @@ export async function openStore({
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
+    failures: failureStore,
+    invalidateFailure(value, note) {
+      const { id, event, attached } = commentPosted(
+        {
+          taskId: value.taskId,
+          kind: 'note',
+          author: { kind: 'ted' },
+          ...note,
+        },
+        new Date().toISOString(),
+      )
+      commit(failureStore.event(value, 'invalidated'), event, ...attached)
+      emit({ type: 'comment-posted', comment: requireComment(id) })
+      updatedTask(value.taskId)
+    },
+    postFailureDecision(value, body) {
+      const at = new Date().toISOString()
+      const assessment = value.assessments.at(-1)
+      if (!assessment) throw new Error('a failure decision needs an assessment')
+      const { id, event, attached } = commentPosted(
+        {
+          taskId: value.taskId,
+          kind: 'question',
+          body,
+          choices: Object.values(failureChoices),
+          author: { kind: 'ted' },
+        },
+        at,
+      )
+      const next = {
+        ...value,
+        decisions: [
+          ...value.decisions,
+          {
+            commentId: id,
+            assessmentId: assessment.id,
+            ...(assessment.contextId && { contextId: assessment.contextId }),
+          },
+        ],
+      }
+      commit(event, ...attached, failureStore.event(next, 'requested'))
+      emit({ type: 'comment-posted', comment: requireComment(id) })
+      updatedTask(value.taskId)
+      return next
+    },
+    resolveFailure(value, commentId, answer, drafts) {
+      commit(
+        failureStore.event(value, 'resolved'),
+        events.commentAnswered({ id: commentId, answer: JSON.stringify(answer), at: answer.at }),
+        ...lineCommentsSent(drafts, commentId, answer.at),
+      )
+      emitComment(commentId)
+      updatedTask(value.taskId)
+      if (drafts.length > 0) emit({ type: 'line-comments-changed', taskId: value.taskId })
+      return value
+    },
     addFactory(input) {
       const row = { ...input, id: randomUUID(), createdAt: new Date().toISOString() }
       commit(events.factoryAdded(row))

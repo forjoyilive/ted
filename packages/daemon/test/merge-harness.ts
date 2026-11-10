@@ -76,11 +76,16 @@ Merge it.
 
 export interface GhMerge {
   disableAutoFails?: boolean
+  rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
   origin?: string
   mergeState?: string
   reviewDecision?: string | null
   checks?: {
+    id?: string
+    startedAt?: string
+    completedAt?: string
+    createdAt?: string
     name: string
     status?: string
     conclusion?: string | null
@@ -138,6 +143,7 @@ export async function start(
     workflow?: string[]
     order?: string
     ciStuckMs?: { noChecks: number; pending: number }
+    mergePollMs?: number
     daemon?: Partial<DaemonOptions>
   } = {},
 ) {
@@ -156,7 +162,7 @@ export async function start(
     home: ctx.home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    mergePollMs: 100,
+    mergePollMs: options.mergePollMs ?? 100,
     ...(options.ciStuckMs && { ciStuckMs: options.ciStuckMs }),
     ...options.daemon,
   })

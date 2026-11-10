@@ -56,6 +56,10 @@ _Avoid_: Test (when meaning the command), CI job
 Something Validate found wrong with a Task’s work. A blocking Finding sends the Task back to Work; a note carries forward to Review.
 _Avoid_: Issue, bug, comment
 
+**Failure case**:
+A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
+_Avoid_: Passed failure, ignored Check
+
 **Factory setup**:
 The first Task of a new Factory, which carries the proposed Workflow for that product through the Workflow itself: it reads the repos, asks the human how they work, and proposes Checks, Apps and Stage settings for the human to approve.
 _Avoid_: Onboarding, init

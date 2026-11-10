@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 interface StubState {
+  mergeGate?: { entered: string; release: string }
+  graphqlGate?: { entered: string; release: string; after?: number }
   version?: string
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
@@ -22,6 +32,10 @@ interface StubState {
 }
 
 interface StubCheck {
+  id?: string
+  startedAt?: string
+  completedAt?: string
+  createdAt?: string
   name: string
   status?: string
   conclusion?: string | null
@@ -43,6 +57,7 @@ interface StubMerge {
   prs?: Record<string, Omit<StubMerge, 'prs' | 'origins'>>
   mergeFails?: string
   disableAutoFails?: boolean
+  rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
   mergeState?: string
   mergeable?: string
@@ -138,6 +153,8 @@ function checkNode(c: StubCheck) {
   return c.state !== undefined
     ? {
         __typename: 'StatusContext',
+        id: c.id ?? c.name,
+        createdAt: c.createdAt ?? '2026-01-01T00:00:00Z',
         context: c.name,
         state: c.state,
         targetUrl: c.url ?? null,
@@ -145,6 +162,9 @@ function checkNode(c: StubCheck) {
       }
     : {
         __typename: 'CheckRun',
+        id: c.id ?? c.name,
+        startedAt: c.startedAt ?? '2026-01-01T00:00:00Z',
+        completedAt: c.completedAt ?? '2026-01-01T00:01:00Z',
         name: c.name,
         status: c.status ?? 'COMPLETED',
         conclusion: c.conclusion ?? null,
@@ -217,7 +237,17 @@ function pullRequests(variables: Record<string, unknown>) {
                     latestStatus: { state: d.state, environmentUrl: d.url ?? null },
                   })),
                 },
-                statusCheckRollup: { contexts: { nodes: (merge.checks ?? []).map(checkNode) } },
+                statusCheckRollup:
+                  merge.rollup === 'empty'
+                    ? null
+                    : merge.rollup === 'missing'
+                      ? undefined
+                      : {
+                          contexts: {
+                            pageInfo: { hasNextPage: merge.rollup === 'truncated' },
+                            nodes: (merge.checks ?? []).map(checkNode),
+                          },
+                        },
               },
             },
           ],
@@ -314,6 +344,14 @@ if (args[0] === '--version') {
     process.stderr.write('gh: Bad credentials (HTTP 401)\n')
     process.exit(1)
   }
+  const gate = state.graphqlGate
+  if (gate && (gate.after ?? 0) > 0) {
+    gate.after = (gate.after ?? 0) - 1
+    save()
+  } else if (gate) {
+    writeFileSync(gate.entered, 'waiting')
+    while (!existsSync(gate.release)) await sleep(5)
+  }
   const { variables } = JSON.parse(stdin) as { variables: Record<string, unknown> }
   process.stdout.write(`${JSON.stringify(pullRequests(variables))}\n`)
 } else if (graphql && stdin.includes('updatePullRequestBranch')) {
@@ -364,8 +402,13 @@ if (args[0] === '--version') {
     save()
     process.stdout.write(`https://github.com/${repo}/pull/${number}\n`)
   } else if (args[1] === 'list') process.stdout.write('[]\n')
-  else if (args[1] === 'merge') mergePullRequest()
-  else if (args[1] === 'view') process.stdout.write('{"isDraft":false}\n')
+  else if (args[1] === 'merge') {
+    if (state.mergeGate) {
+      writeFileSync(state.mergeGate.entered, 'waiting')
+      while (!existsSync(state.mergeGate.release)) await sleep(5)
+    }
+    mergePullRequest()
+  } else if (args[1] === 'view') process.stdout.write('{"isDraft":false}\n')
   else if (!['ready', 'edit', 'close', 'reopen'].includes(args[1] ?? '')) {
     process.stderr.write(`stub gh: unknown command ${args.join(' ')}\n`)
     process.exit(1)

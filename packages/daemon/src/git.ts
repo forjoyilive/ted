@@ -471,6 +471,8 @@ export interface WorkingDiff extends WorkingFile {
 }
 
 export interface WorkingChanges {
+  tree: string
+  base: string
   head: string
   mergeBase: string
   files: WorkingFile[]
@@ -586,7 +588,7 @@ export async function workingChanges(
         ...((now.truncated || before?.truncated) && { truncated: true as const }),
       })
     }
-    return { head, mergeBase, files, diffs }
+    return { head, base: baseTip, tree, mergeBase, files, diffs }
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }

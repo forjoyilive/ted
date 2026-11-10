@@ -222,6 +222,8 @@ export {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
+export type * from './failures.ts'
+export { failureChoices } from './failures.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
