@@ -39,6 +39,8 @@ import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
+import { writingGuidance } from '../writing.ts'
+import { createAutomationDrafts } from './drafts.ts'
 import { automationTemplates } from './templates.ts'
 
 export interface AutomationQueue {
@@ -60,10 +62,12 @@ export interface AutomationsOptions {
   clock?: Clock
   now?: () => number
   checkEveryMs?: number
+  draftTimeoutMs?: number
   graceMs?: number
 }
 
 export interface Automations {
+  drafts: ReturnType<typeof createAutomationDrafts>
   templates(): readonly AutomationTemplate[]
   preview(schedule: AutomationSchedule): SchedulePreview
   list(caller: Caller, factory?: string): Promise<Automation[]>
@@ -85,7 +89,7 @@ export interface Automations {
   answer(id: string, input: AnswerAutomationRequest): Promise<AutomationRequest>
   runOf(runId: string): { automation: StoredAutomation; firing: StoredFiring } | undefined
   check(): void
-  close(): void
+  close(): Promise<void>
 }
 
 export const automationFailingProblem = 'automation-failing'
@@ -106,6 +110,7 @@ function firstLine(text: string, max = 300): string {
 
 export function createAutomations(options: AutomationsOptions): Automations {
   const { store, runs, agents, health, banners, workflows } = options
+  const drafts = createAutomationDrafts(options)
   const saved = store.automations
   const clock = options.clock ?? systemClock
   const now = options.now ?? (() => clock.now())
@@ -406,6 +411,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     })
     return [
       `# You are an Automation Run in TED`,
+      writingGuidance,
       `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
       [
         `You are “${automation.name}”, an Automation in the ${factory.name} Factory (repos: ${repos.join(', ')}). TED started this Run ${why[firing.trigger]}. You run outside any Task, usually to bring new work in as Tasks.`,
@@ -424,7 +430,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function finalMessage(runId: string): string | undefined {
     const run = store.getRun(runId)
     if (!run) return undefined
-    const entries = agents.get(run.agent).chat(store.conversation(run.id), run.cwd)
+    const entries = agents.get(run.agent).chat(runs.output.entries(run.id), run.cwd)
     const text = entries.findLast((e) => e.kind === 'agent')?.text
     return text === undefined ? undefined : firstLine(text) || undefined
   }
@@ -961,6 +967,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       await remove(find(ref, factory))
     },
     async removeFactory(factoryId) {
+      await drafts.removeFactory(factoryId)
       for (const automation of saved.list().filter((a) => a.factoryId === factoryId)) {
         await remove(automation)
       }
@@ -1013,7 +1020,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     runOf,
     check,
-    close() {
+    drafts,
+    async close() {
+      await drafts.close()
       closed = true
       timer?.cancel()
       unsubscribe()

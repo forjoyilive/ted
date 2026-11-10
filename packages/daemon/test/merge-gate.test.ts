@@ -1,6 +1,13 @@
 import { rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type Comment, type Factory, type InboxItem, type Task, tedPaths } from '@ted/protocol'
+import {
+  type Comment,
+  type Factory,
+  type InboxItem,
+  type Task,
+  type TaskGates,
+  tedPaths,
+} from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { clonePath } from '../src/factories.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -93,6 +100,62 @@ describe('Merge Gate', () => {
     expect(await merges()).toHaveLength(1)
   })
 
+  test('overnight mode merges without the Merge sign-off, and turning it off does not bring the Gate back', async () => {
+    const client = await start({
+      files: ci,
+      workflow: ['stages:', '  merge: { gate: true }'],
+      merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
+    })
+    const { task, signoff } = await toSignoff(client)
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    await approve(client, signoff)
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
+    }, 'Waiting for CI')
+    expect(await lines(client, task)).toContain(
+      'Overnight mode is on, so TED skipped the Merge Gate',
+    )
+    await client.ok('PATCH', '/settings', { overnightMode: false })
+    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    expect(rows.find((r) => r.stage === 'merge')).toMatchObject({
+      inherited: true,
+      effective: false,
+      overnight: true,
+    })
+    expect(await merges()).toEqual([])
+
+    await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })
+    const done = await waitForStage(client, task, 'done')
+    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await merges()).toHaveLength(1)
+    expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
+  })
+
+  test('a Merge sign-off open when overnight mode turns on still waits for the human', async () => {
+    const client = await start({ workflow: ['stages:', '  merge: { gate: true }'] })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    const card = await mergeSignoff(client, task)
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
+    expect(merge.map((c) => [c.id, c.answer])).toEqual([[card.id, undefined]])
+    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    const row = rows.find((r) => r.stage === 'merge')
+    expect(row).toMatchObject({ effective: true })
+    expect(row?.overnight).toBeUndefined()
+
+    await client.ok('POST', `/comments/${card.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
+    expect(await lines(client, task)).not.toContain(
+      'Overnight mode is on, so TED skipped the Merge Gate',
+    )
+  })
+
   test('Request changes at the Merge Gate holds the merge until the Task goes back', async () => {
     const client = await start({
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
@@ -114,7 +177,7 @@ describe('Merge Gate', () => {
       daemon: { clock },
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
     })
-    const { task, signoff } = await toSignoff(client)
+    const { task, signoff } = await toSignoff(client, {}, clock)
     await writeFile(client.mergingFile, '')
     const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
     const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
@@ -522,4 +585,41 @@ describe('CI stuck', () => {
     }, 'the send-back')
     expect(back).toMatchObject({ to: 'work', counted: false })
   })
+})
+
+test('a Task can turn off the inherited Merge Gate before entry, while CI still controls merging', async () => {
+  const client = await start({
+    files: ci,
+    workflow: ['stages:', '  merge: { gate: true }'],
+    merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
+  })
+  const { task, signoff } = await toSignoff(client)
+  expect(signoff.stage).toBe('review')
+  const route = `/tasks/${task.id}/gates`
+  const before = await client.ok<TaskGates>('GET', route)
+  await client.ok('PUT', route, { overrides: { merge: false }, revision: before.revision })
+  await approve(client, signoff)
+  await waitForStage(client, task, 'merge')
+  await waitUntil(
+    async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
+    'CI to hold merging',
+  )
+  expect(await merges()).toEqual([])
+  const merging = await client.ok<TaskGates>('GET', route)
+  expect(merging.rows.find((row) => row.stage === 'merge')).toMatchObject({
+    effective: false,
+    locked: 'Merge has started',
+  })
+  expect(
+    (await client.call('PUT', route, { overrides: { merge: true }, revision: merging.revision }))
+      .status,
+  ).toBe(409)
+  await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })
+  await waitForStage(client, task, 'done')
+  expect(await merges()).toHaveLength(1)
+  expect(
+    (await comments(client, task)).some((comment) => comment.gate && comment.stage === 'merge'),
+  ).toBe(false)
+  const done = await client.ok<TaskGates>('GET', route)
+  expect(done.rows.every((row) => !!row.locked)).toBe(true)
 })

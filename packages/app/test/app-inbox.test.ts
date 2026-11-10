@@ -237,6 +237,13 @@ describe('Inbox and Gates', () => {
       }),
     )
     await addFactory(origin, 'NB')
+    // The stub’s first message after its prompt is TED’s Clarify brief; the next is the
+    // human’s answer, and only then may it propose, as a real Task Lead would.
+    const proposeOnce = [
+      { everyMessage: [] },
+      { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+      { endTurn: true },
+    ]
     await ted(
       'task',
       'create',
@@ -255,8 +262,7 @@ describe('Inbox and Gates', () => {
               'Offline editing spans storage, sync and the editor.',
             ],
           },
-          { endTurn: true },
-          { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+          { everyMessage: [{ everyMessage: proposeOnce }, { endTurn: true }] },
           { endTurn: true },
         ],
       }),

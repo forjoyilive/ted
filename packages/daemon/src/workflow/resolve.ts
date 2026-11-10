@@ -19,10 +19,14 @@ export interface ResolvedStageFile {
   text: string
 }
 
+export type OvernightGuard = 'settings' | 'unreadable'
+
 export interface ResolvedWorkflow {
   stages: StageId[]
   order: AgentStageId[]
   settings: WorkflowSettings
+  overnightGates?: readonly AgentStageId[]
+  overnightKept?: { reason: OvernightGuard; stages: readonly AgentStageId[]; unseen?: boolean }
   notes?: string
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
   next(current: StageId): StageId
@@ -88,6 +92,31 @@ function built(
       return stages.find((id) => id !== 'backlog' && builtInOrder.indexOf(id) > rank) ?? 'done'
     },
   }
+}
+
+export function withTaskGates(
+  workflow: ResolvedWorkflow,
+  overrides: import('@ted/protocol').TaskGateOverrides = {},
+): ResolvedWorkflow {
+  const stages = { ...workflow.settings.stages }
+  for (const id of agentStageIds) {
+    if (overrides[id] !== undefined && workflow.stages.includes(id)) {
+      stages[id] = { ...stages[id], gate: overrides[id] }
+    }
+  }
+  return { ...workflow, settings: { ...workflow.settings, stages } }
+}
+
+export function withoutGates(workflow: ResolvedWorkflow): {
+  workflow: ResolvedWorkflow
+  off: AgentStageId[]
+} {
+  const stages = { ...workflow.settings.stages }
+  const off = agentStageIds.filter(
+    (id) => workflow.stages.includes(id) && stages[id]?.gate === true,
+  )
+  for (const id of off) stages[id] = { ...stages[id], gate: false }
+  return { workflow: { ...workflow, settings: { ...workflow.settings, stages } }, off }
 }
 
 export function withForcedGates(
@@ -169,11 +198,15 @@ export function setupWorkflow(
   )
 }
 
-export function boardStages(workflow: ResolvedWorkflow): BoardStage[] {
+export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): BoardStage[] {
   const { stages } = workflow.settings
-  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => ({
-    id,
-    enabled: id === 'done' || stages[id]?.enabled !== false,
-    gate: id !== 'backlog' && id !== 'done' && stages[id]?.gate === true,
-  }))
+  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => {
+    const gate = id !== 'backlog' && id !== 'done' && stages[id]?.gate === true
+    return {
+      id,
+      enabled: id === 'done' || stages[id]?.enabled !== false,
+      gate,
+      ...(gate && overnightMode && { overnight: true as const }),
+    }
+  })
 }

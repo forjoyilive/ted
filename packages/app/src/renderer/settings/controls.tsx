@@ -174,10 +174,12 @@ export function Stepper({
 export function Switch({
   label,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
@@ -186,6 +188,7 @@ export function Switch({
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      disabled={disabled}
       className={styles.switch}
       onClick={() => onChange(!checked)}
     >
@@ -200,16 +203,19 @@ export function Select<T extends string | number>({
   options,
   onChange,
   width,
+  disabled,
 }: {
   id: string
   value: T
   options: readonly { value: T; label: string }[]
   onChange: (value: T) => void
   width?: number
+  disabled?: boolean
 }) {
   return (
     <select
       id={id}
+      disabled={disabled}
       className={styles.select}
       style={width !== undefined ? { width } : undefined}
       value={String(value)}

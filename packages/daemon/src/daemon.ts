@@ -11,7 +11,7 @@ import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
-import { createData } from './data.ts'
+import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -29,7 +29,7 @@ import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
-import { pruneRunOutput } from './retention.ts'
+import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
@@ -41,6 +41,7 @@ import { createShells } from './shells.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
+import { createCheckSlots } from './tasks/check-slots.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import type { WorkflowSettings } from './workflow/check.ts'
@@ -65,9 +66,11 @@ export interface DaemonOptions {
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
   clock?: Clock
+  load?: DaemonLoadOptions
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
   stallAfterMs?: number
@@ -77,8 +80,10 @@ export interface DaemonOptions {
   limitProbeMs?: number
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
+  retention?: DaemonRetentionOptions
   oldestHost?: number
   editors?: DaemonEditorsOptions
+  compaction?: DataOptions['compaction']
 }
 
 export interface DaemonEditorsOptions {
@@ -88,16 +93,27 @@ export interface DaemonEditorsOptions {
 
 export interface DaemonAutomationsOptions {
   clock?: Clock
+  draftTimeoutMs?: number
   systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
   graceMs?: number
 }
 
+export interface DaemonRetentionOptions {
+  now?: () => Date
+  checkEveryMs?: number
+}
+
 export interface DaemonOnlineOptions {
   isOnline?: () => Promise<boolean>
   onlineEveryMs?: number
   offlineEveryMs?: number
+}
+
+export interface DaemonLoadOptions {
+  ratio?: () => number
+  checkEveryMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -163,6 +179,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
+    ...(options.compaction && { compaction: options.compaction }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
@@ -283,8 +300,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
+      const checkSlots = createCheckSlots({ limit: () => store.settings().maxChecksAtOnce })
       const checkTries = createCheckTries({
         store,
+        checkSlots,
         banners,
         workflows,
         reposDir: paths.repos,
@@ -368,8 +387,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
+        ...(options.load !== undefined && { load: options.load }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
         simulators: {
@@ -379,6 +400,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...options.simulators,
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        checkSlots,
         sandbox: createSandbox({
           tedHome: paths.home,
           env: environment.current,
@@ -459,13 +481,21 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const prune = () =>
         pruneRunOutput({
           runsDir: paths.runs,
-          isLive: (runId) => {
-            const run = store.getRun(runId)
-            return run !== undefined && run.state !== 'finished'
-          },
+          keepDays: store.settings().runOutputDays,
+          endOf: (runId) => runOutputEnd(store, runId),
+          ...(options.retention?.now && { now: options.retention.now() }),
         }).catch((error: unknown) => console.error('pruning Run output failed:', error))
       void prune()
-      const pruneTimer = setInterval(() => void prune(), pruneEveryMs)
+      let keptDays = store.settings().runOutputDays
+      const stopPruningOnChange = store.subscribe((event) => {
+        if (event.type !== 'settings-changed' || event.settings.runOutputDays === keptDays) return
+        keptDays = event.settings.runOutputDays
+        void prune()
+      })
+      const pruneTimer = setInterval(
+        () => void prune(),
+        options.retention?.checkEveryMs ?? pruneEveryMs,
+      )
       pruneTimer.unref()
       storage = createStorage({
         home: paths.home,
@@ -529,7 +559,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         async close() {
           shells.close()
           await coordinators.close()
-          automations.close()
+          await automations.close()
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
@@ -537,6 +567,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           stayAwake?.close()
           disk.close()
           clearInterval(pruneTimer)
+          stopPruningOnChange()
           stopWatchingWrites()
           online.close()
           health.close()

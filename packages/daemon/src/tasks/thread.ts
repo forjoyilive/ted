@@ -525,6 +525,27 @@ export function threadEvents(
         else add(entry, 'run', `Task Lead set Repos to ${names}`)
         break
       }
+      case 'v1.TaskGatesChanged':
+        add(entry, 'edit', 'You changed this Task’s Gates')
+        break
+      case 'v1.GateKeptOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, but ${
+            data.reason === 'unreadable'
+              ? 'TED couldn’t read this Task’s changes'
+              : 'this Task changes .ted/'
+          }, so its ${stageTitle(text(data.stage))} Gate stays on`,
+        )
+        break
+      case 'v1.GateSkippedOvernight':
+        add(
+          entry,
+          'quiet',
+          `Overnight mode is on, so TED skipped the ${stageTitle(text(data.stage))} Gate`,
+        )
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

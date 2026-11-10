@@ -1,16 +1,30 @@
-import type { Factory, TaskLead } from '@ted/protocol'
+import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
-import { RunChat, UnsentMessage } from '../components/RunChat.tsx'
-import { StatusChip } from '../components/StatusChip.tsx'
+import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
+import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
-import { sendOnEnter } from '../composer-keys.ts'
-import { useCoordinator } from '../data.ts'
+import { useCoordinator, useCoordinatorChat } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
 import { LeadSelects } from './PlanChat.tsx'
 import views from './views.module.css'
+
+export const coordinatorStatus: Record<
+  Coordinator['status'],
+  { label: string; tone: StatusTone; glyph?: StatusGlyph }
+> = {
+  ready: { label: 'Ready', tone: 'neutral' },
+  queued: { label: 'Queued', tone: 'neutral', glyph: 'queued' },
+  working: { label: 'Working', tone: 'working', glyph: 'working' },
+  paused: { label: 'Paused', tone: 'neutral', glyph: 'paused' },
+  failed: { label: 'Failed', tone: 'failed', glyph: 'failed' },
+}
+
+const placeholder = 'Ask about Tasks, or say what to start next…'
+const help =
+  'Goes to this Factory’s Coordinator. While it works, your message waits for its next step.'
 
 export function CoordinatorView({
   factory,
@@ -19,7 +33,8 @@ export function CoordinatorView({
   factory: Factory
   onOpenTask: (id: string) => void
 }) {
-  const chat = useCoordinator(factory.id)
+  const coordinator = useCoordinator(factory.id)
+  const chat = useCoordinatorChat(factory.id, coordinator?.runIds ?? [])
   const [text, setText] = useState('')
   const [lead, setLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
@@ -38,169 +53,109 @@ export function CoordinatorView({
       active = false
     }
   }, [factory.id])
-  async function act(work: () => Promise<unknown>) {
+  const retry = async () => {
     setBusy(true)
     setError(undefined)
     try {
-      await work()
-    } catch (error) {
-      setError(readableError(error))
+      await ted.retryCoordinator(factory.id)
+    } catch (failed) {
+      setError(readableError(failed))
     } finally {
       setBusy(false)
     }
   }
-  const send = () => {
-    if (text.trim() === '' || busy || chat === undefined) return
-    void act(async () => {
-      await ted.messageCoordinator(factory.id, { text, ...(!chat && lead) })
-      setText('')
-    })
-  }
-  const status = chat?.status ?? 'ready'
-  const labels = {
-    ready: 'Ready',
-    queued: 'Queued',
-    working: 'Working',
-    paused: 'Paused',
-    failed: 'Failed',
-  }
+  const status = coordinator?.status ?? 'ready'
+  const shown = coordinatorStatus[status]
   return (
     <>
       <section className={views.pane} aria-label="Coordinator">
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1>Coordinator</h1>
-            <StatusChip
-              tone={status === 'working' ? 'working' : status === 'failed' ? 'failed' : 'neutral'}
-            >
-              {labels[status]}
+            <StatusChip tone={shown.tone} {...(shown.glyph && { glyph: shown.glyph })}>
+              {shown.label}
             </StatusChip>
             <span className={styles.spacer} />
-            {!chat && lead ? (
+            {coordinator === null && lead ? (
               <LeadSelects lead={lead} onChange={setLead} />
             ) : (
-              chat && (
-                <span className={styles.meta}>
-                  {[chat.lead.agent, chat.lead.model, chat.lead.effort].filter(Boolean).join(' · ')}
-                </span>
-              )
+              chat && <span className={styles.meta}>{runMeta(chat.run)}</span>
             )}
-            {chat && (status === 'working' || status === 'queued' || status === 'paused') && (
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={() => void act(() => ted.stopCoordinator(factory.id))}
-              >
-                Stop response
-              </Button>
-            )}
-            {chat?.status === 'failed' && (
-              <Button
-                size="small"
-                disabled={busy}
-                onClick={() => void act(() => ted.retryCoordinator(factory.id))}
-              >
+            {status === 'failed' && (
+              <Button size="small" disabled={busy} onClick={() => void retry()}>
                 Retry
               </Button>
             )}
           </div>
           <p>{factory.name} · One conversation for this Factory</p>
-          {chat?.error && <p role="alert">{chat.error}</p>}
+          {(error ?? coordinator?.error) && <p role="alert">{error ?? coordinator?.error}</p>}
         </header>
-        {chat && chat.unsentMessages.length > 0 && (
-          <details className={styles.earlier} open>
-            <summary>Unsent messages · {chat.unsentMessages.length}</summary>
-            <div className={styles.unsentHistory}>
-              {chat.unsentMessages.map((message) => (
-                <UnsentMessage key={message.id} message={message} />
-              ))}
+        {coordinator === null ? (
+          <>
+            <div className={styles.intro}>
+              <h2>What needs your attention in {factory.name}?</h2>
+              <p>
+                I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
+              </p>
+              <Button size="small" onClick={() => setText('What should we work on next?')}>
+                What should we work on next?
+              </Button>
             </div>
-          </details>
-        )}
-        {chat?.runIds
-          .filter((id) => id !== chat.runId)
-          .map((id) => (
-            <details key={id} className={styles.earlier}>
-              <summary>Earlier conversation</summary>
-              <div className={styles.history}>
-                <RunChat runId={id} bar={false} readOnly={false} />
-              </div>
-            </details>
-          ))}
-        {chat?.started ? (
-          <RunChat
-            runId={chat.runId}
-            bar={false}
-            readOnly={false}
-            extra={chat.receipts.map((receipt) => ({
-              id: receipt.id,
-              at: receipt.at,
-              node: (
-                <p className={styles.event}>
-                  <span className={styles.dot} aria-hidden />
-                  <button
-                    type="button"
-                    className={styles.eventText}
-                    onClick={() => onOpenTask(receipt.taskId)}
-                  >
-                    {receipt.text}
-                  </button>
-                  <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
-                </p>
-              ),
-            }))}
-          />
+            <Composer
+              live
+              working={false}
+              label="Message to the Coordinator"
+              placeholder={placeholder}
+              endedPlaceholder={placeholder}
+              help={help}
+              interrupt={false}
+              value={text}
+              onValue={setText}
+              send={(message) => ted.messageCoordinator(factory.id, { text: message, ...lead })}
+              stopTurn={() => ted.stopCoordinator(factory.id)}
+            />
+          </>
         ) : (
-          <div className={styles.intro}>
-            {chat ? (
-              <>
-                <p>{chat.opening}</p>
-                <p className={styles.muted}>
-                  {status === 'queued' ? 'Waiting for a free Run slot…' : labels[status]}
-                </p>
-              </>
-            ) : (
-              <>
-                <h2>What needs your attention in {factory.name}?</h2>
-                <p>
-                  I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
-                </p>
-                <Button size="small" onClick={() => setText('What should we work on next?')}>
-                  What should we work on next?
-                </Button>
-              </>
-            )}
-          </div>
-        )}
-        <div className={styles.composer}>
-          <textarea
-            aria-label="Message Coordinator"
-            placeholder="Ask about Tasks, or say what to start next…"
-            value={text}
-            disabled={busy || chat === undefined || status === 'failed'}
-            onChange={(event) => setText(event.target.value)}
-            onKeyDown={sendOnEnter(send)}
+          <ChatSection
+            chat={coordinator === undefined ? undefined : (chat ?? undefined)}
+            loading="Loading the Coordinator…"
+            options={{
+              bar: false,
+              extra: (coordinator?.receipts ?? []).map((receipt) => ({
+                id: receipt.id,
+                at: receipt.at,
+                node: (
+                  <p className={styles.event}>
+                    <span className={styles.dot} aria-hidden />
+                    <button
+                      type="button"
+                      className={styles.eventText}
+                      onClick={() => onOpenTask(receipt.taskId)}
+                    >
+                      {receipt.text}
+                    </button>
+                    <time className={styles.eventTime}>{clockTime(receipt.at)}</time>
+                  </p>
+                ),
+              })),
+              label: 'Message to the Coordinator',
+              placeholder,
+              endedPlaceholder: 'Retry the Coordinator to send a message.',
+              help,
+              live: status !== 'failed',
+              working: status === 'working' || status === 'queued' || status === 'paused',
+              interrupt: false,
+              send: (message) => ted.messageCoordinator(factory.id, { text: message }),
+              stopTurn: () => ted.stopCoordinator(factory.id),
+            }}
           />
-          {error && <p role="alert">{error}</p>}
-          <div className={styles.titleRow}>
-            <span className={styles.muted}>Messages stay in this conversation.</span>
-            <span className={styles.spacer} />
-            <Button
-              size="small"
-              variant="primary"
-              disabled={busy || chat === undefined || text.trim() === '' || status === 'failed'}
-              onClick={send}
-            >
-              Send
-            </Button>
-          </div>
-        </div>
+        )}
       </section>
       <aside className={views.detailsPane} aria-label="Coordinator details">
         <section className={styles.section}>
           <h2>Tasks in this conversation</h2>
-          {chat?.tasks.length ? (
-            chat.tasks.map((task) => (
+          {coordinator?.tasks.length ? (
+            coordinator.tasks.map((task) => (
               <button
                 key={task.id}
                 type="button"

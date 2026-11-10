@@ -1,9 +1,9 @@
 import type {
-  FixCommand,
   GitHealth,
   GitHubCli,
   GitHubHost,
   IntegrationFix,
+  IntegrationRemedy,
   IntegrationsHealth,
 } from '@ted/protocol'
 import { minGhVersion } from '@ted/protocol/integrations'
@@ -73,10 +73,13 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
   const runFix = (key: string, fix: IntegrationFix, host?: string) => {
     setOpened(undefined)
     ted.runFix({ fix, ...(host !== undefined && { host }) }).then(
-      ({ command }) =>
+      (result) =>
         setOpened({
           key,
-          text: `Opened ${command} ${inTerminal}. Checking again every 5 seconds…`,
+          text:
+            'url' in result
+              ? 'Opened instructions in your browser. Follow them, then choose Check again.'
+              : `Opened ${result.command} ${inTerminal}. Checking again every 5 seconds…`,
         }),
       (error: unknown) => setOpened({ key, text: message(error) }),
     )
@@ -182,13 +185,15 @@ function FixButtons({
   kind,
   onFix,
 }: {
-  fix: FixCommand
+  fix: IntegrationRemedy
   kind: IntegrationFix
   onFix: (fix: IntegrationFix) => void
 }) {
   return (
     <>
-      <Button onClick={() => void ted.copyText(fix.command)}>Copy command</Button>
+      {'command' in fix && (
+        <Button onClick={() => void ted.copyText(fix.command)}>Copy command</Button>
+      )}
       <Button onClick={() => onFix(kind)}>{fix.label}</Button>
     </>
   )
@@ -375,7 +380,14 @@ function CliRow({
               : 'TED reaches GitHub through the GitHub CLI, gh'}
           </p>
           <p className={styles.danger}>Needed to add a Factory and to merge.</p>
-          {cli.fix && <code className={styles.command}>{cli.fix.command}</code>}
+          {cli.fix &&
+            ('command' in cli.fix ? (
+              <code className={styles.command}>{cli.fix.command}</code>
+            ) : (
+              <p className={styles.detail}>
+                Follow the official Linux instructions, then choose Check again.
+              </p>
+            ))}
           {cli.path !== undefined && <p className={styles.meta}>{cli.path}</p>}
           <Note text={note} />
         </>
@@ -410,7 +422,14 @@ function GitRow({
         lines={
           <>
             <p className={styles.detail}>TED needs Git to clone repos and make worktrees.</p>
-            {git.fix && <code className={styles.command}>{git.fix.command}</code>}
+            {git.fix &&
+              ('command' in git.fix ? (
+                <code className={styles.command}>{git.fix.command}</code>
+              ) : (
+                <p className={styles.detail}>
+                  Follow the official Linux instructions, then choose Check again.
+                </p>
+              ))}
             <Note text={note} />
           </>
         }

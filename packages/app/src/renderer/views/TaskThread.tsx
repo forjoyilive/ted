@@ -90,6 +90,7 @@ import { readableError, ted } from '../ted.ts'
 import { formatDate, formatTime } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
+import { TaskGatesField } from './TaskGatesField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -666,6 +667,7 @@ export function TaskThread({
         <RunChat
           key={shownRun}
           runId={shownRun}
+          bar={shownRun !== task.leadRunId}
           endedNote={
             task.canResume
               ? 'This Run has ended and is read-only. Resume the Task to carry on.'
@@ -947,6 +949,10 @@ export function TaskDetails({
               )}
             </>
           )}
+        </dd>
+        <dt>Gates</dt>
+        <dd className={styles.gatesValue}>
+          <TaskGatesField key={task.id} taskId={task.id} />
         </dd>
         {factory && showsRepos(factory) && (
           <>

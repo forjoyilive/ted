@@ -22,10 +22,12 @@ import type {
   AnswerAutomationRequest,
   Automation,
   AutomationDetail,
+  AutomationPromptDraft,
   AutomationRequest,
   AutomationRun,
   AutomationTemplate,
   CreateAutomationRequest,
+  DraftAutomationPromptRequest,
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
@@ -34,7 +36,14 @@ import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { Coordinator, CoordinatorAction, CoordinatorMessage } from './coordinator.ts'
+import type {
+  Coordinator,
+  CoordinatorAction,
+  CoordinatorMessage,
+  CoordinatorOperation,
+  CoordinatorReceipt,
+  CoordinatorStatus,
+} from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -45,6 +54,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -83,6 +93,7 @@ import type {
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
+import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type { Plan, PlanDetail, PlanInboxItem, PlanRequest, StartPlanRequest } from './plan.ts'
 import type {
   AgentKind,
@@ -144,6 +155,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -203,6 +215,18 @@ export class DaemonClient {
 
   getAutomation(ref: string, factory?: string): Promise<AutomationDetail> {
     return this.#request('GET', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  draftAutomationPrompt(input: DraftAutomationPromptRequest): Promise<AutomationPromptDraft> {
+    return this.#request('POST', '/automation-prompt-drafts', input)
+  }
+
+  getAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('GET', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
+  }
+
+  cancelAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('DELETE', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
   }
 
   automationTemplates(): Promise<AutomationTemplate[]> {
@@ -275,6 +299,14 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
   }
 
+  coordinatorChat(factoryId: string): Promise<RunChat | null> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  }
+
+  coordinatorStatuses(): Promise<CoordinatorStatus[]> {
+    return this.#request('GET', '/coordinators')
+  }
+
   messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
     return this.#request(
       'POST',
@@ -301,9 +333,9 @@ export class DaemonClient {
 
   coordinatorAct(
     id: string,
-    action: 'start' | 'move',
+    action: CoordinatorOperation,
     input: CoordinatorAction,
-  ): Promise<import('./coordinator.ts').CoordinatorReceipt> {
+  ): Promise<CoordinatorReceipt> {
     return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
   }
 
@@ -347,6 +379,29 @@ export class DaemonClient {
     return this.#request('POST', `/plan-requests/${encodeURIComponent(id)}/answer`, answer)
   }
 
+  peers(offset = 0): Promise<PeerPage> {
+    return this.#request('GET', `/peers?offset=${offset}`)
+  }
+
+  peer(ref: string): Promise<PeerDetail> {
+    return this.#request('GET', `/peers/tasks/${encodeURIComponent(ref)}`)
+  }
+
+  watchPeers(cursor: string, timeout = 25): Promise<PeerPage> {
+    return this.#request(
+      'GET',
+      `/peers/watch?cursor=${encodeURIComponent(cursor)}&timeout=${timeout}`,
+    )
+  }
+
+  sendPeer(ref: string, input: SendPeerMessage): Promise<PeerMessage> {
+    return this.#request('POST', `/peers/tasks/${encodeURIComponent(ref)}/messages`, input)
+  }
+
+  peerInbox(offset = 0): Promise<PeerInbox> {
+    return this.#request('GET', `/peers/inbox?offset=${offset}`)
+  }
+
   listTasks(): Promise<Task[]> {
     return this.#request('GET', '/tasks')
   }
@@ -378,6 +433,14 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  taskGates(ref: string): Promise<TaskGates> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/gates`)
+  }
+
+  setTaskGates(ref: string, request: SetTaskGatesRequest): Promise<TaskGates> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/gates`, request)
   }
 
   setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {
@@ -601,6 +664,10 @@ export class DaemonClient {
 
   reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
+  }
+
+  exportFactory(id: string): Promise<FactoryExport> {
+    return this.#request('GET', `/factories/${encodeURIComponent(id)}/export`)
   }
 
   listFactories(): Promise<Factory[]> {

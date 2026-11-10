@@ -1,10 +1,11 @@
-import type { Factory } from '@ted/protocol'
+import type { Coordinator, Factory } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import styles from './Sidebar.module.css'
+import { StatusChip } from './StatusChip.tsx'
 
 export interface FactoryBadges {
   waiting?: number
@@ -13,12 +14,14 @@ export interface FactoryBadges {
   stopsWork?: boolean
   drift?: number
   automationFailed?: boolean
+  coordinator?: Coordinator['status']
 }
 
 export interface SidebarFooter {
   runs?: string
   failed?: string
   paused?: string
+  overnight?: string
   simulators?: string
   planChips?: readonly string[]
   update?: { label: string; busy: boolean }
@@ -115,13 +118,15 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
+  { view: 'coordinator', label: 'Coordinator' },
   { view: 'board', label: 'Board' },
   { view: 'list', label: 'List' },
-  { view: 'coordinator', label: 'Coordinator' },
   { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },
 ]
+
+const coordinatorMarks = { working: 'Working', queued: 'Queued', paused: 'Paused' }
 
 const openFactoriesKey = 'ted.sidebar.factoriesOpen'
 
@@ -350,6 +355,33 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'coordinator' &&
+                      (badge.coordinator === 'working' ||
+                        badge.coordinator === 'queued' ||
+                        badge.coordinator === 'paused') && (
+                        <span
+                          role="img"
+                          aria-label={coordinatorMarks[badge.coordinator]}
+                          title={coordinatorMarks[badge.coordinator]}
+                          className={styles.subStatus}
+                        >
+                          <StatusChip
+                            tone={badge.coordinator === 'working' ? 'working' : 'neutral'}
+                            glyph={badge.coordinator}
+                          >
+                            {null}
+                          </StatusChip>
+                        </span>
+                      )}
+                    {view === 'coordinator' && badge.coordinator === 'failed' && (
+                      <span
+                        role="img"
+                        aria-label="The Coordinator failed"
+                        className={styles.subDot}
+                      >
+                        <DotIcon className={styles.failedDot} />
+                      </span>
+                    )}
                     {view === 'settings' && (badge.drift ?? 0) > 0 && (
                       <span className={styles.subCount} title="Inherited Stage files that changed">
                         {badge.drift}
@@ -453,6 +485,7 @@ export function Sidebar({
               <p className={styles.failed}>{footer.failed}</p>
             ))}
           {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
+          {footer.overnight !== undefined && <p className={styles.runs}>{footer.overnight}</p>}
           {footer.simulators !== undefined && (
             <p className={styles.simulators}>{footer.simulators}</p>
           )}

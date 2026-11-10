@@ -295,6 +295,7 @@ describe('Automations', () => {
     expect(run.run).toMatchObject({ name: 'Sentry crash intake', state: 'finished' })
     expect(run.run.taskId).toBeUndefined()
     expect(run.run.prompt).toContain('# You are an Automation Run in TED')
+    expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('## Tasks this Automation has created\n\nNone yet.')
     expect(await said(client, row?.runId ?? '')).toEqual(['Nothing new'])
     const after = (await detail(client, automation.id)).automation

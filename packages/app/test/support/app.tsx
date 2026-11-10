@@ -27,6 +27,7 @@ export function appState() {
     listWaiting: () => [],
     listBanners: () => [],
     listPlans: () => [],
+    coordinatorStatuses: () => [],
     planInbox: () => [],
     automationRequests: () => [],
     listAutomations: () => [],

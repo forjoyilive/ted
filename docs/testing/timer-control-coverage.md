@@ -84,3 +84,14 @@ watchers; integration verification ran outside that sandbox using the existing
 suite lock. Some runs waited behind another live suite. No full suite or
 GitHub workflow was started, and elapsed times including lock waits are not
 used as performance evidence.
+
+## Integration with newer main changes
+
+Merging main at `6b4435cb` retains the new load-monitor cleanup and Automation
+draft options alongside the clock seam. The held-Task Merge Gate case exposed
+a frozen setup retry: the watcher can reach Merge while Stage entry still holds
+the Task, then arm its 100 ms busy retry. `toSignoff` accepts an optional manual
+clock and advances an armed 100 ms retry after an unsuccessful Inbox read. The
+real sign-off is still the completion barrier; advancement stops before the
+case observes the held Task’s frozen 15-second human-response timeout. No test
+is removed, no timeout guard is tightened, and production scheduling is unchanged.

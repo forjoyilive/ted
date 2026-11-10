@@ -204,6 +204,9 @@ describe('Factory settings draft', () => {
     expect(lastRunText({ ...base, state: 'running', startedAt: '2026-11-09T11:58:56Z' }, now)).toBe(
       'Running · 1m 04s',
     )
+    expect(lastRunText({ ...base, state: 'running', waiting: true }, now)).toBe(
+      'Waiting for other Checks to finish',
+    )
     expect(lastRunText({ ...base, state: 'failed', exitCode: 1, setupFailed: true }, now)).toBe(
       '✗ Setup failed · 2h ago',
     )
