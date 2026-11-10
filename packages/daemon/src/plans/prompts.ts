@@ -64,6 +64,7 @@ export function plannerInstructions(input: {
     [
       `The human wants to work out a piece of work in the ${factory.name} Factory that is too big for one Task. Talk it through with them, settle what needs settling, and end by proposing Tasks, with which ones block which, for them to approve. You plan; you don’t build. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
       '',
+      '- Use `to-spec` to shape the specification and `to-tickets` to split it into Tasks, each if the skill is available to your agent. Otherwise settle the goal, scope and acceptance criteria in the chat, then split the work into Tasks with clear success criteria and dependencies. Use the TED rounds and proposal format below in either case.',
       '- For research that takes a while, start sub-agents of your own and give each a narrow question.',
       `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
       `- When the plan is clear, post it with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should be one pull request per repo. Then end your turn.`,
