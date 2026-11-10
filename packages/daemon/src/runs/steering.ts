@@ -15,6 +15,7 @@ export interface SteeringSource {
 export interface Steering {
   addSource(source: SteeringSource): void
   changed(runId: string): Promise<void>
+  refresh(runId: string): Promise<void>
   send(runId: string, text: string, options: { interrupt: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
@@ -267,6 +268,12 @@ export function createSteering(options: {
         syncFlag(run.id)
         if (run.state !== 'working' && hasPending(run.id)) void flush(run).catch(logFailure(run.id))
       }
+    },
+    async refresh(runId) {
+      const run = store.getRun(runId)
+      if (!run || run.state === 'finished') return
+      syncFlag(runId)
+      if (run.state !== 'working') await flush(run)
     },
     async changed(runId) {
       const run = requireLive(runId)

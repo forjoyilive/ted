@@ -420,6 +420,92 @@ describe('Model unavailable', () => {
 })
 
 describe('Stage effort', () => {
+  test.each(['send-now', 'new-message'] as const)(
+    'Stop holds Task Lead messages until %s, including after an effort change',
+    async (release) => {
+      const client = await startTed()
+      const task = await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        title: steps(
+          { everyMessage: [{ endTurn: true }] },
+          { waitFor: path.join(scratch, 'never') },
+          { endTurn: true },
+        ),
+      })
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      const run = await waitForRun(
+        client,
+        task,
+        (r) => r.state === 'working' && r.sessionId !== undefined,
+        'working Task Lead',
+      )
+      const text = 'Keep this note held after Stop.'
+      const queued = await client.ok<{ id: string }>('POST', `/runs/${run.id}/messages`, { text })
+      if (release === 'new-message') {
+        await writeFile(
+          path.join(home, 'stub-claude.json'),
+          JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+        )
+        await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effort: 'high' })
+      }
+      await client.ok('POST', `/runs/${run.id}/interrupt`)
+      await waitForRun(
+        client,
+        task,
+        (r) => r.state === 'idle' && (release === 'send-now' || r.effort === 'high'),
+        'Stop and pending effort applied',
+      )
+      if (release === 'new-message')
+        await waitUntil(
+          async () => (await claudeStarts()).length === 2,
+          'effort restart acknowledgement',
+        )
+      await sleep(400)
+      expect(await userMessages(client, run.id)).not.toContain(text)
+      if (release === 'send-now')
+        await client.ok('POST', `/runs/${run.id}/messages/${queued.id}/send-now`)
+      else await client.ok('POST', `/runs/${run.id}/messages`, { text: 'Continue now.' })
+      await waitUntil(
+        async () => (await userMessages(client, run.id)).includes(text),
+        'explicit release of held note',
+      )
+      expect(
+        (await userMessages(client, run.id)).filter((message) => message === text),
+      ).toHaveLength(1)
+    },
+  )
+
+  test('delivers an unheld human message after an idle effort restart', async () => {
+    const client = await startTed()
+    const finish = path.join(scratch, 'finish-turn')
+    const task = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      title: steps({ waitFor: finish }, { endTurn: true }),
+    })
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+    )
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    const run = await waitForRun(
+      client,
+      task,
+      (r) => r.state === 'working' && r.sessionId !== undefined,
+      'working Task Lead',
+    )
+    await client.ok('PUT', `/tasks/${task.id}/lead`, { agent: 'claude', effort: 'high' })
+    const text = 'Deliver this note after the effort change.'
+    await client.ok('POST', `/runs/${run.id}/messages`, { text })
+    expect(await userMessages(client, run.id)).not.toContain(text)
+    await writeFile(finish, '')
+    await waitUntil(
+      async () => (await userMessages(client, run.id)).includes(text),
+      'unheld note delivery after restart',
+    )
+    expect((await leadRun(client, task)).effort).toBe('high')
+    expect(await claudeStarts()).toHaveLength(2)
+  })
+
   test('a fresh launch keeps held instructions durable until acceptance and does not replay them on later recovery', async () => {
     let client = await startTed()
     const task = await client.ok<Task>('POST', '/tasks', {

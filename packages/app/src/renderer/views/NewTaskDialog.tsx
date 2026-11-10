@@ -241,12 +241,12 @@ function NewTaskForm({
         if (!current) return
         setHealth(health)
         const fallback = health.find((entry) => entry.state !== 'not-installed')
-        const availableDefault = health.some(
+        const availableDefault: TaskLead = health.some(
           (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
         )
           ? defaults.lead
           : fallback
-            ? { agent: fallback.agent }
+            ? { agent: fallback.agent, effortMode: 'stage' }
             : defaults.lead
         setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)

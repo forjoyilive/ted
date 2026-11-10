@@ -224,3 +224,47 @@ test('following Stage effort survives a model edit and can be replaced with expl
     model: 'sonnet',
   })
 })
+
+test.each(['stage', 'high', ''] as const)(
+  'New Task fallback follows Stages unless effort is explicitly %s',
+  async (effort) => {
+    const created = vi.fn(() => task())
+    bridge({
+      ...draftHandlers(),
+      taskDefaults: () => ({
+        lead: { agent: 'claude', effort: 'medium', effortMode: 'stage' },
+        clarifyDepth: 'auto',
+      }),
+      checkAgentHealth: () => [
+        { agent: 'claude', state: 'not-installed' },
+        { agent: 'codex', state: 'ready', version: '2.0.0' },
+      ],
+      createTask: created,
+    })
+    render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={() => {}} />)
+    const u = user()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false),
+    )
+    await u.click(screen.getByRole('button', { name: /^More/ }))
+    await waitFor(() =>
+      expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex'),
+    )
+    if (effort === 'stage')
+      expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
+    else await u.selectOptions(screen.getByLabelText('Effort'), effort)
+    await u.type(
+      screen.getByLabelText('Description'),
+      'Use the configured Stage effort with the installed agent.',
+    )
+    await u.click(screen.getByRole('button', { name: 'Create' }))
+    expect(created).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lead: {
+          agent: 'codex',
+          ...(effort === 'stage' ? { effortMode: 'stage' } : effort !== '' ? { effort } : {}),
+        },
+      }),
+    )
+  },
+)

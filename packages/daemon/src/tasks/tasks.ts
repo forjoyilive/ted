@@ -2959,7 +2959,7 @@ export function createTasks(options: {
     const choice = effectiveLead(after)
     if (live && choice && (!sameChoice(choice, live) || after.pendingLeadMessages.length > 0))
       await applyLead(taskId)
-    await options.steering.changed(run.id)
+    await options.steering.refresh(run.id)
   }
 
   async function restartLead(run: Run, flags: RunFlags): Promise<void> {
