@@ -31,6 +31,7 @@ import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
+import { createSteering } from './runs/steering.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
@@ -324,8 +325,16 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       await workflows.inherited().catch(() => undefined)
+      const steering = createSteering({
+        home: paths.home,
+        store,
+        runs,
+        isCurrentLead: (run) =>
+          run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
+      })
       let plans: Plans | undefined
       const tasks = createTasks({
+        steering,
         planning: () => plans,
         store,
         runs,
@@ -461,7 +470,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const conversations = createConversations({
-        home: paths.home,
+        steering,
         store,
         runs,
         agents,
