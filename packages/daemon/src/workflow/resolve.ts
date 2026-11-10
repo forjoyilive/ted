@@ -19,11 +19,14 @@ export interface ResolvedStageFile {
   text: string
 }
 
+export type OvernightGuard = 'settings' | 'unreadable'
+
 export interface ResolvedWorkflow {
   stages: StageId[]
   order: AgentStageId[]
   settings: WorkflowSettings
   overnightGates?: readonly AgentStageId[]
+  overnightKept?: { reason: OvernightGuard; stages: readonly AgentStageId[]; unseen?: boolean }
   notes?: string
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
   next(current: StageId): StageId

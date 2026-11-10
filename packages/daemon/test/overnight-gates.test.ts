@@ -1,3 +1,5 @@
+import { rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import {
   type Factory,
   type FactoryBoard,
@@ -12,6 +14,7 @@ import { describe, expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, waitUntil } from './helpers.ts'
 import {
+  branchHead,
   brief,
   type Client,
   commitStep,
@@ -19,6 +22,9 @@ import {
   getTask,
   lines,
   merges,
+  readGh,
+  run,
+  setGh,
   start,
   useMergeHarness,
   waitForStage,
@@ -36,10 +42,22 @@ const gated = {
   ],
 }
 
-async function begin(client: Client, extra: Record<string, unknown> = {}): Promise<Task> {
+const settingsStep = {
+  run: [
+    'sh',
+    '-c',
+    'echo "# reviewed" >> .ted/workflow.yaml && git add .ted && git -c user.name=T -c user.email=t@example.com commit -qm settings',
+  ],
+}
+
+async function begin(
+  client: Client,
+  extra: Record<string, unknown> = {},
+  step: unknown = commitStep,
+): Promise<Task> {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
-      steps: [{ everyMessage: [{ endTurn: true }] }, commitStep, { endTurn: true }],
+      steps: [{ everyMessage: [{ endTurn: true }] }, step, { endTurn: true }],
     }),
     factory: 'NB',
     ...extra,
@@ -223,5 +241,275 @@ describe('overnight mode turns Gates off', () => {
       message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
     })
     expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
+  })
+})
+
+describe('overnight mode and a Task that changes .ted/', () => {
+  const open = { order: 'intake, work, validate, merge' }
+  const kept = (stage: string) =>
+    `Overnight mode is on, but this Task changes .ted/, so its ${stage} Gate stays on`
+
+  test('with every Gate off in the Workflow, it stops for the human before Merge', async () => {
+    const client = await start(open)
+    await overnight(client, true)
+    const task = await begin(client, {}, settingsStep)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'review')
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'review' },
+      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
+    })
+    const [request] = await gateRequests(client, task)
+    expect(request?.request.stage).toBe('review')
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    expect(await merges()).toEqual([])
+    expect(await lines(client, task)).toContain(kept('Review'))
+    const view = await gates(client, task)
+    expect(row(view, 'review')).toMatchObject({ effective: true, required: true })
+    expect(view.rows.some((r) => r.overnight)).toBe(false)
+
+    await client.ok('POST', `/comments/${request?.request.id}/answer`, { action: 'approve' })
+    const done = await waitForStage(client, task, 'done')
+    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await merges()).toHaveLength(1)
+  })
+
+  test('the same Task that only edits other files runs to Done unattended', async () => {
+    const client = await start(open)
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'merge')
+    const done = await waitForStage(client, task, 'done')
+    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await gateRequests(client, task)).toEqual([])
+    const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
+    expect(all.filter((c) => c.gate !== undefined)).toEqual([])
+  })
+
+  test('a Design Gate saved in the Workflow stays on for it', async () => {
+    const client = await start(gated)
+    await overnight(client, true)
+    const task = await begin(client, {}, settingsStep)
+    await advanceTo(client, task, 'design')
+    const view = await gates(client, task)
+    expect(row(view, 'design')).toMatchObject({ inherited: true, effective: true })
+    expect(view.rows.some((r) => r.overnight)).toBe(false)
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'design' },
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+    })
+    expect(await lines(client, task)).toContain(kept('Design'))
+  })
+
+  test('a worktree TED can’t read keeps the Gates on', async () => {
+    const client = await start(gated)
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'design')
+    await lead(client, task)
+    const worktree = (await getTask(client, task.id)).repos[0]?.worktree ?? ''
+    await rm(path.join(worktree, '.git'), { force: true })
+    const res = await advance(client, task)
+    expect(res.body).toMatchObject({
+      task: { stage: 'design' },
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
+    })
+    expect(await lines(client, task)).toContain(
+      'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design Gate stays on',
+    )
+  })
+
+  const ci = { '.github/workflows/ci.yml': 'on: pull_request\n' }
+  const pending = { checks: [{ name: 'test', status: 'IN_PROGRESS' }] }
+  const passed = { checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] }
+  const waitingForCi = (client: Client, task: Task) =>
+    waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
+        ? current
+        : undefined
+    }, 'Waiting for CI')
+  const lateSettingsCommit = (worktree: string) =>
+    run('sh', ['-c', settingsStep.run[2] ?? ''], { cwd: worktree })
+  const mergeCard = (client: Client, task: Task) =>
+    waitUntil(
+      async () => (await gateRequests(client, task)).find((i) => i.request.stage === 'merge'),
+      'the Merge sign-off',
+    )
+
+  test('a .ted/ commit made after the Review approval is not merged without a new sign-off', async () => {
+    const client = await start({ ...open, files: ci, merge: pending })
+    await overnight(client, true)
+    const task = await begin(client, {}, settingsStep)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'review')
+    await advance(client, task)
+    const [review] = await gateRequests(client, task)
+    await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
+    const waiting = await waitingForCi(client, task)
+    const repo = waiting.repos[0]
+    const reviewed = repo?.pullRequest?.signedOff
+    expect(reviewed).toBeDefined()
+    await lateSettingsCommit(repo?.worktree ?? '')
+
+    await setGh(passed)
+    const card = await mergeCard(client, task)
+    expect(await merges()).toEqual([])
+    expect(await lines(client, task)).toContain(kept('Merge'))
+
+    await client.ok('POST', `/comments/${card.request.id}/answer`, { action: 'approve' })
+    const done = await waitForStage(client, task, 'done')
+    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await merges()).toHaveLength(1)
+    expect(await branchHead(repo?.branch ?? '')).toBe(reviewed)
+  })
+
+  test('a .ted/ commit that appears after the Task entered Merge holds the merge for sign-off', async () => {
+    const client = await start({ ...open, files: ci, merge: pending })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'merge')
+    const waiting = await waitingForCi(client, task)
+    expect(await gateRequests(client, task)).toEqual([])
+    await lateSettingsCommit(waiting.repos[0]?.worktree ?? '')
+
+    await setGh(passed)
+    const card = await mergeCard(client, task)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+    expect(await lines(client, task)).toContain(kept('Merge'))
+
+    await client.ok('POST', `/comments/${card.request.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
+  })
+
+  const plainMerges = async () =>
+    (await merges()).filter((m) => !m.includes('--auto') && !m.includes('--disable-auto'))
+
+  test('GitHub auto-merge is turned off when a .ted/ commit appears while CI is pending', async () => {
+    const client = await start({
+      ...open,
+      files: ci,
+      merge: {
+        mergeState: 'BLOCKED',
+        autoMergeAllowed: true,
+        checks: [{ name: 'test', status: 'IN_PROGRESS', required: true }],
+      },
+    })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'merge')
+    const auto = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.repos[0]?.pullRequest?.autoMerge ? current : undefined
+    }, 'auto-merge to be on')
+    expect((await readGh()).merge.autoMerge).toBeDefined()
+    await lateSettingsCommit(auto.repos[0]?.worktree ?? '')
+
+    await waitUntil(
+      async () => (await readGh()).merge.autoMerge === undefined,
+      'auto-merge to be turned off',
+    )
+    expect((await merges()).at(-1)).toContain('--disable-auto')
+    expect((await getTask(client, task.id)).repos[0]?.pullRequest?.autoMerge).toBeUndefined()
+
+    await setGh({
+      mergeState: 'CLEAN',
+      checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
+    })
+    await mergeCard(client, task)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await plainMerges()).toEqual([])
+    expect((await readGh()).merge.autoMerge).toBeUndefined()
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+  })
+
+  test('a .ted/ commit that lands right before the merge call still gets a Merge sign-off', async () => {
+    const flip = { worktree: '', done: false }
+    const client = await start({
+      ...open,
+      files: ci,
+      merge: pending,
+      daemon: {
+        beforeMerge: async () => {
+          if (flip.worktree === '' || flip.done) return
+          flip.done = true
+          await lateSettingsCommit(flip.worktree)
+        },
+      },
+    })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'merge')
+    const waiting = await waitingForCi(client, task)
+    flip.worktree = waiting.repos[0]?.worktree ?? ''
+
+    await setGh(passed)
+    await mergeCard(client, task)
+    expect(flip.done).toBe(true)
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+  })
+
+  test('an uncommitted .ted/ edit made at Merge holds the merge for sign-off', async () => {
+    const client = await start({ ...open, files: ci, merge: pending })
+    await overnight(client, true)
+    const task = await begin(client)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'merge')
+    const waiting = await waitingForCi(client, task)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await writeFile(path.join(waiting.repos[0]?.worktree ?? '', '.ted', 'notes.md'), 'Edited.\n')
+
+    await setGh(passed)
+    await mergeCard(client, task)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await merges()).toEqual([])
+    expect(await lines(client, task)).toContain(kept('Merge'))
+  })
+
+  test('a Review approval given after the worktree moved on binds nothing', async () => {
+    const client = await start(open)
+    await overnight(client, true)
+    const task = await begin(client, {}, settingsStep)
+    await advanceTo(client, task, 'work')
+    await advanceTo(client, task, 'validate')
+    await advanceTo(client, task, 'review')
+    await advance(client, task)
+    const [review] = await gateRequests(client, task)
+    await waitUntil(
+      async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
+      'the pull request to be ready',
+    )
+    const repo = (await getTask(client, task.id)).repos[0]
+    const requested = repo?.pushed?.commit
+    await lateSettingsCommit(repo?.worktree ?? '')
+
+    await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
+    const card = await mergeCard(client, task)
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    expect(await merges()).toEqual([])
+    const listed = (await getTask(client, task.id)).repos[0]?.pullRequest?.signedOff
+    expect(listed).toBe(requested)
+
+    await client.ok('POST', `/comments/${card.request.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
+    expect(await branchHead(repo?.branch ?? '')).toBe(listed)
   })
 })

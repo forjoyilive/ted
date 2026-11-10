@@ -67,6 +67,7 @@ export interface DaemonOptions {
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
+  beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   settingsMergeWaitMs?: number
   stallAfterMs?: number
@@ -377,6 +378,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
+        ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
         ...(options.load !== undefined && { load: options.load }),
