@@ -147,6 +147,8 @@ function shellSize(value: unknown): { cols: number; rows: number } {
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   getCoordinator: (client, id) => client.coordinator(String(id)),
+  getCoordinatorChat: (client, id) => client.coordinatorChat(String(id)),
+  coordinatorStatuses: (client) => client.coordinatorStatuses(),
   messageCoordinator: (client, id, input) =>
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),

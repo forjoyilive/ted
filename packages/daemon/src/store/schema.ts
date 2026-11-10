@@ -261,6 +261,7 @@ export const runMessages = State.SQLite.table({
     text: State.SQLite.text(),
     at: State.SQLite.text(),
     queued: State.SQLite.boolean({ default: false }),
+    fromTed: State.SQLite.boolean({ default: false }),
     deletedAt: State.SQLite.text({ nullable: true }),
   },
 })
@@ -2020,6 +2021,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  runMessageQueuedV2: Events.synced({
+    name: 'v2.RunMessageQueued',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      text: Schema.String,
+      at: Schema.String,
+      from: Schema.String,
+    }),
+  }),
   runMessageDelivered: Events.synced({
     name: 'v1.RunMessageDelivered',
     schema: Schema.Struct({
@@ -3064,6 +3076,8 @@ const materializers = counted(
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
       'v1.RunMessageQueued': ({ id, runId, text, at }) =>
         runMessages.insert({ id, runId, text, at, queued: true }),
+      'v2.RunMessageQueued': ({ id, runId, text, at, from }) =>
+        runMessages.insert({ id, runId, text, at, queued: true, fromTed: from === 'ted' }),
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),

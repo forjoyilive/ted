@@ -1,11 +1,11 @@
-import type { Factory } from '@ted/protocol'
+import type { Coordinator, Factory } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
-import { useOvernightChange } from '../overnight.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import styles from './Sidebar.module.css'
+import { StatusChip } from './StatusChip.tsx'
 
 export interface FactoryBadges {
   waiting?: number
@@ -14,12 +14,14 @@ export interface FactoryBadges {
   stopsWork?: boolean
   drift?: number
   automationFailed?: boolean
+  coordinator?: Coordinator['status']
 }
 
 export interface SidebarFooter {
   runs?: string
   failed?: string
   paused?: string
+  overnight?: string
   simulators?: string
   planChips?: readonly string[]
   update?: { label: string; busy: boolean }
@@ -29,7 +31,6 @@ interface SidebarProps {
   navigation: Navigation
   factories: readonly Factory[]
   currentFactoryId: string | undefined
-  overnightMode?: boolean
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
@@ -117,13 +118,15 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
 }
 
 const factoryViews: { view: FactoryView; label: string }[] = [
+  { view: 'coordinator', label: 'Coordinator' },
   { view: 'board', label: 'Board' },
   { view: 'list', label: 'List' },
-  { view: 'coordinator', label: 'Coordinator' },
   { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },
 ]
+
+const coordinatorMarks = { working: 'Working', queued: 'Queued', paused: 'Paused' }
 
 const openFactoriesKey = 'ted.sidebar.factoriesOpen'
 
@@ -163,7 +166,6 @@ export function Sidebar({
   factories,
   currentFactoryId,
   inboxCount,
-  overnightMode,
   badges = {},
   settingsProblem = false,
   footer = {},
@@ -178,7 +180,6 @@ export function Sidebar({
   onAddFactory,
   onRemoveFactory,
 }: SidebarProps) {
-  const overnight = useOvernightChange()
   const [menu, setMenu] = useState<{ factoryId: string; x: number; y: number }>()
   const [renaming, setRenaming] = useState<string>()
   const [dragging, setDragging] = useState<number>()
@@ -354,6 +355,33 @@ export function Sidebar({
                     {...current(screen)}
                   >
                     <span className={styles.label}>{label}</span>
+                    {view === 'coordinator' &&
+                      (badge.coordinator === 'working' ||
+                        badge.coordinator === 'queued' ||
+                        badge.coordinator === 'paused') && (
+                        <span
+                          role="img"
+                          aria-label={coordinatorMarks[badge.coordinator]}
+                          title={coordinatorMarks[badge.coordinator]}
+                          className={styles.subStatus}
+                        >
+                          <StatusChip
+                            tone={badge.coordinator === 'working' ? 'working' : 'neutral'}
+                            glyph={badge.coordinator}
+                          >
+                            {null}
+                          </StatusChip>
+                        </span>
+                      )}
+                    {view === 'coordinator' && badge.coordinator === 'failed' && (
+                      <span
+                        role="img"
+                        aria-label="The Coordinator failed"
+                        className={styles.subDot}
+                      >
+                        <DotIcon className={styles.failedDot} />
+                      </span>
+                    )}
                     {view === 'settings' && (badge.drift ?? 0) > 0 && (
                       <span className={styles.subCount} title="Inherited Stage files that changed">
                         {badge.drift}
@@ -420,25 +448,6 @@ export function Sidebar({
 
       <button
         type="button"
-        className={`${styles.row} ${overnightMode ? styles.overnightActive : ''}`}
-        disabled={overnight.saving || overnightMode === undefined}
-        aria-pressed={overnightMode ?? false}
-        title="Start eligible Backlog Tasks across all Factories; save questions in the Inbox."
-        onClick={() => void overnight.change(!overnightMode)}
-      >
-        <span className={styles.label}>
-          {overnightMode ? 'Turn off overnight mode' : 'Turn on overnight mode'}
-        </span>
-      </button>
-      {overnightMode && <p className={styles.overnightNote}>On · all Factories</p>}
-      {overnight.problem && (
-        <p className={styles.orderError} role="alert">
-          {overnight.problem}
-        </p>
-      )}
-
-      <button
-        type="button"
         className={`${styles.row} ${styles.appSettings}`}
         onClick={() => dispatch({ type: 'open-settings' })}
       >
@@ -476,6 +485,7 @@ export function Sidebar({
               <p className={styles.failed}>{footer.failed}</p>
             ))}
           {footer.paused !== undefined && <p className={styles.runs}>{footer.paused}</p>}
+          {footer.overnight !== undefined && <p className={styles.runs}>{footer.overnight}</p>}
           {footer.simulators !== undefined && (
             <p className={styles.simulators}>{footer.simulators}</p>
           )}

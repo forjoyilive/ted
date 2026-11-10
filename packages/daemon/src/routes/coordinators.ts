@@ -68,6 +68,19 @@ export const coordinatorRoutes: Route[] = [
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
   },
   {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/coordinator\/chat$/,
+    handle: async ({ params: [id = ''] }, { coordinators, conversations }) => [
+      200,
+      coordinators.get(id) ? await conversations.coordinatorChat(id) : null,
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/coordinators$/,
+    handle: async (_, { coordinators }) => [200, coordinators.statuses()],
+  },
+  {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/messages$/,
     async handle({ params: [id = ''], req }, { coordinators }) {

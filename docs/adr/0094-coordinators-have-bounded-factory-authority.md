@@ -45,3 +45,11 @@ So the Coordinator can now move a Stage or start a Task Lead Run, but only as th
 ## What the Coordinator reads
 
 To group stuck Tasks it needs each Task’s open requests. `ted coordinator tasks` now returns, per Task, up to 5 open requests (ID, kind, who asked, Stage, title, the first 1,000 characters of the text, choices, when it was asked, and whether the Coordinator may answer it), a count of any more, and the current time, so it can tell how long each has waited. `ted coordinator task` returns up to 20 the same way, whatever page of Comments is asked for. Both stay inside the nonce-delimited untrusted context.
+
+## One conversation in the Run chat
+
+The Coordinator screen first drew each Run in its own chat, with earlier Runs folded away under “Earlier conversation”, and had its own composer. Stop and a paused agent both end the Run, so the next message started a new Run and the conversation looked gone (KRI-278).
+
+- `GET /factories/:id/coordinator/chat` returns one `RunChat` built by `Conversations.coordinatorChat`: every Run’s items in order, the instructions of the first Run only, a “From TED” row titled “New Run” where a replacement Run starts, and messages Stop canceled as `human` items with `unsent`. The summary is the newest started Run’s. The app draws it with `ChatBody` and the Run chat’s `Composer`, so it looks and behaves like a Task Lead’s chat. Send goes to `POST …/coordinator/messages` and ■ to `…/coordinator/stop`. **Interrupt and send** and **Send now** are hidden, because a Coordinator message always waits for its queued turn.
+- `GET /coordinators` lists each Factory’s Coordinator status for the sidebar, which reloads it on `coordinator-changed` and `agent-health-changed`.
+- A message TED writes for the Coordinator (the continuation after a pause, and after Retry) is queued with `v2.RunMessageQueued { from: 'ted' }` and read back as `RunMessage.from`. It is never a `human` chat item: it shows as a “From TED” row once the agent has it, and not at all while it waits. In a prompt it sits under `## Message from TED`, which `chatItems` splits off the human’s text. Stop does not add it to the unsent messages.

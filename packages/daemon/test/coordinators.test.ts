@@ -393,6 +393,106 @@ test('agent health pauses queued responses and sending advice leaves Tasks uncha
   expect((await s.chat()).receipts).toEqual([])
 })
 
+test('a pause while working records TED’s continuation as TED’s and keeps the conversation', async () => {
+  const s = await setup()
+  const { c } = await s.start([{ say: 'Saved advice' }, { waitFor: path.join(scratch, 'finish') }])
+  const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
+  const continuation = 'Continue the interrupted response using fresh facts'
+  await waitUntil(
+    async () => (await conversation()).items.some((i) => i.kind === 'agent'),
+    'the first reply',
+  )
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+  await s.ok('POST', '/agents/health/check')
+  await waitUntil(async () => {
+    const run = (await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)).run
+    return (await s.chat()).status === 'paused' && run.state === 'finished'
+  }, 'the paused Coordinator')
+  for (const chat of [await conversation(), await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)]) {
+    expect(chat.items.filter((i) => i.kind === 'human' && i.text.includes(continuation))).toEqual(
+      [],
+    )
+    expect(chat.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
+  }
+  expect((await s.chat()).unsentMessages).toEqual([])
+
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+  await s.ok('POST', '/agents/health/check')
+  const replaced = await waitUntil(async () => {
+    const chat = await s.chat()
+    return chat.runId !== c.runId && chat.started ? chat : undefined
+  }, 'the replacement Run')
+  const after = await conversation()
+  expect(after.run.id).toBe(replaced.runId)
+  expect(after.items.filter((i) => i.kind === 'human').map((i) => i.text)).toEqual([
+    expect.stringContaining('Saved advice'),
+  ])
+  expect(after.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
+  expect(after.items.filter((i) => i.kind === 'ted' && i.text.includes(continuation))).toHaveLength(
+    1,
+  )
+  expect(after.items.filter((i) => i.kind === 'instructions')).toHaveLength(1)
+  const own = await s.ok<RunChat>('GET', `/runs/${replaced.runId}/chat`)
+  expect(own.items.filter((i) => i.kind === 'human')).toEqual([])
+  expect(await s.ok('GET', '/coordinators')).toEqual([
+    { factoryId: s.factory.id, status: (await s.chat()).status },
+  ])
+})
+
+test('Retry’s continuation shows as TED’s in the resumed Run, never as the human’s', async () => {
+  const s = await setup()
+  const { c } = await s.start([
+    { say: 'Saved advice' },
+    { waitFor: path.join(scratch, 'fail') },
+    { exit: 1 },
+  ])
+  await writeFile(path.join(scratch, 'fail'), '')
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'the failure')
+  await s.ok('POST', `${s.base}/retry`)
+  const continuation = 'Please continue the interrupted response'
+  const chat = await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `${s.base}/chat`)
+    return chat.items.some((i) => i.kind === 'ted' && i.text.includes(continuation))
+      ? chat
+      : undefined
+  }, 'TED’s continuation in the chat')
+  expect((await s.chat()).runId).toBe(c.runId)
+  expect(chat.items.filter((i) => i.kind === 'human' && i.text.includes(continuation))).toEqual([])
+})
+
+test('a message after Stop starts a new Run and the conversation keeps both Runs in order', async () => {
+  const s = await setup()
+  const { c } = await s.start([{ say: 'First reply' }, { waitFor: path.join(scratch, 'finish') }])
+  const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
+  await waitUntil(
+    async () => (await conversation()).items.some((i) => i.kind === 'agent'),
+    'the first reply',
+  )
+  await s.ok('POST', `${s.base}/stop`)
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({ steps: [{ say: 'Second reply' }, { endTurn: true }] }),
+  })
+  const chat = await waitUntil(async () => {
+    const chat = await conversation()
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Second reply')
+      ? chat
+      : undefined
+  }, 'the second reply')
+  expect((await s.chat()).runId).not.toBe(c.runId)
+  expect(chat.run.id).toBe((await s.chat()).runId)
+  const shown = chat.items.flatMap((i) =>
+    i.kind === 'agent'
+      ? [i.text]
+      : i.kind === 'human'
+        ? ['human']
+        : i.kind === 'ted'
+          ? [i.title]
+          : [],
+  )
+  expect(shown).toEqual(['human', 'First reply', 'New Run', 'human', 'Second reply'])
+  expect(new Set(chat.items.map((i) => `${i.kind}:${i.id}`)).size).toBe(chat.items.length)
+})
+
 test('disk holds keep Coordinator turns queued until space recovers', async () => {
   let free = 30e9
   const s = await setup({ freeBytes: async () => free, checkEveryMs: 20 })
