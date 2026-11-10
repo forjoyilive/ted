@@ -1,6 +1,6 @@
 # Checks and Apps run in an OS sandbox outside Bypass
 
-Status: accepted. Changes ADR 0044 and ADR 0084-apps-run-in-detached-hosts. Answers KRI-181.
+Status: accepted. Changes ADR 0044 and ADR 0084-apps-run-in-detached-hosts. Answers KRI-181. KRI-254 changed it: the human’s ▶ runs outside the sandbox (see “The human’s ▶” below).
 
 ## Context
 
@@ -8,10 +8,16 @@ An agent in an Auto Factory can edit any file in its worktree, including the scr
 
 ## Decision
 
-**What runs sandboxed.** When the Task’s Workflow has `permissions: auto`, every Check run of the Task and every App of the Task runs inside an OS sandbox, whoever starts it:
+**What runs sandboxed.** When the Task’s Workflow has `permissions: auto`, every Check run of the Task and every App an agent or TED starts runs inside an OS sandbox:
 
 - `ted checks` (`POST /tasks/:id/checks`), the Checks at Validate entry and the Merge rerun after a rebase. Validate and Merge run the same agent-written code, and the agent decides when Work ends with `ted outcome advance`, so leaving them out would only add one step to the same escape.
-- `ted run-app` (`POST /tasks/:id/apps/start`), the human’s ▶ and Restart, and the approved Apps TED starts for a setup Task. An agent can ask the human to press ▶ on a script it just changed.
+- `ted run-app` (`POST /tasks/:id/apps/start` with a Run token) and the approved Apps TED starts for a setup Task.
+
+**The human’s ▶.** The human’s ▶, Restart and the sign-off Preview row’s Run or Open start the App outside the sandbox (KRI-254). Electron and other desktop Apps, such as TED’s own “TED Dev”, can’t start inside it, and the human pressing ▶ to try a change is the same as running it in the Task’s shell. The daemon tells the two apart only by the caller: a start signed with the app’s in-memory key (ADR 0054-the-app-holds-the-human-token-in-memory) is the human’s; a Run token is an agent’s. No field in the request changes it, so a Run can’t ask for an unsandboxed start. When the human starts an App that is running or waiting sandboxed, TED stops it and starts it again outside the sandbox.
+
+Because an agent can ask the human to press ▶ on a script it just changed, the app asks first. Each `TaskApp` in an Auto Factory carries `confirmOutsideSandbox` until the human chooses **Always for <App> in this Factory**; while it is set, ▶, Restart and the Preview row show a dialog (“<App> runs code from the Task’s branch on your Mac, outside the sandbox, like running it yourself in the Task’s shell.”) with **Run** and that checkbox. The choice is the machine setting `appsOutsideSandbox` (App names by Factory ID), changed only through `PATCH /settings`, which Run tokens and the `daemon.json` token can’t call. Removing the Factory removes its entry. The daemon doesn’t require the dialog; it is the human’s own check before they run the code.
+
+**Preview row for desktop Apps.** With no web App, the sign-off’s Preview row offers the Task’s first `command` App as **Open <App>**, which starts it like ▶, and shows **Running** once it is up. TED treats every `command` App as one that opens its own window rather than adding a `window:` field to the App declaration: a background `command` App shows the same button, which only starts it.
 
 In a Factory set to Bypass, the agents already run unsandboxed, and nothing changes.
 
@@ -41,13 +47,15 @@ Everything else is read-only, including the user’s own caches (`~/Library/Cach
 
 - **Allow `ted checks` and `ted run-app` only from Validate on.** Rejected: TED’s own Validate run still executes the code the agent wrote.
 - **Accept the risk and record it.** Rejected by the human (KRI-181).
-- **Sandbox only what a Run starts.** Rejected: the agent controls when Validate starts and can ask the human to press ▶.
+- **Sandbox only what a Run starts.** Rejected for Checks: the agent controls when Validate starts. Accepted for Apps in KRI-254 with the confirmation above, since desktop Apps can’t run in the sandbox at all.
+- **A `window: true` field for command Apps.** Rejected for now: one more field to validate and edit for a button label; every `command` App gets Open.
 - **Deny-by-default profiles like Codex’s.** Rejected for now: the list of services a toolchain needs (DNS, TLS trust, Xcode) is long and differs by machine; denying writes and the known ways to start outside processes keeps toolchains working.
 - **Letting sandboxed commands write the user’s caches.** Rejected in review: a poisoned build or package cache (Go’s `go-build`, Corepack’s package managers, downloaded browsers) runs later outside any sandbox. Each Task gets its own caches instead, at the cost of a cold first run.
 
 ## Consequences
 
 - A Check or App that writes outside its worktree now fails there: one that writes `~/.config`, commits or stashes with git (the git folder lives in `TED_HOME`), downloads a new Corepack version, or uses a tool that writes `~/Library/Caches` without honouring the variables above. A Factory that needs more can use Bypass.
+- Remaining risk: an App the human starts runs the Task’s branch outside the sandbox, including anything it loads later from the worktree the agent keeps editing (a dev server that reloads, a script it reads on demand). The confirmation names this; Always skips it for that App in that Factory.
 - Remaining risk: teardown runs unsandboxed in the worktree the agent edited, and an agent can trigger it with `ted task repos remove`. A teardown that runs repo code (`pnpm run clean`) is still a way out. KRI-164 asks whether TED should ask first.
 - Remaining risk: pnpm’s `node_modules` files are hard links into the store that setup used, which is the user’s own, so writing a file in the worktree’s `node_modules` writes the user’s store. That holds for the agent in its own sandbox too.
 - Remaining risk: on Linux, `bwrap` resolves its bind paths when it starts. In a multi-repo Factory the Task Lead, in its own sandbox, can write the Task folder that holds the worktrees, so one that swaps a worktree for a link in the moment between TED’s check and `bwrap`’s start could still widen what a Check can write. The sandboxed Check itself can’t, since it holds no parent of what it was given. `--bind-fd` would close this where `bwrap` has it.

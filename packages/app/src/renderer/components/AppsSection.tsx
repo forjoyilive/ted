@@ -16,6 +16,7 @@ import styles from './Apps.module.css'
 import { Button } from './Button.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import { OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { useOutsideSandbox } from './OutsideSandboxDialog.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
 export interface ShownApp {
@@ -85,16 +86,19 @@ export function useAppActions(task: Task, app: TaskApp) {
   }
   const live = isLive(app)
   const runnable = !task.archived && task.stage !== 'done' && !app.removed
+  const { confirm, dialog } = useOutsideSandbox(task, app)
   return {
     busy,
     error,
     live,
     runnable,
+    dialog,
     preview: () => act(() => ted.openAppPreview(task.id, app.repo, app.name)),
-    start: (shutDown?: string) => act(() => ted.startApp(task.id, app.repo, app.name, shutDown)),
+    start: (shutDown?: string) =>
+      confirm(() => act(() => ted.startApp(task.id, app.repo, app.name, shutDown))),
     show: () => act(() => ted.showApp(task.id, app.repo, app.name)),
     stop: () => act(() => ted.stopApp(task.id, app.repo, app.name)),
-    restart: () => act(() => ted.restartApp(task.id, app.repo, app.name)),
+    restart: () => confirm(() => act(() => ted.restartApp(task.id, app.repo, app.name))),
   }
 }
 
@@ -202,6 +206,7 @@ function AppRow({
           <RestartIcon />
         </button>
       </span>
+      {actions.dialog}
       {choosing && simulators && (
         <SlotPopover
           task={task}

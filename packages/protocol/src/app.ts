@@ -22,6 +22,7 @@ export interface TaskApp {
   removed?: boolean
   waitingFor?: string
   simulator?: AppSimulator
+  confirmOutsideSandbox?: true
 }
 
 export interface AppSimulator {

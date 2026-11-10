@@ -44,6 +44,7 @@ export interface MachineSettings {
   editorCommand: string
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
+  appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -71,6 +72,7 @@ export const defaultMachineSettings: MachineSettings = {
   editorCommand: '',
   linearSync: true,
   linearSyncTeams: {},
+  appsOutsideSandbox: {},
 }
 
 export interface Profile {
