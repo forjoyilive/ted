@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { demoEnvironment, seedDemoFromCli, verifyDemo } from '@ted/daemon/demo'
 import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { killAppHosts, killRunHosts, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { installedElectron } from '../scripts/electron-path.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -14,6 +14,7 @@ let home: string
 let app: ElectronApplication | undefined
 const original = { ...process.env }
 afterEach(async () => {
+  vi.restoreAllMocks()
   await closeApp(app)
   if (home) {
     await stopDaemonIn(home)
@@ -34,7 +35,12 @@ test('opens the populated demo and reuses it when reopened', async () => {
   for (const key of Object.keys(process.env)) delete process.env[key]
   Object.assign(process.env, env)
   await buildRenderer()
+  const taskReads = vi.spyOn(DaemonClient.prototype, 'listTasks')
+  const conversationReads = vi.spyOn(DaemonClient.prototype, 'getRun')
   await seedDemoFromCli(home)
+  expect(taskReads.mock.calls.length).toBeLessThan(100)
+  expect(conversationReads.mock.calls.length).toBeLessThan(100)
+  vi.restoreAllMocks()
   const launch = async () => {
     const launched = await electron.launch({
       executablePath: await installedElectron(),

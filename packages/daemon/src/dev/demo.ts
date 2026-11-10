@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { DaemonClient, Task } from '@ted/protocol'
+import type { DaemonClient } from '@ted/protocol'
 import { readDaemonInfo } from '@ted/protocol'
 import { withDaemon } from '../launch.ts'
 import { makeDemoOrigins } from './fixtures.ts'
@@ -149,10 +149,4 @@ export async function seedDemoFromCli(home: string, reset = false): Promise<Demo
     },
     { appToken: randomBytes(32).toString('hex') },
   )
-}
-
-export async function demoTask(client: DaemonClient, id: string): Promise<Task> {
-  const task = (await client.listTasks()).find((t) => t.id === id || t.displayId === id)
-  if (!task) throw new Error(`Missing demo Task ${id}`)
-  return task
 }

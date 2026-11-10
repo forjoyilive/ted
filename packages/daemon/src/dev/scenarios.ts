@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { DaemonClient, Task } from '@ted/protocol'
-import { demoTask, until } from './demo.ts'
+import type { DaemonClient, Run, Task } from '@ted/protocol'
+import { until } from './demo.ts'
 import { commitDemoTask, demoGit } from './fixtures.ts'
 
 const script = (...steps: unknown[]) => JSON.stringify({ steps })
@@ -24,9 +24,58 @@ const proposal = {
   ],
 }
 
+interface DemoState {
+  task(id: string): Promise<Task>
+  run(id: string): Run | undefined
+  revision(id: string): number
+}
+
 export async function seedScenarios(
   home: string,
   client: DaemonClient,
+): Promise<Record<string, string>> {
+  const tasks = new Map<string, Task>()
+  const runs = new Map<string, Run>()
+  const revisions = new Map<string, number>()
+  let disconnected = false
+  const subscription = await client.subscribe(
+    (event) => {
+      if (event.type === 'task-created' || event.type === 'task-updated')
+        tasks.set(event.task.id, event.task)
+      if (event.type === 'task-deleted') tasks.delete(event.taskId)
+      if (event.type === 'run-updated') runs.set(event.run.id, event.run)
+      if (event.type === 'run-output' || event.type === 'run-updated') {
+        const id = event.type === 'run-output' ? event.runId : event.run.id
+        revisions.set(id, (revisions.get(id) ?? 0) + 1)
+      }
+    },
+    { onClose: () => (disconnected = true) },
+  )
+  const connected = () => {
+    if (disconnected) throw new Error('The demo’s daemon event stream closed while seeding.')
+  }
+  try {
+    return await populateScenarios(home, client, {
+      task: (id) =>
+        until(async () => {
+          connected()
+          return tasks.get(id)
+        }, `Task ${id}`),
+      run: (id) => {
+        connected()
+        return runs.get(id)
+      },
+      revision: (id) => revisions.get(id) ?? 0,
+    })
+  } finally {
+    subscription.close()
+  }
+}
+
+async function populateScenarios(
+  home: string,
+  client: DaemonClient,
+  observed: DemoState,
 ): Promise<Record<string, string>> {
   const began = Date.now()
   const garden = await client.createFactory({
@@ -111,10 +160,10 @@ export async function seedScenarios(
   }
   async function lead(task: Task) {
     return until(async () => {
-      const current = await demoTask(client, task.id)
+      const current = await observed.task(task.id)
       if (!current.leadRunId) return undefined
-      const run = await client.getRun(current.leadRunId)
-      return run.run.state === 'idle' ? run.run.id : undefined
+      const run = observed.run(current.leadRunId)
+      return run?.state === 'idle' ? run.id : undefined
     }, `idle Task Lead for ${task.displayId}`)
   }
   let nextScript = 0
@@ -122,8 +171,13 @@ export async function seedScenarios(
     const run = await lead(task)
     const marker = `demo-script-${++nextScript}-done`
     await client.sendRunMessage(run, script(...list, ...(wait ? [{ say: marker }, idle] : [])))
+    let checkedRevision = -1
     if (wait)
       await until(async () => {
+        if (observed.run(run)?.state !== 'idle') return false
+        const revision = observed.revision(run)
+        if (revision === checkedRevision) return false
+        checkedRevision = revision
         const current = await client.getRun(run)
         return (
           current.run.state === 'idle' &&
@@ -140,7 +194,7 @@ export async function seedScenarios(
   async function command(task: Task, ...args: string[]) {
     const prefix: unknown[] = []
     if (args[0] === 'outcome' && args[1] === 'advance') {
-      const current = await demoTask(client, task.id)
+      const current = await observed.task(task.id)
       if (current.stage === 'clarify' && current.clarifyDepth === 'auto')
         prefix.push({
           demoRequest: { depth: { depth: 'none', why: 'The scope is already clear.' } },
@@ -165,7 +219,7 @@ export async function seedScenarios(
   async function reach(task: Task, target: string) {
     for (let i = 0; i < 12; i++) {
       await lead(task)
-      const current = await demoTask(client, task.id)
+      const current = await observed.task(task.id)
       const checks = await client.listCheckRuns(task.id)
       const failed = checks.find((r) => r.outcome === 'failed')
       if (failed)
@@ -195,7 +249,7 @@ export async function seedScenarios(
             await command(task, 'outcome', 'advance')
             await until(
               async () =>
-                (await demoTask(client, task.id)).repos.every((r) => r.pullRequest !== undefined),
+                (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
               'draft pull requests',
             )
           })
@@ -276,7 +330,7 @@ export async function seedScenarios(
   const validate = await make('validate', 'Preserve headings when pasting text')
   const merge = await make('merge', 'Remember the sidebar width')
   async function configurePrs(task: Task, change: (index: number) => Record<string, unknown>) {
-    const current = await demoTask(client, task.id)
+    const current = await observed.task(task.id)
     const file = path.join(home, 'gh.json')
     const state = JSON.parse(await readFile(file, 'utf8'))
     state.merge.prs ??= {}
@@ -309,7 +363,7 @@ export async function seedScenarios(
     'Merge sign-off',
   )
   await client.answerRequest(doneSignoff.id, { action: 'approve' })
-  await until(async () => (await demoTask(client, done.id)).stage === 'done', 'merged Task')
+  await until(async () => (await observed.task(done.id)).stage === 'done', 'merged Task')
   const followUp = await client.followUpTask(
     done.id,
     'Also preserve sorting when switching notebooks.',
@@ -324,7 +378,7 @@ export async function seedScenarios(
   )
   if (reviewGate) await client.answerRequest(reviewGate.id, { action: 'approve' })
   await until(
-    async () => (await demoTask(client, ci.id)).statuses.includes('waiting-for-github'),
+    async () => (await observed.task(ci.id)).statuses.includes('waiting-for-github'),
     'pending CI',
   )
   await configurePrs(partly, (index) =>
@@ -337,7 +391,7 @@ export async function seedScenarios(
   )
   await client.answerRequest(partlySignoff.id, { action: 'approve' })
   await until(
-    async () => (await demoTask(client, partly.id)).status?.kind === 'partly-merged',
+    async () => (await observed.task(partly.id)).status?.kind === 'partly-merged',
     'partly merged Task',
   )
   const stopped = await make('stopped', 'Add a compact notebook picker')
@@ -348,7 +402,7 @@ export async function seedScenarios(
   await writeFile(path.join(home, 'inputs', `${failed.displayId}.json`), script({ exit: 1 }))
   await steps(failed, [{ exit: 1 }], false)
   await until(
-    async () => (await demoTask(client, failed.id)).status?.kind === 'failed',
+    async () => (await observed.task(failed.id)).status?.kind === 'failed',
     'Task failure',
   )
   await writeFile(path.join(home, 'inputs', `${failed.displayId}.json`), script(idle))
@@ -371,7 +425,7 @@ export async function seedScenarios(
     false,
   )
   await until(
-    async () => (await demoTask(client, permission.id)).status?.kind === 'waiting-on-you',
+    async () => (await observed.task(permission.id)).status?.kind === 'waiting-on-you',
     'permission request',
   )
   const blocker = await make('blocked', 'Polish the new search result layout', false)
@@ -392,7 +446,7 @@ export async function seedScenarios(
     '--prompt-file',
     path.join(home, 'inputs', 'sub-agent.md'),
   )
-  const workRepo = (await demoTask(client, work.id)).repos.find((repo) => repo.name === 'web')
+  const workRepo = (await observed.task(work.id)).repos.find((repo) => repo.name === 'web')
   if (!workRepo) throw new Error('Missing demo editor worktree.')
   await writeFile(
     path.join(workRepo.worktree, 'README.md'),
@@ -449,10 +503,7 @@ export async function seedScenarios(
     start: true,
   })
   ids.paused = paused.displayId
-  await until(
-    async () => (await demoTask(client, paused.id)).status?.kind === 'paused',
-    'paused Task',
-  )
+  await until(async () => (await observed.task(paused.id)).status?.kind === 'paused', 'paused Task')
   const workingRun = await lead(work)
   await steps(work, [
     { say: 'I’m checking how the editor restores its previous note.' },
@@ -472,10 +523,7 @@ export async function seedScenarios(
     ],
     false,
   )
-  await until(
-    async () => (await client.getRun(workingRun)).run.state === 'working',
-    'working example',
-  )
+  await until(async () => observed.run(workingRun)?.state === 'working', 'working example')
   await client.sendRunMessage(workingRun, 'Also check the case where the notebook is empty.')
   await client.updateSettings({ maxWorkingRuns: 1 })
   const queued = await client.createTask({
@@ -489,10 +537,7 @@ export async function seedScenarios(
     agent: 'claude',
   })
   ids.queued = queued.displayId
-  await until(
-    async () => (await demoTask(client, queued.id)).status?.kind === 'queued',
-    'queued Task',
-  )
+  await until(async () => (await observed.task(queued.id)).status?.kind === 'queued', 'queued Task')
   const journalRepo = path.join(home, 'fixture-repos', 'journal')
   await writeFile(
     path.join(journalRepo, '.ted', 'workflow.yaml'),
