@@ -248,7 +248,15 @@ function AgentMessage({
   )
 }
 
-function QueuedActions({ runId, messageId }: { runId: string; messageId: string }) {
+function QueuedActions({
+  runId,
+  messageId,
+  sendNow,
+}: {
+  runId: string
+  messageId: string
+  sendNow: boolean
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const act = (request: () => Promise<unknown>) => {
@@ -265,14 +273,16 @@ function QueuedActions({ runId, messageId }: { runId: string; messageId: string 
           {error}
         </span>
       )}
-      <button
-        type="button"
-        className={styles.link}
-        disabled={busy}
-        onClick={() => act(() => ted.sendQueuedMessageNow(runId, messageId))}
-      >
-        Send now
-      </button>
+      {sendNow && (
+        <button
+          type="button"
+          className={styles.link}
+          disabled={busy}
+          onClick={() => act(() => ted.sendQueuedMessageNow(runId, messageId))}
+        >
+          Send now
+        </button>
+      )}
       <button
         type="button"
         className={styles.quietLink}
@@ -290,14 +300,17 @@ function HumanMessage({
   item,
   run,
   now,
+  options = {},
 }: {
   item: Extract<ChatItem, { kind: 'human' }>
   run?: Pick<RunSummary, 'id' | 'state'>
   now: number
+  options?: Pick<ChatOptions, 'live' | 'interrupt'>
 }) {
   const profile = useProfile()
-  const queued = item.queued === true
-  const live = run !== undefined && run.state !== 'finished'
+  const unsent = item.unsent === true
+  const queued = item.queued === true || unsent
+  const live = !unsent && run !== undefined && (options.live ?? run.state !== 'finished')
   return (
     <div className={styles.human}>
       <div className={styles.bubble} data-queued={queued}>
@@ -314,17 +327,18 @@ function HumanMessage({
               {live ? 'Queued' : 'Not sent'}
             </span>
           )}
-          {queued && live && run && <QueuedActions runId={run.id} messageId={item.id} />}
+          {queued && live && run && (
+            <QueuedActions
+              runId={run.id}
+              messageId={item.id}
+              sendNow={options.interrupt !== false}
+            />
+          )}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
     </div>
   )
-}
-
-export function UnsentMessage({ message }: { message: { id: string; text: string; at: string } }) {
-  const now = useNow()
-  return <HumanMessage item={{ kind: 'human', ...message, sent: false, queued: true }} now={now} />
 }
 
 function InterruptedLine({
@@ -417,7 +431,17 @@ function PermissionRow({ item, now }: { item: ChatPermission; now: number }) {
   )
 }
 
-function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: number }) {
+function ChatRow({
+  item,
+  run,
+  now,
+  options,
+}: {
+  item: ChatItem
+  run: RunSummary
+  now: number
+  options: ChatOptions
+}) {
   switch (item.kind) {
     case 'instructions':
       return (
@@ -450,7 +474,7 @@ function ChatRow({ item, run, now }: { item: ChatItem; run: RunSummary; now: num
     case 'agent':
       return <AgentMessage item={item} run={run} now={now} />
     case 'human':
-      return <HumanMessage item={item} run={run} now={now} />
+      return <HumanMessage item={item} run={run} now={now} options={options} />
     case 'interrupted':
       return <InterruptedLine item={item} now={now} />
     case 'tool':
@@ -471,10 +495,17 @@ export interface ChatOptions {
   bar?: boolean
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
+  label?: string
   placeholder?: string
+  endedPlaceholder?: string
   help?: string
   endedNote?: string | undefined
   readOnly?: ReactNode
+  live?: boolean
+  working?: boolean
+  interrupt?: false
+  send?: (text: string) => Promise<unknown>
+  stopTurn?: () => Promise<unknown>
 }
 
 function withExtras(
@@ -502,21 +533,71 @@ function withExtras(
   return merged
 }
 
-function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
-  const [text, setText] = useState('')
+function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }) {
+  const working = options.working ?? run.state === 'working'
+  return (
+    <Composer
+      live={options.live ?? run.state !== 'finished'}
+      working={working}
+      {...(options.label !== undefined && { label: options.label })}
+      placeholder={options.placeholder ?? `Message the ${run.name}’s Run…`}
+      endedPlaceholder={options.endedPlaceholder ?? 'This Run has finished. Its chat is read-only.'}
+      help={
+        options.help ??
+        'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'
+      }
+      endedNote={options.endedNote}
+      interrupt={options.interrupt !== false}
+      send={
+        options.send ??
+        ((text, interrupt) => ted.sendRunMessage(run.id, text, interrupt && working))
+      }
+      stopTurn={options.stopTurn ?? (() => ted.interruptRun(run.id))}
+    />
+  )
+}
+
+export function Composer({
+  live,
+  working,
+  label = 'Message to this Run',
+  placeholder,
+  endedPlaceholder,
+  help,
+  endedNote,
+  interrupt = true,
+  value,
+  onValue,
+  send: sendText,
+  stopTurn: stopRequest,
+}: {
+  live: boolean
+  working: boolean
+  label?: string
+  placeholder: string
+  endedPlaceholder: string
+  help: string
+  endedNote?: string | undefined
+  interrupt?: boolean
+  value?: string
+  onValue?: (text: string) => void
+  send: (text: string, interrupt: boolean) => Promise<unknown>
+  stopTurn: () => Promise<unknown>
+}) {
+  const [own, setOwn] = useState('')
+  const text = value ?? own
+  const setText = onValue ?? setOwn
   const [sending, setSending] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const typed = text.trim() !== ''
-  const live = run.state !== 'finished'
-  const working = run.state === 'working'
 
-  async function send(interrupt: boolean) {
+  async function send(interrupting: boolean) {
     if (!typed || sending || !live) return
     setSending(true)
     setError(undefined)
     try {
-      await ted.sendRunMessage(run.id, text, interrupt && working)
+      await sendText(text, interrupting)
       setText('')
     } catch (failed) {
       setError(readableError(failed))
@@ -529,7 +610,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
     setStopping(true)
     setError(undefined)
     try {
-      await ted.interruptRun(run.id)
+      await stopRequest()
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -539,26 +620,19 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
 
   return (
     <div className={styles.composer}>
-      {!live && options.endedNote && <p className={styles.endedNote}>{options.endedNote}</p>}
+      {!live && endedNote && <p className={styles.endedNote}>{endedNote}</p>}
       <div className={styles.boxWrap}>
         <textarea
           className={styles.box}
-          aria-label="Message to this Run"
-          placeholder={
-            live
-              ? (options.placeholder ?? `Message the ${run.name}’s Run…`)
-              : 'This Run has finished. Its chat is read-only.'
-          }
+          aria-label={label}
+          placeholder={live ? placeholder : endedPlaceholder}
           disabled={!live}
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={sendOnEnter((command) => void send(command))}
         />
         <span className={styles.boxHelp}>
-          <Help>
-            {options.help ??
-              'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. To leave a Comment on the Task, use the Thread tab.'}
-          </Help>
+          <Help>{help}</Help>
         </span>
       </div>
       {error !== undefined && (
@@ -579,7 +653,7 @@ function Composer({ run, options }: { run: RunSummary; options: ChatOptions }) {
             <StopIcon />
           </Button>
         )}
-        {live && (
+        {live && interrupt && (
           <Button
             size="small"
             shortcut="⌘↵"
@@ -632,14 +706,20 @@ export function ChatBody({
       >
         {rows.map((row) =>
           'item' in row ? (
-            <ChatRow key={`${row.item.kind}:${row.item.id}`} item={row.item} run={run} now={now} />
+            <ChatRow
+              key={`${row.item.kind}:${row.item.id}`}
+              item={row.item}
+              run={run}
+              now={now}
+              options={options}
+            />
           ) : (
             <div key={`extra:${row.extra.id}`}>{row.extra.node}</div>
           ),
         )}
       </ScrollMemory>
       {options.pinned}
-      {options.readOnly ?? <Composer run={run} options={options} />}
+      {options.readOnly ?? <RunComposer run={run} options={options} />}
     </>
   )
 }
@@ -653,12 +733,26 @@ export function RunChat({
   onStopTask?: (() => void) | undefined
 } & ChatOptions) {
   const chat = useRunChat(runId)
+  return <ChatSection chat={chat} onStopTask={onStopTask} options={options} />
+}
+
+export function ChatSection({
+  chat,
+  loading = 'Loading the Run…',
+  onStopTask,
+  options = {},
+}: {
+  chat: Chat | undefined
+  loading?: string
+  onStopTask?: (() => void) | undefined
+  options?: ChatOptions
+}) {
   return (
     <section className={styles.chat} aria-label="Run chat">
       {chat ? (
         <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
       ) : (
-        <p className={styles.loading}>Loading the Run…</p>
+        <p className={styles.loading}>{loading}</p>
       )}
     </section>
   )

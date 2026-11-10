@@ -35,7 +35,7 @@ afterEach(async () => {
   await removeHome(home)
 })
 
-test('Coordinator opens from the sidebar, sends, shows receipts and preserves history when reopened', async () => {
+test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation when reopened and after a new Run', async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-coordinator-ui-'))
   const env = {
     ...process.env,
@@ -55,10 +55,11 @@ test('Coordinator opens from the sidebar, sends, shows receipts and preserves hi
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
   await sidebar.waitFor()
   await window.keyboard.press('Meta+1')
-  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  const entry = sidebar.getByRole('button', { name: /^Coordinator/ })
+  await entry.click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane.getByRole('heading', { name: /What needs your attention/ }).waitFor()
-  const input = pane.getByRole('textbox', { name: 'Message Coordinator' })
+  const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
   await input.fill(
     JSON.stringify({
       steps: [{ say: 'Here is what needs attention.' }, { waitFor: path.join(home, 'finish') }],
@@ -70,6 +71,7 @@ test('Coordinator opens from the sidebar, sends, shows receipts and preserves hi
     const c = await client.coordinator(factory.id)
     return c?.status === 'working' ? c : undefined
   }, 'working Coordinator')
+  await entry.getByRole('img', { name: 'Working' }).waitFor()
   const info = JSON.parse(
     await (await import('node:fs/promises')).readFile(tedPaths(home).daemonInfo, 'utf8'),
   ) as { port: number }
@@ -92,9 +94,28 @@ test('Coordinator opens from the sidebar, sends, shows receipts and preserves hi
     path: path.join(process.cwd(), 'node_modules/.cache/ted-40/coordinator-implemented.png'),
   })
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
-  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  await entry.click()
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
+  await pane.getByRole('button', { name: /Started NB-/ }).waitFor()
   expect(((await client.coordinator(factory.id)) as Coordinator).runId).toBe(c.runId)
+  await pane.getByRole('button', { name: 'Stop the turn', exact: true }).click()
+  await waitUntil(
+    async () =>
+      (await client.coordinator(factory.id))?.status === 'ready' &&
+      (await client.getRunChat(c.runId)).run.state === 'finished',
+    'stopped Coordinator',
+  )
+  await entry.getByRole('img', { name: 'Working' }).waitFor({ state: 'detached' })
+  await pane
+    .getByRole('textbox', { name: 'Message to the Coordinator' })
+    .fill(JSON.stringify({ steps: [{ say: 'Picking up where we were.' }, { endTurn: true }] }))
+  await pane.getByRole('button', { name: 'Send', exact: true }).click()
+  await pane.getByText('Picking up where we were.', { exact: true }).waitFor()
+  expect(((await client.coordinator(factory.id)) as Coordinator).runId).not.toBe(c.runId)
+  await sidebar.getByRole('button', { name: 'List', exact: true }).click()
+  await entry.click()
+  await pane.getByText('Picking up where we were.', { exact: true }).waitFor()
+  await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
 })
 
 test('Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened', async () => {
@@ -126,20 +147,20 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
   await sidebar.waitFor()
   await window.keyboard.press('Meta+1')
-  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  await sidebar.getByRole('button', { name: /^Coordinator/ }).click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane
-    .getByRole('textbox', { name: 'Message Coordinator' })
+    .getByRole('textbox', { name: 'Message to the Coordinator' })
     .fill('Compare the release Tasks before starting anything.')
   await pane.getByRole('button', { name: 'Send', exact: true }).click()
-  await pane.getByRole('button', { name: 'Stop response', exact: true }).click()
+  await pane.getByRole('button', { name: 'Stop the turn', exact: true }).click()
   await pane.getByText('Not sent', { exact: true }).waitFor()
   await pane
     .getByText('Compare the release Tasks before starting anything.', { exact: true })
     .waitFor()
   expect((await client.coordinator(factory.id))?.started).toBe(false)
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
-  await sidebar.getByRole('button', { name: 'Coordinator', exact: true }).click()
+  await sidebar.getByRole('button', { name: /^Coordinator/ }).click()
   await pane.getByText('Not sent', { exact: true }).waitFor()
   await pane
     .getByText('Compare the release Tasks before starting anything.', { exact: true })

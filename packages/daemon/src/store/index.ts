@@ -737,7 +737,7 @@ export interface TedStore {
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
-  queueRunMessage(input: { runId: string; text: string }): RunMessage
+  queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
@@ -3841,12 +3841,16 @@ export async function openStore({
       if (taskId !== null && lead) updatedTask(taskId)
       return message
     },
-    queueRunMessage({ runId, text }) {
+    queueRunMessage({ runId, text, from }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      commit(events.runMessageQueued({ ...message, taskId }))
+      commit(
+        from === 'ted'
+          ? events.runMessageQueuedV2({ ...message, taskId, from })
+          : events.runMessageQueued({ ...message, taskId }),
+      )
       emit({ type: 'run-output', runId })
-      return { ...message, queued: true }
+      return { ...message, queued: true, ...(from && { from }) }
     },
     deliverRunMessages(runId, ids, lead) {
       if (ids.length === 0) return
@@ -3877,7 +3881,14 @@ export async function openStore({
     runMessages: (runId) =>
       store
         .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))
-        .map(({ id, text, at, queued }) => ({ id, runId, text, at, ...(queued && { queued }) })),
+        .map(({ id, text, at, queued, fromTed }) => ({
+          id,
+          runId,
+          text,
+          at,
+          ...(queued && { queued }),
+          ...(fromTed && { from: 'ted' as const }),
+        })),
     runInterrupts: (runId) =>
       store
         .query(queryDb(runInterrupts.where({ runId }).orderBy('at', 'asc')))

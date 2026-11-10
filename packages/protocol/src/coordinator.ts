@@ -37,6 +37,11 @@ export interface Coordinator {
   tasks: Task[]
 }
 
+export interface CoordinatorStatus {
+  factoryId: string
+  status: Coordinator['status']
+}
+
 export interface CoordinatorMessage {
   text: string
   agent?: TaskLead['agent']

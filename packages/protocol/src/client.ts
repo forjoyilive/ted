@@ -42,6 +42,7 @@ import type {
   CoordinatorMessage,
   CoordinatorOperation,
   CoordinatorReceipt,
+  CoordinatorStatus,
 } from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
@@ -295,6 +296,14 @@ export class DaemonClient {
 
   coordinator(factoryId: string): Promise<Coordinator | null> {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
+  }
+
+  coordinatorChat(factoryId: string): Promise<RunChat | null> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  }
+
+  coordinatorStatuses(): Promise<CoordinatorStatus[]> {
+    return this.#request('GET', '/coordinators')
   }
 
   messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
