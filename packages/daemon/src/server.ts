@@ -26,6 +26,7 @@ import { RequestError as HttpError } from './errors.ts'
 import { redactSecrets } from './redact.ts'
 import { appRoutes } from './routes/apps.ts'
 import { automationRoutes } from './routes/automations.ts'
+import { coordinatorRoutes } from './routes/coordinators.ts'
 import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
@@ -153,6 +154,7 @@ const routes: Route[] = [
   ...runRoutes,
   ...automationRoutes,
   ...planRoutes,
+  ...coordinatorRoutes,
   ...searchRoutes,
 ]
 
@@ -200,6 +202,20 @@ async function handle(
   if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
   const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
+  if (caller.kind === 'run') {
+    const services = await options.data.services()
+    if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
+    if (services.store.coordinators.forRun(caller.runId)) {
+      const ownBoundary = req.method === 'POST' && url === `/runs/${caller.runId}/boundary`
+      const coordinatorTool =
+        (req.method === 'GET' &&
+          /^\/coordinator\/tasks(?:\/[^/?]+)?(?:\?offset=\d{1,8})?$/.test(url)) ||
+        (req.method === 'POST' && /^\/coordinator\/tasks\/[^/]+\/(start|move)$/.test(url))
+      if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {
+        throw new HttpError(403, 'Coordinator Runs may only use their Factory-scoped tools')
+      }
+    }
+  }
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
     const reply = await dataRoute.route.handle(context(dataRoute.params), options)

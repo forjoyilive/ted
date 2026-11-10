@@ -34,6 +34,7 @@ import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
+import type { Coordinator, CoordinatorAction, CoordinatorMessage } from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -260,6 +261,42 @@ export class DaemonClient {
 
   listPlans(factory?: string): Promise<Plan[]> {
     return this.#request('GET', `/plans${factoryQuery(factory)}`)
+  }
+
+  coordinator(factoryId: string): Promise<Coordinator | null> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
+  }
+
+  messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator/messages`,
+      input,
+    )
+  }
+
+  stopCoordinator(factoryId: string): Promise<Coordinator> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/stop`)
+  }
+
+  retryCoordinator(factoryId: string): Promise<Coordinator> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
+  }
+
+  coordinatorTasks(offset = 0): Promise<{ context: string }> {
+    return this.#request('GET', `/coordinator/tasks?offset=${offset}`)
+  }
+
+  coordinatorTask(id: string, offset = 0): Promise<{ context: string }> {
+    return this.#request('GET', `/coordinator/tasks/${encodeURIComponent(id)}?offset=${offset}`)
+  }
+
+  coordinatorAct(
+    id: string,
+    action: 'start' | 'move',
+    input: CoordinatorAction,
+  ): Promise<import('./coordinator.ts').CoordinatorReceipt> {
+    return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
   }
 
   getPlan(id: string): Promise<PlanDetail> {

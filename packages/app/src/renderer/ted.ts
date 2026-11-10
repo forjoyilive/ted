@@ -29,6 +29,8 @@ import type {
   ClarifyDepth,
   CommandLineStatus,
   Comment,
+  Coordinator,
+  CoordinatorMessage,
   CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
@@ -142,6 +144,14 @@ export const ted = {
     window.ted.request('listThreadEvents', taskId) as Promise<ThreadEvent[]>,
   listInbox: () => window.ted.request('listInbox') as Promise<InboxItem[]>,
   listWaiting: () => window.ted.request('listWaiting') as Promise<WaitingRequest[]>,
+  getCoordinator: (id: string) =>
+    window.ted.request('getCoordinator', id) as Promise<Coordinator | null>,
+  messageCoordinator: (id: string, input: CoordinatorMessage) =>
+    window.ted.request('messageCoordinator', id, input) as Promise<Coordinator>,
+  stopCoordinator: (id: string) =>
+    window.ted.request('stopCoordinator', id) as Promise<Coordinator>,
+  retryCoordinator: (id: string) =>
+    window.ted.request('retryCoordinator', id) as Promise<Coordinator>,
   listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
   getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
   startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,

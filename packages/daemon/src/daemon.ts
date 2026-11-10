@@ -9,6 +9,7 @@ import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
+import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -325,12 +326,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
       }
       await workflows.inherited().catch(() => undefined)
+      let coordinators: Coordinators | undefined
       const steering = createSteering({
         home: paths.home,
         store,
         runs,
         isCurrentLead: (run) =>
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
+        deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
+        canDeliver: (runId, admitted) =>
+          !store.coordinators.forRun(runId) ||
+          coordinators?.deliveryAllowed(runId, admitted) === true,
       })
       let plans: Plans | undefined
       const tasks = createTasks({
@@ -418,6 +424,11 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
+      coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })
+      for (const run of store.listRuns()) {
+        if (store.coordinators.forRun(run.id) && run.state !== 'finished')
+          steering.syncQueuedFlag(run.id)
+      }
       wake = () => {
         tasks.wake()
         automations.check()
@@ -458,6 +469,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       started = tasks
       const factoryRemovals = createFactoryRemovals({
+        coordinators,
         store,
         banners,
         tasks,
@@ -470,6 +482,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const conversations = createConversations({
+        coordinators,
         steering,
         store,
         runs,
@@ -487,6 +500,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        coordinators,
         automations,
         plans,
         runs,
@@ -507,6 +521,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         editors,
         async close() {
           shells.close()
+          await coordinators.close()
           automations.close()
           plans.close()
           libraryWatch.close()

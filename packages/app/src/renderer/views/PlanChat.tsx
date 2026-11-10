@@ -102,7 +102,13 @@ function FromPlan({
   )
 }
 
-function LeadSelects({ lead, onChange }: { lead: TaskLead; onChange: (lead: TaskLead) => void }) {
+export function LeadSelects({
+  lead,
+  onChange,
+}: {
+  lead: TaskLead
+  onChange: (lead: TaskLead) => void
+}) {
   const models = [...new Set([...modelChoices[lead.agent], ...(lead.model ? [lead.model] : [])])]
   const set = (agent: AgentKind, model: string, effort: string) =>
     onChange({

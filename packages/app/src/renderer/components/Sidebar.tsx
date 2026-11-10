@@ -117,6 +117,7 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
 const factoryViews: { view: FactoryView; label: string }[] = [
   { view: 'board', label: 'Board' },
   { view: 'list', label: 'List' },
+  { view: 'coordinator', label: 'Coordinator' },
   { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },

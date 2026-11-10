@@ -12,6 +12,7 @@ import type { Automations } from './automations/automations.ts'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
+import type { Coordinators } from './coordinators/coordinators.ts'
 import type { DiskWatch } from './disk.ts'
 import type { Editors } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -36,6 +37,7 @@ import type { Workflows } from './workflow/workflows.ts'
 export interface Services {
   store: TedStore
   automations: Automations
+  coordinators: Coordinators
   plans: Plans
   runs: RunManager
   tasks: Tasks

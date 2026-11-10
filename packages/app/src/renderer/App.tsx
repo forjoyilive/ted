@@ -100,6 +100,7 @@ import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
+import { CoordinatorView } from './views/Coordinator.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
@@ -112,6 +113,7 @@ import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
+  coordinator: 'Coordinator',
   plans: 'Plans',
   settings: 'Factory settings',
 } as const
@@ -823,6 +825,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             />
           )
         }
+        if (screen.view === 'coordinator' && factory)
+          return <CoordinatorView key={factory.id} factory={factory} onOpenTask={openTaskByRef} />
         if (screen.view === 'plans' && factory) {
           const backToPlans = () =>
             dispatch({

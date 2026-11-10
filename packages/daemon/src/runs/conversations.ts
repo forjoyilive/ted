@@ -11,6 +11,8 @@ import {
   type Task,
 } from '@ted/protocol'
 import type { AgentChatEntry, Agents } from '../agents/index.ts'
+import type { Coordinators } from '../coordinators/coordinators.ts'
+import { coordinatorOpening } from '../coordinators/coordinators.ts'
 import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -235,9 +237,10 @@ export function createConversations(options: {
   agents: Agents
   health: AgentHealthMonitor
   disk: DiskWatch
+  coordinators?: Coordinators
   steering: Steering
 }): Conversations {
-  const { store, runs, agents, health, disk, steering } = options
+  const { store, runs, agents, health, disk } = options
   let preamble: Promise<string> | undefined
   let subPreamble: Promise<string> | undefined
   const restarting = new Set<string>()
@@ -256,6 +259,8 @@ export function createConversations(options: {
 
   const isCurrentLead = (run: Run) =>
     run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id
+
+  const steering = options.steering
 
   const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
     const entries = given ?? store.conversation(run.id)
@@ -301,10 +306,16 @@ export function createConversations(options: {
       const entries = store.conversation(runId)
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
+      const coordinated = store.coordinators.forRun(runId) !== undefined
       const planned = store.plans.get(runId) !== undefined
-      const opening = run.prompt.indexOf(planOpening)
+      const openingText = coordinated ? coordinatorOpening : planOpening
+      const opening = coordinated
+        ? run.prompt.lastIndexOf(openingText)
+        : run.prompt.indexOf(openingText)
       const planPreamble =
-        planned && opening !== -1 ? run.prompt.slice(0, opening + planOpening.length) : undefined
+        (planned || coordinated) && opening !== -1
+          ? run.prompt.slice(0, opening + openingText.length)
+          : undefined
       return {
         run: summary(run, entries),
         items: withPermissions(
@@ -333,6 +344,8 @@ export function createConversations(options: {
       return store.taskRunList(task.id).map((run) => summary(run))
     },
     async send(runId, text, { interrupt = false } = {}) {
+      if (store.coordinators.forRun(runId) && options.coordinators)
+        return options.coordinators.send(runId, text)
       const run = requireRun(runId)
       if (run.state === 'finished') {
         throw new RequestError(409, 'This Run has finished, so it can’t take messages')
@@ -343,22 +356,41 @@ export function createConversations(options: {
       return steering.send(runId, text, { interrupt })
     },
     async stopTurn(runId) {
+      const c = store.coordinators.forRun(runId)
+      if (c && options.coordinators) {
+        await options.coordinators.stop(c.factoryId)
+        return summary(requireRun(runId))
+      }
       requireRun(runId)
       await steering.stopTurn(runId)
       return summary(requireRun(runId))
     },
     sendNow: (runId, messageId) => {
+      if (store.coordinators.forRun(runId))
+        throw new RequestError(409, 'Coordinator messages wait for their queued turn')
       requireRun(runId)
       return steering.sendNow(runId, messageId)
     },
-    deleteMessage: (runId, messageId) => steering.remove(runId, messageId),
-    boundary(runId, caller) {
+    deleteMessage(runId, messageId) {
+      const coordinator = store.coordinators.forRun(runId)
+      if (coordinator && coordinator.runId !== runId)
+        throw new RequestError(
+          409,
+          'This Coordinator Run was replaced; use Stop response in the current chat',
+        )
+      const removed = steering.remove(runId, messageId)
+      options.coordinators?.messageRemoved(runId)
+      return removed
+    },
+    async boundary(runId, caller) {
       if (caller.kind !== 'run' || caller.runId !== runId) {
         throw new RequestError(403, 'A Run can only report its own tool calls')
       }
       return steering.boundary(runId)
     },
     async restart(runId) {
+      if (store.coordinators.forRun(runId))
+        throw new RequestError(409, 'Use Retry in Coordinator to continue through the Run queue')
       const run = requireRun(runId)
       if (run.state === 'working') {
         throw new RequestError(409, 'The Run is working. Restart it when it’s idle or waiting.')
@@ -382,6 +414,11 @@ export function createConversations(options: {
       }
     },
     async stop(runId) {
+      const c = store.coordinators.forRun(runId)
+      if (c && options.coordinators) {
+        await options.coordinators.stop(c.factoryId)
+        return summary(requireRun(runId))
+      }
       const run = requireRun(runId)
       if (run.taskId !== undefined && isCurrentLead(run)) {
         throw new RequestError(409, 'This is the Task Lead. Stop the Task instead.')
