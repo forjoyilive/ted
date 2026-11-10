@@ -1,4 +1,14 @@
-import type { DaemonEvent, ShellOutput, ShellSize, TaskShell } from '@ted/protocol'
+import { randomUUID } from 'node:crypto'
+import {
+  type DaemonEvent,
+  maxShellPanes,
+  type ShellChange,
+  type ShellLayout,
+  type ShellOutput,
+  type ShellSize,
+  type ShellWorkspace,
+  type TaskShell,
+} from '@ted/protocol'
 import * as pty from 'node-pty'
 import { loginShell } from './command-env.ts'
 import { RequestError } from './errors.ts'
@@ -22,20 +32,24 @@ export interface ShellsOptions {
 }
 
 export interface Shells {
-  open(ref: string, repo: string, size: ShellSize): Promise<TaskShell>
-  restart(ref: string, repo: string, size: ShellSize): Promise<TaskShell>
-  write(ref: string, repo: string, data: string): Promise<void>
-  resize(ref: string, repo: string, size: ShellSize): Promise<void>
+  workspace(ref: string, repo: string, size?: ShellSize, create?: boolean): Promise<ShellWorkspace>
+  change(ref: string, repo: string, change: ShellChange): Promise<ShellWorkspace>
+  open(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell>
+  restart(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell>
+  write(ref: string, repo: string, data: string, id?: string): Promise<void>
+  resize(ref: string, repo: string, size: ShellSize, id?: string): Promise<void>
   read(
     ref: string,
     repo: string,
     query: { generation: number; from: number; waitMs: number },
     signal: AbortSignal,
+    id?: string,
   ): Promise<ShellOutput>
   close(): void
 }
 
 interface Shell {
+  id: string
   taskId: string
   repo: string
   path: string
@@ -52,9 +66,15 @@ const keyOf = (taskId: string, repo: string) => `${taskId}\0${repo}`
 
 export function createShells(options: ShellsOptions): Shells {
   const shells = new Map<string, Shell>()
+  const workspaces = new Map<
+    string,
+    { path: string; revision: number; layout: ShellLayout | null }
+  >()
   const scrollback = options.scrollbackChars ?? 512 * 1024
   const maxWaitMs = options.maxWaitMs ?? 25_000
   const program = options.program ?? (() => loginShell(process.env))
+  const resolving = new Set<Set<string>>()
+  let closed = false
   let reported = 0
   const report = () => {
     const count = [...shells.values()].filter((s) => s.process !== undefined).length
@@ -65,10 +85,25 @@ export function createShells(options: ShellsOptions): Shells {
 
   const unsubscribe = options.subscribe((event) => {
     if (event.type === 'task-deleted') {
+      for (const changed of resolving) changed.add(event.taskId)
+      for (const key of workspaces.keys()) {
+        if (key.startsWith(`${event.taskId}\0`)) workspaces.delete(key)
+      }
       for (const shell of shells.values()) {
         if (shell.taskId === event.taskId) end(shell)
       }
     } else if (event.type === 'task-updated') {
+      for (const changed of resolving) changed.add(event.task.id)
+      for (const [key, workspace] of workspaces) {
+        if (!key.startsWith(`${event.task.id}\0`)) continue
+        if (
+          !event.task.repos.some(
+            (r) =>
+              key === keyOf(event.task.id, r.name) && !r.removed && r.worktree === workspace.path,
+          )
+        )
+          workspaces.delete(key)
+      }
       for (const shell of shells.values()) {
         if (shell.taskId !== event.task.id) continue
         const repo = event.task.repos.find((r) => r.name === shell.repo)
@@ -77,8 +112,26 @@ export function createShells(options: ShellsOptions): Shells {
     }
   })
 
+  async function access<T>(
+    ref: string,
+    repo: string,
+    action: (target: ShellTarget) => T,
+  ): Promise<T> {
+    if (closed) throw new RequestError(503, 'Task shells are shutting down')
+    const changed = new Set<string>()
+    resolving.add(changed)
+    try {
+      const target = await options.target(ref, repo)
+      if (closed) throw new RequestError(503, 'Task shells are shutting down')
+      if (changed.has(target.taskId)) return access(ref, repo, action)
+      return action(target)
+    } finally {
+      resolving.delete(changed)
+    }
+  }
+
   function end(shell: Shell): void {
-    shells.delete(keyOf(shell.taskId, shell.repo))
+    shells.delete(shell.id)
     stop(shell)
     wake(shell)
     report()
@@ -153,6 +206,7 @@ export function createShells(options: ShellsOptions): Shells {
 
   function info(shell: Shell): TaskShell {
     return {
+      id: shell.id,
       taskId: shell.taskId,
       repo: shell.repo,
       path: shell.path,
@@ -162,62 +216,184 @@ export function createShells(options: ShellsOptions): Shells {
     }
   }
 
-  async function existing(ref: string, repo: string): Promise<Shell> {
-    const target = await options.target(ref, repo)
-    const shell = shells.get(keyOf(target.taskId, target.repo))
-    if (!shell) throw new RequestError(404, `No shell is open for ${repo}`)
+  function members(target: ShellTarget): Shell[] {
+    return [...shells.values()].filter((s) => s.taskId === target.taskId && s.repo === target.repo)
+  }
+
+  function workspaceFor(target: ShellTarget) {
+    const key = keyOf(target.taskId, target.repo)
+    let workspace = workspaces.get(key)
+    if (workspace && workspace.path !== target.worktree) {
+      for (const shell of members(target)) end(shell)
+      workspaces.delete(key)
+      workspace = undefined
+    }
+    if (!workspace) {
+      workspace = { path: target.worktree, revision: 0, layout: null }
+      workspaces.set(key, workspace)
+    }
+    return workspace
+  }
+
+  function snapshot(target: ShellTarget): ShellWorkspace {
+    const workspace = workspaceFor(target)
+    return {
+      revision: workspace.revision,
+      layout: workspace.layout,
+      shells: members(target).map(info),
+    }
+  }
+
+  function create(target: ShellTarget, size: ShellSize): Shell {
+    const shell: Shell = {
+      id: randomUUID(),
+      taskId: target.taskId,
+      repo: target.repo,
+      path: target.worktree,
+      generation: 0,
+      process: undefined,
+      text: '',
+      start: 0,
+      waiters: new Set(),
+      release: undefined,
+    }
+    launch(shell, target, size)
+    shells.set(shell.id, shell)
+    report()
     return shell
   }
 
-  async function start(ref: string, repo: string, size: ShellSize, fresh: boolean) {
-    const target = await options.target(ref, repo)
-    const key = keyOf(target.taskId, target.repo)
-    let shell = shells.get(key)
-    if (shell && shell.path !== target.worktree) {
-      end(shell)
-      shell = undefined
+  function find(target: ShellTarget, id?: string): Shell {
+    const shell = id === undefined ? members(target)[0] : shells.get(id)
+    if (
+      !shell ||
+      shell.taskId !== target.taskId ||
+      shell.repo !== target.repo ||
+      shell.path !== target.worktree
+    ) {
+      throw new RequestError(404, `No shell is open for ${target.repo}`)
     }
-    if (!shell) {
-      shell = {
-        taskId: target.taskId,
-        repo: target.repo,
-        path: target.worktree,
-        generation: 0,
-        process: undefined,
-        text: '',
-        start: 0,
-        waiters: new Set(),
-        release: undefined,
+    return shell
+  }
+
+  async function existing(ref: string, repo: string, id?: string): Promise<Shell> {
+    return access(ref, repo, (target) => find(target, id))
+  }
+
+  async function start(ref: string, repo: string, size: ShellSize, fresh: boolean, id?: string) {
+    return access(ref, repo, (target) => {
+      const workspace = workspaceFor(target)
+      let shell: Shell
+      if (id === undefined && members(target).length === 0) {
+        shell = create(target, size)
+        workspace.layout = { shellId: shell.id }
+        workspace.revision++
+      } else {
+        shell = find(target, id)
+        if (fresh) stop(shell)
+        if (!shell.process && (fresh || id === undefined)) {
+          launch(shell, target, size)
+          wake(shell)
+        } else shell.process?.resize(size.cols, size.rows)
       }
-      shells.set(key, shell)
+      return info(shell)
+    })
+  }
+
+  function replace(
+    layout: ShellLayout,
+    id: string,
+    replacement: ShellLayout | null,
+  ): ShellLayout | null {
+    if ('shellId' in layout) return layout.shellId === id ? replacement : layout
+    const first = replace(layout.first, id, replacement)
+    const second = replace(layout.second, id, replacement)
+    return first && second ? { ...layout, first, second } : (first ?? second)
+  }
+
+  function ratio(layout: ShellLayout, id: string, value: number): ShellLayout {
+    if ('shellId' in layout) return layout
+    if (layout.id === id) return { ...layout, ratio: value }
+    return {
+      ...layout,
+      first: ratio(layout.first, id, value),
+      second: ratio(layout.second, id, value),
     }
-    if (fresh) stop(shell)
-    if (!shell.process) {
-      launch(shell, target, size)
-      wake(shell)
-    } else {
-      shell.process.resize(size.cols, size.rows)
-    }
-    return info(shell)
+  }
+
+  function hasBranch(layout: ShellLayout, id: string): boolean {
+    return (
+      !('shellId' in layout) &&
+      (layout.id === id || hasBranch(layout.first, id) || hasBranch(layout.second, id))
+    )
   }
 
   return {
-    open: (ref, repo, size) => start(ref, repo, size, false),
-    restart: (ref, repo, size) => start(ref, repo, size, true),
+    async workspace(ref, repo, size, createEmpty = false) {
+      return access(ref, repo, (target) => {
+        const workspace = workspaceFor(target)
+        if (size && !workspace.layout && (workspace.revision === 0 || createEmpty)) {
+          const shell = create(target, size)
+          workspace.layout = { shellId: shell.id }
+          workspace.revision++
+        }
+        return snapshot(target)
+      })
+    },
 
-    async write(ref, repo, data) {
-      const shell = await existing(ref, repo)
+    async change(ref, repo, change) {
+      return access(ref, repo, (target) => {
+        const workspace = workspaceFor(target)
+        if (workspace.revision !== change.revision)
+          throw new RequestError(409, 'The shell layout changed. Try again.')
+        const layout = workspace.layout
+        if (!layout) throw new RequestError(404, 'No shell is open for this repo')
+        if (change.kind === 'ratio') {
+          if (!hasBranch(layout, change.branchId))
+            throw new RequestError(404, 'No such pane divider')
+          workspace.layout = ratio(layout, change.branchId, change.ratio)
+        } else {
+          const shell = find(target, change.shellId)
+          if (change.kind === 'split') {
+            if (members(target).length >= maxShellPanes)
+              throw new RequestError(
+                409,
+                `Up to ${maxShellPanes} panes per repo. Close one to split again.`,
+              )
+            const added = create(target, change.size)
+            workspace.layout = replace(layout, shell.id, {
+              id: randomUUID(),
+              direction: change.direction,
+              ratio: 0.5,
+              first: { shellId: shell.id },
+              second: { shellId: added.id },
+            })
+          } else {
+            workspace.layout = replace(layout, shell.id, null)
+            end(shell)
+          }
+        }
+        workspace.revision++
+        return snapshot(target)
+      })
+    },
+
+    open: (ref, repo, size, id) => start(ref, repo, size, false, id),
+    restart: (ref, repo, size, id) => start(ref, repo, size, true, id),
+
+    async write(ref, repo, data, id) {
+      const shell = await existing(ref, repo, id)
       if (!shell.process) throw new RequestError(409, 'The shell has ended. Restart it first.')
       shell.process.write(data)
     },
 
-    async resize(ref, repo, size) {
-      const shell = await existing(ref, repo)
+    async resize(ref, repo, size, id) {
+      const shell = await existing(ref, repo, id)
       shell.process?.resize(size.cols, size.rows)
     },
 
-    async read(ref, repo, query, signal) {
-      const shell = await existing(ref, repo)
+    async read(ref, repo, query, signal, id) {
+      const shell = await existing(ref, repo, id)
       const end = () => shell.start + shell.text.length
       let reset = query.generation !== shell.generation || query.from < shell.start
       let from = reset ? shell.start : Math.min(query.from, end())
@@ -235,7 +411,7 @@ export function createShells(options: ShellsOptions): Shells {
           signal.addEventListener('abort', done)
           shell.waiters.add(done)
         })
-        if (shells.get(keyOf(shell.taskId, shell.repo)) !== shell) {
+        if (shells.get(shell.id) !== shell) {
           throw new RequestError(404, `No shell is open for ${repo}`)
         }
         if (shell.generation !== generation || from < shell.start) {
@@ -254,7 +430,10 @@ export function createShells(options: ShellsOptions): Shells {
     },
 
     close() {
+      closed = true
       unsubscribe()
+      workspaces.clear()
+      resolving.clear()
       for (const shell of [...shells.values()]) end(shell)
     },
   }

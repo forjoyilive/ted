@@ -95,3 +95,81 @@
 .find {
   z-index: 30;
 }
+
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.shellPane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 220px;
+  min-height: 180px;
+  outline: 1px solid var(--border-default);
+  outline-offset: -1px;
+}
+
+.focused {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.paneHeader {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  background: var(--surface-column);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.paneTitle {
+  margin-right: auto;
+  font-size: var(--text-12);
+}
+
+.split {
+  display: flex;
+  flex: 1;
+}
+
+.below {
+  flex-direction: column;
+}
+
+.child {
+  display: flex;
+}
+
+.divider {
+  margin: 0;
+  border: none;
+  flex: 0 0 6px;
+  background: var(--border-default);
+  touch-action: none;
+}
+
+.right > .divider {
+  cursor: col-resize;
+}
+
+.below > .divider {
+  cursor: row-resize;
+}
+
+.divider:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.empty {
+  margin: auto;
+  padding: 24px;
+  color: var(--text-secondary);
+  text-align: center;
+}

@@ -91,9 +91,11 @@ import type {
   SetTaskGatesRequest,
   SetTaskReposRequest,
   SettingsPreview,
+  ShellChange,
   ShellOutput,
   ShellOutputQuery,
   ShellSize,
+  ShellWorkspace,
   SimulatorSlots,
   StageEntry,
   StartPlanRequest,
@@ -265,16 +267,22 @@ export const ted = {
     ) as Promise<AttachmentBytes>,
   setupLog: (taskId: string, repo: string) =>
     window.ted.request('setupLog', taskId, repo) as Promise<string>,
-  openShell: (taskId: string, repo: string, size: ShellSize) =>
-    window.ted.request('openShell', taskId, repo, size) as Promise<TaskShell>,
-  restartShell: (taskId: string, repo: string, size: ShellSize) =>
-    window.ted.request('restartShell', taskId, repo, size) as Promise<TaskShell>,
-  writeShell: (taskId: string, repo: string, data: string) =>
-    window.ted.request('writeShell', taskId, repo, data) as Promise<void>,
-  resizeShell: (taskId: string, repo: string, size: ShellSize) =>
-    window.ted.request('resizeShell', taskId, repo, size) as Promise<void>,
-  readShell: (taskId: string, repo: string, query: ShellOutputQuery) =>
-    window.ted.request('readShell', taskId, repo, query) as Promise<ShellOutput>,
+  shellWorkspace: (taskId: string, repo: string) =>
+    window.ted.request('shellWorkspace', taskId, repo) as Promise<ShellWorkspace>,
+  openShellWorkspace: (taskId: string, repo: string, size: ShellSize, create = false) =>
+    window.ted.request('openShellWorkspace', taskId, repo, size, create) as Promise<ShellWorkspace>,
+  changeShellWorkspace: (taskId: string, repo: string, change: ShellChange) =>
+    window.ted.request('changeShellWorkspace', taskId, repo, change) as Promise<ShellWorkspace>,
+  openShell: (taskId: string, repo: string, size: ShellSize, id?: string) =>
+    window.ted.request('openShell', taskId, repo, size, id) as Promise<TaskShell>,
+  restartShell: (taskId: string, repo: string, size: ShellSize, id?: string) =>
+    window.ted.request('restartShell', taskId, repo, size, id) as Promise<TaskShell>,
+  writeShell: (taskId: string, repo: string, data: string, id?: string) =>
+    window.ted.request('writeShell', taskId, repo, data, id) as Promise<void>,
+  resizeShell: (taskId: string, repo: string, size: ShellSize, id?: string) =>
+    window.ted.request('resizeShell', taskId, repo, size, id) as Promise<void>,
+  readShell: (taskId: string, repo: string, query: ShellOutputQuery, id?: string) =>
+    window.ted.request('readShell', taskId, repo, query, id) as Promise<ShellOutput>,
   listEditors: () => window.ted.request('listEditors') as Promise<FoundEditor[]>,
   openInEditor: (taskId: string, repo: string, at?: OpenInEditorRequest) =>
     window.ted.request('openInEditor', taskId, repo, at) as Promise<void>,

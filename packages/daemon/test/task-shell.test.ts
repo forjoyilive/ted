@@ -2,18 +2,24 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
+  DaemonEvent,
   Factory,
   FoundEditor,
   MachineSettings,
+  ShellChange,
   ShellOutput,
+  ShellWorkspace,
   Task,
   TaskShell,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { createShells } from '../src/shells.ts'
 import {
   api,
   commitToOrigin,
+  devRunToken,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -104,6 +110,7 @@ async function readUntil(
   task: Task,
   shell: { generation: number },
   check: (text: string) => boolean,
+  id?: string,
 ): Promise<string> {
   let text = ''
   let from = 0
@@ -111,7 +118,10 @@ async function readUntil(
   while (Date.now() < deadline) {
     const out = await ted.ok<ShellOutput>(
       'GET',
-      shellRoute(task, `/output?generation=${shell.generation}&from=${from}&waitMs=2000`),
+      shellRoute(
+        task,
+        `${id ? `/panes/${id}` : ''}/output?generation=${shell.generation}&from=${from}&waitMs=2000`,
+      ),
     )
     text = out.reset ? out.data : text + out.data
     from = out.next
@@ -207,6 +217,342 @@ describe('Task shell', () => {
 
     expect(read.status).toBe(403)
     expect(open.status).toBe(403)
+  })
+})
+
+const workspaceRoute = (task: Task) => `${shellRoute(task)}s`
+const changeWorkspace = (ted: Client, task: Task, change: ShellChange) =>
+  ted.ok<ShellWorkspace>('POST', `${workspaceRoute(task)}/change`, change)
+const paneRoute = (task: Task, id: string, rest = '') => shellRoute(task, `/panes/${id}${rest}`)
+
+function firstShell(workspace: ShellWorkspace): TaskShell {
+  const shell = workspace.shells[0]
+  if (!shell) throw new Error('no shell')
+  return shell
+}
+
+describe('shell launch boundaries', () => {
+  test('a failed split leaves the original shell and layout intact', async () => {
+    let unavailable = false
+    const shells = createShells({
+      target: async () => ({
+        taskId: 'task',
+        repo: 'widgets',
+        worktree: scratch,
+        env: { ...process.env, ENV: '' },
+      }),
+      subscribe: () => () => undefined,
+      program: () => {
+        if (unavailable) throw new Error('shell launcher unavailable')
+        return '/bin/sh'
+      },
+    })
+    try {
+      const original = await shells.workspace('task', 'widgets', size)
+      unavailable = true
+      await expect(
+        shells.change('task', 'widgets', {
+          kind: 'split',
+          revision: original.revision,
+          shellId: firstShell(original).id,
+          direction: 'right',
+          size,
+        }),
+      ).rejects.toThrow()
+      expect(await shells.workspace('task', 'widgets')).toEqual(original)
+      await shells.write('task', 'widgets', 'echo still-alive\r', firstShell(original).id)
+      const output = await shells.read(
+        'task',
+        'widgets',
+        { generation: 0, from: 0, waitMs: 0 },
+        new AbortController().signal,
+        firstShell(original).id,
+      )
+      expect(output.running).toBe(true)
+    } finally {
+      shells.close()
+    }
+  })
+
+  test.each(['removed', 'shutdown'])(
+    'a pending worktree lookup cannot start a shell after %s',
+    async (ending) => {
+      let notify: ((event: DaemonEvent) => void) | undefined
+      let release: (() => void) | undefined
+      let removed = false
+      const ready = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      const running: number[] = []
+      const shells = createShells({
+        async target() {
+          if (removed) throw new RequestError(404, 'Task removed')
+          await ready
+          return { taskId: 'task', repo: 'widgets', worktree: scratch, env: { ...process.env } }
+        },
+        subscribe(listener) {
+          notify = listener
+          return () => undefined
+        },
+        program: () => '/bin/sh',
+        onRunning: (count) => running.push(count),
+      })
+      try {
+        const opening = shells.workspace('task', 'widgets', size)
+        removed = true
+        if (ending === 'removed') notify?.({ type: 'task-deleted', taskId: 'task' })
+        else shells.close()
+        release?.()
+        await expect(opening).rejects.toThrow(
+          ending === 'removed' ? 'Task removed' : 'shutting down',
+        )
+        expect(running).toEqual([])
+      } finally {
+        shells.close()
+      }
+    },
+  )
+})
+
+describe('Task shell panes', () => {
+  test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(opened)
+    await ted.ok('POST', paneRoute(task, first.id, '/input'), {
+      data: 'MARK=left; echo "left=$MARK"\r',
+    })
+    await readUntil(ted, task, first, (t) => t.includes('left=left'), first.id)
+    const split = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: opened.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    })
+    const second = split.shells.find((s) => s.id !== first.id)
+    if (!second) throw new Error('no second shell')
+    await ted.ok('POST', paneRoute(task, second.id, '/input'), {
+      data: 'echo "right=$MARK"; MARK=right\r',
+    })
+    const output = await readUntil(ted, task, second, (t) => t.includes('right=\r\n'), second.id)
+    expect(output).not.toContain('left=left')
+    expect(await ted.ok('POST', workspaceRoute(task), size)).toEqual(split)
+    const fresh = await ted.ok<TaskShell>('POST', paneRoute(task, second.id, '/restart'), size)
+    expect(fresh.generation).toBeGreaterThan(second.generation)
+    await ted.ok('POST', paneRoute(task, first.id, '/input'), { data: 'echo "still=$MARK"\r' })
+    const left = await readUntil(ted, task, first, (t) => t.includes('still=left'), first.id)
+    expect(left).toContain('left=left')
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 2 })
+  })
+
+  test('nested layouts retain ratios, reject stale edits, and closing the last pane stays empty', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    expect(await ted.ok('GET', workspaceRoute(task))).toEqual({
+      revision: 0,
+      layout: null,
+      shells: [],
+    })
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 0 })
+    let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(ws)
+    ws = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: ws.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    })
+    const second = ws.shells[1]
+    if (!second || !ws.layout || 'shellId' in ws.layout) throw new Error('no split')
+    const branchId = ws.layout.id
+    ws = await changeWorkspace(ted, task, {
+      kind: 'ratio',
+      revision: ws.revision,
+      branchId,
+      ratio: 0.65,
+    })
+    const stale = ws.revision - 1
+    expect(
+      (
+        await ted.call('POST', `${workspaceRoute(task)}/change`, {
+          kind: 'close',
+          revision: stale,
+          shellId: first.id,
+        })
+      ).status,
+    ).toBe(409)
+    ws = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: ws.revision,
+      shellId: second.id,
+      direction: 'below',
+      size,
+    })
+    expect(ws.layout).toMatchObject({
+      direction: 'right',
+      ratio: 0.65,
+      second: { direction: 'below' },
+    })
+    for (const shell of [...ws.shells])
+      ws = await changeWorkspace(ted, task, {
+        kind: 'close',
+        revision: ws.revision,
+        shellId: shell.id,
+      })
+    expect(ws.layout).toBeNull()
+    expect(ws.shells).toEqual([])
+    expect(await ted.ok('POST', workspaceRoute(task), size)).toEqual(ws)
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 0 })
+    const newWorkspace = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), {
+      ...size,
+      create: true,
+    })
+    expect(firstShell(newWorkspace).id).not.toBe(first.id)
+  })
+
+  test('pane limits and validation cannot create extra shells or target a different Task', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(ws)
+    for (let i = 1; i < 8; i++)
+      ws = await changeWorkspace(ted, task, {
+        kind: 'split',
+        revision: ws.revision,
+        shellId: first.id,
+        direction: 'right',
+        size,
+      })
+    const split = {
+      kind: 'split',
+      revision: ws.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    }
+    expect((await ted.call('POST', `${workspaceRoute(task)}/change`, split)).status).toBe(409)
+    for (const bad of [
+      { ...split, direction: 'sideways' },
+      { ...split, size: { cols: 0, rows: 10 } },
+      { ...split, revision: -1 },
+      { kind: 'ratio', revision: ws.revision, branchId: 'unknown', ratio: 2 },
+    ]) {
+      expect((await ted.call('POST', `${workspaceRoute(task)}/change`, bad)).status).toBe(400)
+    }
+    const other = await startedTask(ted)
+    expect(
+      (await ted.call('POST', paneRoute(other, first.id, '/input'), { data: 'x' })).status,
+    ).toBe(404)
+    expect(
+      (
+        await ted.call(
+          'POST',
+          `${shellRoute(task).replace('widgets', 'missing')}/panes/${first.id}/input`,
+          { data: 'x' },
+        )
+      ).status,
+    ).toBe(404)
+    expect((await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))).shells).toHaveLength(8)
+  })
+
+  test('closing wakes readers and worktree removal ends every pane; exited panes stay ended on reopen', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(ws)
+    await ted.ok('POST', paneRoute(task, first.id, '/input'), { data: 'exit 7\r' })
+    await waitUntil(async () => {
+      const current = await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))
+      return current.shells[0]?.exitCode === 7 || undefined
+    }, 'the first shell to exit')
+    expect(firstShell(await ted.ok('POST', workspaceRoute(task), size))).toMatchObject({
+      id: first.id,
+      running: false,
+      exitCode: 7,
+    })
+    ws = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: ws.revision,
+      shellId: first.id,
+      direction: 'below',
+      size,
+    })
+    const second = ws.shells[1]
+    if (!second) throw new Error('no second shell')
+    await ted.ok('POST', paneRoute(task, second.id, '/input'), { data: 'echo "PID""=$$"\r' })
+    const output = await readUntil(ted, task, second, (t) => /PID=\d+/.test(t), second.id)
+    const pid = Number(/PID=(\d+)/.exec(output)?.[1])
+    const current = await ted.ok<ShellOutput>(
+      'GET',
+      paneRoute(task, second.id, `/output?generation=${second.generation}&from=0`),
+    )
+    const waiting = ted.call(
+      'GET',
+      paneRoute(
+        task,
+        second.id,
+        `/output?generation=${second.generation}&from=${current.next}&waitMs=25000`,
+      ),
+    )
+    ws = await changeWorkspace(ted, task, {
+      kind: 'close',
+      revision: ws.revision,
+      shellId: second.id,
+    })
+    expect((await waiting).status).toBe(404)
+    await waitUntil(async () => !alive(pid) || undefined, 'closed shell to exit')
+    ws = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: ws.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    })
+    expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 1 })
+    await ted.ok('POST', `/tasks/${task.id}/stop`)
+    await ted.ok('POST', `/tasks/${task.id}/archive`)
+    await waitUntil(
+      async () =>
+        (await ted.ok<{ shellsRunning: number }>('GET', '/activity')).shellsRunning === 0 ||
+        undefined,
+      'all panes to end on archive',
+    )
+    for (const shell of ws.shells)
+      expect(
+        (await ted.call('GET', paneRoute(task, shell.id, `/output?generation=0&from=0`))).status,
+      ).toBe(404)
+  })
+
+  test('all workspace and per-pane routes refuse file and Run tokens', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const shell = firstShell(ws)
+    const fileToken = JSON.parse(await readFile(path.join(home, 'daemon.json'), 'utf8'))
+      .token as string
+    const runToken = await devRunToken(home, daemon?.port ?? 0, daemon?.appToken ?? '')
+    for (const token of [fileToken, runToken]) {
+      const caller = api(daemon?.port ?? 0, token)
+      for (const [method, route, body] of [
+        ['GET', workspaceRoute(task), undefined],
+        ['POST', workspaceRoute(task), size],
+        [
+          'POST',
+          `${workspaceRoute(task)}/change`,
+          { kind: 'close', revision: ws.revision, shellId: shell.id },
+        ],
+        ['POST', paneRoute(task, shell.id), size],
+        ['POST', paneRoute(task, shell.id, '/restart'), size],
+        ['POST', paneRoute(task, shell.id, '/input'), { data: 'x' }],
+        ['POST', paneRoute(task, shell.id, '/resize'), size],
+        ['GET', paneRoute(task, shell.id, '/output?generation=0&from=0'), undefined],
+      ] as const)
+        expect((await caller.call(method, route, body)).status).toBe(403)
+    }
+    expect((await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))).shells).toHaveLength(1)
   })
 })
 

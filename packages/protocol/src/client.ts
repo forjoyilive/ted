@@ -101,9 +101,11 @@ import type { MachineSettings, Profile } from './settings.ts'
 import type {
   FoundEditor,
   OpenInEditorRequest,
+  ShellChange,
   ShellOutput,
   ShellOutputQuery,
   ShellSize,
+  ShellWorkspace,
   TaskShell,
 } from './shell.ts'
 import type { RunSlots } from './slots.ts'
@@ -687,29 +689,46 @@ export class DaemonClient {
     )
   }
 
-  openShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
-    return this.#request('POST', shellRoute(ref, repo), size)
+  shellWorkspace(ref: string, repo: string): Promise<ShellWorkspace> {
+    return this.#request('GET', `${shellRoute(ref, repo)}s`)
   }
 
-  restartShell(ref: string, repo: string, size: ShellSize): Promise<TaskShell> {
-    return this.#request('POST', shellRoute(ref, repo, '/restart'), size)
+  openShellWorkspace(
+    ref: string,
+    repo: string,
+    size: ShellSize,
+    create = false,
+  ): Promise<ShellWorkspace> {
+    return this.#request('POST', `${shellRoute(ref, repo)}s`, { ...size, create })
   }
 
-  async writeShell(ref: string, repo: string, data: string): Promise<void> {
-    await this.#request('POST', shellRoute(ref, repo, '/input'), { data })
+  changeShellWorkspace(ref: string, repo: string, change: ShellChange): Promise<ShellWorkspace> {
+    return this.#request('POST', `${shellRoute(ref, repo)}s/change`, change)
   }
 
-  async resizeShell(ref: string, repo: string, size: ShellSize): Promise<void> {
-    await this.#request('POST', shellRoute(ref, repo, '/resize'), size)
+  openShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo, '', id), size)
   }
 
-  readShell(ref: string, repo: string, query: ShellOutputQuery): Promise<ShellOutput> {
+  restartShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<TaskShell> {
+    return this.#request('POST', shellRoute(ref, repo, '/restart', id), size)
+  }
+
+  async writeShell(ref: string, repo: string, data: string, id?: string): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/input', id), { data })
+  }
+
+  async resizeShell(ref: string, repo: string, size: ShellSize, id?: string): Promise<void> {
+    await this.#request('POST', shellRoute(ref, repo, '/resize', id), size)
+  }
+
+  readShell(ref: string, repo: string, query: ShellOutputQuery, id?: string): Promise<ShellOutput> {
     const params = new URLSearchParams({
       generation: String(query.generation),
       from: String(query.from),
       waitMs: String(query.waitMs ?? 0),
     })
-    return this.#request('GET', shellRoute(ref, repo, `/output?${params}`))
+    return this.#request('GET', shellRoute(ref, repo, `/output?${params}`, id))
   }
 
   listEditors(): Promise<FoundEditor[]> {
@@ -1327,6 +1346,6 @@ function factoryQuery(factory: string | undefined): string {
   return factory === undefined ? '' : `?factory=${encodeURIComponent(factory)}`
 }
 
-function shellRoute(ref: string, repo: string, rest = ''): string {
-  return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${rest}`
+function shellRoute(ref: string, repo: string, rest = '', id?: string): string {
+  return `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/shell${id === undefined ? '' : `/panes/${encodeURIComponent(id)}`}${rest}`
 }
