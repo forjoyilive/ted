@@ -6,6 +6,7 @@ import {
   type Comment,
   type Coordinator,
   type CoordinatorReceipt,
+  type CoordinatorRequest,
   type CoordinatorTask,
   type Factory,
   type LineComment,
@@ -51,6 +52,7 @@ afterEach(async () => {
 async function setup(
   disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
   workflow?: string,
+  nudgeAfterMs?: number,
 ) {
   if (workflow) await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
   daemon = await startDaemon({
@@ -58,6 +60,7 @@ async function setup(
     version: '9.9.9',
     claudeBin: stubClaudePath,
     ...(disk && { disk }),
+    ...(nudgeAfterMs !== undefined && { nudgeAfterMs }),
   })
   const port = daemon.port
   const client = api(port, { appKey: daemon.appToken })
@@ -656,7 +659,7 @@ test('answer closes a Task Lead’s open question, which leaves the Inbox', asyn
   expect(answered.status).toBe(200)
   expect(answered.body).toMatchObject({
     operation: 'answer',
-    text: `Answered ${task.displayId}’s question`,
+    text: expect.stringContaining(`Answered ${task.displayId}’s question with “Wait” · was intake`),
   })
   expect((await s.comments(task.id)).find((c) => c.id === question.id)?.answer).toMatchObject({
     kind: 'answered',
@@ -955,4 +958,121 @@ test('tell and answer cap the message, remove secrets and leave line comment dra
   expect(JSON.stringify(comments)).not.toContain('An unfinished review note')
   expect(JSON.stringify(await s.chat())).not.toContain('ghp_abcdefghij')
   expect(await unsent()).toHaveLength(1)
+})
+
+test('answer gives a choice on TED’s idle question, and refuses free text alone', async () => {
+  const s = await setup(undefined, undefined, 100)
+  const { task } = await s.led(
+    { say: 'Templates are wired in.' },
+    { endTurn: true },
+    { everyMessage: [{ say: 'I’ll check the empty template next.' }, { endTurn: true }] },
+  )
+  const idle = await waitUntil(
+    async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
+    'TED to ask about the idle Task Lead',
+  )
+  expect(idle).toMatchObject({ author: { kind: 'ted' }, choices: ['Nudge again'] })
+  const { run } = await s.start()
+
+  const list = unpack<{
+    now: string
+    tasks: { id: string; openRequests?: CoordinatorRequest[] }[]
+  }>((await run.call('GET', '/coordinator/tasks')).body)
+  expect(Date.parse(list.now)).toBeGreaterThanOrEqual(Date.parse(idle.createdAt))
+  expect(list.tasks.find((t) => t.id === task.id)?.openRequests).toEqual([
+    {
+      id: idle.id,
+      kind: 'question',
+      askedBy: 'ted',
+      stage: idle.stage,
+      title: 'The Task Lead stopped without saying why',
+      text: idle.body,
+      choices: ['Nudge again'],
+      createdAt: idle.createdAt,
+      coordinatorMayAnswer: 'with a choice',
+    },
+  ])
+  const read = unpack<CoordinatorTask>(
+    (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
+  )
+  expect(read.openRequests.map((r) => r.id)).toEqual([idle.id])
+
+  const answer = async (body: Record<string, unknown>) =>
+    run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      version: await version(run, task.id),
+      request: idle.id,
+      ...body,
+    })
+  const words = await answer({ operation: 'words', message: 'Carry on with the template.' })
+  expect(words.status).toBe(403)
+  expect((words.body as { error: string }).error).toContain('one of its choices')
+  expect((await answer({ operation: 'other', choice: 'Stop it' })).status).toBe(409)
+  expect((await s.comments(task.id)).find((c) => c.id === idle.id)?.answer).toBeUndefined()
+
+  const nudged = await answer({ operation: 'nudge', choice: 'Nudge again' })
+  expect(nudged.status).toBe(200)
+  const receipt = nudged.body as CoordinatorReceipt
+  expect(receipt.text).toContain(
+    `Answered ${task.displayId}’s question “The Task Lead stopped without saying why” with “Nudge again” · was `,
+  )
+  expect(receipt.text).toContain(' · now ')
+  expect((await s.comments(task.id)).find((c) => c.id === idle.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Nudge again',
+  })
+  expect(await s.waitingIds()).not.toContain(idle.id)
+})
+
+test('answer gives Try again on Validate’s send-back limit; the receipt shows the Stage change', async () => {
+  await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
+  const s = await setup(
+    undefined,
+    [
+      'version: 1',
+      'order: [intake, work, validate]',
+      'stages:',
+      '  validate:',
+      '    max_back: 1',
+      '    checks:',
+      '      - { name: Tests, run: "echo nope; exit 1" }',
+      '',
+    ].join('\n'),
+  )
+  const advance = { run: ['ted', 'outcome', 'advance'] }
+  const { task } = await s.led(
+    { everyMessage: [advance] },
+    { run: ['sh', '-c', 'echo x > a.txt'] },
+    advance,
+  )
+  const limit = await waitUntil(
+    async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
+    'TED to ask about the send-back limit',
+    40_000,
+  )
+  expect(limit).toMatchObject({
+    author: { kind: 'ted' },
+    title: 'Validate has sent this Task back 1 time, its limit',
+    choices: ['Try again', 'Move to Done anyway'],
+  })
+  const stage = async () =>
+    (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.stage
+  expect(await stage()).toBe('validate')
+  const { run } = await s.start()
+  const again = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+    operation: 'try-again',
+    version: await version(run, task.id),
+    request: limit.id,
+    choice: 'Try again',
+  })
+  expect(again.status).toBe(200)
+  const receipt = again.body as CoordinatorReceipt
+  expect(receipt.text).toContain('with “Try again” · was validate')
+  expect(receipt.text).toContain(' · now work')
+  expect(receipt.before?.stage).toBe('validate')
+  expect(receipt.after?.stage).toBe('work')
+  expect((await s.comments(task.id)).find((c) => c.id === limit.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Try again',
+    text: coordinatorLine,
+  })
 })

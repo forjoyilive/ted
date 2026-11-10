@@ -113,8 +113,8 @@ const usage = `Usage:
   ted peers send <Task> --operation <unique-id> "<text>"
                                              Send an attributed peer note (stdin if no text)
   ted peers inbox [--offset <n>]            Read received messages and delivery receipts
-  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks
-  ted coordinator task <id> [--offset <n>]   Read a Task, brief, Comments and current version
+  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks and their open requests
+  ted coordinator task <id> [--offset <n>]   Read a Task, brief, open requests, Comments and version
   ted coordinator start <id> --operation <id> --version <version>
   ted coordinator move <id> --after <id> / --before <id> --operation <id> --version <version> --neighbours <json>
                                              Start or reorder waiting Tasks (Coordinator only)
@@ -124,10 +124,13 @@ const usage = `Usage:
                                              (Coordinator only)
   ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
                          [--choice "<answer>"] [--message "<text>"]
-                                             Answer an open question a Task Lead asked, on the
-                                             human’s instruction; never a Gate, sign-off or
-                                             permission prompt; reads the message from stdin
-                                             if neither --choice nor --message is given
+                                             Answer an open question a Run asked, or one TED
+                                             asked that has choices (--choice required), on
+                                             the human’s instruction; never a Gate, sign-off,
+                                             permission prompt, round, proposal, size check,
+                                             Linear team ask or failure decision; reads the
+                                             message from stdin if neither --choice nor
+                                             --message is given
                                              (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog

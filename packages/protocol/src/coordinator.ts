@@ -44,16 +44,31 @@ export interface CoordinatorMessage {
   effort?: TaskLead['effort']
 }
 
+export interface CoordinatorRequest {
+  id: string
+  kind: Comment['kind']
+  askedBy: Comment['author']['kind']
+  stage?: Comment['stage']
+  title?: string
+  text: string
+  choices?: string[]
+  createdAt: string
+  coordinatorMayAnswer: 'yes' | 'with a choice' | 'no'
+}
+
 export type CoordinatorTaskSummary = Pick<
   Task,
   'id' | 'displayId' | 'title' | 'stage' | 'priority' | 'rank' | 'status' | 'blockedBy' | 'archived'
->
+> & { openRequests?: CoordinatorRequest[]; moreOpenRequests?: number }
 
 export interface CoordinatorTask {
   descriptions: DescriptionVersion[]
   task: Task
   brief?: TaskBrief
   comments: Comment[]
+  openRequests: CoordinatorRequest[]
+  moreOpenRequests?: number
+  now: string
   nextOffset?: number
   version: string
 }

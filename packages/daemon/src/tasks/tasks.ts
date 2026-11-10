@@ -3999,7 +3999,7 @@ export function createTasks(options: {
     }
     if (comment.failed !== undefined && comment.answer === undefined) {
       if (request.action === 'answer' && request.choice === retryChoice) {
-        await resumeByHand(task.id, { comment: text })
+        await resumeByHand(task.id, { comment: text, sendDrafts })
       } else {
         await humanComment(find(task.id), text, [], sendDrafts)
       }
@@ -6045,7 +6045,11 @@ export function createTasks(options: {
 
   async function resumeByHand(
     ref: string,
-    { comment, attachments = [] }: { comment?: string; attachments?: Attachment[] } = {},
+    {
+      comment,
+      attachments = [],
+      sendDrafts = true,
+    }: { comment?: string; attachments?: Attachment[]; sendDrafts?: boolean } = {},
   ): Promise<Task> {
     const task = live(ref)
     const interrupted =
@@ -6067,7 +6071,7 @@ export function createTasks(options: {
         body: text,
         author: { kind: 'human' },
         attachments,
-        lineComments: drafts(task.id),
+        ...(sendDrafts && { lineComments: drafts(task.id) }),
       })
     }
     const waitForBlockers = unmergedBlockers(task.id).length > 0
