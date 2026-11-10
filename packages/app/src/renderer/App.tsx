@@ -8,7 +8,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { simulatorsLine } from '@ted/protocol/app'
-import { planChip, runsPaused } from '@ted/protocol/health'
+import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import type { MenuCommand } from '../background.ts'
@@ -33,6 +33,7 @@ import {
 import { BannerStack } from './components/BannerStack.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
+import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
@@ -95,7 +96,6 @@ import {
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
-import { timePreferences } from './time.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
@@ -135,11 +135,6 @@ function pausedFooter(health: readonly AgentHealth[]) {
     .filter((h) => h.state !== 'ready')
     .reduce((total, h) => total + h.pausedRuns, 0)
   return paused > 0 ? { paused: runsPaused(paused) } : {}
-}
-
-function planFooter(health: readonly AgentHealth[]) {
-  const chips = health.flatMap((h) => planChip(h, undefined, timePreferences()) ?? [])
-  return chips.length > 0 ? { planChips: chips } : {}
 }
 
 function factoryBadges(
@@ -220,6 +215,12 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const simulators = useSimulators()
   const simulatorsFooter = simulators && simulatorsLine(simulators)
   const [runsOpen, setRunsOpen] = useState(false)
+  const [usageOpen, setUsageOpen] = useState(false)
+  const closeUsage = useCallback(() => setUsageOpen(false), [])
+  useEffect(() => {
+    void navigation
+    setUsageOpen(false)
+  }, [navigation])
   const closeRuns = useCallback(() => setRunsOpen(false), [])
   const [newTaskOpen, setNewTaskOpen] = useState<{ description?: string; factoryId?: string }>()
   const [removing, setRemoving] = useState<Factory>()
@@ -321,6 +322,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (!offline) return
+    setUsageOpen(false)
     setNewTaskOpen(undefined)
     setAddFactoryOpen(false)
     setPaletteOpen(false)
@@ -384,6 +386,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     back: () => dispatch({ type: 'back' }),
     forward: () => dispatch({ type: 'forward' }),
     close: () => {
+      if (usageOpen) {
+        closeUsage()
+        return true
+      }
       if (settingsOpen) dispatch({ type: 'close-settings' })
       else if (navigation.taskId !== undefined) dispatch({ type: 'close-task' })
       else return false
@@ -446,6 +452,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       return
     }
     if (!found || runsOpen) return
+    if (usageOpen && found.id !== 'close') return
     if (settingsOpen && !allowedInSettings.has(found.id)) return
     if (!commandKey && document.querySelector('[role="menu"]')) return
     const anyDialog = dialogOpen || document.querySelector('dialog[open]') !== null
@@ -1047,7 +1054,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
-            ...planFooter(agentHealth),
             ...(chip !== undefined && { update: chip }),
           }}
           onUpdate={() =>
@@ -1062,7 +1068,26 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
           }}
           runsOpen={runsOpen}
-          onOpenRuns={() => setRunsOpen((open) => !open)}
+          onOpenRuns={() => {
+            setUsageOpen(false)
+            setRunsOpen((open) => !open)
+          }}
+          usage={
+            <PlanUsage
+              health={agentHealth}
+              billing={settings?.billing ?? { claude: 'subscription', codex: 'subscription' }}
+              open={usageOpen}
+              onToggle={() => {
+                setRunsOpen(false)
+                setUsageOpen((open) => !open)
+              }}
+              onClose={closeUsage}
+              onSettings={() => {
+                setUsageOpen(false)
+                dispatch({ type: 'open-settings', section: 'agents' })
+              }}
+            />
+          }
           dispatch={dispatch}
           onNewTask={openNewTask}
           onSearch={() => setPaletteOpen(true)}
