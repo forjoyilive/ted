@@ -212,7 +212,7 @@ describe('Clarify rounds', () => {
     await client.ok('POST', `/comments/${item.request.id}/answer`, {
       action: 'answer-round',
       answers: [
-        { answer: 'Keep the latest edit', note: 'Clashes are rare for us.' },
+        { answer: 'Ask me to resolve each conflict.', note: 'Clashes are rare for us.' },
         { answer: 'The edit wins.' },
       ],
     })
@@ -220,7 +220,11 @@ describe('Clarify rounds', () => {
     expect(answered?.answer).toMatchObject({
       kind: 'answered',
       answers: [
-        { answer: 'Keep the latest edit', note: 'Clashes are rare for us.', changed: true },
+        {
+          answer: 'Ask me to resolve each conflict.',
+          note: 'Clashes are rare for us.',
+          changed: true,
+        },
         { answer: 'The edit wins.', changed: false },
       ],
     })
@@ -252,7 +256,7 @@ describe('Clarify rounds', () => {
       'the answers to reach the Task Lead',
     )
     expect(answer).toContain(
-      '1. When the same note is edited on two devices, what happens on reconnect?\n   Keep the latest edit (changed from your recommendation “Keep both and let me merge”)\n   Note: Clashes are rare for us.',
+      '1. When the same note is edited on two devices, what happens on reconnect?\n   Ask me to resolve each conflict. (changed from your recommendation “Keep both and let me merge”)\n   Note: Clashes are rare for us.',
     )
     expect(answer).toContain(
       '2. If a note is deleted on one device and edited on the other, which wins?\n   The edit wins. (recommended)',
@@ -501,9 +505,8 @@ describe('Clarify rounds', () => {
       error: 'answer all 2 questions',
     })
     expect(
-      (await answer({ action: 'answer-round', answers: [{ answer: 'Maybe' }, { answer: 'x' }] }))
-        .body,
-    ).toEqual({ error: '“Maybe” isn’t one of question 1’s choices' })
+      (await answer({ action: 'answer-round', answers: [{ answer: ' ' }, { answer: 'x' }] })).body,
+    ).toEqual({ error: 'question 1 needs an answer' })
     expect(
       (
         await answer({

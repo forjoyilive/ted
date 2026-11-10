@@ -44,9 +44,6 @@ function answerTo(
   const answer = given?.answer.trim() ?? ''
   const note = given?.note?.trim() ?? ''
   if (answer === '') throw new RequestError(400, `question ${number} needs an answer`)
-  if (question.choices && !question.choices.includes(answer)) {
-    throw new RequestError(400, `“${answer}” isn’t one of question ${number}’s choices`)
-  }
   return {
     answer,
     ...(note !== '' && { note }),
