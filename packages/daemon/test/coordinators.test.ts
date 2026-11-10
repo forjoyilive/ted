@@ -8,6 +8,7 @@ import {
   type CoordinatorReceipt,
   type CoordinatorTask,
   type Factory,
+  type LineComment,
   type RunChat,
   type RunMessage,
   type RunSlots,
@@ -787,7 +788,7 @@ test('answer refuses Clarify rounds and size checks', async () => {
   }
 })
 
-test('the Coordinator CLI tells and answers from a message file', async () => {
+test('the Coordinator CLI tells and answers with a message argument and never reads a file', async () => {
   const s = await setup(),
     quiet = await s.task('Unstarted'),
     { task, lead } = await s.led(hold())
@@ -802,9 +803,7 @@ test('the Coordinator CLI tells and answers from a message file', async () => {
   const versions = { quiet: await version(run, quiet.id), task: await version(run, task.id) }
   await writeFile(release, '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'first turn to end')
-  const file = path.join(scratch, 'message.md')
-  await writeFile(file, 'Wait for the queued reviewer.\n')
-  const common = ['--message-file', file, '--operation']
+  const common = ['--message', 'Wait for the queued reviewer.', '--operation']
   await s.ok('POST', `${s.base}/messages`, {
     text: JSON.stringify({
       steps: [
@@ -859,4 +858,101 @@ test('the Coordinator CLI tells and answers from a message file', async () => {
     choice: 'Wait',
     text: `${coordinatorLine}\n\nWait for the queued reviewer.`,
   })
+
+  const secret = path.join(scratch, 'secret.txt')
+  await writeFile(secret, 'private key')
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({
+      steps: [
+        {
+          run: [
+            'ted',
+            'coordinator',
+            'tell',
+            quiet.id,
+            '--message-file',
+            secret,
+            '--operation',
+            'cli-file',
+            '--version',
+            versions.quiet,
+          ],
+        },
+        { endTurn: true },
+      ],
+    }),
+  })
+  const refused = await waitUntil(async () => {
+    const items = (await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)).items
+    const ran = items.filter((i) => i.kind === 'agent' && i.text.includes('stdout'))
+    const last = ran[2]
+    return last?.kind === 'agent' ? (JSON.parse(last.text) as { code: number }) : undefined
+  }, 'the file option to be refused')
+  expect(refused.code).not.toBe(0)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'refusal turn to end')
+  expect((await s.chat()).receipts).toHaveLength(2)
+  expect(JSON.stringify(await s.comments(quiet.id))).not.toContain('private key')
+})
+
+test('tell and answer cap the message, remove secrets and leave line comment drafts unsent', async () => {
+  await commitToOrigin(scratch, { 'app.txt': 'one\ntwo\nthree\n' })
+  const s = await setup(),
+    { task, lead } = await s.led(hold())
+  const worktree = await waitUntil(
+    async () =>
+      (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.repos[0]?.worktree,
+    'the worktree',
+  )
+  await writeFile(path.join(worktree, 'app.txt'), 'one\nTWO\nthree\n')
+  await s.ok('POST', `/tasks/${task.id}/line-comments`, {
+    repo: 'widgets',
+    path: 'app.txt',
+    from: { new: 2 },
+    body: 'An unfinished review note',
+  })
+  const unsent = async () =>
+    (await s.ok<LineComment[]>('GET', `/tasks/${task.id}/line-comments`)).filter(
+      (c) => c.sent === undefined,
+    )
+  expect(await unsent()).toHaveLength(1)
+  const question = (
+    await lead.call('POST', `/tasks/${task.id}/comments`, {
+      body: 'My reviewer is queued. What should I do?',
+      choices: ['Wait', 'Start another'],
+    })
+  ).body as Comment
+  const { run } = await s.start()
+
+  const long = await run.call('POST', `/coordinator/tasks/${task.id}/tell`, {
+    operation: 'long',
+    version: await version(run, task.id),
+    message: 'x'.repeat(8001),
+  })
+  expect(long.status).toBe(400)
+  expect((long.body as { error: string }).error).toContain('8000 characters')
+
+  const told = await run.call('POST', `/coordinator/tasks/${task.id}/tell`, {
+    operation: 'tell-secret',
+    version: await version(run, task.id),
+    message: 'Use ghp_abcdefghijklmnopqrstuvwxyz0123 to push.',
+  })
+  expect(told.status).toBe(200)
+  const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+    operation: 'answer-secret',
+    version: await version(run, task.id),
+    request: question.id,
+    choice: 'Wait',
+    message: 'The key is sk-abcdefghijklmnopqrstuvwxyz0123.',
+  })
+  expect(answered.status).toBe(200)
+
+  const comments = await s.comments(task.id)
+  const posted = comments.find((c) => c.author.kind === 'human')
+  expect(posted?.body).toBe(`${coordinatorLine}\n\nUse [redacted] to push.`)
+  expect(posted?.lineComments ?? []).toEqual([])
+  const answer = comments.find((c) => c.id === question.id)?.answer
+  expect(answer).toMatchObject({ text: `${coordinatorLine}\n\nThe key is [redacted].` })
+  expect(JSON.stringify(comments)).not.toContain('An unfinished review note')
+  expect(JSON.stringify(await s.chat())).not.toContain('ghp_abcdefghij')
+  expect(await unsent()).toHaveLength(1)
 })

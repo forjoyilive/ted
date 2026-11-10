@@ -401,6 +401,8 @@ export interface Tasks {
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  coordinatorTell(ref: string, body: string): Promise<Comment>
+  coordinatorAnswer(commentId: string, answer: { choice?: string; text: string }): Promise<Comment>
   isFailureDecision(commentId: string): boolean
   talkThrough(commentId: string): Promise<Comment>
   doneTalking(commentId: string): Promise<Comment>
@@ -3920,17 +3922,239 @@ export function createTasks(options: {
     inBackground(`move ${task.displayId} to Backlog for planning`, () => clearing(task.id))
   }
 
+  async function answerAs(
+    id: string,
+    request: AnswerRequest,
+    sendDrafts: boolean,
+  ): Promise<Comment> {
+    const answering = store.getComment(id)
+    if (answering) await untilFree(answering.taskId)
+    const comment = store.getComment(id)
+    if (!comment) throw new RequestError(404, `no Comment ${id}`)
+    if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
+    const task = find(comment.taskId)
+    const failure = failures.findDecision(id)
+    if (failure) {
+      if (comment.answer)
+        throw new RequestError(409, 'this failure decision is stale or already answered')
+      if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
+        await holding(task, () =>
+          humanComment(find(task.id), failureText(request.text ?? ''), [], sendDrafts),
+        )
+        return store.getComment(id) as Comment
+      }
+      if (request.action !== 'answer' || request.choice === undefined)
+        throw new RequestError(400, 'choose a failure resolution')
+      const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
+        (key) => failureChoices[key] === request.choice,
+      )
+      if (!resolution) throw new RequestError(400, 'choose a failure resolution')
+      return holding(task, async () => {
+        await failures.resolve(find(task.id), failure.id, {
+          requestId: id,
+          resolution,
+          ...(request.text !== undefined && { reason: request.text }),
+        })
+        return store.getComment(id) as Comment
+      })
+    }
+    if (comment.kind === 'round') return answerRound(task, comment, request)
+    if (comment.kind === 'proposal') return answerProposal(task, comment, request)
+    if (request.action === 'answer-round' || request.action === 'accept-recommended') {
+      throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
+    }
+    const text = request.text?.trim() ?? ''
+    if (comment.simulator) {
+      return holding(task, () => apps.answerSimulator(comment, request, text))
+    }
+    if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
+    if (comment.gate) {
+      if (request.action === 'request-changes') {
+        if (text === '') throw new RequestError(400, 'Request changes needs your comment')
+      } else if (request.action !== 'approve') {
+        throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
+      }
+    } else if (comment.kind !== 'question') {
+      throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
+    } else if (request.action !== 'answer') {
+      throw new RequestError(400, 'answer a question with a choice or your own words')
+    } else if (request.choice !== undefined && !comment.choices?.includes(request.choice)) {
+      throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
+    } else if (request.choice === undefined && text === '') {
+      throw new RequestError(400, 'pick a choice or write an answer')
+    }
+    if (isLinearTeamAsk(comment) && request.action === 'answer') {
+      return answerLinearTeam(task, comment, request.choice, text)
+    }
+    if (
+      comment.sizeCheck &&
+      comment.answer === undefined &&
+      request.action === 'answer' &&
+      request.choice !== undefined
+    ) {
+      return answerSizeCheck(task, comment, request.choice, text)
+    }
+    if (isCiStuck(comment) && comment.answer === undefined && request.action === 'answer') {
+      return answerCiStuck(task, comment, request.choice, text)
+    }
+    if (comment.failed !== undefined && comment.answer === undefined) {
+      if (request.action === 'answer' && request.choice === retryChoice) {
+        await resumeByHand(task.id, { comment: text })
+      } else {
+        await humanComment(find(task.id), text, [], sendDrafts)
+      }
+      return store.getComment(id) ?? comment
+    }
+    return holding(task, async () => {
+      const current = store.getComment(id)
+      if (current?.answer?.kind === 'withdrawn') {
+        throw new RequestError(409, 'this request was withdrawn')
+      }
+      if (current?.answer?.kind === 'superseded') {
+        throw new RequestError(409, 'this request was replaced by a newer one')
+      }
+      if (current?.answer) throw new RequestError(409, 'this request has already been answered')
+      const at = new Date().toISOString()
+      if (request.action === 'request-changes') {
+        const answered = answerRequest(
+          task,
+          comment,
+          { kind: 'changes-requested', at, text },
+          drafts(task.id),
+        )
+        const picksStage = comment.stage === 'review' || comment.stage === 'merge'
+        const lines = linesText(answered)
+        await deliverAnswer(
+          task,
+          comment,
+          [
+            `The human asked for changes at the ${gateName(comment)}:`,
+            text,
+            ...(lines !== undefined ? [lines] : []),
+            picksStage
+              ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
+              : comment.stage === 'clarify'
+                ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
+                : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
+          ].join('\n\n'),
+        )
+        return answered
+      }
+      if (request.action === 'approve') {
+        const now = find(task.id)
+        const resolution = await taskWorkflow(now)
+        const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+        await requireObligations(now)
+        const answered = answerRequest(task, comment, {
+          kind: 'approved',
+          at,
+          ...(text !== '' && { text }),
+        })
+        if (!liveLead(now)) store.holdAnswer(comment.id)
+        const approved =
+          text === ''
+            ? `The human approved the ${gateName(comment)}.`
+            : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+        if (now.stage === 'merge') {
+          startMerging(find(task.id))
+          watchMerge(task.id)
+          await deliver(
+            now,
+            `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
+          )
+          return answered
+        }
+        const signedOff = next === 'merge'
+        if (signedOff) pullRequestWork(task.id, 'signoff')
+        await move(
+          now,
+          resolution,
+          next,
+          next === 'done'
+            ? undefined
+            : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
+          { signedOff },
+        )
+        return answered
+      }
+      const choice = request.choice
+      if (choice !== undefined) {
+        const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
+        if (answered) return answered
+      }
+      if (isLinearQuestion(comment) && choice !== undefined) {
+        const answered = answerRequest(task, comment, {
+          kind: 'answered',
+          at,
+          choice,
+          ...(text !== '' && { text }),
+        })
+        if (choice === linearArchiveChoice && !find(task.id).archived) {
+          settleDependents(task.id, 'unblock')
+          archiveNow(find(task.id), false)
+          wake()
+        }
+        return answered
+      }
+      if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
+        const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
+        const run = liveLead(find(task.id))
+        if (run) await sendNudge(task, run)
+        return answered
+      }
+      const aboutModel = [...asked.values()].includes(comment.id)
+      if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
+      const answered = answerRequest(
+        task,
+        comment,
+        {
+          kind: 'answered',
+          at,
+          ...(choice !== undefined && { choice }),
+          ...(text !== '' && { text }),
+        },
+        text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
+      )
+      if (aboutModel) return answered
+      const lines = linesText(answered)
+      await deliverAnswer(
+        task,
+        comment,
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
+          ...(choice !== undefined ? [choice] : []),
+          ...(text !== '' ? [text] : []),
+          ...(lines !== undefined ? [lines] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    })
+  }
+
+  function requireCommentable(task: StoredTask): void {
+    if (task.archived) {
+      throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
+    }
+    if (publicTask(task.id).commentBox === 'merge-pending') {
+      throw new RequestError(
+        409,
+        `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+      )
+    }
+  }
+
   async function humanComment(
     task: StoredTask,
     body: string,
     attachments: readonly Attachment[],
+    sendDrafts = true,
   ): Promise<Comment> {
     const posted = store.postComment({
       taskId: task.id,
       body,
       author: { kind: 'human' },
       attachments,
-      ...(task.stage !== 'done' && { lineComments: drafts(task.id) }),
+      ...(sendDrafts && task.stage !== 'done' && { lineComments: drafts(task.id) }),
     })
     const run = liveLead(find(task.id))
     if (!run) return posted
@@ -6825,15 +7049,7 @@ export function createTasks(options: {
           throw new RequestError(403, 'only a Run can supersede a request')
         }
         const task = find(ref)
-        if (task.archived) {
-          throw new RequestError(409, `${task.displayId} is archived; unarchive it to comment`)
-        }
-        if (publicTask(task.id).commentBox === 'merge-pending') {
-          throw new RequestError(
-            409,
-            `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
-          )
-        }
+        requireCommentable(task)
         return humanComment(task, body, attachments)
       }
       const { task, runId } = ownTask(ref, caller)
@@ -7047,209 +7263,15 @@ export function createTasks(options: {
 
     isFailureDecision: (id) => failures.findDecision(id) !== undefined,
 
-    async answer(id, request) {
-      const answering = store.getComment(id)
-      if (answering) await untilFree(answering.taskId)
-      const comment = store.getComment(id)
-      if (!comment) throw new RequestError(404, `no Comment ${id}`)
-      if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
-      const task = find(comment.taskId)
-      const failure = failures.findDecision(id)
-      if (failure) {
-        if (comment.answer)
-          throw new RequestError(409, 'this failure decision is stale or already answered')
-        if (request.action === 'answer' && request.choice === undefined && request.text?.trim()) {
-          await holding(task, () =>
-            humanComment(find(task.id), failureText(request.text ?? ''), []),
-          )
-          return store.getComment(id) as Comment
-        }
-        if (request.action !== 'answer' || request.choice === undefined)
-          throw new RequestError(400, 'choose a failure resolution')
-        const resolution = (Object.keys(failureChoices) as (keyof typeof failureChoices)[]).find(
-          (key) => failureChoices[key] === request.choice,
-        )
-        if (!resolution) throw new RequestError(400, 'choose a failure resolution')
-        return holding(task, async () => {
-          await failures.resolve(find(task.id), failure.id, {
-            requestId: id,
-            resolution,
-            ...(request.text !== undefined && { reason: request.text }),
-          })
-          return store.getComment(id) as Comment
-        })
-      }
-      if (comment.kind === 'round') return answerRound(task, comment, request)
-      if (comment.kind === 'proposal') return answerProposal(task, comment, request)
-      if (request.action === 'answer-round' || request.action === 'accept-recommended') {
-        throw new RequestError(400, `a ${comment.kind} request isn’t a round`)
-      }
-      const text = request.text?.trim() ?? ''
-      if (comment.simulator) {
-        return holding(task, () => apps.answerSimulator(comment, request, text))
-      }
-      if (comment.kind === 'permission') return answerPermission(task, comment, request, text)
-      if (comment.gate) {
-        if (request.action === 'request-changes') {
-          if (text === '') throw new RequestError(400, 'Request changes needs your comment')
-        } else if (request.action !== 'approve') {
-          throw new RequestError(400, 'answer a Gate request with Approve or Request changes')
-        }
-      } else if (comment.kind !== 'question') {
-        throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
-      } else if (request.action !== 'answer') {
-        throw new RequestError(400, 'answer a question with a choice or your own words')
-      } else if (request.choice !== undefined && !comment.choices?.includes(request.choice)) {
-        throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
-      } else if (request.choice === undefined && text === '') {
-        throw new RequestError(400, 'pick a choice or write an answer')
-      }
-      if (isLinearTeamAsk(comment) && request.action === 'answer') {
-        return answerLinearTeam(task, comment, request.choice, text)
-      }
-      if (
-        comment.sizeCheck &&
-        comment.answer === undefined &&
-        request.action === 'answer' &&
-        request.choice !== undefined
-      ) {
-        return answerSizeCheck(task, comment, request.choice, text)
-      }
-      if (isCiStuck(comment) && comment.answer === undefined && request.action === 'answer') {
-        return answerCiStuck(task, comment, request.choice, text)
-      }
-      if (comment.failed !== undefined && comment.answer === undefined) {
-        if (request.action === 'answer' && request.choice === retryChoice) {
-          await resumeByHand(task.id, { comment: text })
-        } else {
-          await humanComment(find(task.id), text, [])
-        }
-        return store.getComment(id) ?? comment
-      }
-      return holding(task, async () => {
-        const current = store.getComment(id)
-        if (current?.answer?.kind === 'withdrawn') {
-          throw new RequestError(409, 'this request was withdrawn')
-        }
-        if (current?.answer?.kind === 'superseded') {
-          throw new RequestError(409, 'this request was replaced by a newer one')
-        }
-        if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-        const at = new Date().toISOString()
-        if (request.action === 'request-changes') {
-          const answered = answerRequest(
-            task,
-            comment,
-            { kind: 'changes-requested', at, text },
-            drafts(task.id),
-          )
-          const picksStage = comment.stage === 'review' || comment.stage === 'merge'
-          const lines = linesText(answered)
-          await deliverAnswer(
-            task,
-            comment,
-            [
-              `The human asked for changes at the ${gateName(comment)}:`,
-              text,
-              ...(lines !== undefined ? [lines] : []),
-              picksStage
-                ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
-                : comment.stage === 'clarify'
-                  ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
-                  : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
-            ].join('\n\n'),
-          )
-          return answered
-        }
-        if (request.action === 'approve') {
-          const now = find(task.id)
-          const resolution = await taskWorkflow(now)
-          const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
-          await requireObligations(now)
-          const answered = answerRequest(task, comment, {
-            kind: 'approved',
-            at,
-            ...(text !== '' && { text }),
-          })
-          if (!liveLead(now)) store.holdAnswer(comment.id)
-          const approved =
-            text === ''
-              ? `The human approved the ${gateName(comment)}.`
-              : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
-          if (now.stage === 'merge') {
-            startMerging(find(task.id))
-            watchMerge(task.id)
-            await deliver(
-              now,
-              `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
-            )
-            return answered
-          }
-          const signedOff = next === 'merge'
-          if (signedOff) pullRequestWork(task.id, 'signoff')
-          await move(
-            now,
-            resolution,
-            next,
-            next === 'done'
-              ? undefined
-              : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(resolution.workflow, next)}`,
-            { signedOff },
-          )
-          return answered
-        }
-        const choice = request.choice
-        if (choice !== undefined) {
-          const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
-          if (answered) return answered
-        }
-        if (isLinearQuestion(comment) && choice !== undefined) {
-          const answered = answerRequest(task, comment, {
-            kind: 'answered',
-            at,
-            choice,
-            ...(text !== '' && { text }),
-          })
-          if (choice === linearArchiveChoice && !find(task.id).archived) {
-            settleDependents(task.id, 'unblock')
-            archiveNow(find(task.id), false)
-            wake()
-          }
-          return answered
-        }
-        if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
-          const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
-          const run = liveLead(find(task.id))
-          if (run) await sendNudge(task, run)
-          return answered
-        }
-        const aboutModel = [...asked.values()].includes(comment.id)
-        if (aboutModel && choice === useDefaultChoice) await useDefaultModel(task.id)
-        const answered = answerRequest(
-          task,
-          comment,
-          {
-            kind: 'answered',
-            at,
-            ...(choice !== undefined && { choice }),
-            ...(text !== '' && { text }),
-          },
-          text !== '' && !aboutModel ? drafts(task.id) : undefined,
-        )
-        if (aboutModel) return answered
-        const lines = linesText(answered)
-        await deliverAnswer(
-          task,
-          comment,
-          [
-            `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
-            ...(choice !== undefined ? [choice] : []),
-            ...(text !== '' ? [text] : []),
-            ...(lines !== undefined ? [lines] : []),
-          ].join('\n\n'),
-        )
-        return answered
-      })
+    answer: (id, request) => answerAs(id, request, true),
+
+    coordinatorAnswer: (id, { choice, text }) =>
+      answerAs(id, { action: 'answer', ...(choice !== undefined && { choice }), text }, false),
+
+    async coordinatorTell(ref, body) {
+      const task = find(ref)
+      requireCommentable(task)
+      return humanComment(task, body, [], false)
     },
 
     setActivity(ref, caller, text) {

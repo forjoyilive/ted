@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { CoordinatorAction, CoordinatorOperation } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
+import { redactSecrets } from '../redact.ts'
 import { agentChoice, bodyObject, type Route, readJson } from './route.ts'
 
 const offset = (raw: string | undefined) => Number(raw ?? 0)
@@ -10,6 +11,7 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
+const maxMessageLength = 8000
 const operations: readonly string[] = ['start', 'move', 'tell', 'answer']
 function action(value: unknown, kind: CoordinatorOperation): CoordinatorAction {
   const body = bodyObject(value)
@@ -38,9 +40,10 @@ function action(value: unknown, kind: CoordinatorOperation): CoordinatorAction {
     }
   if (body.message !== undefined && typeof body.message !== 'string')
     throw new RequestError(400, 'message must be text')
-  const message = typeof body.message === 'string' ? body.message.trim() : ''
-  if (message.length > 100_000)
-    throw new RequestError(400, 'message is limited to 100000 characters')
+  const typed = typeof body.message === 'string' ? body.message.trim() : ''
+  if (typed.length > maxMessageLength)
+    throw new RequestError(400, `message is limited to ${maxMessageLength} characters`)
+  const message = redactSecrets(typed)
   if (kind === 'tell') {
     if (message === '') throw new RequestError(400, 'message is required')
     return { ...base, message }
