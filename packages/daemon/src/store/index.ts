@@ -158,6 +158,7 @@ export interface LinearSyncRecord {
   step?: LinearStep
   linked: Set<string>
   allowed: boolean
+  allowedTeams: Set<string>
 }
 
 export interface GitHubNoticeRecord {
@@ -1900,7 +1901,7 @@ export async function openStore({
   }
 
   const linearRecord = (taskId: string): LinearSyncRecord => {
-    const record: LinearSyncRecord = { linked: new Set(), allowed: false }
+    const record: LinearSyncRecord = { linked: new Set(), allowed: false, allowedTeams: new Set() }
     const rows = store
       .query(queryDb(taskLog.where({ taskId }).orderBy('at', 'asc')))
       .filter((row) => row.name.startsWith('v1.Linear'))
@@ -1914,6 +1915,8 @@ export async function openStore({
         }
       } else if (row.name === 'v1.LinearSyncAllowed') {
         record.allowed = true
+      } else if (row.name === 'v1.LinearTeamSyncAllowed') {
+        record.allowedTeams.add(String(data.team))
       } else if (row.name === 'v1.LinearIssueMoved') {
         const step = linearSteps.find((s) => s === data.step)
         const before = record.step === undefined ? -1 : linearSteps.indexOf(record.step)
@@ -1933,7 +1936,10 @@ export async function openStore({
     const record = linearRecord(row.id)
     if (record.allowed) return 'on'
     const teams = settings().linearSyncTeams[row.factoryId] ?? []
-    return record.seen !== undefined && teams.includes(record.seen.team) ? 'on' : 'ask'
+    const team = record.seen?.team
+    return team !== undefined && (teams.includes(team) || record.allowedTeams.has(team))
+      ? 'on'
+      : 'ask'
   }
 
   const settings = (): MachineSettings => {
@@ -2782,7 +2788,7 @@ export async function openStore({
           ? [events.machineSettingsChanged({ changes: JSON.stringify(changes), at })]
           : []),
         ...consents.map(({ taskId, identifier }) =>
-          events.linearSyncAllowed({ taskId, identifier, by: 'team', at }),
+          events.linearTeamSyncAllowed({ taskId, identifier, team, at }),
         ),
       ]
       if (batch.length > 0) commit(...batch)

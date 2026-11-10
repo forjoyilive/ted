@@ -1366,7 +1366,9 @@ export function createTasks(options: {
   }
 
   function holdsMerge(taskId: string): boolean {
-    return openRequests(taskId).some((c) => !isCiStuck(c) && !isLinearQuestion(c))
+    return openRequests(taskId).some(
+      (c) => !isCiStuck(c) && !isLinearQuestion(c) && !isLinearTeamAsk(c),
+    )
   }
 
   function hostOfPullRequest(url: string): string {
@@ -4542,13 +4544,6 @@ export function createTasks(options: {
     })
   }
 
-  function linearTeamOf(task: Task): { team: string; identifier: string } | undefined {
-    const link = task.source && parseLinearUrl(task.source.url)
-    if (!link) return undefined
-    const team = store.linearSync(task.id).seen?.team ?? link.identifier.split('-')[0] ?? ''
-    return team === '' ? undefined : { team: team.toUpperCase(), identifier: link.identifier }
-  }
-
   function openTeamAsks(factoryId: string, team: string): Comment[] {
     return store
       .listOpenRequests()
@@ -4590,8 +4585,9 @@ export function createTasks(options: {
   function allowLinearTeam(factoryId: string, team: string): MachineSettings {
     const consents = store.listTasks().flatMap((task) => {
       if (task.factoryId !== factoryId || task.archived || task.linearSync !== 'ask') return []
-      const found = linearTeamOf(task)
-      return found?.team === team ? [{ taskId: task.id, identifier: found.identifier }] : []
+      const link = task.source && parseLinearUrl(task.source.url)
+      const seen = store.linearSync(task.id).seen
+      return link && seen?.team === team ? [{ taskId: task.id, identifier: link.identifier }] : []
     })
     const settings = store.allowLinearTeam(factoryId, team, consents)
     closeTeamAsks(factoryId, team, linearAllowChoice)
@@ -4607,13 +4603,24 @@ export function createTasks(options: {
     closeTeamAsks(factoryId, team, linearNotNowChoice)
   }
 
-  function answerLinearTeam(task: Task, comment: Comment, choice: string | undefined): Comment {
+  function answerLinearTeam(
+    task: Task,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Comment {
     if (comment.answer?.kind === 'withdrawn') {
       throw new RequestError(409, 'this request was withdrawn')
     }
     if (comment.answer) throw new RequestError(409, 'this request has already been answered')
     const team = comment.linearTeam?.key
     if (team === undefined) throw new RequestError(400, 'this question isn’t about a Linear team')
+    if (text !== '') {
+      throw new RequestError(
+        400,
+        `answer with ${linearAllowChoice} or ${linearNotNowChoice}; this question doesn’t reach the Task Lead`,
+      )
+    }
     if (choice === linearAllowChoice) allowLinearTeam(task.factoryId, team)
     else if (choice === linearNotNowChoice) declineLinearTeam(task.factoryId, team)
     else throw new RequestError(400, `answer with ${linearAllowChoice} or ${linearNotNowChoice}`)
@@ -5519,7 +5526,7 @@ export function createTasks(options: {
     if (merging.has(task.id)) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
-    if (openRequests(task.id).length > 0) return
+    if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
     if (planningInChat(task.id)) return
     const nudged = store
       .taskLog(task.id)
@@ -6370,7 +6377,7 @@ export function createTasks(options: {
         throw new RequestError(400, 'pick a choice or write an answer')
       }
       if (isLinearTeamAsk(comment) && request.action === 'answer') {
-        return answerLinearTeam(task, comment, request.choice)
+        return answerLinearTeam(task, comment, request.choice, text)
       }
       if (
         comment.sizeCheck &&

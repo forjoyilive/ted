@@ -327,14 +327,14 @@ export function threadEvents(
       case 'v1.LinearSyncAllowed':
         if (data.by === 'menu') {
           add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
-        } else if (data.by === 'team') {
-          const team = text(data.identifier).split('-')[0]
-          add(
-            entry,
-            'edit',
-            `You let TED sync ${team} issues with Linear for Automations in this Factory`,
-          )
         }
+        break
+      case 'v1.LinearTeamSyncAllowed':
+        add(
+          entry,
+          'edit',
+          `You let TED sync ${text(data.team)} issues with Linear for Automations in this Factory`,
+        )
         break
       case 'v1.LinearPullRequestsLinked': {
         const count = Array.isArray(data.urls) ? data.urls.length : 0

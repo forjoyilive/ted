@@ -1056,6 +1056,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  linearTeamSyncAllowed: Events.synced({
+    name: 'v1.LinearTeamSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      identifier: Schema.String,
+      team: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   linearPullRequestsLinked: Events.synced({
     name: 'v1.LinearPullRequestsLinked',
     schema: Schema.Struct({
@@ -2282,6 +2291,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       team: args.team,
     }),
   'v1.LinearSyncAllowed': (args) => task(args, { identifier: args.identifier, by: args.by }),
+  'v1.LinearTeamSyncAllowed': (args) =>
+    task(args, { identifier: args.identifier, team: args.team }),
   'v1.LinearIssueMoved': (args) =>
     task(args, { identifier: args.identifier, step: args.step, state: args.state }),
   'v1.LinearPullRequestsLinked': (args) =>
@@ -2482,6 +2493,7 @@ const materializers = counted(
       'v1.GitHubActivitySent': () => [],
       'v1.LinearIssueSeen': () => [],
       'v1.LinearSyncAllowed': () => [],
+      'v1.LinearTeamSyncAllowed': () => [],
       'v1.LinearIssueMoved': () => [],
       'v1.LinearPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],

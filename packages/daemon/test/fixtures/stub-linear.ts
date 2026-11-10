@@ -16,6 +16,7 @@ export interface StubLinearIssue {
   branchName?: string
   state?: string
   teamName?: string
+  teamKey?: string
 }
 
 export interface StubLinearAccount {
@@ -53,6 +54,8 @@ export const stubLinearStates: StubLinearState[] = [
   { id: 'state-done', name: 'Done', type: 'completed', position: 5 },
   { id: 'state-canceled', name: 'Canceled', type: 'canceled', position: 6 },
 ]
+
+const teamKeyOf = (issue: StubLinearIssue) => issue.teamKey ?? issue.identifier.split('-')[0] ?? ''
 
 export const stubLinearIssueId = (identifier: string) => `uuid-${identifier}`
 
@@ -135,8 +138,8 @@ export async function startStubLinear(
             identifier: issue.identifier,
             state: stateOf(issue),
             team: {
-              id: `team-${issue.identifier.split('-')[0]}`,
-              key: issue.identifier.split('-')[0],
+              id: `team-${teamKeyOf(issue)}`,
+              key: teamKeyOf(issue),
             },
           }
         }
@@ -180,8 +183,8 @@ export async function startStubLinear(
               priority: issue.priority ?? 0,
               branchName: issue.branchName ?? '',
               team: {
-                key: issue.identifier.split('-')[0],
-                name: issue.teamName ?? issue.identifier.split('-')[0],
+                key: teamKeyOf(issue),
+                name: issue.teamName ?? teamKeyOf(issue),
               },
               url: `https://linear.app/${account.workspace.urlKey}/issue/${issue.identifier}`,
             },

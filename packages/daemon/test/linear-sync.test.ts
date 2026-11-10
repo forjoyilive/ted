@@ -469,7 +469,7 @@ describe('Tasks an Automation made', () => {
     expect((await getTask(client, first?.id ?? '')).status?.kind).not.toBe('waiting-on-you')
   })
 
-  test('Allow adds the team and turns on sync for its Tasks, catching up a Done Task’s issue', async () => {
+  test('Allow adds the team and turns on sync for the Tasks Linear puts in it, catching up a Done Task’s issue', async () => {
     const client = await startForAutomations({ workflow: mergeOff })
     const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
     const done = (
@@ -491,8 +491,33 @@ describe('Tasks an Automation made', () => {
     await seenAfterNow()
     expect(issue().state).toBe('Todo')
 
+    account().issues?.push({
+      identifier: 'NOTE-9',
+      title: 'Moved to Ops',
+      state: 'Todo',
+      teamKey: 'OPS',
+      teamName: 'Ops',
+    })
+    const moved = (
+      await withFileToken.call('POST', '/tasks', {
+        title: 'Moved to Ops',
+        factory: 'NB',
+        source: issueUrl('NOTE-9'),
+      })
+    ).body as Task
+
     const [fresh] = await automationMakes(client, '09:00', [issueUrl('NOTE-2')])
     const ask = await firstAsk(client)
+    await seenAfterNow()
+    expect(
+      (
+        await client.call('POST', `/comments/${ask.request.id}/answer`, {
+          action: 'answer',
+          choice: 'Allow',
+          text: 'yes please',
+        })
+      ).status,
+    ).toBe(400)
     await client.ok('POST', `/comments/${ask.request.id}/answer`, {
       action: 'answer',
       choice: 'Allow',
@@ -509,6 +534,11 @@ describe('Tasks an Automation made', () => {
     expect(await lines(client, done)).toContain(
       'You let TED sync NOTE issues with Linear for Automations in this Factory',
     )
+    expect((await getTask(client, moved.id)).linearSync).toBe('ask')
+
+    issue('NOTE-2').teamKey = 'OPS'
+    await seenAfterNow()
+    expect((await getTask(client, fresh?.id ?? '')).linearSync).toBe('ask')
   })
 
   test('Not now stops TED asking about that team in that Factory, and Settings can still allow it', async () => {
