@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
+import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
@@ -99,7 +100,7 @@ test('Help shows its tooltip on hover and hides it when the pointer leaves', asy
   expect(screen.queryByRole('tooltip')).toBeNull()
 })
 
-test('Done cards show merged metadata, open the Done List and confirm Archive all count', async () => {
+test('Done cards show merged metadata, request the Done List and confirm Archive all count', async () => {
   const a = bridge({
     factoryBoard: () => ({
       stages: [
@@ -144,4 +145,67 @@ test('Board Priority filter narrows cards and does not offer Stage or archived f
   view.rerender(<Board {...p} tasks={tasks} filters={{ priorities: ['high'] }} />)
   expect(document.querySelector('[data-task="NB-2"]')).toBeNull()
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
+})
+
+test('Board Show all opens its Factory’s Done-filtered List and saves that view', async () => {
+  const a = appState()
+  a.state.factories.push(factory({ id: 'f2', key: 'MS', name: 'site' }))
+  const merged = { at: new Date().toISOString(), pullRequests: [] }
+  a.state.tasks = [
+    task({ title: 'Open work' }),
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Shipped sync', stage: 'done', merged }),
+    task({
+      id: 'MS-1',
+      displayId: 'MS-1',
+      factoryId: 'f2',
+      title: 'Other Factory’s Done Task',
+      stage: 'done',
+      merged,
+    }),
+  ]
+  const allView = {
+    sort: 'title',
+    group: 'factory',
+    columns: ['title', 'factory'],
+    filters: {},
+  } as const
+  a.state.settings = {
+    ...a.state.settings,
+    listViews: {
+      all: { ...allView, columns: [...allView.columns] },
+      f1: {
+        sort: 'title',
+        group: 'stage',
+        columns: ['id', 'title', 'stage'],
+        filters: { priorities: ['high'] },
+      },
+    },
+  }
+  a.handle('factoryBoard', () => ({
+    stages: [
+      { id: 'backlog', enabled: true, gate: false },
+      { id: 'done', enabled: true, gate: false },
+    ],
+  }))
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(await screen.findByRole('button', { name: 'Show all 1 →' }))
+  await screen.findByRole('heading', { name: /widgets.*List/ })
+  await screen.findByText('Stage is Done')
+  expect(
+    [...document.querySelectorAll('tbody tr[data-task]')].map((e) => e.getAttribute('data-task')),
+  ).toEqual(['NB-2'])
+  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+    listViews: {
+      all: allView,
+      f1: {
+        sort: 'updated',
+        group: 'none',
+        columns: ['id', 'title', 'stage'],
+        filters: { stages: ['done'] },
+      },
+    },
+  })
+  expect(a.state.settings.listViews.f1?.filters).toEqual({ stages: ['done'] })
 })

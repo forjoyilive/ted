@@ -3,6 +3,7 @@ import type { SearchResults } from '@ted/protocol'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { SearchPalette } from '../src/renderer/components/SearchPalette.tsx'
+import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
@@ -112,7 +113,7 @@ test('a planning search hit dispatches its plan and Factory', async () => {
   expect(a.close).toHaveBeenCalledOnce()
 })
 
-test('commands show shortcuts, change screens, choose Priority and open Delete', async () => {
+test('commands show shortcuts, change screens and choose Priority', async () => {
   const a = open({}, true)
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'open widgets' } })
   expect(screen.getByRole('option', { name: 'Open widgets' }).textContent).toContain('⌘1')
@@ -133,4 +134,34 @@ test('no results offers Create Task with the typed text', async () => {
   await user().keyboard('{Enter}')
   expect(a.context.newTask).toHaveBeenCalledWith('kanban export')
   expect(a.close).toHaveBeenCalledOnce()
+})
+
+test('the open Task’s palette Delete command opens its dialog and Cancel keeps the Task', async () => {
+  const a = appState()
+  a.state.tasks = [task(), task({ id: 'NB-2', displayId: 'NB-2', title: 'Other Task' })]
+  a.handle('search', (query) => ({
+    query,
+    tasks: [],
+    comments: [],
+    plans: [],
+    automations: [],
+    factories: [],
+  }))
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  await u.click(within(screen.getByRole('main')).getByText('Sync notes'))
+  await screen.findByRole('region', { name: 'Task thread' })
+  fireEvent.keyDown(window, { key: 'k', metaKey: true })
+  const palette = await screen.findByRole('dialog', { name: 'Search and commands' })
+  await u.type(within(palette).getByRole('combobox'), 'Delete')
+  await u.click(within(palette).getByRole('option', { name: 'Delete…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Delete NB-1?' })
+  expect(within(dialog).getByText(/Sync notes\. TED removes/)).toBeTruthy()
+  expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
+  await u.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByRole('region', { name: 'Task thread' }).textContent).toContain('Sync notes')
+  expect(a.state.tasks.map((t) => t.id)).toEqual(['NB-1', 'NB-2'])
+  expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
 })

@@ -43,3 +43,24 @@ test('signed-out agent shows its Fix commands and follows Ready health events', 
   )
   expect(c.getByText('Ready')).toBeTruthy()
 })
+
+test('restart idle Runs defaults on and sends the changed machine setting', async () => {
+  const api = bridge({
+    agentHealth: () => [],
+    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    updateSettings: vi.fn(),
+  })
+  const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const toggle = screen.getByRole('switch', { name: 'Restart idle Runs onto new agent versions' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  await user().click(toggle)
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { restartIdleRuns: false })
+  expect(api.request.mock.calls.filter(([name]) => name === 'updateSettings')).toHaveLength(1)
+  view.rerender(
+    <AgentsPage
+      settings={{ ...defaultMachineSettings, restartIdleRuns: false }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(toggle.getAttribute('aria-checked')).toBe('false')
+})
