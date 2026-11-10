@@ -1,15 +1,16 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 
 const cliPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 
+import { shellQuote } from '../../daemon/src/node-entry.ts'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
 import { stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
@@ -556,6 +557,63 @@ describe('ted open', () => {
         )
       return { env, read }
     }
+
+    test('brings the running app forward instead of launching another copy', async () => {
+      await ted(['task', 'list'])
+      const info = await readDaemonInfo(home)
+      if (!info) throw new Error('no daemon.json')
+      const seen: unknown[] = []
+      const subscription = await new DaemonClient(info).subscribe((event) => seen.push(event), {
+        app: true,
+      })
+      try {
+        const app = await fakeApp()
+
+        const { stdout } = await ted(['open'], 30_000, app.env)
+
+        expect(stdout.trim()).toBe('Opened TED')
+        await expect.poll(() => seen).toContainEqual({ type: 'open-requested' })
+        expect(await app.read()).toBeUndefined()
+      } finally {
+        subscription.close()
+      }
+    })
+
+    test('the bundled Linux command finds and launches its app through an installed symlink', async () => {
+      const outer = path.join(home, 'Installed TED')
+      const resources = path.join(outer, 'resources')
+      const bundledCommand = path.join(resources, 'bin', 'ted')
+      const stagedCli = path.join(resources, 'app', 'packages', 'cli', 'src', 'main.js')
+      const launched = path.join(home, 'launched.json')
+      await mkdir(path.dirname(stagedCli), { recursive: true })
+      await mkdir(path.dirname(bundledCommand), { recursive: true })
+      await writeFile(stagedCli, `await import(${JSON.stringify(pathToFileURL(cliPath).href)})\n`)
+      await writeFile(
+        bundledCommand,
+        await readFile(new URL('../../app/build/bin/ted', import.meta.url)),
+        { mode: 0o755 },
+      )
+      await writeFile(
+        path.join(outer, 'ted-app'),
+        `#!/bin/sh\nif [ "$ELECTRON_RUN_AS_NODE" = 1 ]; then\n  exec ${shellQuote(process.execPath)} "$@"\nfi\nprintf '{"args":"%s","runAsNode":"%s"}' "$*" "$ELECTRON_RUN_AS_NODE" > ${shellQuote(launched)}\n`,
+        { mode: 0o755 },
+      )
+      const bin = path.join(home, 'bin')
+      await mkdir(bin)
+      const installed = path.join(bin, 'ted')
+      await symlink(path.relative(bin, bundledCommand), installed)
+
+      const { stdout } = await run(installed, ['open'], {
+        cwd: home,
+        env: { ...process.env, TED_HOME: home, TED_APP_EXECUTABLE: '' },
+      })
+
+      expect(stdout.trim()).toBe('Opening TED')
+      await expect
+        .poll(() => readFile(launched, 'utf8').then(JSON.parse, () => undefined))
+        .toEqual({ args: '', runAsNode: '' })
+      expect(await readDaemonInfo(home)).toBeUndefined()
+    })
 
     test('starts the app when it isn’t open', async () => {
       await ted(['task', 'list'])
