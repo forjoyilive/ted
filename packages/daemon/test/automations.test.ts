@@ -805,6 +805,11 @@ describe('Automations', () => {
 test('Automation Runs use auto permissions even when the Factory is set to bypass', async () => {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\npermissions: bypass\n' })
   const client = await startTed()
+  const [factory] = await client.ok<Factory[]>('GET', '/factories')
+  await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+    mode: 'bypass',
+    confirmBypass: true,
+  })
   for (const agent of ['claude', 'codex'] as const) {
     const automation = await create(client, { name: `Intake ${agent}`, agent })
     await client.ok('POST', `/automations/${automation.id}/run`)
@@ -949,6 +954,11 @@ describe('Tasks an Automation Run starts', () => {
       '.ted/workflow.yaml': 'version: 1\npermissions: bypass\norder: [intake, work, merge]\n',
     })
     const client = await startTed()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
     const done = await doneTask(client)
     const { automation, created, followUp } = await fire(client, done)
     await new Promise((resolve) => setTimeout(resolve, 500))

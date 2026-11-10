@@ -38,6 +38,7 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
+import { runPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
 import { signalProcess } from '../signal.ts'
@@ -427,6 +428,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const files = runFiles(runDir)
       const start = await startRecord(runDir)
       if (!start) return
+      const permissions = runPermissions(store, run)
       const launch = agents.get(run.agent).launch({
         prompt: '',
         runDir,
@@ -434,13 +436,15 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         resume: run.sessionId,
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
-        permissions: run.permissions,
+        permissions,
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
         (info) => info.size,
         () => 0,
       )
+      store.setRunPermissions(runId, permissions)
+      await store.persisted()
       await writeLaunch(runDir, run.cwd, launch, inputFrom)
       replacing.set(runId, launch.env)
       await signalHost(runDir, await hostPid(runDir, start), 'SIGTERM')
@@ -483,6 +487,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await writeFile(path.join(runDir, name), content, { mode: 0o600 })
     }
     const launchFile: LaunchFile = {
+      launchId: randomUUID(),
       command: launch.command,
       args: launch.args,
       cwd,
@@ -605,6 +610,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const agent = agents.get(kind)
       const runDir = path.join(runsDir, id)
       await mkdir(runDir, { mode: 0o700 })
+      permissions = runPermissions(store, { taskId })
       const launch = agent.launch({
         prompt,
         runDir,
@@ -655,6 +661,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s old host is still running`)
         await sleep(pollMs)
       }
+      const permissions = runPermissions(store, run)
       const launch = agents.get(run.agent).launch({
         prompt,
         runDir,
@@ -662,7 +669,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         resume: run.sessionId,
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
-        permissions: run.permissions,
+        permissions,
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
@@ -679,6 +686,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
       refuseWhileShuttingDown()
       stopRequested.delete(runId)
+      store.setRunPermissions(runId, permissions)
+      await store.persisted()
       const revived = store.reviveRun(runId)
       spawnHost(runDir, launch.env)
       follow(runId, { revived: true })
@@ -694,6 +703,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const runDir = path.join(runsDir, runId)
       const start = await startRecord(runDir)
       if (!start) throw new Error(`Run ${runId}'s host never started`)
+      const permissions = runPermissions(store, run)
       const launch = agents.get(run.agent).launch({
         prompt: '',
         runDir,
@@ -701,9 +711,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         resume: run.sessionId,
         ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
         ...(flags.effort !== undefined && { effort: flags.effort }),
-        permissions: run.permissions,
+        permissions,
         billing: billingOf(run.agent),
       })
+      store.setRunPermissions(runId, permissions)
+      await store.persisted()
       await writeLaunch(runDir, run.cwd, launch)
       const before = await startRecordCount(runDir)
       const restarted = store.restartRun(runId, flags)

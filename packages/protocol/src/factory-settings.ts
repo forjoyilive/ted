@@ -185,6 +185,7 @@ export interface FactorySettingsView {
   tries: CheckTry[]
   agents: AgentRowView[]
   permissions: PermissionMode
+  repoPermissions?: PermissionMode
   maxWorkingRuns?: number
   machineMaxWorkingRuns: number
   notes: string

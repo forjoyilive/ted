@@ -917,6 +917,17 @@ export class DaemonClient {
     return this.#request('POST', '/factories', input)
   }
 
+  setFactoryPermissions(
+    factoryId: string,
+    mode: 'auto' | 'bypass',
+    confirmBypass = false,
+  ): Promise<{ mode: 'auto' | 'bypass' }> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/permissions`, {
+      mode,
+      confirmBypass,
+    })
+  }
+
   factorySettings(factoryId: string): Promise<FactorySettingsView> {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/settings`)
   }

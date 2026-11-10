@@ -212,7 +212,6 @@ export function settingsChanges(
     changes.agents ??= {}
     changes.agents[role] = draft.agents[role]
   }
-  if (draft.permissions !== loaded.permissions) changes.permissions = draft.permissions
   const limit = limitValue(draft.maxWorkingRuns)
   if (limit !== limitValue(loaded.maxWorkingRuns)) changes.maxWorkingRuns = limit
   if (draft.notes !== loaded.notes) changes.notes = draft.notes
@@ -237,7 +236,6 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
   }
   yaml += Object.keys(changes.agents ?? {}).length
   yaml += changes.keepStageFiles?.length ?? 0
-  if (changes.permissions !== undefined) yaml += 1
   if (changes.maxWorkingRuns !== undefined) yaml += 1
   const stageFiles = Object.entries(changes.stageFiles ?? {}) as [AgentStageId, string | null][]
   const overrides = stageFiles.some(

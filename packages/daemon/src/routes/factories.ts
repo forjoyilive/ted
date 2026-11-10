@@ -27,9 +27,30 @@ import {
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { addFactory } from '../factories.ts'
+import { factoryPermissions } from '../permissions.ts'
 import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
+  {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/permissions$/,
+    async handle({ req, params: [id = ''] }, { store, workflows }) {
+      const factory = store.getFactory(id)
+      if (!factory) throw new HttpError(404, 'no such Factory')
+      const body = record(await readJson(req))
+      const mode = permissionModes.find((mode) => mode === body.mode)
+      if (!mode) throw new HttpError(400, 'mode must be auto or bypass')
+      if (mode === 'bypass' && body.confirmBypass !== true) {
+        throw new HttpError(409, 'Confirm Bypass on this computer in Factory settings')
+      }
+      const permissions = { ...store.settings().factoryPermissions }
+      if (mode === 'auto') delete permissions[id]
+      else permissions[id] = mode
+      store.updateSettings({ factoryPermissions: permissions })
+      await workflows.resolve(factory, { fetch: false })
+      return [200, { mode: factoryPermissions(store, id) }]
+    },
+  },
   {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,
@@ -395,9 +416,10 @@ function settingsChanges(given: unknown): FactorySettingsChanges {
     }
   }
   if (body.permissions !== undefined) {
-    const mode = permissionModes.find((m) => m === body.permissions)
-    if (mode === undefined) throw new HttpError(400, 'permissions must be auto or bypass')
-    changes.permissions = mode
+    throw new HttpError(
+      400,
+      'Permission mode is local to this computer; use Factory settings permissions',
+    )
   }
   if (body.maxWorkingRuns !== undefined) {
     const limit = body.maxWorkingRuns

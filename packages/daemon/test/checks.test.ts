@@ -75,8 +75,13 @@ const workflow = (checks: string, extra: Record<string, string> = {}) =>
     ...extra,
   })
 
-async function startTask(client: Client, title: string): Promise<Task> {
-  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+async function startTask(client: Client, title: string, bypass = false): Promise<Task> {
+  const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  if (bypass)
+    await client.ok('PUT', `/factories/${factory.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   return task
@@ -798,29 +803,38 @@ describe('the Checks’ sandbox', () => {
     },
   )
 
-  test('in a Bypass Factory the Checks run as before, outside any sandbox', async () => {
-    await commitToOrigin(scratch, {
-      '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'permissions: bypass',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        escapeCheck([path.join(scratch, 'out')]),
-        '',
-      ].join('\n'),
-    })
-    const client = await startTed()
-    const task = await startTask(
-      client,
-      steps({ run: ['sh', '-c', 'echo x > a.txt'] }, { run: ['ted', 'checks'] }, { endTurn: true }),
-    )
-    const [run] = await finishedRuns(client, task, 1)
-    expect(states(run)).toEqual([['Escape', 'passed']])
-    expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
-  })
+  test.each([false, true])(
+    'repo Bypass only removes the Checks’ sandbox with local consent: %s',
+    async (consent) => {
+      await commitToOrigin(scratch, {
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'permissions: bypass',
+          'order: [intake, work, validate]',
+          'stages:',
+          '  validate:',
+          '    checks:',
+          escapeCheck([path.join(scratch, 'out')]),
+          '',
+        ].join('\n'),
+      })
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        consent,
+      )
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([['Escape', 'passed']])
+      if (consent) expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
+      else await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
 
   test('without a working sandbox, ted checks is refused and a banner says why', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')

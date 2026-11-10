@@ -330,7 +330,7 @@ describe('Runs across daemon restarts', () => {
       home,
       version: '9.9.9',
       claudeBin: stubClaudePath,
-      oldestHost: 2,
+      oldestHost: 3,
     })
     const client = api(daemon.port, { appKey: daemon.appToken })
 
@@ -385,7 +385,7 @@ describe('Runs across daemon restarts', () => {
       home,
       version: '9.9.9',
       claudeBin: stubClaudePath,
-      oldestHost: 2,
+      oldestHost: 3,
     })
     const client = api(daemon.port, { appKey: daemon.appToken })
     const settled = await waitUntil(async () => {

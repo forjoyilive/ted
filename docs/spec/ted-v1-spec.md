@@ -257,7 +257,7 @@ Rules:
 - `order` is all or nothing: the most specific layer that has one wins outright. (KRI-12)
 - `stages.<id>` settings and `lead`, `reviewer`, `planner` merge key by key across layers. (KRI-12, KRI-53)
 - A Stage file in a more specific layer replaces the one with the same id as a whole. (KRI-12)
-- Every Workflow setting, including Gates and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `worktree`), Checks, `permissions` and `max_working_runs`. (KRI-12, KRI-53, KRI-57)
+- Every Workflow setting, including Gates and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `worktree`), Checks and `max_working_runs`. Permission mode is machine-local per Factory (7.8); a legacy `permissions` key is advisory only. (KRI-12, KRI-53, KRI-57)
 - Any Task TED creates to change `.ted/` (setup, drift merge) has the Review Gate forced on. Setup also forces the Design Gate. (KRI-22, KRI-58)
 
 ### 4.5 `workflow.yaml`
@@ -270,7 +270,7 @@ Rules:
 | `planner` | any layer, merged | Agent for Planning Runs only, as `lead`. Default: Claude if installed, else Codex. | KRI-53, KRI-60 |
 | `model` (in `lead`, `reviewer`, `planner`) | any layer | The CLI’s alias where it has one (Claude: `opus`, `sonnet`, `haiku`, …), the exact name otherwise (Codex has no aliases). Unset: the CLI’s own default and any org admin default. | KRI-53 |
 | `effort` (same) | any layer | The CLI’s levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. An unsupported level drops to the highest the model allows. Unset: the CLI’s default. | KRI-53 |
-| `permissions` | Factory only | `auto` (default) or `bypass`. Applies to every Run in the Factory (7.8). | KRI-20, KRI-53 |
+| `permissions` | Legacy Factory key | Advisory `auto` or `bypass`; never authorizes Bypass. The effective mode is chosen on each computer (7.8). | KRI-20, KRI-53, KRI-165 |
 | `max_working_runs` | Factory only | Optional per-Factory cap on working Runs. Unset by default. | KRI-15, KRI-57 |
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
@@ -317,7 +317,6 @@ version: 1
 lead: { agent: claude, model: opus, effort: high }
 reviewer: { agent: codex, effort: medium }
 planner: claude
-permissions: auto
 max_working_runs: 3
 repos:
   - name: app
@@ -773,7 +772,10 @@ At Run start TED gives the agent: (KRI-11, KRI-19, KRI-22, KRI-60)
 
 ### 7.8 Permission modes
 
-- One `permissions` setting, Factory layer only: `auto` (default) or `bypass`. It applies to Task Leads, sub-agents, reviewers and Planning Runs. Automation Runs always run in `auto`, whatever the Factory sets, because they read untrusted content (Sentry, Linear and GitHub issues) with no human watching. (KRI-20, KRI-53)
+- Permission mode is saved per Factory on this computer: `auto` (default) or `bypass`. It applies to Task Leads, sub-agents and reviewers. Planning, Automation and Coordinator Runs always use Auto. (KRI-20, KRI-53, KRI-165)
+- Factory settings has a separate **This computer** permission control. **Enable Bypass…** opens a warning with an unchecked acknowledgement and **Enable Bypass**; only the app can save that confirmation. **Use Auto** saves immediately without confirmation. Neither action creates a pull request. New Checks and agent-started Apps also use this mode for sandboxing; the confirmed human-started App exception remains. (KRI-165)
+- A committed `.ted/workflow.yaml` cannot enable or disable Bypass. Legacy `permissions` values remain valid but advisory; repo Bypass with local Auto raises a warning linking to Factory settings. Existing repo settings and old Save confirmations do not migrate into consent. Another computer and a removed/re-added Factory start in Auto. (KRI-165)
+- Changes apply to newly launched processes, including restart and recovery. Running Runs, Checks and Apps retain their current access until stopped; the settings control explains this. (KRI-165)
 - **`auto`:** Claude Code `--permission-mode auto` with prompts routed to TED; Codex `-s workspace-write -a on-request`. Prompts become `permission` Comments. If Claude’s auto mode isn’t available (unsupported model, or disabled by an org admin), TED uses manual mode with every prompt in the Inbox and notes it on the Run. (KRI-53)
 - **`bypass`:** Claude Code `bypassPermissions`; Codex `danger-full-access` with no approvals. Only for Factories whose Runs happen in an isolated machine or VM. (KRI-53)
 - A permission request is a Comment from the Run with **Deny** and **Approve**, shown in the thread, the Inbox and as a row in the Run chat. A Run waiting on one shows as waiting. Approve and Deny apply to that request only; no “always allow” in v1. A permission request whose Run stops is withdrawn. (KRI-20, KRI-53, KRI-56)

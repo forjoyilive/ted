@@ -1,6 +1,6 @@
 import type { Billing } from './health.ts'
 import type { ListView } from './list-view.ts'
-import type { AgentKind } from './run.ts'
+import type { AgentKind, PermissionMode } from './run.ts'
 import type { EditorChoice } from './shell.ts'
 
 export const timeFormats = ['system', '12-hour', '24-hour'] as const
@@ -46,6 +46,7 @@ export interface MachineSettings {
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
+  factoryPermissions: Readonly<Record<string, PermissionMode>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
 }
 
@@ -76,6 +77,7 @@ export const defaultMachineSettings: MachineSettings = {
   linearSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
+  factoryPermissions: {},
   appsOutsideSandbox: {},
 }
 

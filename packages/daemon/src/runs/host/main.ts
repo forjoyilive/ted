@@ -48,10 +48,12 @@ let current: Started | undefined
 let generation = earlierStarts
 let restarting = false
 let restartWanted = false
+let lastLaunchId: string | undefined
 const asked = { stop: false }
 
 async function startAgent(): Promise<Started> {
   const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  lastLaunchId = launch.launchId
   const drive =
     launch.driver === undefined
       ? undefined
@@ -153,6 +155,9 @@ for (;;) {
   ;[code, signal] = await current.closed
   spawnError = current.spawnError()
   if (!restartWanted) break
+  // Only the daemon prepares a new launch after checking this computer’s permission mode.
+  const next = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  if (next.launchId === undefined || next.launchId === lastLaunchId) break
 }
 
 clearInterval(inputTimer)

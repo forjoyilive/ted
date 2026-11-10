@@ -293,33 +293,32 @@ describe('Factory settings: Agents, Permissions and notes', () => {
     })
   })
 
-  test('turning on Bypass needs confirming, and the limit on working Runs saves', async () => {
+  test('permission mode saves locally after confirmation; repo settings only save the Run limit', async () => {
     const client = await start()
     const view = await client.settings()
     expect(view.permissions).toBe('auto')
-    expect(view.machineMaxWorkingRuns).toBe(6)
-    const changes = { ...unchanged(view), permissions: 'bypass' as const, maxWorkingRuns: 3 }
-    expect((await client.preview(changes)).turnsOnBypass).toBe(true)
-    const refused = await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
-      changes,
-      mode: 'merge',
-      version: view.version,
-    })
-    expect(refused.status).toBe(409)
+    const route = `/factories/${client.factory.id}/permissions`
+    expect((await client.call('PUT', route, { mode: 'bypass' })).status).toBe(409)
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    expect((await client.settings()).permissions).toBe('bypass')
     expect(await originFile('.ted/workflow.yaml')).not.toContain('bypass')
-    await client.save(changes, view.version, { confirmBypass: true })
-    const yaml = await originFile('.ted/workflow.yaml')
-    expect(yaml).toContain('permissions: bypass')
-    expect(yaml).toContain('max_working_runs: 3')
+    const changes = { ...unchanged(view), maxWorkingRuns: 3 }
+    expect((await client.preview(changes)).turnsOnBypass).toBe(false)
+    expect(
+      (
+        await client.call('POST', `/factories/${client.factory.id}/settings/save`, {
+          changes: { ...changes, permissions: 'bypass' },
+          mode: 'merge',
+          version: view.version,
+          confirmBypass: true,
+        })
+      ).status,
+    ).toBe(400)
+    await client.save(changes, view.version)
     const after = await client.settings()
     expect(after).toMatchObject({ permissions: 'bypass', maxWorkingRuns: 3 })
-    await client.save(
-      { ...unchanged(after), permissions: 'auto', maxWorkingRuns: null },
-      after.version,
-    )
-    const back = await originFile('.ted/workflow.yaml')
-    expect(back).toContain('permissions: auto')
-    expect(back).not.toContain('max_working_runs')
+    await client.ok('PUT', route, { mode: 'auto' })
+    expect((await client.settings()).permissions).toBe('auto')
   })
 
   test('Factory notes save to .ted/notes.md', async () => {

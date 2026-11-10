@@ -1,7 +1,16 @@
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Banner, Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
+import type {
+  Banner,
+  Comment,
+  Factory,
+  InboxItem,
+  Run,
+  SubAgent,
+  Task,
+  ThreadEvent,
+} from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -11,6 +20,7 @@ import {
   api,
   assistantTexts,
   commitToOrigin,
+  hostRecords,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -331,8 +341,13 @@ describe('permission modes', () => {
     expect(banners.some((b) => b.problem === 'auto-mode-unavailable')).toBe(false)
   })
 
-  test('a Factory with permissions: bypass starts Claude Code with bypassPermissions', async () => {
-    const client = await start('version: 1\npermissions: bypass\n')
+  test('local consent starts Claude Code with bypassPermissions even when the repo says Auto', async () => {
+    const client = await start('version: 1\npermissions: auto\n')
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
     const task = await startTask(client, [{ endTurn: true }])
     const run = await leadRun(client, task)
     expect(run.permissions).toBe('bypass')
@@ -430,6 +445,12 @@ describe('who can answer, and what an answer covers', () => {
     const { hostPid } = JSON.parse(
       (await readFile(path.join(runDir, 'host.log'), 'utf8')).split('\n')[0] ?? '{}',
     ) as { hostPid: number }
+    const launchPath = path.join(runDir, 'launch.json')
+    const launch = JSON.parse(await readFile(launchPath, 'utf8')) as Record<string, unknown>
+    await writeFile(
+      launchPath,
+      JSON.stringify({ ...launch, launchId: 'prepared-restart-for-stale-reply' }),
+    )
     process.kill(hostPid, 'SIGHUP')
 
     const second = await waitUntil(
@@ -589,5 +610,140 @@ describe('who can answer, and what an answer covers', () => {
       return c?.answer ? c : undefined
     }, 'the request to be withdrawn')
     expect(withdrawn.answer).toMatchObject({ kind: 'withdrawn', runStopped: true })
+  })
+})
+
+describe('local Factory permission consent', () => {
+  test('a committed Bypass request stays in Auto and raises a banner; only confirmed app requests enable it', async () => {
+    const client = await start('version: 1\npermissions: bypass\n')
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    expect(run.permissions).toBe('auto')
+    const route = `/factories/${task.factoryId}/permissions`
+    const banners = () => client.ok<Banner[]>('GET', '/banners')
+    expect(await banners()).toContainEqual(
+      expect.objectContaining({ problem: 'repo-requests-bypass', factoryId: task.factoryId }),
+    )
+    const asRun = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(run.id),
+    )
+    const subAgent = async (expected: 'auto' | 'bypass') => {
+      const response = await asRun.call('POST', `/tasks/${task.id}/sub-agents`, {
+        prompt: steps({ endTurn: true }),
+        name: `Child ${expected}`,
+      })
+      expect(response.status).toBe(201)
+      const child = response.body as SubAgent
+      const started = await waitUntil(async () => {
+        const found = await client.call('GET', `/runs/${child.id}`)
+        return found.status === 200 ? (found.body as { run: Run }).run : undefined
+      }, 'the sub-agent to start')
+      expect(started.permissions).toBe(expected)
+    }
+    await subAgent('auto')
+    for (const caller of [asRun, client.fileToken]) {
+      expect(
+        (await caller.call('PUT', route, { mode: 'bypass', confirmBypass: true })).status,
+      ).toBe(403)
+    }
+    expect((await client.call('PUT', route, { mode: 'bypass' })).status).toBe(409)
+    expect(
+      (await client.call('PUT', route, { mode: 'bypass', confirmBypass: 'true' })).status,
+    ).toBe(409)
+    expect((await client.call('PUT', route, { mode: 'other' })).status).toBe(400)
+    expect(
+      (await client.call('PUT', '/factories/missing/permissions', { mode: 'auto' })).status,
+    ).toBe(404)
+    expect(
+      (
+        await client.call('PATCH', '/settings', {
+          factoryPermissions: { [task.factoryId]: 'bypass' },
+        })
+      ).status,
+    ).toBe(400)
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    expect((await banners()).some((b) => b.problem === 'repo-requests-bypass')).toBe(false)
+    await subAgent('bypass')
+    // Changing consent does not interrupt or relabel the already running process.
+    expect((await client.getRun(run.id)).run.permissions).toBe('auto')
+    const next = await leadRun(
+      client,
+      await startTask(client, [{ endTurn: true }], { agent: 'codex' }),
+    )
+    expect(next.permissions).toBe('bypass')
+    const record = await waitUntil(
+      () =>
+        readFile(path.join(next.cwd, 'stub-record.json'), 'utf8')
+          .then((s) => (s.includes('danger-full-access') ? s : undefined))
+          .catch(() => undefined),
+      'Codex Bypass arguments',
+    )
+    expect(record).toContain('danger-full-access')
+    await client.ok('PUT', route, { mode: 'auto' })
+    expect(await banners()).toContainEqual(
+      expect.objectContaining({ problem: 'repo-requests-bypass' }),
+    )
+  })
+
+  test('revoking consent takes effect on restart and on recovery after an unprepared host restart', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    await client.ok('PUT', route, { mode: 'auto' })
+    await client.ok('POST', `/runs/${run.id}/restart`)
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).filter((r) => r.t === 'start').length >= 2,
+      'restart',
+    )
+    expect((await client.getRun(run.id)).run.permissions).toBe('auto')
+    const record = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+      argv: string[]
+    }
+    expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.state === 'idle',
+      'idle after restart',
+    )
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const recoveringTask = await startTask(client, [{ endTurn: true }])
+    const recovering = await leadRun(client, recoveringTask)
+    await waitUntil(
+      async () => (await client.getRun(recovering.id)).run.state === 'idle',
+      'second idle Run',
+    )
+    await client.ok('PUT', route, { mode: 'auto' })
+    const starts = (await hostRecords(home, recovering.id)).filter((r) => r.t === 'start')
+    process.kill(Number(starts.at(-1)?.hostPid), 'SIGHUP')
+    await waitUntil(
+      async () =>
+        (await hostRecords(home, recovering.id)).filter((r) => r.t === 'start').length >= 2,
+      'daemon recovery',
+    )
+    expect((await client.getRun(recovering.id)).run.permissions).toBe('auto')
+  })
+
+  test('local consent persists on daemon restart and is removed with the Factory', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const id = factory?.id ?? ''
+    await client.ok('PUT', `/factories/${id}/permissions`, { mode: 'bypass', confirmBypass: true })
+    await daemon?.stop()
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    const reopened = api(daemon.port, { appKey: daemon.appToken })
+    expect((await reopened.call('GET', `/factories/${id}/settings`)).body).toMatchObject({
+      permissions: 'bypass',
+    })
+    expect((await reopened.call('POST', `/factories/${id}/remove`, { key: 'NB' })).status).toBe(200)
+    expect((await reopened.call('GET', '/settings')).body).toMatchObject({ factoryPermissions: {} })
   })
 })

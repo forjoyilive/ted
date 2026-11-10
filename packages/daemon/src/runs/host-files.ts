@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 export interface LaunchFile {
+  launchId?: string
   command: string
   args: string[]
   cwd: string
@@ -20,8 +21,8 @@ export type DriveAgent = (io: {
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 1
-export const oldestHostProtocol = 1
+export const hostProtocol = 2
+export const oldestHostProtocol = 2
 
 export type HostRecord =
   | { t: 'start'; v: number; hostPid: number; agentPid: number | null }
