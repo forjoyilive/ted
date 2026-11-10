@@ -1055,6 +1055,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
+          developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}

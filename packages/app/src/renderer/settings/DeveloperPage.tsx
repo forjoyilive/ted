@@ -65,7 +65,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow
           title="Developer mode"
-          help="Shows CPU and memory usage for Runs and daemon processes, plus logs, on this page. Readings refresh every two seconds while this page is open."
+          help="Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible."
         >
           <Switch
             label="Developer mode"
