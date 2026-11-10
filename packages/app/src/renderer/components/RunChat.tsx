@@ -5,6 +5,7 @@ import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/proto
 import { type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useRunChat } from '../data.ts'
+import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentAvatar } from './Avatar.tsx'
@@ -294,13 +295,14 @@ function HumanMessage({
   run: RunSummary
   now: number
 }) {
+  const profile = useProfile()
   const queued = item.queued === true
   const live = run.state !== 'finished'
   return (
     <div className={styles.human}>
       <div className={styles.bubble} data-queued={queued}>
         <div className={styles.messageHead}>
-          <span className={styles.author}>You</span>
+          <span className={styles.author}>{profile.name}</span>
           <span className={styles.when}>
             {' · to this Run only'}
             {!queued && ` · ${ago(item.at, now)}`}

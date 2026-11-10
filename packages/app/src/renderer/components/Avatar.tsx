@@ -1,4 +1,5 @@
 import type { AgentKind } from '@ted/protocol'
+import { useState } from 'react'
 import styles from './Avatar.module.css'
 import { AgentMark, agentNames } from './RunIcon.tsx'
 
@@ -26,10 +27,19 @@ export function PersonAvatar({
   photo?: string | undefined
   size?: number
 }) {
+  const [failedPhoto, setFailedPhoto] = useState<string>()
   const box = { width: size, height: size, borderRadius: size / 2 }
-  if (photo !== undefined) {
+  if (photo !== undefined && photo !== failedPhoto) {
     return (
-      <img className={styles.photo} src={photo} alt={name} width={size} height={size} style={box} />
+      <img
+        className={styles.photo}
+        src={photo}
+        onError={() => setFailedPhoto(photo)}
+        alt={name}
+        width={size}
+        height={size}
+        style={box}
+      />
     )
   }
   return (

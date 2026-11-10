@@ -3,6 +3,7 @@ import { systemTimeZone } from '@ted/protocol/time'
 import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
+import { useProfile } from '../profile.tsx'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { formatTime } from '../time.ts'
@@ -42,14 +43,6 @@ const fontSizeOptions = Array.from(
   },
 )
 
-function useProfileName(): string {
-  const [name, setName] = useState('')
-  useEffect(() => {
-    void ted.getProfile().then((profile) => setName(profile.name))
-  }, [])
-  return name
-}
-
 function useLoginItem(): LoginItemState | undefined {
   const [state, setState] = useState<LoginItemState>()
   useEffect(() => {
@@ -77,7 +70,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
   const now = useNow()
   const systemZone = systemTimeZone()
   const zones = [...new Set([systemZone, 'UTC', ...(Intl.supportedValuesOf?.('timeZone') ?? [])])]
-  const name = useProfileName()
+  const { name } = useProfile()
   const loginItem = useLoginItem()
   const loginNote = settings.startAtLogin ? loginItemNote(loginItem) : undefined
   const [problem, setProblem] = useState<string>()
