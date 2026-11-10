@@ -65,7 +65,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow
           title="Developer mode"
-          help="Shows Diagnostics and a viewer for the daemon’s log and each Run’s raw output on this page."
+          help="Shows CPU and memory usage for Runs and daemon processes, plus logs, on this page. Readings refresh every two seconds while this page is open."
         >
           <Switch
             label="Developer mode"
@@ -122,7 +122,7 @@ function DiagnosticsView({
 }) {
   const memory = diagnostics?.memory
   const used = memory ? memory.totalBytes - memory.availableBytes : 0
-  const pressure = memory ? Math.round((used / memory.totalBytes) * 100) : 0
+  const usedPercent = memory ? Math.round((used / memory.totalBytes) * 100) : 0
 
   return (
     <section className={styles.group} aria-label="Diagnostics">
@@ -132,11 +132,11 @@ function DiagnosticsView({
       </div>
       <div className={styles.box}>
         <SettingRow
-          title="Memory pressure"
-          help="How much of this computer’s memory is in use. Above 90%, Runs slow down and the system may start to swap."
+          title="System memory usage"
+          help="Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below."
           detail={
             memory
-              ? `${pressure}% in use · ${gigabytes(memory.availableBytes)} available of ${gigabytes(memory.totalBytes)}`
+              ? `${usedPercent}% in use · ${gigabytes(memory.availableBytes)} available of ${gigabytes(memory.totalBytes)}`
               : 'Reading…'
           }
         />
