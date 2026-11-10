@@ -31,6 +31,7 @@ import { factoryRoutes } from './routes/factories.ts'
 import { integrationRoutes } from './routes/integrations.ts'
 import { libraryRoutes } from './routes/library.ts'
 import { machineRoutes } from './routes/machine.ts'
+import { peerRoutes } from './routes/peers.ts'
 import { planRoutes } from './routes/plans.ts'
 import {
   type BaseOptions,
@@ -145,6 +146,7 @@ async function settled(data: Data): Promise<void> {
 
 const routes: Route[] = [
   ...taskRoutes,
+  ...peerRoutes,
   ...shellRoutes,
   ...appRoutes,
   ...factoryRoutes,
@@ -210,7 +212,8 @@ async function handle(
       const coordinatorTool =
         (req.method === 'GET' &&
           /^\/coordinator\/tasks(?:\/[^/?]+)?(?:\?offset=\d{1,8})?$/.test(url)) ||
-        (req.method === 'POST' && /^\/coordinator\/tasks\/[^/]+\/(start|move)$/.test(url))
+        (req.method === 'POST' &&
+          /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume)$/.test(url))
       if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {
         throw new HttpError(403, 'Coordinator Runs may only use their Factory-scoped tools')
       }

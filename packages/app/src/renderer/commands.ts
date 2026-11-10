@@ -8,6 +8,7 @@ import {
 } from './components/ArchiveDialogs.tsx'
 import { pickBlockerEvent } from './components/TaskActions.tsx'
 import { openInEditor } from './editor.ts'
+import { openTaskFiles } from './files.ts'
 import type { Direction } from './key-targets.ts'
 import { keysFor } from './keymap.ts'
 import type { FactoryView, NavigationAction } from './navigation.ts'
@@ -252,6 +253,18 @@ export function taskCommands(task: Task): Command[] {
     })
   }
   if (hasWorktree(task)) {
+    list.push({
+      id: 'quick-open',
+      label: 'Open a file…',
+      scope: 'task',
+      shortcuts: keysFor('quick-open'),
+      keywords: 'files quick open worktree',
+      run: ({ task: open, dispatch }) => {
+        if (open?.id !== task.id)
+          dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+        openTaskFiles(task.id)
+      },
+    })
     list.push({
       id: 'shell',
       label: 'Open shell',

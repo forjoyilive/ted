@@ -18,7 +18,7 @@ import {
   sidebar,
   startDaemonAsApp,
 } from './app-harness.ts'
-import { firstWindow } from './first-window.ts'
+import { appLoaded, firstWindow } from './first-window.ts'
 
 setUpAppTests()
 
@@ -60,7 +60,7 @@ describe('TED app frame', () => {
     window.on('console', (message) => {
       if (/Content Security Policy/i.test(message.text())) violations.push(message.text())
     })
-    await sidebar(window).waitFor()
+    await appLoaded(window)
 
     const loaded = await window.evaluate(async () => {
       const faces = [
@@ -152,6 +152,7 @@ describe('New Task dialog', () => {
     const window = await withFactory()
     await window.keyboard.press('Meta+N')
     const open = dialog(window)
+    await expect.poll(() => open.getByLabel('Description', { exact: true }).isEnabled()).toBe(true)
 
     const dropped = await window.evaluateHandle(() => {
       const data = new DataTransfer()

@@ -1,5 +1,7 @@
 import type { Priority } from './task.ts'
 
+export const busyHold = 'this computer is busy'
+
 export type SlotHolder =
   | TaskSlotHolder
   | AutomationSlotHolder
@@ -104,4 +106,6 @@ export interface RunSlots {
   holders: SlotHolder[]
   queue: QueuedForSlot[]
   factories: FactorySlots[]
+  heldForLoad?: true
+  loadRatio?: number
 }

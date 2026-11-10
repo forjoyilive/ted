@@ -28,6 +28,7 @@ import {
   stageEdited,
 } from '../factory-settings.ts'
 import { type MarkdownBlock, markdownBlocks, markdownSpans } from '../markdown.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { readableError, ted } from '../ted.ts'
 import base from './FactorySettings.module.css'
 import styles from './FactorySettingsSections.module.css'
@@ -192,11 +193,18 @@ export function WorkflowSection({
         title="Workflow"
         help="The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory."
       />
+      <OvernightNotice />
       <div className={styles.table}>
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
           <span>Stage</span>
           <span>On</span>
-          <span>Gate</span>
+          <span className={styles.gateHeading}>
+            Gate
+            <Help>
+              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
+              on. If the Stage skips itself, its Gate is skipped too.
+            </Help>
+          </span>
           <span>Send-backs</span>
           <span>Clarify depth</span>
           <span>From</span>

@@ -16,6 +16,7 @@ function handlers() {
     taskDescriptions: () => [],
     listComments: () => [],
     taskBrief: () => null,
+    taskGates: () => ({ overrides: {}, rows: [], revision: 'test' }),
   }
 }
 
