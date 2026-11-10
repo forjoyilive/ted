@@ -48,6 +48,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await daemon?.stop()
   daemon = undefined
+  vi.unstubAllEnvs()
   await killRunHosts(home)
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
@@ -255,4 +256,103 @@ test('editor launch revalidates selected files and refuses symlinks and FIFOs', 
   await run('mkfifo', [path.join(f.worktree, 'src/hello.ts')])
   expect((await open('src/hello.ts')).status).toBeGreaterThanOrEqual(400)
   expect(f.launches).toHaveLength(1)
+})
+
+async function gitListing(output: string) {
+  const realGit = (await run('which', ['git'])).stdout.trim()
+  const bin = path.join(scratch, 'git-bin')
+  const listing = path.join(scratch, 'git-listing')
+  await mkdir(bin)
+  await writeFile(listing, output)
+  await writeFile(
+    path.join(bin, 'git'),
+    [
+      '#!/usr/bin/env node',
+      "const fs = require('node:fs')",
+      "const cp = require('node:child_process')",
+      `if (process.argv.includes('ls-files')) fs.createReadStream(${JSON.stringify(listing)}).pipe(process.stdout)`,
+      `else process.exit(cp.spawnSync(${JSON.stringify(realGit)}, process.argv.slice(2), {stdio:'inherit'}).status ?? 1)`,
+    ].join('\n'),
+    { mode: 0o755 },
+  )
+  vi.stubEnv('PATH', `${bin}${path.delimiter}${process.env.PATH ?? ''}`)
+}
+
+test('git output larger than 16 MB is collected without losing current files', async () => {
+  const f = await fixture()
+  const relative = `${Array.from({ length: 4 }, () => 'd'.repeat(180)).join('/')}/sample.ts`
+  await mkdir(path.dirname(path.join(f.worktree, relative)), { recursive: true })
+  await writeFile(path.join(f.worktree, relative), 'current')
+  await gitListing(`${relative}\0`.repeat(24_000))
+  const listed = await f.list()
+  expect(listed.repos[0]).toEqual({ repo: f.repo, paths: [relative], partial: false })
+})
+
+test('deleted git candidates do not consume the current-file cap', async () => {
+  const f = await fixture()
+  await writeFile(path.join(f.worktree, 'z-current.ts'), 'current')
+  const deleted = Array.from({ length: 20_000 }, (_, i) => `a-deleted/${i}.ts`)
+  await gitListing(`${[...deleted, 'z-current.ts'].join('\0')}\0`)
+  expect((await f.list()).repos[0]).toEqual({
+    repo: f.repo,
+    paths: ['z-current.ts'],
+    partial: false,
+  })
+}, 60_000)
+
+test('a linked Task folder cannot grant access to another folder under worktrees', async () => {
+  const f = await fixture()
+  const parent = path.dirname(f.worktree)
+  const other = path.join(path.dirname(parent), 'OTHER')
+  await mkdir(path.join(other, f.repo), { recursive: true })
+  await writeFile(path.join(other, f.repo, 'secret.txt'), 'other Task sentinel')
+  await rename(parent, `${parent}-parked`)
+  await symlink(other, parent)
+  expect((await f.client.call('GET', f.fileRoute('secret.txt'))).status).toBe(409)
+  expect((await f.list()).repos[0]?.paths).toEqual([])
+  expect(
+    (
+      await f.client.call('POST', `/tasks/${f.task.id}/repos/${f.repo}/open-in-editor`, {
+        file: 'secret.txt',
+      })
+    ).status,
+  ).toBeGreaterThanOrEqual(400)
+})
+
+test('swapping the Task folder after validation cannot redirect the actual open', async () => {
+  const f = await fixture()
+  const parent = await realpath(path.dirname(f.worktree))
+  const parked = `${parent}-saved`
+  const other = path.join(path.dirname(parent), 'OTHER')
+  await mkdir(path.join(other, f.repo), { recursive: true })
+  await writeFile(path.join(f.worktree, 'file.txt'), 'inside')
+  await writeFile(path.join(other, f.repo, 'file.txt'), 'other Task sentinel')
+  const original = fs.lstat
+  let swaps = 0
+  const spy = vi
+    .spyOn(fs, 'lstat')
+    .mockImplementation(async (...args: Parameters<typeof fs.lstat>) => {
+      if (String(args[0]) !== parent) return original(...args)
+      if (swaps > 0) {
+        await unlink(parent)
+        await rename(parked, parent)
+      }
+      const info = await original(...args)
+      await rename(parent, parked)
+      await symlink(other, parent)
+      swaps++
+      return info
+    })
+  syncBuiltinESMExports()
+  try {
+    expect(await f.read('file.txt')).toMatchObject({ kind: 'unavailable' })
+    expect(swaps).toBeGreaterThan(0)
+  } finally {
+    spy.mockRestore()
+    syncBuiltinESMExports()
+    if (swaps > 0) {
+      await unlink(parent)
+      await rename(parked, parent)
+    }
+  }
 })

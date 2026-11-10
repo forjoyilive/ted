@@ -124,8 +124,8 @@ export const shellRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/repos\/([^/]+)\/open-in-editor$/,
     async handle({ req, params: [ref = '', repo = ''] }, { tasks, editors }) {
       const request = editorRequest(await readOptionalJson(req))
-      const { worktree } = await tasks.worktreeAccess(ref, repo)
-      await editors.open({ worktree }, request)
+      const { worktree, fileScope } = await tasks.worktreeAccess(ref, repo)
+      await editors.open({ worktree, fileScope }, request)
       return [200, {}]
     },
   },

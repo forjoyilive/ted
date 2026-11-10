@@ -13,7 +13,7 @@ import {
 } from '@ted/protocol'
 import { worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
-import { openRegularFile } from './regular-file.ts'
+import { openRegularFile, type WorktreeFileScope } from './regular-file.ts'
 
 export interface EditorLaunch {
   program: string
@@ -31,6 +31,7 @@ export interface EditorsOptions {
 }
 
 export interface EditorTarget {
+  fileScope: WorktreeFileScope
   worktree: string
 }
 
@@ -184,11 +185,11 @@ export function createEditors(options: EditorsOptions): Editors {
     return undefined
   }
 
-  async function place(worktree: string, request: OpenInEditorRequest) {
+  async function place({ worktree, fileScope }: EditorTarget, request: OpenInEditorRequest) {
     if (request.file === undefined) return undefined
     const file = request.file
     try {
-      const handle = await openRegularFile(worktree, file)
+      const handle = await openRegularFile(fileScope, file)
       await handle.close()
     } catch (error) {
       if (error instanceof RequestError) throw error
@@ -217,7 +218,7 @@ export function createEditors(options: EditorsOptions): Editors {
     async open(target, request) {
       const { editor, editorCommand } = options.settings()
       if (editor === null) throw new RequestError(409, 'Choose an editor first.')
-      const at = await place(target.worktree, request)
+      const at = await place(target, request)
       const env = worktreeCommandEnv({}, {}, options.env())
       let program: string
       let args: string[]

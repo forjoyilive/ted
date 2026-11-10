@@ -6,23 +6,38 @@ import {
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { worktreeFiles } from '../git.ts'
-import { checkedPath, openRegularFile } from '../regular-file.ts'
+import { openRegularFile, type WorktreeFileScope } from '../regular-file.ts'
 
-export async function listTaskFiles(worktree: string, repo: string): Promise<RepoFiles> {
-  const listed = await worktreeFiles(worktree)
-  const paths: string[] = []
-  for (const file of listed.paths) {
+export async function listTaskFiles(
+  worktree: string,
+  scope: WorktreeFileScope,
+  repo: string,
+): Promise<RepoFiles> {
+  const paths = new Set<string>()
+  let partial = false
+  for await (const file of worktreeFiles(worktree)) {
+    if (paths.has(file)) continue
     try {
-      await checkedPath(worktree, file)
-      paths.push(file)
-    } catch {}
+      const handle = await openRegularFile(scope, file)
+      await handle.close()
+    } catch {
+      continue
+    }
+    if (paths.size === fileListLimit) {
+      partial = true
+      break
+    }
+    paths.add(file)
   }
-  return { repo, paths: paths.slice(0, fileListLimit), partial: listed.partial }
+  return { repo, paths: [...paths].sort(), partial }
 }
 
-export async function readTaskFile(worktree: string, relative: string): Promise<TaskFileContent> {
+export async function readTaskFile(
+  scope: WorktreeFileScope,
+  relative: string,
+): Promise<TaskFileContent> {
   try {
-    const handle = await openRegularFile(worktree, relative)
+    const handle = await openRegularFile(scope, relative)
     try {
       const opened = await handle.stat()
       if (opened.size > filePreviewLimit)

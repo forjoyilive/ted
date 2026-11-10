@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { type DiffHunk, fileListLimit } from '@ted/protocol'
+import type { DiffHunk } from '@ted/protocol'
 import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -766,9 +766,7 @@ export async function commitAndPush(
   }
 }
 
-export async function worktreeFiles(
-  worktree: string,
-): Promise<{ paths: string[]; partial: boolean }> {
+export async function* worktreeFiles(worktree: string): AsyncGenerator<string> {
   const head = await headCommit(worktree)
   const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
   const objects = path.join(path.resolve(worktree, common), 'objects')
@@ -783,41 +781,77 @@ export async function worktreeFiles(
       GIT_INDEX_FILE: path.join(scratch, 'index'),
     },
   )
-  const run = async (args: string[], work?: string) => {
-    const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
-      cwd: scratch,
-      env: work === undefined ? fileEnv : { ...fileEnv, GIT_WORK_TREE: work },
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 30_000,
-    })
-    return stdout
-  }
+  let stop: (() => Promise<void>) | undefined
+  const run = (args: string[]) =>
+    execFileAsync('git', [...readOnly, ...args], { cwd: scratch, env: fileEnv, timeout: 30_000 })
   try {
     await run(['init', '--bare', '--quiet', gitDir])
     await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
     await run(['read-tree', head])
-    const paths = [
-      ...new Set(
-        (
-          await run(
-            [
-              '-c',
-              'core.bare=false',
-              'ls-files',
-              '--cached',
-              '--others',
-              '--exclude-standard',
-              '-z',
-            ],
-            worktree,
-          )
-        )
-          .split('\0')
-          .filter(Boolean),
-      ),
-    ].sort()
-    return { paths: paths.slice(0, fileListLimit), partial: paths.length > fileListLimit }
+    const child = spawn(
+      'git',
+      [
+        ...readOnly,
+        '-c',
+        'core.bare=false',
+        'ls-files',
+        '--cached',
+        '--others',
+        '--exclude-standard',
+        '-z',
+      ],
+      {
+        cwd: scratch,
+        env: { ...fileEnv, GIT_WORK_TREE: worktree },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 60_000,
+      },
+    )
+    let failure: Error | undefined
+    let stderr = ''
+    child.once('error', (error) => {
+      failure = error
+    })
+    const ended = new Promise<number | null>((resolve) => child.once('close', resolve))
+    child.stderr.setEncoding('utf8')
+    child.stderr.on('data', (chunk: string) => {
+      stderr = (stderr + chunk).slice(-8192)
+    })
+    stop = async () => {
+      child.stdout.destroy()
+      child.kill()
+      const timer = setTimeout(() => child.kill('SIGKILL'), 1000)
+      try {
+        await ended
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    child.stdout.setEncoding('utf8')
+    let tail = ''
+    let oversized = false
+    for await (const chunk of child.stdout) {
+      const pieces = (chunk as string).split('\0')
+      for (const [i, piece] of pieces.entries()) {
+        if (!oversized) {
+          tail += piece
+          if (tail.length > 4096) {
+            tail = ''
+            oversized = true
+          }
+        }
+        if (i < pieces.length - 1) {
+          if (!oversized && tail !== '') yield tail
+          tail = ''
+          oversized = false
+        }
+      }
+    }
+    const code = await ended
+    if (failure || code !== 0 || tail !== '' || oversized)
+      throw new GitError(redactSecrets(`listing files failed${stderr ? `: ${stderr.trim()}` : ''}`))
   } finally {
+    await stop?.()
     await rm(scratch, { recursive: true, force: true })
   }
 }
