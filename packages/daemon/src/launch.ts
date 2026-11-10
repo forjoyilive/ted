@@ -25,6 +25,8 @@ export { crashReport } from './logs.ts'
 const startTimeoutMs = 2 * 60_000
 const retryDelayMs = 100
 
+export const daemonAlreadyRunningExitCode = 75
+
 export class DaemonDidNotStartError extends Error {}
 
 export async function withDaemon<T>(
@@ -53,10 +55,12 @@ export async function withDaemon<T>(
       }
     }
     if (!child) child = await startDaemon(home, appToken)
-    else if (exited(child) && !(await anotherDaemonStarting(home))) {
-      throw new DaemonDidNotStartError(
-        `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
-      )
+    else if (exited(child)) {
+      if (child.exitCode === daemonAlreadyRunningExitCode) child = undefined
+      else if (!(await anotherDaemonStarting(home)))
+        throw new DaemonDidNotStartError(
+          `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
+        )
     }
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError(

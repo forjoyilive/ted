@@ -5,6 +5,7 @@ import { edition, tedHome, tedPaths, tedVersion } from '@ted/protocol'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
+import { daemonAlreadyRunningExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 import { holdAwakeWithOs } from './stay-awake.ts'
 
@@ -90,7 +91,7 @@ try {
   await demoLinear?.close()
   if (error instanceof DaemonAlreadyRunningError) {
     console.error(error.message)
-    process.exit(1)
+    process.exit(daemonAlreadyRunningExitCode)
   }
   throw error
 }
