@@ -44,7 +44,7 @@ export interface FailureAssessment extends AssessFailureRequest {
 
 export interface ResolveFailureRequest {
   requestId: string
-  resolution: 'accepted' | 'fixed' | 'no-longer-applicable'
+  resolution: 'accepted' | 'fixed' | 'no-longer-applicable' | 'retry' | 'fix'
   reason?: string
 }
 
@@ -70,6 +70,8 @@ export interface FailureCase {
   originalCheck?: CheckResult
   contextId?: string
   createdAt: string
+  validation?: boolean
+  verifications?: { at: string; evidence: string; checkRunId?: string; replacedBy?: string }[]
   assessments: FailureAssessment[]
   additions: { evidence: string; runId: string; at: string; contextId?: string }[]
   decisions: FailureDecision[]
@@ -79,11 +81,39 @@ export interface FailureCase {
 
 export interface ValidationObligations {
   checkRuns: Pick<CheckRun, 'id' | 'trigger' | 'stage' | 'outcome' | 'startedAt' | 'finishedAt'>[]
+  progress?: ValidationProgress
   satisfied: boolean
   cases: {
     id: string
-    disposition: 'unresolved' | 'accepted' | 'fixed' | 'no-longer-applicable' | 'invalidated'
+    disposition:
+      | 'unresolved'
+      | 'accepted'
+      | 'fixed'
+      | 'no-longer-applicable'
+      | 'invalidated'
+      | 'retried'
     context: 'current' | 'unknown' | 'changed' | 'historical'
   }[]
   blockers: string[]
+}
+
+export const validateFailureChoices = {
+  retry: 'Retry',
+  fix: 'Fix in this Task',
+  accepted: 'Accept this failure',
+} as const
+
+export interface ValidationProgress {
+  taskId: string
+  visit: string
+  contextId?: string
+  checks: CheckResult[]
+  executions: { runId: string; start: number; contextId?: string }[]
+  next: number
+  failureId?: string | undefined
+  pending: boolean
+}
+
+export function validationExecution(progress: ValidationProgress, position: number) {
+  return progress.executions.findLast((execution) => execution.start <= position)
 }

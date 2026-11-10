@@ -48,6 +48,7 @@ import type {
   FactoryRemoval,
   FactorySettingsChanges,
   FactorySettingsView,
+  FailureCase,
   FileDiff,
   FoundEditor,
   InboxItem,
@@ -105,6 +106,7 @@ import type {
   TaskReposResult,
   TaskShell,
   ThreadEvent,
+  ValidationObligations,
   WaitingRequest,
 } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
@@ -203,6 +205,10 @@ export const ted = {
     window.ted.request('useDefaultModel', taskId) as Promise<Task>,
   listStageEntries: (taskId: string) =>
     window.ted.request('listStageEntries', taskId) as Promise<StageEntry[]>,
+  listFailures: (taskId: string) =>
+    window.ted.request('listFailures', taskId) as Promise<FailureCase[]>,
+  validationObligations: (taskId: string) =>
+    window.ted.request('validationObligations', taskId) as Promise<ValidationObligations>,
   listCheckRuns: (taskId: string) =>
     window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
   checkOutput: (checkRunId: string, position: number) =>

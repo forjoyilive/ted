@@ -1,7 +1,9 @@
 import { type CheckRun, checkLabel } from '@ted/protocol/checks'
 import { useEffect, useId, useRef, useState } from 'react'
+import { useFailures } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './CheckOutputDialog.module.css'
+import { FailureDetails } from './FailureDetails.tsx'
 import { CloseIcon } from './icons.tsx'
 
 export function CheckOutputDialog({
@@ -13,6 +15,7 @@ export function CheckOutputDialog({
   position: number
   onClose: () => void
 }) {
+  const failures = useFailures(checkRun.taskId)
   const dialog = useRef<HTMLDialogElement>(null)
   const headingId = useId()
   const [shown, setShown] = useState(position)
@@ -89,6 +92,16 @@ export function CheckOutputDialog({
           })}
         </div>
       )}
+      {failures
+        .filter(
+          (f) =>
+            (f.source.kind === 'factory-check' || f.source.kind === 'post-rebase-check') &&
+            f.source.checkRunId === checkRun.id &&
+            f.source.position === shown,
+        )
+        .map((f) => (
+          <FailureDetails key={f.id} failure={f} />
+        ))}
       {check && <code className={styles.command}>{check.command}</code>}
       {error !== undefined ? (
         <p className={styles.error} role="alert">

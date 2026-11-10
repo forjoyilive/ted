@@ -207,6 +207,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
+  listFailures: (client, taskId) => client.listFailures(String(taskId)),
+  validationObligations: (client, taskId) => client.validationObligations(String(taskId)),
   listCheckRuns: (client, taskId) => client.listCheckRuns(String(taskId)),
   checkOutput: (client, checkRunId, position) =>
     client.checkOutput(String(checkRunId), Number(position)),

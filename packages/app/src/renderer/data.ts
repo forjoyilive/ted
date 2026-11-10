@@ -13,6 +13,7 @@ import type {
   DescriptionVersion,
   DriftCounts,
   Factory,
+  FailureCase,
   InboxItem,
   MachineSettings,
   Plan,
@@ -28,6 +29,7 @@ import type {
   TaskApp,
   TaskBrief,
   ThreadEvent,
+  ValidationObligations,
 } from '@ted/protocol'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { UpdateStatus } from '../updates.ts'
@@ -705,4 +707,47 @@ export function useAutomationRequests(): AutomationRequest[] {
 
 export function useAutomationTemplates(): AutomationTemplate[] {
   return useReloading(ted.automationTemplates, () => false, '') ?? []
+}
+
+export function useFailures(taskId: string): FailureCase[] {
+  return useValidationData(taskId, ted.listFailures) ?? []
+}
+
+export function useValidationObligations(taskId: string): ValidationObligations | undefined {
+  return useValidationData(taskId, ted.validationObligations)
+}
+
+function useValidationData<T>(taskId: string, read: (id: string) => Promise<T>): T | undefined {
+  const [value, setValue] = useState<T>()
+  const { epoch } = useConnection()
+  useEffect(() => {
+    void epoch
+    let active = true
+    let sequence = 0
+    setValue(undefined)
+    const load = () => {
+      const current = ++sequence
+      void read(taskId).then(
+        (result) => {
+          if (active && current === sequence) setValue(result)
+        },
+        () => {},
+      )
+    }
+    load()
+    const off = ted.onEvent((event) => {
+      if (
+        (event.type === 'task-updated' && event.task.id === taskId) ||
+        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+          event.comment.taskId === taskId) ||
+        (event.type === 'check-run-updated' && event.checkRun.taskId === taskId)
+      )
+        load()
+    })
+    return () => {
+      active = false
+      off()
+    }
+  }, [taskId, epoch, read])
+  return value
 }

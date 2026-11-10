@@ -2,6 +2,8 @@ import { type CheckRun, checkFailed, checkLabel } from '@ted/protocol/checks'
 import type { ThreadEventTone } from '@ted/protocol/task'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { EventLine } from '../components/EventLine.tsx'
+import { acceptedPositions } from '../components/FailureDetails.tsx'
+import { useFailures } from '../data.ts'
 import { stageName } from './TaskViews.tsx'
 
 export function checkRunHeadline(checkRun: CheckRun): [ThreadEventTone, string] {
@@ -33,10 +35,16 @@ export function CheckRunLine({
   checkRun: CheckRun
   onOpenOutput: (checkRun: CheckRun, position: number) => void
 }) {
+  const failures = useFailures(checkRun.taskId)
+  const accepted = acceptedPositions(failures, checkRun.id)
   const [tone, text] = checkRunHeadline(checkRun)
   return (
     <EventLine tone={tone} text={text} at={checkRun.startedAt}>
-      <ChecksRow checks={checkRun.checks} onOpen={(position) => onOpenOutput(checkRun, position)} />
+      <ChecksRow
+        accepted={accepted}
+        checks={checkRun.checks}
+        onOpen={(position) => onOpenOutput(checkRun, position)}
+      />
     </EventLine>
   )
 }

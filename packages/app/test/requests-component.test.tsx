@@ -274,3 +274,51 @@ test('empty Inbox opens New Task and Show answered opens the empty Answered view
   await user().click(within(inbox).getByRole('button', { name: 'Show answered' }))
   expect(within(inbox).getByText('Nothing answered in the last 30 days')).toBeTruthy()
 })
+
+test('Validate failure decisions display evidence and send the selected action', async () => {
+  const { answer, handle } = requestApi()
+  handle('listFailures', () => [
+    {
+      id: 'failure-1',
+      taskId: 'NB-1',
+      validation: true,
+      source: { kind: 'finding', runId: 'run-1', finding: 'Visual failure' },
+      recordedBy: 'run-1',
+      provenance: 'task-lead-reported',
+      evidence: 'Reproduced before the changed code executes.',
+      createdAt,
+      contextId: 'context-1',
+      additions: [],
+      invalidations: [],
+      resolutions: [],
+      assessments: [
+        {
+          id: 'assessment-1',
+          runId: 'run-1',
+          at: createdAt,
+          assessment: 'uncertain',
+          recommendation: 'Retry the identified verification.',
+        },
+      ],
+      decisions: [{ commentId: 'request-1', assessmentId: 'assessment-1' }],
+    },
+  ])
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Accept this failure'],
+      })}
+      task={task()}
+    />,
+  )
+  await screen.findByText('Reproduced before the changed code executes.')
+  expect(screen.getByText('uncertain')).toBeTruthy()
+  expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
+  expect(answer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
+  )
+})

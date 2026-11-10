@@ -10,7 +10,7 @@ import type {
   Task,
   ValidationObligations,
 } from '@ted/protocol'
-import { failureChoices } from '@ted/protocol'
+import { failureChoices, validateFailureChoices } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
@@ -68,6 +68,9 @@ export function createFailureCases(options: {
   tell(task: Task, comment: Comment): Promise<void>
 }) {
   const { store } = options
+  const closed = (value: FailureCase) =>
+    value.verifications?.length ||
+    ['fixed', 'no-longer-applicable'].includes(value.resolutions.at(-1)?.resolution ?? '')
   const observations = new Map<string, { ci: string | null | undefined; generation: number }>()
   const collections = new WeakMap<FailureContext, number>()
   async function snapshot(
@@ -158,7 +161,13 @@ export function createFailureCases(options: {
     for (let value of values) {
       const resolution = value.resolutions.at(-1)
       let disposition: ValidationObligations['cases'][number]['disposition'] =
-        resolution?.resolution ?? 'unresolved'
+        value.verifications?.at(-1)?.replacedBy
+          ? 'retried'
+          : value.verifications?.length
+            ? 'fixed'
+            : resolution?.resolution === 'retry' || resolution?.resolution === 'fix'
+              ? 'unresolved'
+              : (resolution?.resolution ?? 'unresolved')
       const context = tested(task, resolution?.contextId ?? value.contextId)
       const state = completed
         ? 'historical'
@@ -177,7 +186,7 @@ export function createFailureCases(options: {
               : current.fingerprint === context.fingerprint
                 ? 'current'
                 : 'changed'
-      if (resolution?.resolution === 'accepted') {
+      if (resolution?.resolution === 'accepted' && !value.verifications?.length) {
         const invalid = !acceptedResolution(value)
         if (!completed && !invalid && state !== 'current') {
           value = {
@@ -250,6 +259,32 @@ export function createFailureCases(options: {
     return { value, decision, assessment }
   }
   return {
+    pendingDecision,
+    verifyResult(
+      task: Task,
+      id: string,
+      evidence: string,
+      checkRunId?: string,
+      replacedBy?: string,
+    ) {
+      const value = get(task, id)
+      withdraw(value)
+      return store.failures.save(
+        {
+          ...value,
+          verifications: [
+            ...(value.verifications ?? []),
+            {
+              at: new Date().toISOString(),
+              evidence: failureText(evidence),
+              ...(checkRunId && { checkRunId }),
+              ...(replacedBy && { replacedBy }),
+            },
+          ],
+        },
+        'verified',
+      )
+    },
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,
@@ -340,6 +375,7 @@ export function createFailureCases(options: {
         ...(originalCheck && { originalCheck }),
         ...(context && { contextId: context.id }),
         createdAt: new Date().toISOString(),
+        ...(task.stage === 'validate' && { validation: true }),
         assessments: [],
         additions: [],
         decisions: [],
@@ -347,6 +383,13 @@ export function createFailureCases(options: {
         invalidations: [],
       }
       store.failures.save(value, 'recorded')
+      if (value.validation)
+        store.postComment({
+          taskId: task.id,
+          author: { kind: 'ted' },
+          title: 'Validate failure recorded',
+          body: `Failure ${value.id}\n\n${value.evidence}\n\nThe Task stays in Validate for investigation. No send-back was recorded.`,
+        })
       await store.persisted()
       await options.onHold(task)
       return value
@@ -354,11 +397,7 @@ export function createFailureCases(options: {
     evidence(task: Task, id: string, runId: string, evidence: string, contextId?: string) {
       const value = get(task, id)
       tested(task, contextId)
-      if (
-        value.resolutions.at(-1)?.resolution &&
-        value.resolutions.at(-1)?.resolution !== 'accepted'
-      )
-        throw new RequestError(409, 'this case is closed; record a new failure')
+      if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       const safeEvidence = failureText(evidence)
       withdraw(value)
       const next = {
@@ -380,13 +419,18 @@ export function createFailureCases(options: {
       await obligations(task)
       options.assertLead(task, runId)
       const value = get(task, id)
-      const lastResolution = value.resolutions.at(-1)
-      if (lastResolution && lastResolution.resolution !== 'accepted')
-        throw new RequestError(409, 'this case is closed; record a new failure')
+      if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       if (acceptedResolution(value))
         throw new RequestError(409, 'this failure already has current acceptance')
       withdraw(value)
       const contextId = value.additions.at(-1)?.contextId ?? value.contextId
+      if (value.validation)
+        store.postComment({
+          taskId: task.id,
+          author: { kind: 'run', runId },
+          title: 'Failure assessment',
+          body: `Failure ${value.id}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}`,
+        })
       return store.failures.save(
         {
           ...value,
@@ -411,7 +455,7 @@ export function createFailureCases(options: {
       options.assertLead(task, runId)
       const value = get(task, id)
       const resolution = value.resolutions.at(-1)
-      if (resolution && (resolution.resolution !== 'accepted' || acceptedResolution(value)))
+      if (closed(value) || (resolution?.resolution === 'accepted' && acceptedResolution(value)))
         throw new RequestError(409, 'this case is already resolved')
       const assessment = currentAssessment(value)
       if (!assessment)
@@ -435,7 +479,9 @@ export function createFailureCases(options: {
               `Evidence added ${addition.at} (context ${addition.contextId ?? 'unknown'}):\n${addition.evidence}`,
           ),
           `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
-          'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
+          value.validation
+            ? 'Retry repeats the failed verification; Fix in this Task sends Findings to Work through the existing send-back rules. Accept this failure allows only this execution in its tested context and resumes remaining Checks and validation. Acceptance never means passed or grants merge approval.'
+            : 'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
         ].join('\n\n'),
       )
     },
@@ -452,7 +498,12 @@ export function createFailureCases(options: {
       await obligations(task)
       pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')
-      if (request.resolution !== 'accepted' && !reason)
+      if (
+        request.resolution !== 'accepted' &&
+        request.resolution !== 'retry' &&
+        request.resolution !== 'fix' &&
+        !reason
+      )
         throw new RequestError(400, 'closing a failure needs a reason')
       const current =
         request.resolution === 'accepted'
@@ -487,7 +538,10 @@ export function createFailureCases(options: {
         }
         const answer = {
           kind: 'answered' as const,
-          choice: failureChoices[request.resolution],
+          choice:
+            request.resolution === 'retry' || request.resolution === 'fix'
+              ? validateFailureChoices[request.resolution]
+              : failureChoices[request.resolution],
           text: reason,
           at,
         }

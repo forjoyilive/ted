@@ -46,6 +46,7 @@ test('Checks distinguish pass, failure, not-run and Review/Visual judgments', as
 test('Check output opens the failed output and tabs switch to another Check', async () => {
   const close = vi.fn()
   const api = bridge({
+    listFailures: () => [],
     checkOutput: (_id, position) => ({
       text: position === 1 ? 'SearchPanel hangs' : 'typed',
       log: '/test/check.log',
@@ -103,4 +104,10 @@ test('a failed Validate thread event opens its associated Check output and switc
   expect(a.request).toHaveBeenCalledWith('checkOutput', 'checks-1', 0)
   await user().click(within(output).getByRole('button', { name: 'Close' }))
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('accepted failures keep their failing glyph and explicit label', () => {
+  render(<ChecksRow checks={run.checks} accepted={[1]} onOpen={vi.fn()} />)
+  expect(screen.getByRole('button', { name: /✗Tests.*failed, accepted by you/ })).toBeTruthy()
+  expect(screen.getByText('· not run')).toBeTruthy()
 })

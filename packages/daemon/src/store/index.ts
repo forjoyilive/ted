@@ -75,6 +75,7 @@ import {
   type TaskRepo,
   type TaskSource,
   type TrackStage,
+  validateFailureChoices,
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -2201,7 +2202,10 @@ export async function openStore({
           taskId: value.taskId,
           kind: 'question',
           body,
-          choices: Object.values(failureChoices),
+          ...(value.validation && {
+            title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
+          }),
+          choices: Object.values(value.validation ? validateFailureChoices : failureChoices),
           author: { kind: 'ted' },
         },
         at,

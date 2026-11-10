@@ -60,6 +60,8 @@ export function appState() {
     },
     listComments: () => [],
     listThreadEvents: () => [],
+    listFailures: () => [],
+    validationObligations: () => ({ satisfied: true, cases: [], blockers: [], checkRuns: [] }),
     listCheckRuns: () => [],
     listTaskRuns: () => [],
     taskBrief: () => null,

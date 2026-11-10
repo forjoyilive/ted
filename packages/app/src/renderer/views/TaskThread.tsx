@@ -32,6 +32,7 @@ import { CommentFiles } from '../components/CommentFiles.tsx'
 import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
+import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
@@ -60,6 +61,7 @@ import {
   useCheckRuns,
   useComments,
   useDescriptions,
+  useFailures,
   useStageEntries,
   useTaskBrief,
   useTaskRuns,
@@ -170,12 +172,14 @@ type OpenOutput = (checkRun: CheckRun, position: number) => void
 
 function EventRow({
   event,
+  failures,
   checkRun,
   onOpenOutput,
   onOpenRun,
   onOpenPlan,
 }: {
   event: ThreadEvent
+  failures: readonly import('@ted/protocol').FailureCase[]
   checkRun: CheckRun | undefined
   onOpenOutput: OpenOutput
   onOpenRun: (runId: string) => void
@@ -218,6 +222,7 @@ function EventRow({
       )}
       {(checkRun || event.judgments) && (
         <ChecksRow
+          accepted={acceptedPositions(failures, checkRun?.id ?? '')}
           checks={checkRun?.checks ?? []}
           {...(event.judgments && { judgments: event.judgments })}
           onOpen={(position) => checkRun && onOpenOutput(checkRun, position)}
@@ -511,6 +516,7 @@ export function TaskThread({
 }) {
   const comments = useComments(task.id)
   const events = useThreadEvents(task.id)
+  const failures = useFailures(task.id)
   const checkRuns = useCheckRuns(task.id)
   const [output, setOutput] = useState<{ checkRun: CheckRun; position: number }>()
   const openOutput: OpenOutput = (checkRun, position) => setOutput({ checkRun, position })
@@ -701,6 +707,7 @@ export function TaskThread({
                 const { event } = item
                 return (
                   <EventRow
+                    failures={failures}
                     key={event.id}
                     event={event}
                     checkRun={checkRuns.find((r) => r.id === event.checkRunId)}

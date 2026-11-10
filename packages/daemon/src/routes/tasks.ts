@@ -220,6 +220,15 @@ export const taskRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/verification$/,
+    runToken: true,
+    async handle({ req, params: [ref = '', id = ''], caller }, { tasks }) {
+      const body = failureObject(await readJson(req))
+      return [200, await tasks.verifyFailure(ref, caller, id, failureString(body, 'evidence'))]
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/resolve$/,
     async handle({ req, params: [ref = '', id = ''] }, { tasks }) {
       const body = failureObject(await readJson(req))
@@ -227,7 +236,9 @@ export const taskRoutes: Route[] = [
       if (
         resolution !== 'accepted' &&
         resolution !== 'fixed' &&
-        resolution !== 'no-longer-applicable'
+        resolution !== 'no-longer-applicable' &&
+        resolution !== 'retry' &&
+        resolution !== 'fix'
       )
         throw new HttpError(400, 'unknown failure resolution')
       const input: ResolveFailureRequest = {

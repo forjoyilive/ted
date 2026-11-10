@@ -9,6 +9,7 @@ import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
   type AgentStageId,
+  type AssessFailureRequest,
   agentKinds,
   type Banner,
   type ClarifyDepth,
@@ -24,6 +25,7 @@ import {
   minGhVersion,
   type ProposalInput,
   parseLinearUrl,
+  type RecordFailureRequest,
   type RepoSetupReport,
   type RoundInput,
   type RunWithConversation,
@@ -75,6 +77,14 @@ const usage = `Usage:
                 [--visual pass|fail] [--visual-notes <n>] for the confirmation row
   ted outcome ask [--choice "<answer>" …] "<question>"
                                              Ask the human instead of moving on
+  ted failure list | context | obligations  Inspect failures, capture context before a test,
+                                             or inspect remaining validation obligations
+  ted failure show <id>                     Show evidence, assessment and decision history
+  ted failure record --file <json>          Record a source, evidence and optional contextId
+  ted failure evidence <id> --file <json>    Append evidence and optional contextId
+  ted failure assess <id> --file <json>      Record assessment and recommendation
+  ted failure verify <id> --file <json>     Record fresh passing evidence for a retried Finding
+  ted failure ask <id>                      Request the human’s failure decision
   ted checks [--name <Check>]                Run the Factory’s Checks now, one after another,
                                              stopping at the first failure
   ted run-app [<App>] [--repo <name>]        Start one of the Task’s Apps, or reuse the running
@@ -529,6 +539,38 @@ try {
         ? `Recording ${printable(app.name)}. Stop with ted app record ${printable(app.name)} --stop.`
         : `Saved ${printable(capture.attachment?.name ?? 'the recording')} to the Task`,
     )
+  } else if (group === 'failure') {
+    const ref = taskRef()
+    const id = rest[0]
+    const readInput = async () => {
+      if (!options.file) throw new UsageError('give the JSON input with --file <file>')
+      return JSON.parse(await readFile(path.resolve(options.file), 'utf8'))
+    }
+    const result = await withDaemon(home, async (client) => {
+      if (command === 'list' && !rest.length) return client.listFailures(ref)
+      if (command === 'context' && !rest.length) return client.captureFailureContext(ref)
+      if (command === 'obligations' && !rest.length) return client.validationObligations(ref)
+      if (command === 'record' && !rest.length)
+        return client.recordFailure(ref, (await readInput()) as RecordFailureRequest)
+      if (!id || rest.length !== 1) throw new UsageError('give one failure case ID')
+      if (command === 'show') {
+        const found = (await client.listFailures(ref)).find((f) => f.id === id)
+        if (!found) throw new UsageError('no such failure on this Task')
+        return found
+      }
+      if (command === 'evidence')
+        return client.addFailureEvidence(
+          ref,
+          id,
+          (await readInput()) as { evidence: string; contextId?: string },
+        )
+      if (command === 'assess')
+        return client.assessFailure(ref, id, (await readInput()) as AssessFailureRequest)
+      if (command === 'verify') return client.verifyFailure(ref, id, (await readInput()).evidence)
+      if (command === 'ask') return client.requestFailureDecision(ref, id)
+      throw new UsageError('unknown failure command')
+    })
+    console.log(printable(JSON.stringify(result, null, 2)))
   } else if (group === 'checks' && command === undefined) {
     const ref = taskRef()
     const name = options.name

@@ -759,3 +759,55 @@ describe('ted workflow check', () => {
     ])
   })
 })
+
+test('failure commands capture context and record, inspect, assess and request a decision on the own Task', async () => {
+  const origin = await makeOriginRepo(path.join(home, 'origin'))
+  await commitToOrigin(path.join(home, 'origin'), {
+    '.ted/workflow.yaml': 'version: 1\norder: [intake, work, validate, review]\n',
+  })
+  const app = await startAsApp()
+  await app.addFactory({ repo: origin, key: 'NB' })
+  const created = await app.createTask({ factory: 'NB', title: '{"steps":[{"endTurn":true}]}' })
+  await app.startTask(created.id)
+  const current = await waitUntil(async () => {
+    const task = (await app.listTasks()).find((t) => t.id === created.id)
+    return task?.leadRunId && task.runs.some((r) => r.state === 'idle') ? task : undefined
+  }, 'idle lead for failure CLI')
+  const runId = current.leadRunId ?? ''
+  const env = {
+    TED_RUN: runId,
+    TED_PLAN: '',
+    TED_TASK: current.id,
+    TED_RUN_CAPABILITY: (await loadRunTokens(tedPaths(home).runTokenKey)).issue(runId),
+  }
+  const invoke = async (args: string[]) =>
+    JSON.parse((await ted(['failure', ...args], 30_000, env)).stdout)
+  const context = await invoke(['context'])
+  const input = path.join(home, 'failure.json')
+  await writeFile(
+    input,
+    JSON.stringify({
+      source: { kind: 'finding', runId, finding: 'Extra test failure' },
+      evidence: 'The fixture service is unavailable.',
+      contextId: context.id,
+    }),
+  )
+  const failure = await invoke(['record', '--file', input])
+  expect((await invoke(['show', failure.id])).source.finding).toBe('Extra test failure')
+  await writeFile(
+    input,
+    JSON.stringify({ evidence: 'A targeted reproduction fails before changed code runs.' }),
+  )
+  await invoke(['evidence', failure.id, '--file', input])
+  await writeFile(
+    input,
+    JSON.stringify({
+      assessment: 'uncertain',
+      recommendation: 'Retry; the cause is not established.',
+    }),
+  )
+  await invoke(['assess', failure.id, '--file', input])
+  expect((await invoke(['ask', failure.id])).decisions).toHaveLength(1)
+  expect(await invoke(['list'])).toHaveLength(1)
+  expect((await invoke(['obligations'])).satisfied).toBe(false)
+})

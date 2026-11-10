@@ -2,7 +2,15 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Activity, Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
+import type {
+  Activity,
+  Banner,
+  CheckRun,
+  Factory,
+  FailureCase,
+  SendBack,
+  Task,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -111,12 +119,6 @@ const leadMessages = async (client: Client, task: Task) => {
   return current?.leadRunId ? userMessages(client, current.leadRunId) : []
 }
 
-const sendBacks = (client: Client, task: Task) =>
-  waitUntil(async () => {
-    const found = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-    return found.length > 0 ? found : undefined
-  }, 'a send-back')
-
 const worktreeFile = async (client: Client, task: Task, name: string) => {
   const repo = await waitUntil(
     async () => (await getTask(client, task.id))?.repos[0],
@@ -128,66 +130,52 @@ const worktreeFile = async (client: Client, task: Task, name: string) => {
 const states = (run: CheckRun | undefined) => run?.checks.map((c) => [c.name, c.state])
 
 describe('Checks at Validate', () => {
-  test('Checks run in order, the first failure sends the Task back to Work with its output', async () => {
-    const flag = 'stub-failed-once'
+  test('Checks stop at the first failure and deliver redacted evidence in Validate', async () => {
     await workflow(
       [
         '      - { name: Typecheck, run: "echo typed" }',
-        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1; fi" }`,
+        '      - { name: Tests, run: "seq 1 300; echo token ghp_abcdefghijklmnopqrstuvwxyz0123; exit 1" }',
         '      - { name: Lint, run: "echo linted" }',
       ].join('\n'),
     )
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance),
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > work.txt'] },
+        advance,
+        advance,
+      ),
     )
-
-    const [first, second] = await finishedRuns(client, task, 2)
-    expect(first?.trigger).toBe('validate')
-    expect(first?.stage).toBe('validate')
-    expect(states(first)).toEqual([
+    const [run] = await finishedRuns(client, task, 1)
+    expect(run?.trigger).toBe('validate')
+    expect(states(run)).toEqual([
       ['Typecheck', 'passed'],
       ['Tests', 'failed'],
       ['Lint', 'not-run'],
     ])
-    expect(first?.outcome).toBe('failed')
-    expect(states(second)).toEqual([
-      ['Typecheck', 'passed'],
-      ['Tests', 'passed'],
-      ['Lint', 'passed'],
-    ])
-
-    const [sendBack] = await sendBacks(client, task)
-    expect(sendBack).toMatchObject({
-      from: 'validate',
-      to: 'work',
-      counted: true,
-      round: 1,
-      limit: 5,
-      checkRunId: first?.id,
-    })
-    expect(sendBack?.findings).toContain('Tests')
-    expect(sendBack?.findings).toContain('\n102\n')
-    expect(sendBack?.findings).not.toContain('\n101\n')
-    expect(sendBack?.findings).toContain('[redacted]')
-    expect(sendBack?.findings).not.toContain('ghp_abcdefghij')
-    expect(sendBack?.findings).toMatch(/Full output: .*checks.*2\.log/)
-
-    const messages = await waitUntil(async () => {
-      const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('None failed')) ? all : undefined
-    }, 'the Validate instructions after the Checks pass')
-    expect(
-      messages.some((m) => m.includes('moved this Task back to Work') && m.includes('\n300\n')),
-    ).toBe(true)
-    const passed = messages.find((m) => m.includes('None failed')) ?? ''
-    expect(passed).toContain('✓ Typecheck\n✓ Tests\n✓ Lint')
-    expect(passed).toContain('TED moved this Task to Validate')
-
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'failure evidence',
+    )
+    expect(failure.evidence).toContain('\n102\n')
+    expect(failure.evidence).not.toContain('\n101\n')
+    expect(failure.evidence).toContain('[redacted]')
+    expect(failure.evidence).not.toContain('ghp_abcdefghij')
+    expect(failure.evidence).toMatch(/Full output: .*checks.*2\.log/)
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    expect(await client.ok('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some(
+          (m) => m.includes('# A Check failed') && m.includes(failure.id),
+        ),
+      'diagnosis instructions',
+    )
     const output = await client.ok<{ text: string }>(
       'GET',
-      `/check-runs/${first?.id}/checks/1/output`,
+      `/check-runs/${run?.id}/checks/1/output`,
     )
     expect(output.text.split('\n')[0]).toBe('1')
     expect(output.text).not.toContain('ghp_abcdefghij')
@@ -216,8 +204,12 @@ describe('Checks at Validate', () => {
       ['Tests', 'timed-out'],
       ['Lint', 'not-run'],
     ])
-    const [sendBack] = await sendBacks(client, task)
-    expect(sendBack?.findings).toContain('timed out after 1s')
+    const failure = await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'timeout evidence',
+    )
+    expect(failure.evidence).toContain('timed out after 1s')
+    expect(await client.ok('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
   })
 
   test('a Check whose command isn’t found raises the setup-suggested banner', async () => {
@@ -314,6 +306,10 @@ describe('Checks at Validate', () => {
 
     await writeFile(go, '')
     await finishedRuns(client, task, 1)
+    await waitUntil(async () => {
+      const work = await client.ok<{ checks: number; merges: number }>('GET', '/update/work')
+      return work.checks === 0 ? work : undefined
+    }, 'Check result processing finishes')
     expect(await client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
@@ -422,70 +418,31 @@ describe('Checks over the send-back limit and across restarts', () => {
     }
   }, 60_000)
 
-  test('past max_back a failing Check asks the human instead of sending back', async () => {
+  test('a failing Check at max_back still waits for diagnosis without consuming a send-back', async () => {
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    max_back: 1',
-        '    checks:',
-        '      - { name: Tests, run: "echo nope; exit 1" }',
-        '',
-      ].join('\n'),
+      '.ted/workflow.yaml':
+        'version: 1\norder: [intake, work, validate]\nstages:\n  validate:\n    max_back: 0\n    checks:\n      - { name: Tests, run: "exit 1" }\n',
     })
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance),
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        advance,
+      ),
     )
-
-    const question = await waitUntil(
-      async () => {
-        const comments = await client.ok<
-          { id: string; kind: string; title?: string; author: { kind: string } }[]
-        >('GET', `/tasks/${task.id}/comments`)
-        return comments.find((c) => c.kind === 'question')
-      },
-      'the question to the human',
-      40_000,
+    await finishedRuns(client, task, 1)
+    await waitUntil(
+      async () => (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`))[0],
+      'failure diagnosis',
     )
-    expect(question).toMatchObject({
-      author: { kind: 'ted' },
-      title: 'Validate has sent this Task back 1 time, its limit',
-      choices: ['Try again', 'Move to Done anyway'],
-    })
-    expect(await sendBacks(client, task)).toHaveLength(1)
-    const messages = await waitUntil(async () => {
-      const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('# A Check failed')) ? all : undefined
-    }, 'the note that TED asked the human')
-    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
-    await waitUntil(async () => {
-      const id = (await getTask(client, task.id))?.leadRunId
-      if (!id) return undefined
-      return assistantTexts((await client.getRun(id)).conversation).some((t) =>
-        t.includes('TED asked the human whether to keep sending NB-1 back'),
-      )
-    }, 'the Task Lead’s advance to be refused')
     expect((await getTask(client, task.id))?.stage).toBe('validate')
-    await client.ok('POST', `/comments/${question.id}/answer`, {
-      action: 'answer',
-      choice: 'Move to Done anyway',
-    })
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.stage === 'done' || undefined,
-      'the Task Lead to finish',
-      40_000,
-    )
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.repos.every((r) => r.removed) || undefined,
-      'the worktree to be removed',
-      40_000,
-    )
-  }, 90_000)
+    expect(await client.ok('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+    expect(await client.ok('GET', '/inbox')).toEqual([])
+  })
 
   test('Checks cut short by a daemon restart run again from the start', async () => {
     const go = path.join(scratch, 'go')

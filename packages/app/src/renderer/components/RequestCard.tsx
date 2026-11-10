@@ -8,7 +8,7 @@ import type {
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
+import { useCheckRuns, useComments, useFailures, useSimulators, useThreadEvents } from '../data.ts'
 import {
   age,
   ago,
@@ -27,6 +27,7 @@ import { Button } from './Button.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent } from './DesignReview.tsx'
+import { FailureRequestDetails, ValidationSummary } from './FailureDetails.tsx'
 import { Help } from './Help.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
@@ -170,6 +171,7 @@ function BriefSections({ text, title }: { text: string; title: string }) {
 }
 
 function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
+  const failures = useFailures(task.id)
   const events = useThreadEvents(task.id)
   const checkRuns = useCheckRuns(task.id)
   const [open, setOpen] = useState<number>()
@@ -180,7 +182,7 @@ function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
   return (
     <div className={styles.confirmation}>
       <ChecksRow
-        checks={checkRun?.checks ?? []}
+        checks={failures.some((f) => f.validation) ? [] : (checkRun?.checks ?? [])}
         {...(validated.judgments && { judgments: validated.judgments })}
         onOpen={setOpen}
       />
@@ -392,7 +394,10 @@ export function RequestCard({
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} />}
       {request.kind === 'signoff' && request.stage === 'review' && (
-        <ConfirmationRow request={request} task={task} />
+        <>
+          <ConfirmationRow request={request} task={task} />
+          <ValidationSummary taskId={task.id} />
+        </>
       )}
       {request.design && Object.keys(request.design).length > 0 ? (
         <DesignReviewContent
@@ -401,6 +406,8 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
+      ) : request.choices?.includes('Retry') && request.choices.includes('Accept this failure') ? (
+        <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (

@@ -409,6 +409,13 @@ export const failureCases = State.SQLite.table({
     at: State.SQLite.text(),
   },
 })
+export const validationProgress = State.SQLite.table({
+  name: 'validationProgress',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    data: State.SQLite.text(),
+  },
+})
 export const failureContexts = State.SQLite.table({
   name: 'failureContexts',
   columns: {
@@ -767,6 +774,19 @@ export const events = {
   coordinatorRemoved: Events.synced({
     name: 'v1.CoordinatorRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
+  validationProgressed: Events.synced({
+    name: 'v1.ValidationProgressed',
+    schema: Schema.Struct({ taskId: Schema.String, data: Schema.String }),
+  }),
+  failureVerified: Events.synced({
+    name: 'v1.FailureVerified',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
   }),
   failureContextCaptured: Events.synced({
     name: 'v1.FailureContextCaptured',
@@ -2826,6 +2846,7 @@ const materializers = counted(
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
+        validationProgress.delete().where({ taskId }),
         failureContexts.delete().where({ taskId }),
         stageEntries.delete().where({ taskId }),
         taskRepos.delete().where({ taskId }),
@@ -2856,6 +2877,9 @@ const materializers = counted(
           .where({ id: taskId }),
       'v1.TaskReposSet': ({ taskId, repos, at }) =>
         tasks.update({ chosenRepos: JSON.stringify(repos), changedAt: at }).where({ id: taskId }),
+      'v1.ValidationProgressed': (row) =>
+        validationProgress.insert(row).onConflict('taskId', 'replace'),
+      'v1.FailureVerified': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureContextCaptured': (row) => failureContexts.insert(row).onConflict('id', 'replace'),
       'v1.FailureCaseRecorded': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAssessed': (row) => failureCases.insert(row).onConflict('id', 'replace'),
@@ -3366,6 +3390,7 @@ const state = State.SQLite.makeState({
     checkResults,
     failureCases,
     failureContexts,
+    validationProgress,
     stageEntries,
     workflowLayers,
     stageFileTexts,
