@@ -28,6 +28,7 @@ export function TaskBrowserView({
   const [capture, setCapture] = useState<Attachment>()
   const [busy, setBusy] = useState(false)
   const [ready, setReady] = useState(false)
+  const [retryOpen, setRetryOpen] = useState(0)
   const running = app?.state === 'running'
   const act = async (request: BrowserRequest) => {
     setBusy(true)
@@ -49,6 +50,7 @@ export function TaskBrowserView({
   }
   useEffect(() => {
     void epoch
+    void retryOpen
     void app?.startedAt
     let stopped = false
     let retry: ReturnType<typeof setTimeout> | undefined
@@ -81,7 +83,7 @@ export function TaskBrowserView({
       clearTimeout(retry)
       void ted.hideBrowser()
     }
-  }, [task.id, shown.repo, shown.name, running, app?.startedAt, epoch, connection.state])
+  }, [task.id, shown.repo, shown.name, running, app?.startedAt, epoch, connection.state, retryOpen])
 
   useEffect(() => {
     if (!ready || !running) return
@@ -131,6 +133,10 @@ export function TaskBrowserView({
         .browserState(task.id)
         .then((state) => {
           if (!stopped && state) {
+            if (!state.url) {
+              setRetryOpen((attempt) => attempt + 1)
+              return
+            }
             setStatus(state.text)
             if (!editing.current) setAddress(state.url)
           }

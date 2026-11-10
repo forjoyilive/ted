@@ -357,3 +357,115 @@ test('reopening a restarted App clears a canceled guest session before lifecycle
   expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce()
   expect(mocks.sessions).toHaveLength(2)
 })
+
+test('guests reject system client certificates', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  const event = { preventDefault: vi.fn() }
+  const select = vi.fn()
+  contents.emit('select-client-certificate', event, 'https://localhost/', [{}], select)
+  expect(event.preventDefault).toHaveBeenCalledOnce()
+  expect(select).toHaveBeenCalledWith()
+})
+
+test.each(['stop', 'restart'])(
+  'a previously visited App’s %s clears the Task session while another App is selected',
+  async (lifecycle) => {
+    const transport = bridge()
+    const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+    const current = new Map([
+      [app.name, app],
+      [other.name, other],
+    ])
+    vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) => {
+      const found = current.get(selected.name)
+      if (!found) throw new DaemonRequestError(404, 'Missing App')
+      return found
+    })
+    const controller = createTaskBrowsers(
+      () => undefined,
+      () => transport.client,
+      vi.fn(),
+    )
+    controllers.push(controller)
+    for (const [index, selected] of [app, other, app, other].entries()) {
+      await transport.send(`open-${index}`, 'one', 'open', {}, 1_000, undefined, selected)
+      await vi.waitFor(() => expect(transport.replies).toHaveLength(index + 1))
+    }
+    expect(mocks.sessions).toHaveLength(1)
+    expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+    current.set(
+      app.name,
+      lifecycle === 'stop' ? { ...app, state: 'stopped' } : { ...app, startedAt: 'tomorrow' },
+    )
+    controller.changed('one')
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
+    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+    const reopened = { ...app, startedAt: 'tomorrow' }
+    current.set(app.name, reopened)
+    await transport.send('reopen', 'one', 'open', {}, 1_000, undefined, reopened)
+    await vi.waitFor(() => expect(transport.replies).toHaveLength(5))
+    expect(mocks.sessions).toHaveLength(2)
+  },
+)
+
+test('reopening an App after switching away detects its restart before lifecycle notification', async () => {
+  const transport = bridge()
+  const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+  vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) =>
+    selected.name === other.name ? other : app,
+  )
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('first', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  await transport.send('other', 'one', 'open', {}, 1_000, undefined, other)
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  const restarted = { ...app, startedAt: 'tomorrow' }
+  vi.mocked(transport.client.browserApp).mockResolvedValue(restarted)
+  await transport.send('reopen', 'one', 'open', {}, 1_000, undefined, restarted)
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce()
+  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+  expect(mocks.sessions).toHaveLength(2)
+})
+
+test('switching Apps does not discard a pending lifecycle check for the retained session', async () => {
+  const transport = bridge()
+  const other = { ...app, name: 'Other', url: 'http://localhost:4000/' }
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('first', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  let rejectValidation: ((error: Error) => void) | undefined
+  vi.mocked(transport.client.browserApp).mockImplementation(async (_task, selected) => {
+    if (selected.name === other.name) return other
+    return new Promise((_resolve, reject) => {
+      rejectValidation = reject
+    })
+  })
+  controller.changed('one')
+  await vi.waitFor(() => expect(rejectValidation).toBeTypeOf('function'))
+  await transport.send('other', 'one', 'open', {}, 1_000, undefined, other)
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  rejectValidation?.(new DaemonRequestError(404, 'App no longer exists'))
+  await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
+  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+})

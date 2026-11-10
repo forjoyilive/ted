@@ -5,6 +5,25 @@ import type { ElectronApplication, Page } from 'playwright'
 import { expect } from 'vitest'
 
 export async function checkGuestNetwork(app: ElectronApplication, url: string) {
+  const certificate = await app.evaluate(({ webContents }, url) => {
+    const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    if (!guest) throw new Error('No guest')
+    let prevented = false
+    const selected: unknown[][] = []
+    guest.emit(
+      'select-client-certificate',
+      {
+        preventDefault: () => {
+          prevented = true
+        },
+      },
+      url,
+      [{ subjectName: 'Fixture identity' }],
+      (...args: unknown[]) => selected.push(args),
+    )
+    return { prevented, selected }
+  }, url)
+  expect(certificate).toEqual({ prevented: true, selected: [[]] })
   const udp = createSocket('udp4')
   const tcp = createServer((socket) => {
     connections++

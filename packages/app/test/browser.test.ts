@@ -363,6 +363,71 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe(false)
   await command({ action: 'reload' })
   expect((await command({ action: 'snapshot' })).text).toContain('Project')
+  const storageKey = 'before-app-restart'
+  await app.evaluate(
+    async ({ webContents }, { url, storageKey }) => {
+      const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+      await guest?.executeJavaScript(
+        `localStorage.setItem(${JSON.stringify(storageKey)}, 'old'); document.cookie='restartMarker=old'`,
+      )
+    },
+    { url: firstPage, storageKey },
+  )
+  await command({ action: 'open', app: { name: 'Admin' } })
+  const adminUrl = new URL(admin.url ?? '').href
+  const selectedGuest = () =>
+    app?.evaluate(
+      ({ webContents }, url) => webContents.getAllWebContents().find((c) => c.getURL() === url)?.id,
+      adminUrl,
+    )
+  const previousGuest = await selectedGuest()
+  expect(previousGuest).toBeTypeOf('number')
+  await client.stopApp(task.id, { name: 'Web' })
+  await expect
+    .poll(
+      async () => {
+        const current = await selectedGuest()
+        return current !== undefined && current !== previousGuest
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true)
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await expect
+    .poll(
+      () =>
+        app?.evaluate(
+          ({ BrowserWindow }, url) =>
+            BrowserWindow.getAllWindows()[0]?.contentView.children.some(
+              (v) =>
+                'webContents' in v &&
+                (v.webContents as import('electron').WebContents).getURL() === url,
+            ),
+          adminUrl,
+        ),
+      { timeout: 10_000 },
+    )
+    .toBe(true)
+  await client.startApp(task.id, { name: 'Web' })
+  const restarted = await waitUntil(
+    async () =>
+      (await client.listApps(task.id)).find(
+        (a) => a.name === 'Web' && a.state === 'running' && a.startedAt !== running.startedAt,
+      ),
+    'restarted Web App',
+  )
+  await command({ action: 'open', app: { name: 'Web' } })
+  expect(
+    await app.evaluate(
+      async ({ webContents }, { url, storageKey }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+        return guest?.executeJavaScript(
+          `({stored:localStorage.getItem(${JSON.stringify(storageKey)}),cookie:document.cookie})`,
+        )
+      },
+      { url: new URL(restarted.url ?? '').href, storageKey },
+    ),
+  ).toEqual({ stored: null, cookie: 'taskSession=yes' })
   await client.stopApp(task.id, { name: 'Web' })
   await expect(command({ action: 'snapshot' })).rejects.toThrow(/running/)
   await panel.getByRole('status').filter({ hasText: 'isn’t running' }).waitFor()

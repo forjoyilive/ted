@@ -30,7 +30,8 @@ export function createTaskBrowsers(
   onSelect: (taskId: string, app: TaskApp) => void,
 ) {
   const pages = new Map<string, Page>()
-  const sessions = new Map<string, { session: Session; app: TaskApp }>()
+  const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()
+  const appKey = (app: TaskApp) => JSON.stringify([app.repo, app.name])
   let activeTask: string | undefined
   let shown: string | undefined
   let presentation = 0
@@ -96,15 +97,18 @@ export function createTaskBrowsers(
       !old.view.webContents.isDestroyed()
     )
       return old
-    const retained = sessions.get(taskId)?.app
+    const retained = sessions.get(taskId)?.apps.get(appKey(app))
     const restarted =
-      retained?.repo === app.repo &&
-      retained.name === app.name &&
-      (retained.url !== app.url || retained.startedAt !== app.startedAt)
+      retained !== undefined && (retained.url !== app.url || retained.startedAt !== app.startedAt)
     close(taskId, restarted)
     const ses =
       sessions.get(taskId)?.session ?? session.fromPartition(`ted-browser-${randomUUID()}`)
-    sessions.set(taskId, { session: ses, app })
+    const retainedSession = sessions.get(taskId) ?? {
+      session: ses,
+      apps: new Map<string, TaskApp>(),
+    }
+    retainedSession.apps.set(appKey(app), app)
+    sessions.set(taskId, retainedSession)
     const origin = new URL(app.url as string).origin
     // WebTransport bypasses webRequest but refuses proxied connections.
     await ses.setProxy({
@@ -152,6 +156,11 @@ export function createTaskBrowsers(
     pages.set(taskId, page)
     const contents = view.webContents
     contents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    contents.on('select-client-certificate', (event, _url, _certificates, callback) => {
+      event.preventDefault()
+      // Electron’s WebContents typings omit the supported no-certificate callback.
+      ;(callback as () => void)()
+    })
     contents.on('will-navigate', (event, url) => {
       if (!allowed(url)) event.preventDefault()
     })
@@ -471,11 +480,12 @@ export function createTaskBrowsers(
       return url
     },
     changed(taskId: string) {
-      const expected = sessions.get(taskId)?.app
-      if (expected)
+      const retained = sessions.get(taskId)
+      if (!retained) return
+      for (const expected of retained.apps.values())
         void valid(taskId, expected).catch((error: unknown) => {
           if (
-            sessions.get(taskId)?.app === expected &&
+            sessions.get(taskId) === retained &&
             error instanceof Error &&
             (error.message === 'That web App isn’t running; use ▶ in Apps' ||
               (error instanceof DaemonRequestError && [403, 404, 409].includes(error.status)))
