@@ -29,6 +29,28 @@ async function canonicalPath(file: string): Promise<string> {
   }
 }
 
+const electronSingletonLinks = new Set(
+  ['SingletonCookie', 'SingletonLock', 'SingletonSocket'].map((name) =>
+    path.join('electron', name),
+  ),
+)
+
+async function checkDemoLinks(home: string, directory = home): Promise<void> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      return []
+    },
+  )
+  for (const entry of entries) {
+    const file = path.join(directory, entry.name)
+    const relative = path.relative(home, file)
+    if (entry.isSymbolicLink() && !electronSingletonLinks.has(relative))
+      throw new Error(`The demo’s ${relative} must not be a link.`)
+    if (entry.isDirectory()) await checkDemoLinks(home, file)
+  }
+}
+
 export async function checkDemoHome(home: string): Promise<DemoManifest | undefined> {
   if (edition !== 'dev') throw new Error('Demo data is available only in TED Dev.')
   const resolved = path.resolve(home)
@@ -79,31 +101,7 @@ export async function checkDemoHome(home: string): Promise<DemoManifest | undefi
     typeof manifest.complete !== 'boolean'
   )
     throw new Error('Invalid demo manifest.')
-  for (const name of [
-    'daemon.json',
-    'daemon-lock.db',
-    'run-token.key',
-    'store',
-    'repos',
-    'worktrees',
-    'runs',
-    'apps',
-    'plans',
-    'secrets',
-    'inputs',
-    'origins',
-    'fixture-repos',
-    'logs',
-    'gitconfig',
-    'electron',
-    'library',
-  ]) {
-    const entry = await lstat(path.join(resolved, name)).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT') throw error
-      return undefined
-    })
-    if (entry?.isSymbolicLink()) throw new Error(`The demo’s ${name} must not be a link.`)
-  }
+  await checkDemoLinks(resolved)
   if ((await realpath(resolved)) !== resolved) throw new Error('The demo home must not be a link.')
   return manifest
 }
