@@ -1,11 +1,11 @@
 import type { Attachment, DesignFile, DesignReview, SetupProposal } from '@ted/protocol'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { stageName } from '../list-view.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { useBytes } from './CommentFiles.tsx'
 import styles from './DesignReview.module.css'
-import { CloseIcon } from './icons.tsx'
+import { ImageViewer, Viewer } from './Viewer.tsx'
 
 const prototypeSrc = ({ hash, name }: DesignFile) =>
   `ted-prototype://file/${hash}/${encodeURIComponent(name)}`
@@ -14,45 +14,6 @@ const label = (file: DesignFile) => file.caption ?? file.name
 
 function mediaTypeOf(file: DesignFile, files: readonly Attachment[], fallback: string): string {
   return files.find((a) => a.hash === file.hash && a.name === file.name)?.mediaType ?? fallback
-}
-
-function Viewer({
-  title,
-  wide = false,
-  onClose,
-  children,
-}: {
-  title: string
-  wide?: boolean
-  onClose: () => void
-  children: ReactNode
-}) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  const headingId = useId()
-  useEffect(() => {
-    dialog.current?.showModal()
-  }, [])
-  return (
-    <dialog
-      ref={dialog}
-      className={wide ? `${styles.viewer} ${styles.wide}` : styles.viewer}
-      aria-labelledby={headingId}
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <header className={styles.viewerHead}>
-        <h2 id={headingId} className={styles.viewerTitle}>
-          {title}
-        </h2>
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
-          <CloseIcon />
-        </button>
-      </header>
-      {children}
-    </dialog>
-  )
 }
 
 function ScreenshotTile({ file, files }: { file: DesignFile; files: readonly Attachment[] }) {
@@ -76,9 +37,7 @@ function ScreenshotTile({ file, files }: { file: DesignFile; files: readonly Att
         <span className={styles.tileCaption}>{label(file)}</span>
       </button>
       {open && src !== undefined && (
-        <Viewer title={label(file)} wide onClose={() => setOpen(false)}>
-          <img className={styles.fullImage} src={src} alt={label(file)} />
-        </Viewer>
+        <ImageViewer title={label(file)} src={src} onClose={() => setOpen(false)} />
       )}
     </>
   )
