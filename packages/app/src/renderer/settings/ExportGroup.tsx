@@ -1,7 +1,7 @@
 import type { ExportFormat, Factory } from '@ted/protocol'
 import { useEffect, useId, useState } from 'react'
 import { useConnection } from '../data.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { plural } from '../words.ts'
 import { Button, Select, SettingRow, SettingsGroup } from './controls.tsx'
 import styles from './export.module.css'
@@ -31,7 +31,7 @@ export function ExportGroup() {
         setSelected((value) => (rows.some((row) => row.id === value) ? value : (rows[0]?.id ?? '')))
       })
       .catch((failure: unknown) => {
-        if (active) setError(failure instanceof Error ? failure.message : String(failure))
+        if (active) setError(readableError(failure))
       })
     return () => {
       active = false
@@ -46,7 +46,7 @@ export function ExportGroup() {
       const result = await ted.exportFactory(selected, format)
       if (!result.canceled) setMessage(`Exported ${plural(result.tasks, 'Task')} to ${result.path}`)
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure))
+      setError(readableError(failure))
     } finally {
       setBusy(false)
     }

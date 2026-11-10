@@ -28,18 +28,28 @@ test('chooses Factory/format, prevents duplicate saves, and reports success and 
   expect(screen.getByRole('status').textContent).toBe('')
 })
 
-test('save errors retain choices and can be retried', async () => {
+test.each([
+  ['Disk full', 'Disk full'],
+  [
+    "Error invoking remote method 'ted:request': Error: That destination already exists. Choose a new filename.",
+    'That destination already exists. Choose a new filename.',
+  ],
+  [
+    "Error invoking remote method 'ted:request': DaemonRequestError: Not authorized",
+    'Not authorized',
+  ],
+])('save errors retain choices and can be retried: %s', async (failure, expected) => {
   const api = bridge({
     listFactories: () => [factory()],
     exportFactory: () => {
-      throw new Error('Disk full')
+      throw new Error(failure)
     },
   })
   render(<ExportGroup />)
   await screen.findByRole('combobox', { name: 'Factory' })
   await user().selectOptions(screen.getByRole('combobox', { name: 'Format' }), 'markdown')
   await user().click(screen.getByRole('button', { name: 'Export…' }))
-  expect((await screen.findByRole('alert')).textContent).toBe('Disk full')
+  expect((await screen.findByRole('alert')).textContent).toBe(expected)
   api.handle('exportFactory', () => ({ canceled: true }))
   await user().click(screen.getByRole('button', { name: 'Export…' }))
   expect(api.request).toHaveBeenLastCalledWith('exportFactory', 'f1', 'markdown')
@@ -56,7 +66,7 @@ test('loads again after a connection epoch, handles an empty Factory list and fa
   await screen.findByText('Add a Factory to export its work.')
   expect(screen.queryByRole('button', { name: 'Export…' })).toBeNull()
   api.handle('listFactories', () => {
-    throw new Error('Disconnected')
+    throw new Error("Error invoking remote method 'ted:request': Error: Disconnected")
   })
   view.rerender(
     <ConnectionContext value={{ connection: { state: 'connected' }, epoch: 1 }}>
@@ -64,6 +74,7 @@ test('loads again after a connection epoch, handles an empty Factory list and fa
     </ConnectionContext>,
   )
   await screen.findByText('Couldn’t load Factories')
+  expect(screen.getByRole('alert').textContent).toBe('Disconnected')
   api.handle('listFactories', () => [factory()])
   await user().click(screen.getByRole('button', { name: 'Try again' }))
   await screen.findByRole('combobox', { name: 'Factory' })
