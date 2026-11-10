@@ -21,7 +21,7 @@ import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import type { RunManager } from './run-manager.ts'
-import { createSteering } from './steering.ts'
+import type { Steering } from './steering.ts'
 
 export interface Conversations {
   chat(runId: string): Promise<RunChat>
@@ -232,15 +232,15 @@ function tokensOf(agents: Agents, run: Run, entries: readonly ConversationEntry[
 }
 
 export function createConversations(options: {
-  home: string
   store: TedStore
   runs: RunManager
   agents: Agents
   health: AgentHealthMonitor
   disk: DiskWatch
   coordinators?: Coordinators
+  steering: Steering
 }): Conversations {
-  const { home, store, runs, agents, health, disk } = options
+  const { store, runs, agents, health, disk } = options
   let preamble: Promise<string> | undefined
   let subPreamble: Promise<string> | undefined
   const restarting = new Set<string>()
@@ -260,7 +260,7 @@ export function createConversations(options: {
   const isCurrentLead = (run: Run) =>
     run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id
 
-  const steering = createSteering({ home, store, runs, isCurrentLead })
+  const steering = options.steering
 
   const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
     const entries = given ?? store.conversation(run.id)
@@ -371,14 +371,14 @@ export function createConversations(options: {
       requireRun(runId)
       return steering.sendNow(runId, messageId)
     },
-    deleteMessage: (runId, messageId) => steering.remove(runId, messageId),
+    deleteMessage(runId, messageId) {
+      const removed = steering.remove(runId, messageId)
+      options.coordinators?.messageRemoved(runId)
+      return removed
+    },
     async boundary(runId, caller) {
       if (caller.kind !== 'run' || caller.runId !== runId) {
         throw new RequestError(403, 'A Run can only report its own tool calls')
-      }
-      if (store.coordinators.forRun(runId) && options.coordinators) {
-        await options.coordinators.boundary(runId)
-        return { delivered: 0 }
       }
       return steering.boundary(runId)
     },

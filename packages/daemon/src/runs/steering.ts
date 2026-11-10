@@ -12,6 +12,8 @@ export interface Steering {
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
   remove(runId: string, messageId: string): RunMessage
+  deliverAdmitted(runId: string): Promise<number>
+  syncQueuedFlag(runId: string): void
   boundary(runId: string): Promise<{ delivered: number }>
 }
 
@@ -28,6 +30,7 @@ export function createSteering(options: {
   store: TedStore
   runs: RunManager
   isCurrentLead: (run: Run) => boolean
+  canDeliver: (runId: string, admitted: boolean) => boolean
 }): Steering {
   const { home, store, runs, isCurrentLead } = options
   const chains = new Map<string, Promise<unknown>>()
@@ -47,12 +50,10 @@ export function createSteering(options: {
     return next
   }
 
-  const queued = (runId: string) =>
-    store.coordinators.forRun(runId)
-      ? []
-      : store.runMessages(runId).filter((m) => m.queued === true)
+  const queued = (runId: string) => store.runMessages(runId).filter((m) => m.queued === true)
 
   function deliverable(runId: string): RunMessage[] {
+    if (!options.canDeliver(runId, false)) return []
     const interrupts = store.runInterrupts(runId)
     return queued(runId).filter(
       (message) => !isHeld(message, interrupts) && !sendingNow.has(message.id),
@@ -91,23 +92,31 @@ export function createSteering(options: {
     })
   }
 
-  async function deliver(run: Run, messages: readonly RunMessage[]): Promise<void> {
-    if (messages.length === 0) return
+  async function deliver(
+    run: Run,
+    messages: readonly RunMessage[],
+    admitted = false,
+  ): Promise<number> {
+    if (messages.length === 0 || !options.canDeliver(run.id, admitted)) return 0
     const current = store.getRun(run.id)
-    if (!current || current.state === 'finished') return
+    if (!current || current.state === 'finished') return 0
     const still = new Set(queued(run.id).map((m) => m.id))
     const sending = messages.filter((m) => still.has(m.id))
-    if (sending.length === 0) return
+    if (sending.length === 0) return 0
     store.deliverRunMessages(
       run.id,
       sending.map((m) => m.id),
       isCurrentLead(current),
     )
     syncFlag(run.id)
-    await runs.steer(
-      run.id,
-      sending.map((m) => m.text),
-    )
+    await store.persisted()
+    if (admitted) await runs.send(run.id, sending.map((m) => m.text).join('\n\n'))
+    else
+      await runs.steer(
+        run.id,
+        sending.map((m) => m.text),
+      )
+    return sending.length
   }
 
   async function turnEnded(runId: string): Promise<void> {
@@ -163,6 +172,9 @@ export function createSteering(options: {
   }
 
   return {
+    syncQueuedFlag: syncFlag,
+    deliverAdmitted: (runId) =>
+      serially(runId, () => deliver(requireLive(runId), queued(runId), true)),
     async send(runId, text, { interrupt }) {
       const run = requireLive(runId)
       if (run.state === 'working') {
@@ -229,9 +241,9 @@ export function createSteering(options: {
           runId,
           messages.map((m) => m.text),
         )
-        await deliver(run, messages)
-        await seen
-        return { delivered: messages.length }
+        const delivered = await deliver(run, messages)
+        if (delivered > 0) await seen
+        return { delivered }
       })
     },
   }

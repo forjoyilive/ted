@@ -15,6 +15,7 @@ import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
+import type { Steering } from '../runs/steering.ts'
 import type { StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
@@ -49,7 +50,8 @@ export interface Coordinators {
     kind: 'start' | 'move',
     input: CoordinatorAction,
   ): Promise<CoordinatorReceipt>
-  boundary(runId: string): Promise<void>
+  deliveryAllowed(runId: string, admitted: boolean): boolean
+  messageRemoved(runId: string): void
   removeFactory(factoryId: string): Promise<void>
   close(): void
 }
@@ -60,8 +62,9 @@ export function createCoordinators(options: {
   runs: RunManager
   tasks: Tasks
   health: AgentHealthMonitor
+  steering: Steering
 }): Coordinators {
-  const { home, store, runs, tasks } = options
+  const { home, store, runs, tasks, steering } = options
   const saved = store.coordinators
   const launches = new Map<string, Promise<void>>()
   const launching = new Set<string>()
@@ -133,6 +136,8 @@ export function createCoordinators(options: {
         .finally(() => {
           launching.delete(id)
           launches.delete(id)
+          const current = saved.get(id)
+          if (current && store.getRun(current.runId)) steering.syncQueuedFlag(current.runId)
           pump()
         })
       launches.set(id, work)
@@ -184,27 +189,15 @@ export function createCoordinators(options: {
     return dir
   }
 
-  async function flush(c: StoredCoordinator, steer = false): Promise<void> {
-    const messages = pending(c.runId)
-    if (messages.length === 0) return
-    store.deliverRunMessages(
-      c.runId,
-      messages.map((m) => m.id),
-      false,
-    )
-    await store.persisted()
-    if (steer)
-      await runs.steer(
-        c.runId,
-        messages.map((m) => m.text),
-      )
-    else await runs.send(c.runId, messages.map((m) => m.text).join('\n\n'))
-  }
-
   async function launch(id: string): Promise<void> {
     let c = requireChat(id)
     if (c.phase !== 'queued' || store.newWorkHold()) return
-    save({ ...c, phase: 'working', error: undefined })
+    if (pending(c.runId).length === 0) {
+      save({ ...c, phase: 'ready', error: undefined })
+      return
+    }
+    c = { ...c, phase: 'working', error: undefined }
+    save(c)
     await store.persisted()
     if (stopping.has(id) || removing.has(id) || closed) return
     const run = store.getRun(c.runId)
@@ -269,15 +262,13 @@ export function createCoordinators(options: {
           false,
         )
       }
-    } else await flush(c)
+    } else if ((await steering.deliverAdmitted(c.runId)) === 0) {
+      const current = requireChat(id)
+      if (current.phase === 'working') save({ ...current, phase: 'ready' })
+    }
   }
 
   runs.observe({
-    boundary(run) {
-      void service
-        .boundary(run.id)
-        .catch((error) => fail(saved.forRun(run.id)?.factoryId ?? '', error))
-    },
     settled(run) {
       const c = saved.forRun(run.id)
       if (!c || c.runId !== run.id || c.phase !== 'working') return
@@ -300,6 +291,11 @@ export function createCoordinators(options: {
     if (closed) return
     for (const c of saved.list().filter((c) => c.lead.agent === agent && c.phase === 'working')) {
       stopping.add(c.factoryId)
+      if (pending(c.runId).length === 0)
+        store.queueRunMessage({
+          runId: c.runId,
+          text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
+        })
       save({ ...c, phase: 'queued' })
       void (async () => {
         await launches.get(c.factoryId)
@@ -438,19 +434,27 @@ export function createCoordinators(options: {
       const message = store.queueRunMessage({ runId, text })
       if (c.phase !== 'working') save({ ...c, phase: 'queued' })
       await store.persisted()
+      if (store.getRun(runId)) steering.syncQueuedFlag(runId)
       pump()
       return message
     },
-    async boundary(runId) {
+    deliveryAllowed(runId, admitted) {
       const c = saved.forRun(runId)
-      if (
+      return (
         c?.runId === runId &&
         c.phase === 'working' &&
-        store.getRun(runId)?.state === 'working' &&
+        !closed &&
         !stopping.has(c.factoryId) &&
-        !launching.has(c.factoryId)
+        !removing.has(c.factoryId) &&
+        (admitted || (!launching.has(c.factoryId) && store.getRun(runId)?.state === 'working'))
       )
-        await flush(c, true)
+    },
+    messageRemoved(runId) {
+      const c = saved.forRun(runId)
+      if (c?.runId === runId && c.phase === 'queued' && pending(runId).length === 0) {
+        save({ ...c, phase: 'ready', error: undefined })
+        pump()
+      }
     },
     async stop(id) {
       const c = requireChat(id)

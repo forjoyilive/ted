@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import {
   type CoordinatorTask,
   type Factory,
   type RunChat,
+  type RunMessage,
   type RunSlots,
   readDaemonInfo,
   type Task,
@@ -306,6 +308,25 @@ test('failed session resumption can retry in a replacement Run with history and 
     return chat.runId !== c.runId && chat.started ? chat : undefined
   }, 'replacement Run')
   expect(replaced.runIds).toContain(c.runId)
+  expect(replaced.status).toBe('working')
+  const replacement = api(s.port, s.tokens.issue(replaced.runId))
+  expect((await replacement.call('GET', '/coordinator/tasks')).status).toBe(200)
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({ steps: [{ run: ['ted', 'coordinator', 'tasks'] }, { endTurn: true }] }),
+  })
+  await waitUntil(
+    async () =>
+      (await s.ok<RunChat>('GET', `/runs/${replaced.runId}/chat`)).run.state === 'working',
+    'replacement agent turn',
+  )
+  await replacement.call('POST', `/runs/${replaced.runId}/boundary`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'replacement settlement')
+  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
+  const replacementChat = await s.ok<RunChat>('GET', `/runs/${replaced.runId}/chat`)
+  const reply = replacementChat.items.find((i) => i.kind === 'agent' && i.text.includes('stdout'))
+  if (reply?.kind !== 'agent') throw new Error('missing replacement tool response')
+  expect(JSON.parse(reply.text).code).toBe(0)
+
   expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
   const history = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(history.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
@@ -373,4 +394,113 @@ test('the Coordinator CLI reads scoped facts from an actual Run', async () => {
   expect(result.code).toBe(0)
   expect(result.stdout).toContain(task.displayId)
   expect(result.stdout).toContain('TASK CONTEXT')
+})
+
+test('deleting the last queued follow-up returns Ready without taking a slot', async () => {
+  const s = await setup()
+  await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const { c } = await s.start([{ say: 'First answer' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'first answer')
+  const task = await s.task(
+    JSON.stringify({ steps: [{ waitFor: path.join(scratch, 'release-slot') }, { endTurn: true }] }),
+  )
+  await s.ok('POST', `/tasks/${task.id}/start`)
+  await waitUntil(
+    async () => (await s.ok<RunSlots>('GET', '/slots')).working === 1,
+    'occupied slot',
+  )
+  const message = await s.ok<RunMessage>('POST', `/runs/${c.runId}/messages`, {
+    text: JSON.stringify({ steps: [{ say: 'Deleted answer' }, { endTurn: true }] }),
+  })
+  expect((await s.chat()).status).toBe('queued')
+  await s.ok('DELETE', `/runs/${c.runId}/messages/${message.id}`)
+  expect((await s.chat()).status).toBe('ready')
+  expect((await s.ok<RunSlots>('GET', '/slots')).queue.some((q) => q.kind === 'coordinator')).toBe(
+    false,
+  )
+  await writeFile(path.join(scratch, 'release-slot'), '')
+  await waitUntil(
+    async () => (await s.ok<RunSlots>('GET', '/slots')).working === 0,
+    'slot released',
+  )
+  expect((await s.chat()).status).toBe('ready')
+  const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(chat.items.some((i) => i.kind === 'agent' && i.text === 'Deleted answer')).toBe(false)
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({ steps: [{ say: 'Later answer' }, { endTurn: true }] }),
+  })
+  await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Later answer')
+  }, 'later message still works')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'later answer settlement')
+})
+
+test('Stop followed by a message replaces the Run, uses scoped tools and releases its slot', async () => {
+  const s = await setup()
+  const { c } = await s.start()
+  await s.ok('POST', `${s.base}/stop`)
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({ steps: [{ run: ['ted', 'coordinator', 'tasks'] }, { endTurn: true }] }),
+  })
+  const replacement = await waitUntil(async () => {
+    const chat = await s.chat()
+    return chat.runId !== c.runId && chat.started && chat.status === 'ready' ? chat : undefined
+  }, 'new response completes')
+  const chat = await s.ok<RunChat>('GET', `/runs/${replacement.runId}/chat`)
+  const reply = chat.items.find((i) => i.kind === 'agent' && i.text.includes('stdout'))
+  if (reply?.kind !== 'agent') throw new Error('missing scoped tool reply')
+  expect(JSON.parse(reply.text).code).toBe(0)
+  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
+})
+
+test('working Coordinator messages share steering’s boundary gate and serialized delivery', async () => {
+  const s = await setup()
+  await s.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const { c } = await s.start([
+    { say: 'Before boundary' },
+    { waitFor: path.join(scratch, 'boundary') },
+    { tool: 'Read' },
+    { say: 'After boundary' },
+    { waitFor: path.join(scratch, 'finish-turn') },
+    { endTurn: true },
+  ])
+  await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Before boundary')
+  }, 'before boundary')
+  const messages = await Promise.all(
+    ['First steering message', 'Second steering message'].map((text) =>
+      s.ok<RunMessage>('POST', `/runs/${c.runId}/messages`, { text }),
+    ),
+  )
+  const queued = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+  for (const message of messages)
+    expect(queued.items.find((i) => i.id === message.id)).toMatchObject({
+      kind: 'human',
+      queued: true,
+      sent: false,
+    })
+  expect(existsSync(path.join(home, 'runs', c.runId, 'queued'))).toBe(true)
+  expect(queued.items.some((i) => i.kind === 'agent' && i.text.startsWith('Read:'))).toBe(false)
+  await writeFile(path.join(scratch, 'boundary'), '')
+  await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'After boundary')
+  }, 'boundary completed')
+  const delivered = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const agents = delivered.items.filter((i) => i.kind === 'agent').map((i) => i.text)
+  for (const message of messages) {
+    expect(agents.filter((text) => text === `Read: ${message.text}`)).toHaveLength(1)
+    expect(agents.indexOf(`Read: ${message.text}`)).toBeLessThan(agents.indexOf('After boundary'))
+    expect(delivered.items.find((i) => i.id === message.id)).toMatchObject({
+      kind: 'human',
+      sent: true,
+    })
+  }
+  expect(existsSync(path.join(home, 'runs', c.runId, 'queued'))).toBe(false)
+  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(1)
+  await writeFile(path.join(scratch, 'finish-turn'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'response finishes')
+  expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
 })

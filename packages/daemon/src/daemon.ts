@@ -9,7 +9,7 @@ import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
-import { createCoordinators } from './coordinators/coordinators.ts'
+import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -32,6 +32,7 @@ import { pruneRunOutput } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { startRunManager } from './runs/run-manager.ts'
+import { createSteering } from './runs/steering.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
@@ -410,7 +411,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
-      const coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health })
+      let coordinators: Coordinators | undefined
+      const steering = createSteering({
+        home: paths.home,
+        store,
+        runs,
+        isCurrentLead: (run) =>
+          run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
+        canDeliver: (runId, admitted) =>
+          !store.coordinators.forRun(runId) ||
+          coordinators?.deliveryAllowed(runId, admitted) === true,
+      })
+      coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })
       wake = () => {
         tasks.wake()
         automations.check()
@@ -465,7 +477,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const conversations = createConversations({
         coordinators,
-        home: paths.home,
+        steering,
         store,
         runs,
         agents,
