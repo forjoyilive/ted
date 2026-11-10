@@ -836,6 +836,44 @@ describe('the Checks’ sandbox', () => {
     },
   )
 
+  test.runIf(process.platform === 'darwin')(
+    'revoking Bypass while a Check runs sandboxes the next Check in the batch',
+    async () => {
+      await workflow(
+        [
+          '      - { name: Hold, run: "touch stub-check-started; while [ ! -f stub-release ]; do sleep 0.02; done" }',
+          escapeCheck([path.join(scratch, 'out')]),
+        ].join('\n'),
+      )
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        true,
+      )
+      const started = await worktreeFile(client, task, 'stub-check-started')
+      await waitUntil(
+        () =>
+          readFile(started)
+            .then(() => true)
+            .catch(() => false),
+        'first Check',
+      )
+      await client.ok('PUT', `/factories/${task.factoryId}/permissions`, { mode: 'auto' })
+      await writeFile(await worktreeFile(client, task, 'stub-release'), '')
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([
+        ['Hold', 'passed'],
+        ['Escape', 'passed'],
+      ])
+      await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
+
   test('without a working sandbox, ted checks is refused and a banner says why', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')
     const before = process.env.TED_SANDBOX_BIN

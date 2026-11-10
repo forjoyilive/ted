@@ -1,3 +1,5 @@
+import type { ChildProcess } from 'node:child_process'
+import { once } from 'node:events'
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -11,7 +13,7 @@ import type {
   Task,
   ThreadEvent,
 } from '@ted/protocol'
-import { tedPaths } from '@ted/protocol'
+import { readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -24,8 +26,10 @@ import {
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
+  spawnDaemonProcess,
   stubClaudePath,
   stubCodexPath,
+  testAppToken,
   tokenFor,
   waitUntil,
 } from './helpers.ts'
@@ -35,6 +39,7 @@ let cleanup: () => Promise<void>
 let scratch: string
 let origin: string
 let daemon: RunningDaemon | undefined
+let daemonChild: ChildProcess | undefined
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
@@ -43,6 +48,11 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  if (daemonChild) {
+    daemonChild.kill('SIGKILL')
+    await once(daemonChild, 'exit')
+    daemonChild = undefined
+  }
   await daemon?.stop()
   daemon = undefined
   await killRunHosts(home)
@@ -50,16 +60,31 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(workflow = 'version: 1\n') {
+async function start(workflow = 'version: 1\n', detached = false) {
   await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
-  daemon = await startDaemon({
-    home,
-    version: '9.9.9',
-    claudeBin: stubClaudePath,
-    codexBin: stubCodexPath,
-  })
-  const client = api(daemon.port, { appKey: daemon.appToken })
-  const fileToken = api(daemon.port, await tokenFor(home))
+  let port: number
+  let appKey: string
+  if (detached) {
+    daemonChild = spawnDaemonProcess([], {
+      ...process.env,
+      TED_HOME: home,
+      TED_CLAUDE_BIN: stubClaudePath,
+      TED_CODEX_BIN: stubCodexPath,
+    })
+    port = (await waitUntil(() => readDaemonInfo(home), 'daemon.json')).port
+    appKey = testAppToken
+  } else {
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    port = daemon.port
+    appKey = daemon.appToken
+  }
+  const client = api(port, { appKey })
+  const fileToken = api(port, await tokenFor(home))
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
@@ -725,6 +750,141 @@ describe('local Factory permission consent', () => {
       'daemon recovery',
     )
     expect((await client.getRun(recovering.id)).run.permissions).toBe('auto')
+  })
+
+  test('a permission save waits for a pending agent handoff before it takes effect', async () => {
+    const client = await start()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const gate = path.join(scratch, 'shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.ok('POST', `/runs/${run.id}/restart`)
+    await waitUntil(
+      () =>
+        readFile(`${gate}.waiting`)
+          .then(() => true)
+          .catch(() => false),
+      'shutdown gate',
+    )
+    let saved = false
+    const saving = client.ok('PUT', route, { mode: 'auto' }).then(() => {
+      saved = true
+    })
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 150))
+      expect(saved).toBe(false)
+    } finally {
+      await writeFile(gate, '')
+      await Promise.all([restarting, saving])
+    }
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'restarted Run')
+    await client.ok('POST', `/runs/${run.id}/restart`)
+    const record = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+      argv: string[]
+    }
+    expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect((await client.getRun(run.id)).run.permissions).toBe('auto')
+  })
+
+  test('old-host replacement reads consent after a delayed shutdown', async () => {
+    const client = await start('version: 1\n', true)
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const gate = path.join(scratch, 'old-host-shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    daemonChild?.kill('SIGKILL')
+    if (daemonChild) await once(daemonChild, 'exit')
+    daemonChild = undefined
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+      oldestHost: 4,
+    })
+    const reopened = api(daemon.port, { appKey: daemon.appToken })
+    await waitUntil(
+      () =>
+        readFile(`${gate}.waiting`)
+          .then(() => true)
+          .catch(() => false),
+      'old host shutdown',
+    )
+    expect((await reopened.call('PUT', route, { mode: 'auto' })).status).toBe(200)
+    await writeFile(gate, '')
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).filter((r) => r.t === 'start').length >= 2,
+      'replacement',
+    )
+    const record = await waitUntil(
+      () =>
+        readFile(path.join(run.cwd, 'stub-record.json'), 'utf8').then((s) => {
+          const record = JSON.parse(s) as { argv: string[] }
+          return record.argv.includes('--resume') ? record : undefined
+        }),
+      'replacement arguments',
+    )
+    expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect((await reopened.getRun(run.id)).run.permissions).toBe('auto')
+  })
+
+  test('a daemon restart invalidates a pending Bypass launch before revocation is saved', async () => {
+    const client = await start('version: 1\n', true)
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    const route = `/factories/${factory?.id}/permissions`
+    await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+    const task = await startTask(client, [{ endTurn: true }])
+    const run = await leadRun(client, task)
+    await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const gate = path.join(scratch, 'crash-shutdown')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const restarting = client.call('POST', `/runs/${run.id}/restart`).catch(() => undefined)
+    await waitUntil(
+      () =>
+        readFile(`${gate}.waiting`)
+          .then(() => true)
+          .catch(() => false),
+      'shutdown gate',
+    )
+    daemonChild?.kill('SIGKILL')
+    if (daemonChild) await once(daemonChild, 'exit')
+    daemonChild = undefined
+    await restarting
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    const reopened = api(daemon.port, { appKey: daemon.appToken })
+    expect((await reopened.call('PUT', route, { mode: 'auto' })).status).toBe(200)
+    await writeFile(gate, '')
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).filter((r) => r.t === 'start').length >= 2,
+      'recovery',
+    )
+    const starts = await waitUntil(
+      () =>
+        readFile(path.join(run.cwd, 'stub-starts.jsonl'), 'utf8').then((s) => {
+          const records = s
+            .trim()
+            .split('\n')
+            .map((line) => JSON.parse(line) as { argv: string[] })
+          return records.length >= 2 ? records : undefined
+        }),
+      'recovered process arguments',
+    )
+    for (const record of starts.slice(1))
+      expect(record.argv[record.argv.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect((await reopened.getRun(run.id)).run.permissions).toBe('auto')
   })
 
   test('local consent persists on daemon restart and is removed with the Factory', async () => {

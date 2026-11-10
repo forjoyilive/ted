@@ -27,7 +27,7 @@ import {
 } from '@ted/protocol'
 import { RequestError as HttpError } from '../errors.ts'
 import { addFactory } from '../factories.ts'
-import { factoryPermissions } from '../permissions.ts'
+import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { agentChoice, bodyObject, optionalText, type Route, readJson, text } from './route.ts'
 
 export const factoryRoutes: Route[] = [
@@ -43,12 +43,18 @@ export const factoryRoutes: Route[] = [
       if (mode === 'bypass' && body.confirmBypass !== true) {
         throw new HttpError(409, 'Confirm Bypass on this computer in Factory settings')
       }
-      const permissions = { ...store.settings().factoryPermissions }
-      if (mode === 'auto') delete permissions[id]
-      else permissions[id] = mode
-      store.updateSettings({ factoryPermissions: permissions })
-      await workflows.resolve(factory, { fetch: false })
-      return [200, { mode: factoryPermissions(store, id) }]
+      const release = await acquireFactoryPermissions(store, id)
+      try {
+        const permissions = { ...store.settings().factoryPermissions }
+        if (mode === 'auto') delete permissions[id]
+        else permissions[id] = mode
+        store.updateSettings({ factoryPermissions: permissions })
+        await store.persisted()
+        await workflows.resolve(factory, { fetch: false })
+        return [200, { mode: factoryPermissions(store, id) }]
+      } finally {
+        release()
+      }
     },
   },
   {

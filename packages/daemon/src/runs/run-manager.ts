@@ -38,7 +38,7 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
-import { runPermissions } from '../permissions.ts'
+import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
 import { signalProcess } from '../signal.ts'
@@ -52,6 +52,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { initializeLaunchAuthority, launchAuthority } from './launch-authority.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -146,6 +147,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
+  await initializeLaunchAuthority(store, home)
   await writeTedShim(binDir, options.cliPath ?? defaultCli)
 
   const following = new Map<string, Promise<void>>()
@@ -153,7 +155,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
   const outdated = new Set<string>()
-  const replacing = new Map<string, NodeJS.ProcessEnv>()
+  const replacing = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
   let closed = false
   let shuttingDown = false
@@ -235,8 +237,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ) {
         awaitingStart = undefined
       }
-      const swapEnv = replacing.get(runId)
-      if (swapEnv && (batch.toOffset > offset || hostGone)) {
+      const swapping = replacing.has(runId)
+      if (swapping && (batch.toOffset > offset || hostGone)) {
         const exited = batch.records.some(({ record }) => record.t === 'exit')
         const kept = batch.records.filter(({ record }) => record.t !== 'exit')
         commitBatch(runId, { ...batch, records: kept }, false, generation)
@@ -246,7 +248,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             await sleep(pollMs)
           }
           replacing.delete(runId)
-          spawnHost(path.join(runsDir, runId), swapEnv)
+          const run = store.getRun(runId)
+          if (!run) return
+          await withRunPermissions(store, run, async () => {
+            const before = await startRecordCount(path.join(runsDir, runId))
+            const env = await prepareReplacement(runId)
+            const host = spawnHost(path.join(runsDir, runId), env)
+            await waitForStart(path.join(runsDir, runId), before, () => {
+              host.kill('SIGKILL')
+            })
+          })
           awaitingStart = Date.now() + stopGraceMs
         }
         continue
@@ -425,44 +436,72 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (replacing.has(runId) || !outdated.delete(runId)) return
     try {
       const runDir = path.join(runsDir, runId)
-      const files = runFiles(runDir)
       const start = await startRecord(runDir)
       if (!start) return
-      const permissions = runPermissions(store, run)
-      const launch = agents.get(run.agent).launch({
-        prompt: '',
-        runDir,
-        env: runEnv(runId, await readRunEnv(files.env)),
-        resume: run.sessionId,
-        ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
-        ...(run.effort !== undefined && { effort: run.effort }),
-        permissions,
-        billing: billingOf(run.agent),
-      })
-      const inputFrom = await stat(files.input).then(
-        (info) => info.size,
-        () => 0,
-      )
-      store.setRunPermissions(runId, permissions)
-      await store.persisted()
-      await writeLaunch(runDir, run.cwd, launch, inputFrom)
-      replacing.set(runId, launch.env)
-      await signalHost(runDir, await hostPid(runDir, start), 'SIGTERM')
+      const pid = await hostPid(runDir, start)
+      if (!(await holdsLock(runFiles(runDir).lock, pid))) return
+      replacing.add(runId)
+      await signalHost(runDir, pid, 'SIGTERM')
     } catch (error) {
+      replacing.delete(runId)
       console.error(`couldn’t replace Run ${runId}’s old host:`, error)
     }
   }
 
+  async function prepareReplacement(runId: string): Promise<NodeJS.ProcessEnv> {
+    const run = store.getRun(runId)
+    if (!run || run.sessionId === undefined) throw new Error('No session to replace')
+    const runDir = path.join(runsDir, runId)
+    const files = runFiles(runDir)
+    const permissions = runPermissions(store, run)
+    const launch = agents.get(run.agent).launch({
+      prompt: '',
+      runDir,
+      env: runEnv(runId, await readRunEnv(files.env)),
+      resume: run.sessionId,
+      ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
+      ...(run.effort !== undefined && { effort: run.effort }),
+      permissions,
+      billing: billingOf(run.agent),
+    })
+    const inputFrom = await stat(files.input).then(
+      (info) => info.size,
+      () => 0,
+    )
+    store.setRunPermissions(runId, permissions)
+    await store.persisted()
+    await writeLaunch(runDir, run.cwd, launch, inputFrom)
+    return launch.env
+  }
+
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
-  function spawnHost(runDir: string, env: NodeJS.ProcessEnv): void {
+  function spawnHost(runDir: string, env: NodeJS.ProcessEnv) {
     const host = nodeEntry(hostMain, [runDir])
-    spawn(host.command, host.args, {
+    const child = spawn(host.command, host.args, {
       detached: true,
       stdio: 'ignore',
       env: { ...env, ELECTRON_RUN_AS_NODE: '1' },
       cwd: runDir,
-    }).unref()
+    })
+    child.unref()
+    return child
+  }
+
+  async function waitForStart(
+    runDir: string,
+    before: number,
+    kill: () => void | Promise<void>,
+  ): Promise<void> {
+    for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
+      if (waited >= stopGraceMs) {
+        await kill()
+        throw new Error(
+          'The agent did not start; TED stopped its host before releasing the permission handoff',
+        )
+      }
+      await sleep(pollMs)
+    }
   }
 
   function runEnv(id: string, env: Record<string, string>): NodeJS.ProcessEnv {
@@ -488,6 +527,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
     const launchFile: LaunchFile = {
       launchId: randomUUID(),
+      authority: launchAuthority(store),
       command: launch.command,
       args: launch.args,
       cwd,
@@ -608,45 +648,57 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }) {
       refuseWhileShuttingDown()
       const agent = agents.get(kind)
-      const runDir = path.join(runsDir, id)
-      await mkdir(runDir, { mode: 0o700 })
-      permissions = runPermissions(store, { taskId })
-      const launch = agent.launch({
-        prompt,
-        runDir,
-        env: runEnv(id, env),
-        ...(resume !== undefined && { resume }),
-        ...(model !== undefined && { model }),
-        ...(effort !== undefined && { effort }),
-        permissions,
-        billing: billingOf(kind),
-      })
-      await writeLaunch(
-        runDir,
-        cwd,
-        launch,
-        undefined,
-        messageIds && { ids: messageIds, text: prompt },
-      )
-      await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
+      const release = await acquireRunPermissions(store, { taskId })
+      let handedOff = false
+      try {
+        const runDir = path.join(runsDir, id)
+        await mkdir(runDir, { mode: 0o700 })
+        permissions = runPermissions(store, { taskId })
+        const launch = agent.launch({
+          prompt,
+          runDir,
+          env: runEnv(id, env),
+          ...(resume !== undefined && { resume }),
+          ...(model !== undefined && { model }),
+          ...(effort !== undefined && { effort }),
+          permissions,
+          billing: billingOf(kind),
+        })
+        await writeLaunch(
+          runDir,
+          cwd,
+          launch,
+          undefined,
+          messageIds && { ids: messageIds, text: prompt },
+        )
+        await writeFile(runFiles(runDir).env, JSON.stringify(env), { mode: 0o600 })
 
-      refuseWhileShuttingDown()
-      const run = store.startRun({
-        id,
-        agent: agent.kind,
-        ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
-        prompt,
-        cwd,
-        ...(taskId !== undefined && { taskId }),
-        ...(model !== undefined && { model }),
-        ...(effort !== undefined && { effort }),
-        ...(parentRunId !== undefined && { parentRunId }),
-        ...(name !== undefined && { name }),
-        permissions,
-      })
-      spawnHost(runDir, launch.env)
-      follow(id)
-      return run
+        refuseWhileShuttingDown()
+        const run = store.startRun({
+          id,
+          agent: agent.kind,
+          ...(launch.sessionId !== undefined && { sessionId: launch.sessionId }),
+          prompt,
+          cwd,
+          ...(taskId !== undefined && { taskId }),
+          ...(model !== undefined && { model }),
+          ...(effort !== undefined && { effort }),
+          ...(parentRunId !== undefined && { parentRunId }),
+          ...(name !== undefined && { name }),
+          permissions,
+        })
+        const host = spawnHost(runDir, launch.env)
+        follow(id)
+        handedOff = true
+        void waitForStart(runDir, 0, () => {
+          host.kill('SIGKILL')
+        })
+          .catch((error: unknown) => console.error('The Run host did not start:', error))
+          .finally(release)
+        return run
+      } finally {
+        if (!handedOff) release()
+      }
     },
     async revive(runId, { prompt, env = {}, messageIds }) {
       refuseWhileShuttingDown()
@@ -655,43 +707,57 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         throw new Error(`Run ${runId} isn't finished`)
       }
       if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
-      const runDir = path.join(runsDir, runId)
-      const files = runFiles(runDir)
-      for (let waited = 0; isLockHeld(files.lock); waited += pollMs) {
-        if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s old host is still running`)
-        await sleep(pollMs)
+      const sessionId = run.sessionId
+      const release = await acquireRunPermissions(store, run)
+      let handedOff = false
+      try {
+        const runDir = path.join(runsDir, runId)
+        const files = runFiles(runDir)
+        for (let waited = 0; isLockHeld(files.lock); waited += pollMs) {
+          if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s old host is still running`)
+          await sleep(pollMs)
+        }
+        const permissions = runPermissions(store, run)
+        const launch = agents.get(run.agent).launch({
+          prompt,
+          runDir,
+          env: runEnv(runId, env),
+          resume: sessionId,
+          ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
+          ...(run.effort !== undefined && { effort: run.effort }),
+          permissions,
+          billing: billingOf(run.agent),
+        })
+        const inputFrom = await stat(files.input).then(
+          (info) => info.size,
+          () => 0,
+        )
+        await writeLaunch(
+          runDir,
+          run.cwd,
+          launch,
+          inputFrom,
+          messageIds && { ids: messageIds, text: prompt },
+        )
+        await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
+        refuseWhileShuttingDown()
+        stopRequested.delete(runId)
+        store.setRunPermissions(runId, permissions)
+        await store.persisted()
+        const revived = store.reviveRun(runId)
+        const before = await startRecordCount(runDir)
+        const host = spawnHost(runDir, launch.env)
+        follow(runId, { revived: true })
+        handedOff = true
+        void waitForStart(runDir, before, () => {
+          host.kill('SIGKILL')
+        })
+          .catch((error: unknown) => console.error('The revived Run host did not start:', error))
+          .finally(release)
+        return revived
+      } finally {
+        if (!handedOff) release()
       }
-      const permissions = runPermissions(store, run)
-      const launch = agents.get(run.agent).launch({
-        prompt,
-        runDir,
-        env: runEnv(runId, env),
-        resume: run.sessionId,
-        ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
-        ...(run.effort !== undefined && { effort: run.effort }),
-        permissions,
-        billing: billingOf(run.agent),
-      })
-      const inputFrom = await stat(files.input).then(
-        (info) => info.size,
-        () => 0,
-      )
-      await writeLaunch(
-        runDir,
-        run.cwd,
-        launch,
-        inputFrom,
-        messageIds && { ids: messageIds, text: prompt },
-      )
-      await writeFile(files.env, JSON.stringify(env), { mode: 0o600 })
-      refuseWhileShuttingDown()
-      stopRequested.delete(runId)
-      store.setRunPermissions(runId, permissions)
-      await store.persisted()
-      const revived = store.reviveRun(runId)
-      spawnHost(runDir, launch.env)
-      follow(runId, { revived: true })
-      return revived
     },
     async restart(runId, flags) {
       refuseWhileShuttingDown()
@@ -700,31 +766,32 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         throw new Error(`Run ${runId} isn't live`)
       }
       if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
-      const runDir = path.join(runsDir, runId)
-      const start = await startRecord(runDir)
-      if (!start) throw new Error(`Run ${runId}'s host never started`)
-      const permissions = runPermissions(store, run)
-      const launch = agents.get(run.agent).launch({
-        prompt: '',
-        runDir,
-        env: {},
-        resume: run.sessionId,
-        ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
-        ...(flags.effort !== undefined && { effort: flags.effort }),
-        permissions,
-        billing: billingOf(run.agent),
+      const sessionId = run.sessionId
+      return withRunPermissions(store, run, async () => {
+        const runDir = path.join(runsDir, runId)
+        const start = await startRecord(runDir)
+        if (!start) throw new Error(`Run ${runId}'s host never started`)
+        const permissions = runPermissions(store, run)
+        const launch = agents.get(run.agent).launch({
+          prompt: '',
+          runDir,
+          env: {},
+          resume: sessionId,
+          ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
+          ...(flags.effort !== undefined && { effort: flags.effort }),
+          permissions,
+          billing: billingOf(run.agent),
+        })
+        store.setRunPermissions(runId, permissions)
+        await store.persisted()
+        await writeLaunch(runDir, run.cwd, launch)
+        const before = await startRecordCount(runDir)
+        const restarted = store.restartRun(runId, flags)
+        const pid = await hostPid(runDir, start)
+        await signalHost(runDir, pid, 'SIGHUP')
+        await waitForStart(runDir, before, () => signalHost(runDir, pid, 'SIGKILL'))
+        return restarted
       })
-      store.setRunPermissions(runId, permissions)
-      await store.persisted()
-      await writeLaunch(runDir, run.cwd, launch)
-      const before = await startRecordCount(runDir)
-      const restarted = store.restartRun(runId, flags)
-      await signalHost(runDir, await hostPid(runDir, start), 'SIGHUP')
-      for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
-        if (waited >= stopGraceMs) throw new Error(`Run ${runId}'s agent didn't restart`)
-        await sleep(pollMs)
-      }
-      return restarted
     },
     lastHeard: (runId) => heard.get(runId),
     async dispatch(runId, messages, steer, canDispatch) {

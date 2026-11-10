@@ -85,13 +85,18 @@ export async function planChecks(input: {
   return planned
 }
 
+type CheckLaunch = {
+  sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'>; tmpRoot: string }
+  release: () => void
+}
+
 export async function runChecks(input: {
   checks: readonly RunnableCheck[]
   taskDisplayId: string
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
-  sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'>; tmpRoot: string }
+  prepareLaunch: () => Promise<CheckLaunch>
   signal?: AbortSignal
   onStart: (position: number) => void
   onFinish: (
@@ -116,7 +121,7 @@ export async function runChecks(input: {
             log,
             shell: [loginShell(input.env), '-lc'],
             ...(input.signal !== undefined && { signal: input.signal }),
-            ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
+            prepareLaunch: input.prepareLaunch,
           })
     if (result.outcome === 'interrupted') return { outcome: 'interrupted', notFound }
     const state: CheckState = result.outcome
@@ -137,10 +142,23 @@ export async function runChecks(input: {
 async function runCheck(
   input: Parameters<typeof runWorktreeCommand>[0] & {
     shell: [string, ...string[]]
-    sandbox?: { sandbox: Sandbox; scope: Omit<SandboxScope, 'tmp'>; tmpRoot: string }
+    prepareLaunch: () => Promise<CheckLaunch>
   },
 ): Promise<CommandResult> {
-  const { sandbox, ...command } = input
+  const { prepareLaunch, ...base } = input
+  const { sandbox, release } = await prepareLaunch()
+  try {
+    return await launchCheck({ ...base, onSpawn: release }, sandbox)
+  } finally {
+    release()
+  }
+}
+
+async function launchCheck(
+  input: Parameters<typeof runWorktreeCommand>[0] & { shell: [string, ...string[]] },
+  sandbox: CheckLaunch['sandbox'],
+): Promise<CommandResult> {
+  const command = input
   if (sandbox === undefined) return runWorktreeCommand(command)
   await mkdir(sandbox.tmpRoot, { recursive: true, mode: 0o700 })
   const tmp = await mkdtemp(path.join(sandbox.tmpRoot, 'tmp-'))

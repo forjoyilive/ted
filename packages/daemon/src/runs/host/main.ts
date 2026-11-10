@@ -15,6 +15,8 @@ import {
   runFiles,
 } from '../host-files.ts'
 
+import { checkLaunchAuthority } from '../launch-authority.ts'
+
 const runDir = process.argv[2]
 if (!runDir) throw new Error('usage: host/main.ts <run-dir>')
 delete process.env.ELECTRON_RUN_AS_NODE
@@ -58,6 +60,7 @@ async function startAgent(): Promise<Started> {
     launch.driver === undefined
       ? undefined
       : ((await import(pathToFileURL(launch.driver).href)) as { drive: DriveAgent }).drive
+  checkLaunchAuthority(launch.authority)
   const agent = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],

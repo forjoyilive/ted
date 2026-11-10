@@ -108,6 +108,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
+import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
@@ -1259,14 +1260,7 @@ export function createTasks(options: {
       ...(only !== undefined && { only }),
     })
     if (plan.length === 0) return undefined
-    const sandbox = runsInBypass(resolution)
-      ? undefined
-      : {
-          sandbox: options.sandbox,
-          scope: sandboxScope(task),
-          tmpRoot: path.join(sandboxDir, task.displayId),
-        }
-    if (sandbox !== undefined) await sandboxProblem(factory.id)
+    if (factoryPermissions(store, factory.id) !== 'bypass') await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,
       trigger,
@@ -1280,7 +1274,24 @@ export function createTasks(options: {
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
         env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
-        ...(sandbox !== undefined && { sandbox }),
+        prepareLaunch: async () => {
+          const release = await acquireFactoryPermissions(store, factory.id)
+          try {
+            if (factoryPermissions(store, factory.id) === 'bypass') return { release }
+            await sandboxProblem(factory.id)
+            return {
+              release,
+              sandbox: {
+                sandbox: options.sandbox,
+                scope: sandboxScope(task),
+                tmpRoot: path.join(sandboxDir, task.displayId),
+              },
+            }
+          } catch (error) {
+            release()
+            throw error
+          }
+        },
         signal: stopping.signal,
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
