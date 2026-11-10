@@ -1,5 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import type { Locator, Page } from 'playwright'
 import { describe, expect, test } from 'vitest'
 import { makeOriginRepo } from '../../daemon/test/helpers.ts'
 import {
@@ -14,6 +15,24 @@ import {
 } from './app-harness.ts'
 
 setUpAppTests()
+
+async function expectActionsInsideCard(window: Page, card: Locator, names: string[]) {
+  for (const width of [1440, 1280, 1000]) {
+    await window.setViewportSize({ width, height: 900 })
+    const bounds = await card.boundingBox()
+    if (!bounds) throw new Error('Request card is not visible')
+    for (const name of names) {
+      const action = card.getByRole('button', { name, exact: true })
+      const button = await action.boundingBox()
+      if (!button) throw new Error(`${name} is not visible`)
+      expect(button.x, `${name} at window width ${width}`).toBeGreaterThanOrEqual(bounds.x)
+      expect(button.x + button.width, `${name} at window width ${width}`).toBeLessThanOrEqual(
+        bounds.x + bounds.width,
+      )
+      expect(await action.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+    }
+  }
+}
 
 describe('Inbox and Gates', () => {
   test('a design review waits in the Inbox; Request changes keeps the Stage and Approve moves on', async () => {
@@ -58,6 +77,7 @@ describe('Inbox and Gates', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Design review', exact: true })
     await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
+    await expectActionsInsideCard(window, card, ['Request changes', 'Approve'])
     await thread.getByText('Waiting on you', { exact: true }).waitFor()
     expect(await card.getByRole('button', { name: 'Request changes' }).isDisabled()).toBe(true)
     await card.getByRole('textbox', { name: 'Your answer' }).fill('Split the sync step in two.')
@@ -126,6 +146,11 @@ describe('Inbox and Gates', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
     await card.getByText('Conflicts and sync · 2 questions').waitFor()
+    await expectActionsInsideCard(window, card, [
+      'Talk it through',
+      'Accept all recommended',
+      'Submit answers',
+    ])
     const first = card.getByRole('group', { name: /^1\./ })
     expect(await first.getByRole('radio', { name: /Keep both and let me merge/ }).isChecked()).toBe(
       true,
@@ -319,6 +344,7 @@ describe('Inbox and Gates', () => {
     await card.getByText('NB-1').waitFor()
     await card.getByText('(row 5 would start)').waitFor()
     await card.getByRole('button', { name: 'Create 4 Tasks' }).waitFor()
+    await expectActionsInsideCard(window, card, ['Request changes', 'Create 4 Tasks'])
     expect(await card.getByRole('checkbox', { name: /^Create row 1/ }).isDisabled()).toBe(true)
     await card.getByRole('checkbox', { name: /^Create row 3/ }).uncheck()
     await card

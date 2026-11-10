@@ -176,6 +176,13 @@
 
 .buttons {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.buttons > button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
