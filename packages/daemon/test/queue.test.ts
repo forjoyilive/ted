@@ -87,6 +87,61 @@ describe('startsNow', () => {
   })
 })
 
+describe('startsNow with a slot handoff', () => {
+  const subAgent = (id: string, rank: number, factoryId = 'nb') =>
+    ({ id, kind: 'sub-agent', rank, factoryId }) as const
+  const queue = queueOrder([
+    subAgent('other-task', 1),
+    subAgent('handed', 2),
+    subAgent('same-task', 3),
+    task('a', 'high', 1),
+  ])
+
+  test('a handed-off entry starts with the machine over its limit, and nothing else does', () => {
+    const started = startsNow(queue, {
+      limit: 2,
+      working: 3,
+      byFactory: {},
+      caps: {},
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['handed'])
+  })
+
+  test('a handed-off entry starts with its Factory at its cap', () => {
+    const started = startsNow(queue, {
+      limit: 6,
+      working: 1,
+      byFactory: { nb: 1 },
+      caps: { nb: 1 },
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['handed'])
+  })
+
+  test('a handed-off entry that starts while there is room uses a slot', () => {
+    const started = startsNow(queue, {
+      limit: 2,
+      working: 0,
+      byFactory: {},
+      caps: {},
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['other-task', 'handed'])
+  })
+
+  test('a handed-off entry counts towards its Factory’s cap for the entries after it', () => {
+    const started = startsNow(queue, {
+      limit: 6,
+      working: 0,
+      byFactory: {},
+      caps: { nb: 2 },
+      handoffs: new Set(['handed']),
+    })
+    expect(started.map((e) => e.id)).toEqual(['other-task', 'handed'])
+  })
+})
+
 test('Coordinator turns share the Planning tier and respect Factory caps', () => {
   const ordered = queueOrder([
     { id: 'plan', kind: 'planning', rank: 2, factoryId: 'nb' },

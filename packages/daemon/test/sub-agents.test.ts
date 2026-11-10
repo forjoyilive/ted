@@ -232,6 +232,68 @@ describe('sub-agents', () => {
     expect(result?.stdout).toMatch(/Done slowly/)
   })
 
+  test('a waiting Task Lead’s first sub-agent starts with the limit full, and its second stays queued', async () => {
+    const client = await startTed()
+    const go = path.join(scratch, 'go')
+    const release = path.join(scratch, 'release')
+    const prompt = await promptFile(
+      'review.md',
+      undefined,
+      { waitFor: release },
+      { say: 'Reviewed' },
+      { endTurn: true },
+    )
+    const start = (name: string) =>
+      `$(ted run start --name ${name} --prompt-file ${prompt} | ${runIdOf})`
+    const task = await startTask(
+      client,
+      steps(
+        { waitFor: go },
+        {
+          run: [
+            'sh',
+            '-c',
+            `a=${start('First')}; b=${start('Second')}; ted run wait "$a"; ted run wait "$b"`,
+          ],
+        },
+        { endTurn: true },
+      ),
+    )
+    const other = await startTask(
+      client,
+      steps({ waitFor: path.join(scratch, 'never') }, { endTurn: true }),
+    )
+    await waitUntil(async () => {
+      const slots = await client.ok<RunSlots>('GET', '/slots')
+      return slots.working === 2 || undefined
+    }, 'both Task Leads to work')
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+
+    await writeFile(go, '')
+    const handedOff = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      const first = current.runs.find((r) => r.name === 'First')
+      return first?.state === 'working' && current.runs[0]?.onSubAgents ? current : undefined
+    }, 'the first sub-agent to start while the other Task Lead holds the only slot')
+
+    expect(handedOff.runs.map((r) => r.name)).toEqual(['Task Lead', 'First'])
+    expect((await getTask(client, other.id)).runs[0]?.state).toBe('working')
+    const slots = await client.ok<RunSlots>('GET', '/slots')
+    expect(slots).toMatchObject({ limit: 1, working: 2, queued: 1 })
+    expect(slots.holders).toEqual([
+      expect.objectContaining({ displayId: 'NB-1', runs: 1, subAgents: 1 }),
+      expect.objectContaining({ displayId: 'NB-2', runs: 1, subAgents: 0 }),
+    ])
+    expect(slots.queue).toEqual([
+      expect.objectContaining({ kind: 'sub-agent', name: 'Second', taskId: task.id }),
+    ])
+
+    await writeFile(release, '')
+    const [result] = await waitForResults(client, task, 1)
+    expect(result?.stdout).toBe('Reviewed\nReviewed\n')
+    expect((await getTask(client, other.id)).runs[0]?.state).toBe('working')
+  })
+
   test('a queued sub-agent request shows in the queue before queued Tasks', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
