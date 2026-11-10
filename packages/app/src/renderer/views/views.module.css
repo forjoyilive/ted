@@ -17,6 +17,7 @@
   flex: 0 0 var(--details-pane-width);
   box-sizing: border-box;
   padding: 18px 16px;
+  overflow-x: hidden;
   overflow-y: auto;
   border-left: 1px solid var(--border-subtle);
   background: var(--surface-app);
