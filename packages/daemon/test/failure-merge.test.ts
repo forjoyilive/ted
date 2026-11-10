@@ -1,4 +1,5 @@
-import { rm, writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { type Comment, type FailureCase, type FailureContext, tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
@@ -51,6 +52,74 @@ test('a case holds Gate approval without answering it or changing legacy results
     blockers: [value.id],
   })
 })
+
+test.each(['acceptance', 'obligations', 'gate'])(
+  '%s verifies worktree edits made while GitHub is pending',
+  async (boundary) => {
+    const client = await start({ mergePollMs: 60_000 })
+    const { task, signoff } = await toSignoff(client)
+    await writeFile(client.mergingFile, '')
+    const current = await getTask(client, task.id)
+    const { post } = await leadFor(task.id, current.leadRunId ?? '')
+    const context = await post<FailureContext>('/failure-contexts')
+    const value = await post<FailureCase>('/failures', {
+      source: { kind: 'finding', runId: current.leadRunId, finding: 'Known failure' },
+      evidence: 'Observed before editing',
+      contextId: context.id,
+    })
+    await post(`/failures/${value.id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation: 'Accept in the tested context',
+    })
+    const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+    const resolve = () =>
+      client.call('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+        requestId: asked.decisions.at(-1)?.commentId,
+        resolution: 'accepted',
+      })
+    if (boundary !== 'acceptance') expect((await resolve()).status).toBe(200)
+    const entered = path.join(ctx.scratch, 'github-waiting')
+    const release = path.join(ctx.scratch, 'github-release')
+    await writeFile(
+      ctx.ghState,
+      JSON.stringify({
+        ...(await readGh()),
+        graphqlGate: { entered, release, after: boundary === 'acceptance' ? 1 : 0 },
+      }),
+    )
+    const pending =
+      boundary === 'acceptance'
+        ? resolve()
+        : boundary === 'gate'
+          ? client.call('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+          : client.call('GET', `/tasks/${task.id}/validation-obligations`)
+    try {
+      await waitUntil(() => readFile(entered, 'utf8').catch(() => undefined), 'GitHub waiting')
+      await writeFile(path.join(current.repos[0]?.worktree ?? '', 'changed.txt'), 'new code')
+    } finally {
+      await writeFile(release, '')
+    }
+    const response = await pending
+    expect(response.status).toBe(boundary === 'obligations' ? 200 : 409)
+    if (boundary === 'obligations')
+      expect(response.body).toMatchObject({
+        satisfied: false,
+        cases: [{ disposition: 'invalidated' }],
+      })
+    const obligations = await client.ok('GET', `/tasks/${task.id}/validation-obligations`)
+    expect(obligations).toMatchObject({
+      satisfied: false,
+      blockers: [value.id],
+      cases: [{ disposition: boundary === 'acceptance' ? 'unresolved' : 'invalidated' }],
+    })
+    const stored = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
+    expect(stored[0]?.resolutions).toHaveLength(boundary === 'acceptance' ? 0 : 1)
+    const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+    expect(comments.find((c) => c.id === signoff.id)?.answer).toBeUndefined()
+    expect((await getTask(client, task.id)).stage).toBe('review')
+    expect(await merges()).toEqual([])
+  },
+)
 
 test('opening a case disables TED auto-merge; external merges remain factual and cannot finish the Task', async () => {
   const client = await start({

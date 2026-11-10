@@ -38,6 +38,7 @@ export interface FailureAssessment extends AssessFailureRequest {
   id: string
   runId: string
   contextId?: string
+  evidenceCount?: number
   at: string
 }
 

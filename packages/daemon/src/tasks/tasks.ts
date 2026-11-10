@@ -6048,38 +6048,6 @@ export function createTasks(options: {
   const hashContext = (value: unknown) =>
     createHash('sha256').update(JSON.stringify(value)).digest('hex')
   async function failureSnapshot(task: Task, observed?: PullRequestRead): Promise<FailureContext> {
-    const resolution = await taskWorkflow(find(task.id), { fetch: false })
-    const entries = factoryRepos(resolution.workflow, factoryOf(task))
-    const repos = await Promise.all(
-      task.repos
-        .filter((r) => !r.removed)
-        .map(async (r) => {
-          const entry = repoEntry(entries, r)
-          const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
-          const changes = await git.workingChanges(r.worktree, `origin/${baseBranch}`)
-          return {
-            repo: r.repo,
-            head: changes.head,
-            base: changes.base,
-            tree: changes.tree,
-            mergeBase: changes.mergeBase,
-          }
-        }),
-    )
-    if (repos.length === 0) throw new RequestError(409, 'tested context needs a Task worktree')
-    const checks = hashContext({
-      checks: task.setup
-        ? await approvedSetupChecks(find(task.id))
-        : (resolution.workflow.settings.stages.validate?.checks ?? []),
-      repos: entries.map((e) => ({
-        repo: e.repo,
-        name: e.name,
-        baseBranch: e.baseBranch,
-        env: Object.entries(checkEnv(task.displayId, e.env, options.env?.() ?? process.env)).sort(
-          ([a], [b]) => a.localeCompare(b),
-        ),
-      })),
-    })
     const prs = task.repos.filter((r) => !r.removed && r.pullRequest)
     let ci: string | undefined
     const ciFailures: string[] = []
@@ -6116,6 +6084,38 @@ export function createTasks(options: {
         }),
       )
     }
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    const checks = hashContext({
+      checks: task.setup
+        ? await approvedSetupChecks(find(task.id))
+        : (resolution.workflow.settings.stages.validate?.checks ?? []),
+      repos: entries.map((e) => ({
+        repo: e.repo,
+        name: e.name,
+        baseBranch: e.baseBranch,
+        env: Object.entries(checkEnv(task.displayId, e.env, options.env?.() ?? process.env)).sort(
+          ([a], [b]) => a.localeCompare(b),
+        ),
+      })),
+    })
+    const repos = await Promise.all(
+      task.repos
+        .filter((r) => !r.removed)
+        .map(async (r) => {
+          const entry = repoEntry(entries, r)
+          const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
+          const changes = await git.workingChanges(r.worktree, `origin/${baseBranch}`)
+          return {
+            repo: r.repo,
+            head: changes.head,
+            base: changes.base,
+            tree: changes.tree,
+            mergeBase: changes.mergeBase,
+          }
+        }),
+    )
+    if (repos.length === 0) throw new RequestError(409, 'tested context needs a Task worktree')
     const context = {
       version: 2 as const,
       ciFailures: ciFailures.sort(),

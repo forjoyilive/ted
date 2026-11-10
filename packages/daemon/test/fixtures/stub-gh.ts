@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 interface StubState {
+  graphqlGate?: { entered: string; release: string; after?: number }
   version?: string
   hosts?: Record<string, unknown[]>
   api?: { result: 'ok' | 'rate-limit' | 'auth'; body?: unknown }
@@ -333,6 +342,14 @@ if (args[0] === '--version') {
   if (state.api?.result === 'auth') {
     process.stderr.write('gh: Bad credentials (HTTP 401)\n')
     process.exit(1)
+  }
+  const gate = state.graphqlGate
+  if (gate && (gate.after ?? 0) > 0) {
+    gate.after = (gate.after ?? 0) - 1
+    save()
+  } else if (gate) {
+    writeFileSync(gate.entered, 'waiting')
+    while (!existsSync(gate.release)) await sleep(5)
   }
   const { variables } = JSON.parse(stdin) as { variables: Record<string, unknown> }
   process.stdout.write(`${JSON.stringify(pullRequests(variables))}\n`)

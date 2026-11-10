@@ -9,7 +9,7 @@ import {
   tedPaths,
   type ValidationObligations,
 } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { expect, test, vi } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, commitToOrigin, stubClaudePath, tokenFor, waitUntil } from './helpers.ts'
@@ -108,6 +108,40 @@ test('assessment, request and acceptance are separate, and each case holds indep
   expect(stored[0]?.source).toEqual(one.source)
   expect(stored[0]?.evidence).toBe(one.evidence)
 })
+
+test.each(['equal', 'backward'])(
+  '%s evidence timestamps still require reassessment in append order',
+  async (clock) => {
+    const s = await setup()
+    const context = await s.capture()
+    const value = await s.record(context.id)
+    const at = new Date().toISOString()
+    const before = new Date(Date.parse(at) - 60_000).toISOString()
+    const date = vi.spyOn(Date.prototype, 'toISOString').mockReturnValue(at)
+    try {
+      const first = await s.assess(value)
+      expect(first.assessments.at(-1)?.evidenceCount).toBe(0)
+      if (clock === 'backward') date.mockReturnValue(before)
+      const evidence = await s.ok<FailureCase>(`/failures/${value.id}/evidence`, {
+        evidence: 'New evidence needs its own assessment',
+        contextId: context.id,
+      })
+      expect(evidence.additions.at(-1)?.at).toBe(clock === 'backward' ? before : at)
+      expect(
+        (await s.lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})).status,
+      ).toBe(409)
+      const asked = await s.request(value)
+      expect(asked.assessments.at(-1)?.evidenceCount).toBe(1)
+      expect((await s.resolve(asked)).status).toBe(200)
+      expect((await s.resolve(asked)).status).toBe(409)
+      expect(
+        (await s.lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})).status,
+      ).toBe(409)
+    } finally {
+      date.mockRestore()
+    }
+  },
+)
 
 test.each(['direct', 'comment'])(
   '%s failure resolution delivers attached line comments to the live Task Lead',

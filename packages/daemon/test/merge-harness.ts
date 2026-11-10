@@ -143,6 +143,7 @@ export async function start(
     workflow?: string[]
     order?: string
     ciStuckMs?: { noChecks: number; pending: number }
+    mergePollMs?: number
     daemon?: Partial<DaemonOptions>
   } = {},
 ) {
@@ -161,7 +162,7 @@ export async function start(
     home: ctx.home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    mergePollMs: 100,
+    mergePollMs: options.mergePollMs ?? 100,
     ...(options.ciStuckMs && { ciStuckMs: options.ciStuckMs }),
     ...options.daemon,
   })

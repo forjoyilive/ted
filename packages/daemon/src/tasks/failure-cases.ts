@@ -31,6 +31,12 @@ function acceptedResolution(value: FailureCase): boolean {
   )
 }
 
+function currentAssessment(value: FailureCase) {
+  const assessment = value.assessments.at(-1)
+  const count = assessment?.evidenceCount ?? (value.additions.length === 0 ? 0 : undefined)
+  return count === value.additions.length ? assessment : undefined
+}
+
 export function failureText(value: string): string {
   for (const match of value.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
     try {
@@ -307,6 +313,7 @@ export function createFailureCases(options: {
               ...request,
               recommendation,
               runId,
+              evidenceCount: value.additions.length,
               ...(contextId && { contextId }),
               at: new Date().toISOString(),
             },
@@ -322,8 +329,8 @@ export function createFailureCases(options: {
       const resolution = value.resolutions.at(-1)
       if (resolution && (resolution.resolution !== 'accepted' || acceptedResolution(value)))
         throw new RequestError(409, 'this case is already resolved')
-      const assessment = value.assessments.at(-1)
-      if (!assessment || (value.additions.at(-1)?.at ?? '') > assessment.at)
+      const assessment = currentAssessment(value)
+      if (!assessment)
         throw new RequestError(409, 'assess this failure before asking for a decision')
       const previous = value.decisions.at(-1)
       if (previous?.assessmentId === assessment.id)
@@ -361,7 +368,7 @@ export function createFailureCases(options: {
       await obligations(task)
       const value = get(task, id)
       const decision = value.decisions.at(-1)
-      const assessment = value.assessments.at(-1)
+      const assessment = currentAssessment(value)
       const comment = store.getComment(request.requestId)
       if (
         !decision ||

@@ -3,7 +3,21 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { FailureCase, FailureContext } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { openStore } from '../src/store/index.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import { createFailureCases } from '../src/tasks/failure-cases.ts'
+
+const failureService = (store: TedStore) =>
+  createFailureCases({
+    store,
+    snapshot: async () => {
+      throw new Error('No worktree')
+    },
+    assertLead: () => {},
+    drafts: () => [],
+    onHold: async () => {},
+    onInvalidated: async () => {},
+    tell: async () => {},
+  })
 
 test('failure history and atomic request/answer linkage replay without changing factual Check results', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'ted-failure-store-'))
@@ -83,6 +97,10 @@ test('failure history and atomic request/answer linkage replay without changing 
       ],
     }
     store.resolveFailure(resolved, id, { kind: 'answered', choice: 'Accept this failure', at }, [])
+    expect(await failureService(store).obligations({ ...task, stage: 'done' })).toMatchObject({
+      satisfied: true,
+      cases: [{ disposition: 'accepted', context: 'historical' }],
+    })
     const final = { ...resolved, invalidations: [{ requestId: id, reason: 'Changed code', at }] }
     store.invalidateFailure(final, {
       title: 'Failure acceptance invalidated',
@@ -115,6 +133,100 @@ test('failure history and atomic request/answer linkage replay without changing 
     store.deleteTask(task.id)
     expect(store.failures.list(task.id)).toEqual([])
     expect(store.failures.context(context.id)).toBeUndefined()
+  } finally {
+    await store.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('legacy evidence requires a bound assessment and new bindings survive replay', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ted-failure-evidence-'))
+  let store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Legacy assessment' })
+    const at = new Date().toISOString()
+    const original: FailureCase = {
+      id: 'legacy',
+      taskId: task.id,
+      source: { kind: 'finding', runId: 'lead', finding: 'Original' },
+      evidence: 'Original evidence',
+      recordedBy: 'lead',
+      provenance: 'task-lead-reported',
+      createdAt: at,
+      additions: [],
+      assessments: [],
+      decisions: [],
+      resolutions: [],
+      invalidations: [],
+    }
+    store.failures.save(original, 'recorded')
+    const evidence = {
+      ...original,
+      additions: [{ evidence: 'Added evidence', runId: 'lead', at }],
+    }
+    store.failures.save(evidence, 'evidence')
+    const legacy = {
+      ...evidence,
+      assessments: [
+        {
+          id: 'old',
+          assessment: 'unrelated' as const,
+          recommendation: 'Accept',
+          runId: 'lead',
+          at,
+        },
+      ],
+    }
+    store.failures.save(legacy, 'assessed')
+    await store.persisted()
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.failures.get(legacy.id)).toEqual(legacy)
+    const service = failureService(store)
+    await expect(service.request(task, legacy.id, 'lead')).rejects.toMatchObject({ status: 409 })
+    const pending = store.postFailureDecision(legacy, 'Old pending decision')
+    const oldRequest = pending.decisions.at(-1)?.commentId ?? ''
+    await expect(
+      service.resolve(task, legacy.id, {
+        requestId: oldRequest,
+        resolution: 'fixed',
+        reason: 'A reason cannot replace a current assessment',
+      }),
+    ).rejects.toMatchObject({ status: 409 })
+    const fresh = await service.assess(task, legacy.id, 'lead', {
+      assessment: 'unrelated',
+      recommendation: 'Consider all evidence',
+    })
+    expect(fresh.assessments.at(-1)?.evidenceCount).toBe(1)
+    expect(store.getComment(oldRequest)?.answer?.kind).toBe('withdrawn')
+    const asked = await service.request(task, legacy.id, 'lead')
+    const request = {
+      requestId: asked.decisions.at(-1)?.commentId ?? '',
+      resolution: 'fixed' as const,
+      reason: 'Verified a fix',
+    }
+    await service.resolve(task, legacy.id, request)
+    await expect(service.resolve(task, legacy.id, request)).rejects.toMatchObject({ status: 409 })
+    const withoutAdditions = { ...original, id: 'legacy-no-additions' }
+    store.failures.save(withoutAdditions, 'recorded')
+    store.failures.save({ ...withoutAdditions, assessments: legacy.assessments }, 'assessed')
+    const oldAssessment = await service.request(task, withoutAdditions.id, 'lead')
+    await service.resolve(task, withoutAdditions.id, {
+      requestId: oldAssessment.decisions.at(-1)?.commentId ?? '',
+      resolution: 'fixed',
+      reason: 'No evidence was added',
+    })
+    await store.persisted()
+    await store.close()
+    for (const file of await readdir(path.join(directory, 'ted'))) {
+      if (file.startsWith('state')) await rm(path.join(directory, 'ted', file), { force: true })
+    }
+    store = await openStore({ directory })
+    const replayed = store.failures.get(legacy.id)
+    expect(replayed?.assessments[0]).toEqual(legacy.assessments[0])
+    expect(replayed?.assessments.at(-1)?.evidenceCount).toBe(1)
+    expect(replayed?.resolutions.at(-1)?.requestId).toBe(request.requestId)
+    expect(store.getComment(request.requestId)?.answer?.kind).toBe('answered')
   } finally {
     await store.close()
     await rm(directory, { recursive: true, force: true })
