@@ -3150,6 +3150,7 @@ export function createTasks(options: {
     try {
       const task = find(taskId)
       const signal = AbortSignal.any([stopping.signal, cancel.signal])
+      store.worktreeSetupStarted(task.id, step.repo.name, step.setup)
       const finished = await runSetup(task, step.repo, step.setup, signal, { untilStopped: false })
       if (!finished || !tellLead) return
       const run = liveLead(find(taskId))
@@ -4527,7 +4528,6 @@ export function createTasks(options: {
     signal: AbortSignal,
     { untilStopped }: { untilStopped: boolean },
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
-    store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
     const sandbox = await lifecycleSandbox(find(task.id))
     const result = await runTaskCommand({
