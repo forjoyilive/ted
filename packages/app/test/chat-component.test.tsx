@@ -4,11 +4,12 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
 import { RunsSection } from '../src/renderer/components/RunsSection.tsx'
+import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
 import { createdAt, task } from './support/fixtures.ts'
 
-const lead: RunSummary = {
+const lead: RunSummary & { role: 'lead' } = {
   id: 'r1',
   taskId: 'NB-1',
   name: 'Task Lead',
@@ -127,6 +128,8 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   )
   const rows = screen.getAllByRole('listitem')
   expect(rows.map((r) => r.getAttribute('data-run'))).toEqual(['r1', 'r2'])
+  expect(within(required(rows[0])).queryByRole('button', { name: 'Restart' })).toBeNull()
+  expect(within(required(rows[0])).queryByRole('button', { name: 'Stop Task' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: /Reviewer/ }))
   expect(open).toHaveBeenCalledWith('r2')
   await user().click(within(required(rows[1])).getByRole('button', { name: 'Stop Run' }))
@@ -154,6 +157,77 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   expect(document.querySelector('[data-run="r2"]')?.textContent).toContain('Reviewer')
   await user().click(screen.getByRole('button', { name: /^Runs/ }))
   expect(screen.queryByRole('list')).toBeNull()
+})
+
+test('Task menu restarts the current Lead, follows its state and reports restart failures', async () => {
+  const current = task({ stage: 'work', leadRunId: 'r1', runs: [{ ...lead, state: 'idle' }] })
+  const api = bridge({ restartRun: () => Promise.reject(new Error('The disk is full')) })
+  const view = render(<TaskActionsMenu task={current} />)
+  const u = user()
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  expect(screen.getByRole('menuitem', { name: /Stop Task/ })).toBeTruthy()
+  await u.click(screen.getByRole('menuitem', { name: /^Restart$/ }))
+  expect(api.request).toHaveBeenCalledWith('restartRun', 'r1')
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'The disk is full')
+
+  view.rerender(<TaskActionsMenu task={{ ...current, runs: [lead] }} />)
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  const restart = screen.getByRole('menuitem', { name: /^Restart$/ })
+  expect(restart).toHaveProperty('disabled', true)
+  expect(restart.title).toBe('Restart works when the Run is idle')
+  await u.click(restart)
+  expect(api.request).toHaveBeenCalledTimes(1)
+
+  view.rerender(<TaskActionsMenu task={{ ...current, runs: [{ ...lead, state: 'finished' }] }} />)
+  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
+  view.rerender(<TaskActionsMenu task={task({ stage: 'work', runs: current.runs })} />)
+  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
+  view.rerender(
+    <TaskActionsMenu
+      task={{ ...current, archived: { at: createdAt, ended: { kind: 'stopped', stage: 'work' } } }}
+    />,
+  )
+  expect(screen.queryByRole('menuitem', { name: /^Restart$/ })).toBeNull()
+})
+
+test('current Lead chat skips the duplicate bar while historical chats retain their context', async () => {
+  const a = appState()
+  const current = { ...lead, state: 'idle' as const, model: 'claude-test', tokens: 12000 }
+  const previous = { ...lead, id: 'old', current: false, state: 'finished' as const }
+  a.state.tasks = [
+    task({
+      stage: 'work',
+      leadRunId: current.id,
+      runs: [current, previous],
+      tabs: [current, previous].map((run) => ({ ...run, runId: run.id })),
+    }),
+  ]
+  a.handle('listTaskRuns', () => [current, previous])
+  a.handle('getRun', () => undefined)
+  a.handle('getRunChat', (id) => ({
+    run: id === 'r1' ? current : previous,
+    items: [{ kind: 'agent', id: 'a1', text: id === 'r1' ? 'Current work.' : 'Earlier work.' }],
+  }))
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  await u.click(within(screen.getByRole('main')).getByText('Sync notes'))
+  const tabs = screen.getAllByRole('tab', { name: /Task Lead/ })
+  await u.click(required(tabs[0]))
+  const chat = within(await screen.findByRole('region', { name: 'Run chat' }))
+  await chat.findByText('Current work.')
+  expect(chat.queryAllByText('Task Lead')).toHaveLength(1)
+  expect(chat.queryByRole('button', { name: 'Restart' })).toBeNull()
+  expect(chat.queryByRole('button', { name: 'Stop Task' })).toBeNull()
+  expect(chat.getByRole('textbox', { name: 'Message to this Run' })).toBeTruthy()
+  const details = within(screen.getByRole('complementary', { name: 'Task details' }))
+  expect(await details.findByText('Claude · claude-test · default effort')).toBeTruthy()
+  expect(details.getByText('12k tokens')).toBeTruthy()
+  await u.click(required(tabs[1]))
+  const historical = within(await screen.findByRole('region', { name: 'Run chat' }))
+  await historical.findByText('Earlier work.')
+  expect(historical.getAllByText('Task Lead')).toHaveLength(2)
+  expect(historical.getByText(/finished/)).toBeTruthy()
 })
 
 test('Comment composer sends Enter and command Enter, while Shift Enter keeps a newline', async () => {

@@ -163,7 +163,7 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
           )}
         </span>
       </button>
-      {live && (
+      {live && !isLead && (
         <span className={styles.actions}>
           <button
             type="button"
@@ -175,32 +175,16 @@ function RunRow({ run, nested, onOpen }: { run: RunSummary; nested: boolean; onO
           >
             <RestartIcon />
           </button>
-          {isLead ? (
-            <button
-              type="button"
-              className={styles.action}
-              aria-label="Stop Task"
-              title="Stop Task"
-              disabled={busy || run.taskId === undefined}
-              onClick={() => {
-                const taskId = run.taskId
-                if (taskId !== undefined) act(() => ted.stopTask(taskId))
-              }}
-            >
-              <StopIcon />
-            </button>
-          ) : (
-            <button
-              type="button"
-              className={styles.action}
-              aria-label="Stop Run"
-              title="Stop Run"
-              disabled={busy}
-              onClick={() => act(() => ted.stopRun(run.id))}
-            >
-              <StopIcon />
-            </button>
-          )}
+          <button
+            type="button"
+            className={styles.action}
+            aria-label="Stop Run"
+            title="Stop Run"
+            disabled={busy}
+            onClick={() => act(() => ted.stopRun(run.id))}
+          >
+            <StopIcon />
+          </button>
         </span>
       )}
     </li>
