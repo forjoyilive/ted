@@ -151,10 +151,16 @@ function NewTaskForm({
   const [source, setSource] = useState<Source>()
   const lookups = useRef(0)
   const mounted = useRef(false)
+  const submitting = useRef(false)
+  const deferredLookup = useRef<{ url: string; identifier: string } | undefined>(undefined)
 
   const lookUp = useCallback(
     (url: string, identifier: string) => {
       if (!mounted.current) return
+      if (submitting.current) {
+        deferredLookup.current = { url, identifier }
+        return
+      }
       const ticket = ++lookups.current
       session.update({ source: url })
       setSource({ url, identifier, lookup: undefined })
@@ -348,7 +354,10 @@ function NewTaskForm({
   }
 
   async function create(more: boolean) {
-    if (!canCreate) return
+    if (!canCreate || submitting.current) return
+    submitting.current = true
+    lookups.current++
+    let created = false
     setBusy(true)
     setError(undefined)
     try {
@@ -367,13 +376,26 @@ function NewTaskForm({
         ...(source && { source: source.url }),
         start,
       })
+      created = true
       session.consumed(revision)
       if (more) clear()
       else onClose()
     } catch (failure) {
       setError(readableError(failure))
     } finally {
+      submitting.current = false
       setBusy(false)
+      const pending = deferredLookup.current
+      deferredLookup.current = undefined
+      const current = session.get()
+      if (
+        !created &&
+        pending &&
+        current.source === pending.url &&
+        !current.dismissed.includes(pending.url)
+      ) {
+        lookUp(pending.url, pending.identifier)
+      }
     }
   }
 
