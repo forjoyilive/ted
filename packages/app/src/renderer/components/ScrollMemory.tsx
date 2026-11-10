@@ -19,6 +19,7 @@ export function ScrollMemory({
   spot,
   count,
   grows,
+  reveal,
   active = true,
   list = false,
   className,
@@ -27,6 +28,7 @@ export function ScrollMemory({
   spot: string
   count: number
   grows?: unknown
+  reveal?: string | undefined
   active?: boolean
   list?: boolean
   className?: string | undefined
@@ -62,6 +64,24 @@ export function ScrollMemory({
     else if (atBottom.current) element.scrollTop = element.scrollHeight
     else if (added) setNewBelow(true)
   }, [count, grows, active])
+
+  const revealed = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    const element = scroller.current
+    const key = `${spot}:${reveal}`
+    if (!active || count === 0 || !element || reveal === undefined || revealed.current === key)
+      return
+    const target = [...element.querySelectorAll<HTMLElement>('[data-chat-item]')].find(
+      (item) => item.dataset.chatItem === reveal,
+    )
+    if (!target) return
+    revealed.current = key
+    restoring.current = undefined
+    atBottom.current = false
+    target.scrollIntoView({ block: 'center' })
+    target.focus({ preventScroll: true })
+    spots.set(spot, { top: element.scrollTop, atBottom: false })
+  }, [spot, reveal, count, active])
 
   const onScroll = () => {
     const element = scroller.current

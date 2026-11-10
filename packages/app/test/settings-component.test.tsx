@@ -125,6 +125,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
 test('Storage sets how long Run output is kept after a Task is done', async () => {
   const update = vi.fn()
   bridge({
+    listFactories: () => [],
     getStorage: () => ({
       home: '~/.ted/',
       usedBytes: 2e9,
@@ -212,12 +213,21 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
           runId: 'run-123456',
           agent: 'claude',
           state: 'idle',
-          cpuPercent: 0,
-          memoryBytes: 100,
+          cpuPercent: 12.5,
+          memoryBytes: 128 * 1024 * 1024,
           tokens: { input: 1, output: 2 },
         },
       ],
-      processes: [],
+      processes: [
+        {
+          pid: 123,
+          ppid: 1,
+          command: 'node',
+          owner: 'daemon',
+          cpuPercent: 2.4,
+          memoryBytes: 64 * 1024 * 1024,
+        },
+      ],
     }),
     readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
@@ -225,6 +235,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+  expect(api.request).not.toHaveBeenCalledWith('getDiagnostics')
   await user().click(screen.getByRole('switch', { name: 'Developer mode' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: true })
   view.rerender(
@@ -234,6 +245,8 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  for (const reading of ['12.5%', '128 MB', '2.4%', '64 MB', 'System memory usage'])
+    expect(screen.getByText(reading)).toBeTruthy()
   expect(
     within(screen.getByRole('region', { name: 'Diagnostics' })).getByRole('cell', {
       name: 'run-1234',
@@ -246,6 +259,54 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: false })
   view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+})
+
+test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {
+  const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
+  let cpuPercent = 12.5
+  const diagnostics = vi.fn(() => ({
+    memory: { totalBytes: 1024 ** 3, availableBytes: 512 * 1024 ** 2 },
+    runs: [
+      {
+        runId: 'live-run',
+        agent: 'codex',
+        state: 'working',
+        cpuPercent,
+        memoryBytes: 128 * 1024 ** 2,
+        tokens: { input: 0, output: 0 },
+      },
+    ],
+    processes: [],
+  }))
+  bridge({
+    tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
+    getDiagnostics: diagnostics,
+    readDaemonLog: () => ({ text: '', truncated: false }),
+  })
+  vi.useFakeTimers()
+  try {
+    const view = render(
+      <DeveloperPage
+        settings={{ ...defaultMachineSettings, developerMode: true }}
+        dispatch={vi.fn()}
+      />,
+    )
+    await act(async () => {})
+    expect(screen.getByText('12.5%')).toBeTruthy()
+    expect(screen.getByText('128 MB')).toBeTruthy()
+    cpuPercent = 37.8
+    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    expect(screen.getByText('37.8%')).toBeTruthy()
+    expect(screen.queryByText('12.5%')).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+
+    view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+    await act(async () => vi.advanceTimersByTimeAsync(4_000))
+    expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('Settings shell lists all sections and opens a Factory’s settings', async () => {

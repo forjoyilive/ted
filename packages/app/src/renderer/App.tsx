@@ -35,6 +35,7 @@ import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -54,7 +55,7 @@ import {
   useFactoryList,
   useInbox,
   usePlanInbox,
-  useSettings,
+  useSettingsState,
   useSimulators,
   useSlots,
   useTasks,
@@ -215,7 +216,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const navigation = history.now
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
-  const settings = useSettings()
+  const settingsResource = useSettingsState()
+  const settings = settingsResource.settings
   const settingsOpen = navigation.settings !== undefined
   const slots = useSlots()
   const drift = useDrift()
@@ -440,6 +442,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const onShortcut = useRef<(event: KeyboardEvent) => void>(() => undefined)
   onShortcut.current = (event) => {
     if (event.defaultPrevented || event.isComposing || offline) return
+    if (resizeSidebarFromKey(event)) {
+      sequences.current.reset()
+      return
+    }
     const commandKey = event.metaKey || event.ctrlKey
     const typing = isTyping(event.target)
     if (typing && !commandKey) {
@@ -1009,7 +1015,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       <ProfileProvider settings={settings}>
         <OvernightContext value={overnight}>
           <ArmedContext value={armed}>
-            <div className={styles.app}>{content}</div>
+            <SidebarLayout className={styles.app}>{content}</SidebarLayout>
           </ArmedContext>
         </OvernightContext>
       </ProfileProvider>
@@ -1024,6 +1030,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           <div ref={panes} className={styles.panes}>
             {find}
             <SettingsShell
+              error={settingsResource.error}
+              retry={settingsResource.retry}
               section={navigation.settings.section}
               settings={settings}
               factories={factories}
@@ -1051,6 +1059,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
+          developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}

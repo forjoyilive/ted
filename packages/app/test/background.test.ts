@@ -223,7 +223,7 @@ describe('quitting', () => {
     expect(quitDialog(working)).toEqual({
       title: 'Quit TED?',
       message: '2 Runs are still going. Keep TED running in the background so they finish?',
-      buttons: ['Keep running', 'Stop them and quit', 'Cancel'],
+      buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
       defaultId: 0,
       cancelId: 2,
       checkboxLabel: 'Don’t ask again',

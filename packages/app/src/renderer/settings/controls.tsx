@@ -207,16 +207,19 @@ export function Select<T extends string | number>({
   options,
   onChange,
   width,
+  disabled,
 }: {
   id: string
   value: T
   options: readonly { value: T; label: string }[]
   onChange: (value: T) => void
   width?: number
+  disabled?: boolean
 }) {
   return (
     <select
       id={id}
+      disabled={disabled}
       className={styles.select}
       style={width !== undefined ? { width } : undefined}
       value={String(value)}

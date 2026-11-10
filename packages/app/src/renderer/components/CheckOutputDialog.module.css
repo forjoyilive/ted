@@ -112,3 +112,8 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+.pending {
+  display: grid;
+  place-items: center;
+}

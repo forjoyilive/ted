@@ -1,3 +1,4 @@
+import { type Clock, systemClock } from '../clock.ts'
 import type { Gh } from '../github/gh.ts'
 import { type PullRequestRead, type PullRequestRef, readByHost } from './merge.ts'
 
@@ -10,6 +11,7 @@ export interface PullRequestWatch {
 
 export interface PullRequestWatchOptions {
   gh: Pick<Gh, 'graphql'>
+  clock?: Clock
   everyMs: number
   refs(): PullRequestRef[]
   onRead(read: PullRequestRead): Promise<void>
@@ -23,6 +25,7 @@ const emptyRead = (): PullRequestRead => ({
 })
 
 export function createPullRequestWatch(options: PullRequestWatchOptions): PullRequestWatch {
+  const clock = options.clock ?? systemClock
   const waiters: { resolve: (read: PullRequestRead) => void; now: boolean }[] = []
   let running = false
   let closed = false
@@ -58,10 +61,10 @@ export function createPullRequestWatch(options: PullRequestWatchOptions): PullRe
 
   function nap(): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(done, options.everyMs)
+      const timer = clock.timeout(done, options.everyMs)
       wake = done
       function done() {
-        clearTimeout(timer)
+        timer.cancel()
         wake = undefined
         resolve()
       }
