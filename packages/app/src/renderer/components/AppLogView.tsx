@@ -79,6 +79,7 @@ function LogHeader({ task, app }: { task: Task; app: TaskApp }) {
           {actions.error}
         </p>
       )}
+      {actions.dialog}
     </header>
   )
 }

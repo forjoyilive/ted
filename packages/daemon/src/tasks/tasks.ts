@@ -576,7 +576,10 @@ export function createTasks(options: {
     return {
       displayId: task.displayId,
       factoryId: task.factoryId,
-      ...(!bypass && { sandbox: sandboxScope(task) }),
+      ...(!bypass && {
+        sandbox: sandboxScope(task),
+        outsideSandbox: store.settings().appsOutsideSandbox[task.factoryId] ?? [],
+      }),
       repos: live.map((repo) => {
         const entry = repoEntry(entries, repo)
         return {

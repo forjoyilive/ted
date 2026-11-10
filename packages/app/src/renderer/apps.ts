@@ -12,6 +12,7 @@ export type PreviewChoice =
   | { kind: 'hosted'; hosted: HostedPreview }
   | { kind: 'local'; app: TaskApp }
   | { kind: 'run'; app: TaskApp; again: boolean }
+  | { kind: 'window'; app: TaskApp }
 
 export function hostedPreviews(task: Task): HostedPreview[] {
   return task.repos.flatMap((repo) => {
@@ -28,8 +29,10 @@ export function previewChoice(task: Task, apps: readonly TaskApp[]): PreviewChoi
   const live = web.find((a) => a.state === 'running') ?? web.find((a) => a.state === 'starting')
   if (live) return { kind: 'local', app: live }
   const [first] = web
-  if (!first) return undefined
-  return { kind: 'run', app: first, again: first.startedAt !== undefined }
+  if (first) return { kind: 'run', app: first, again: first.startedAt !== undefined }
+  const windowed = apps.filter((a) => a.kind === 'command' && !a.removed)
+  const app = windowed.find(isLive) ?? windowed[0]
+  return app && { kind: 'window', app }
 }
 
 export const isLive = (app: TaskApp) =>

@@ -62,6 +62,7 @@ export interface AppTask {
   factoryId: string
   repos: AppRepo[]
   sandbox?: Omit<SandboxScope, 'tmp'>
+  outsideSandbox?: readonly string[]
 }
 
 export interface SimulatorOptions {
@@ -130,6 +131,7 @@ interface Instance {
   startedBy?: AppStarter
   runId?: string
   restart?: boolean
+  sandboxed?: boolean
   waitingFor?: string
   readyAt?: string
   ended?: {
@@ -476,16 +478,22 @@ export function createApps(options: AppsOptions): Apps {
     ref: AppRef,
     by: AppStarter,
     start: StartOptions,
-    restart: boolean,
+    restarting: boolean,
   ): Promise<TaskApp> {
     const { task, repo, app } = await find(taskId, ref)
     const { runId } = start
+    let restart = restarting
     const dir = dirOf(taskId, repo.name, app.name)
     const key = keyOf(taskId, repo.name, app.name)
     const existing = await readInstance(dir)
     const state = stateOf(existing)
     if (state === 'running' || state === 'starting' || state === 'waiting') {
-      return toApp(taskId, repo.name, app, existing)
+      const humanTakesOver =
+        by === 'human' &&
+        (existing?.sandboxed === true || (state === 'waiting' && existing?.startedBy !== 'human'))
+      if (!humanTakesOver) return toApp(taskId, repo.name, app, existing)
+      await stopNow(taskId, repo.name, app.name)
+      restart = true
     }
     if (isSimulatorApp(app) && !sims.supported) {
       throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
@@ -560,7 +568,7 @@ export function createApps(options: AppsOptions): Apps {
       options.env?.() ?? process.env,
     )
     const url = app.kind === 'web' && port !== undefined ? urlFor(app, port) : undefined
-    const sandboxed = await sandboxFor(task, dir)
+    const sandboxed = await sandboxFor(by === 'human' ? undefined : task.sandbox, task, dir)
     if ('problem' in sandboxed) {
       await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
       throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
@@ -574,6 +582,7 @@ export function createApps(options: AppsOptions): Apps {
       ready: app.ready,
       startedAt: new Date().toISOString(),
       startedBy: by,
+      ...(sandboxed.shell !== undefined && { sandboxed: true }),
     }
     await mkdir(dir, { recursive: true, mode: 0o700 })
     await writeInstance(dir, instance)
@@ -601,10 +610,11 @@ export function createApps(options: AppsOptions): Apps {
   }
 
   async function sandboxFor(
+    scope: AppTask['sandbox'],
     task: AppTask,
     dir: string,
   ): Promise<{ shell?: string[]; env: Record<string, string> } | { problem: string }> {
-    if (task.sandbox === undefined) return { env: {} }
+    if (scope === undefined) return { env: {} }
     const problem = await options.sandboxProblem(task.factoryId)
     if (problem !== undefined) return { problem }
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -612,7 +622,7 @@ export function createApps(options: AppsOptions): Apps {
     const tmp = appFiles(dir).tmp
     await mkdir(tmp, { mode: 0o700 })
     try {
-      const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], { ...task.sandbox, tmp })
+      const wrapped = await options.sandbox.wrap(['/bin/sh', '-c'], { ...scope, tmp })
       return { shell: wrapped.argv, env: wrapped.env }
     } catch (error) {
       if (error instanceof SandboxUnavailable) return { problem: error.message }
@@ -820,9 +830,11 @@ export function createApps(options: AppsOptions): Apps {
     for (const repo of task.repos) {
       for (const app of repo.apps) {
         if (isSimulatorApp(app) && !sims.supported) continue
-        apps.push(
-          toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
-        )
+        const ask = task.sandbox !== undefined && !task.outsideSandbox?.includes(app.name)
+        apps.push({
+          ...toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name))),
+          ...(ask && { confirmOutsideSandbox: true }),
+        })
       }
     }
     for (const { repo, app, instance } of await undeclared(taskId, task)) {
