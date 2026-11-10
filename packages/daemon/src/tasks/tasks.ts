@@ -6398,12 +6398,16 @@ export function createTasks(options: {
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
     verifyFailure: (ref, caller, id, evidence) =>
-      failureLead(ref, caller, (task) => {
+      failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
-        if (!value.validation || value.source.kind !== 'finding' || task.stage !== 'validate')
+        if (
+          !value.validation ||
+          !['finding', 'factory-check'].includes(value.source.kind) ||
+          task.stage !== 'validate'
+        )
           throw new RequestError(
             409,
-            'only a reported Validate Finding can be verified by the Task Lead',
+            'only a Validate Finding or repaired Factory Check can be verified by the Task Lead',
           )
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
@@ -6414,12 +6418,18 @@ export function createTasks(options: {
             409,
             'repeat verification after Retry or repair before closing the Finding',
           )
-        const result = failures.verifyResult(task, id, evidence)
+        const safeEvidence = failureText(evidence)
+        if (value.verifications?.length)
+          throw new RequestError(409, 'this failure already has verification evidence')
+        const result =
+          value.source.kind === 'factory-check'
+            ? await validation.verifyRepair(task, value, safeEvidence)
+            : failures.verifyResult(task, id, safeEvidence)
         store.postComment({
           taskId: task.id,
           author: { kind: 'run', runId: task.leadRunId ?? '' },
-          title: 'Finding verified',
-          body: `Failure ${id}\n\n${failureText(evidence)}`,
+          title: 'Failure repair verified',
+          body: `Failure ${id}\n\n${result.verifications?.at(-1)?.evidence}`,
         })
         return result
       }),

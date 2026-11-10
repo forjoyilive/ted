@@ -9,12 +9,13 @@ import type {
   ResolveFailureRequest,
   Task,
 } from '@ted/protocol'
+import { validationExecution } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
 import type { CommandSandbox } from './command.ts'
-import type { createFailureCases } from './failure-cases.ts'
+import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
 
 interface ValidationOptions {
@@ -58,14 +59,30 @@ export function createValidation(options: ValidationOptions) {
       .then(coverageOf)
       .catch(() => undefined)
 
+  async function failureEvidence(task: Task, run: CheckRun, position: number) {
+    const evidence = generatedFailureText(
+      (await options.findings(task, run)) ?? summary(run.checks),
+    )
+    const reference = `\n\nFull output: ${options.checkLog(task, run.id, position)}`
+    return evidence.slice(0, Math.max(0, 16_000 - reference.length)) + reference
+  }
+
+  function sourceCheck(value: FailureCase) {
+    return value.source.kind === 'factory-check'
+      ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
+          value.originalCheck)
+      : value.originalCheck
+  }
+
   function verifyPassed(task: Task, run: CheckRun) {
     for (const prior of store.failures.list(task.id)) {
+      const original = sourceCheck(prior)
       if (
         !prior.validation ||
         prior.verifications?.length ||
         prior.source.kind !== 'factory-check' ||
         prior.source.checkRunId === run.id ||
-        !prior.originalCheck ||
+        !original ||
         run.startedAt < prior.createdAt
       )
         continue
@@ -79,9 +96,9 @@ export function createValidation(options: ValidationOptions) {
         run.checks.some(
           (c) =>
             c.state === 'passed' &&
-            c.name === prior.originalCheck?.name &&
-            c.repo === prior.originalCheck.repo &&
-            c.command === prior.originalCheck.command,
+            c.name === original.name &&
+            c.repo === original.repo &&
+            c.command === original.command,
         )
       )
         failures.verifyResult(task, prior.id, `Verification passed in Check run ${run.id}.`, run.id)
@@ -230,8 +247,8 @@ export function createValidation(options: ValidationOptions) {
           let failureId: string | undefined
           if (validating && result.failed) {
             const stored = store.getCheckRun(checkRun.id) ?? checkRun
-            const evidence = (await options.findings(task, stored)) ?? summary(stored.checks)
-            const value = await failures.record(find(task.id), task.leadRunId ?? 'ted', {
+            const evidence = await failureEvidence(task, stored, result.failed.position)
+            const value = await failures.recordCheck(find(task.id), task.leadRunId ?? 'ted', {
               source: {
                 kind: 'factory-check',
                 checkRunId: checkRun.id,
@@ -247,9 +264,9 @@ export function createValidation(options: ValidationOptions) {
                 !previous.validation ||
                 previous.verifications?.length ||
                 previous.source.kind !== 'factory-check' ||
-                previous.originalCheck?.name !== value.originalCheck?.name ||
-                previous.originalCheck?.repo !== value.originalCheck?.repo ||
-                previous.originalCheck?.command !== value.originalCheck?.command
+                sourceCheck(previous)?.name !== sourceCheck(value)?.name ||
+                sourceCheck(previous)?.repo !== sourceCheck(value)?.repo ||
+                sourceCheck(previous)?.command !== sourceCheck(value)?.command
               )
                 continue
               const decision = previous.resolutions.at(-1)
@@ -335,9 +352,9 @@ export function createValidation(options: ValidationOptions) {
         )
       const value =
         existing ??
-        (await failures.record(task, task.leadRunId ?? 'ted', {
+        (await failures.recordCheck(task, task.leadRunId ?? 'ted', {
           source: { kind: 'factory-check', checkRunId: run.id, position },
-          evidence: (await options.findings(task, run)) ?? summary(run.checks),
+          evidence: await failureEvidence(task, run, position),
           ...(execution.contextId && { contextId: execution.contextId }),
         }))
       const decision = value.resolutions.at(-1)
@@ -416,7 +433,9 @@ export function createValidation(options: ValidationOptions) {
         )
         return
       }
-      const findings = (await options.findings(current, checkRun)) ?? summary(checkRun.checks)
+      const findings = generatedFailureText(
+        (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
+      )
       await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
         mode: 0o600,
       })
@@ -482,7 +501,7 @@ export function createValidation(options: ValidationOptions) {
 
   async function currentCoverage(task: StoredTask): Promise<boolean> {
     const progress = store.failures.progress(task.id)
-    if (!progress) return true
+    if (!progress || task.stage === 'done') return true
     if (progress.pending || progress.next < progress.checks.length) return false
     const resolution = await options.workflow(task)
     const plan = await options.plan(task, resolution)
@@ -507,6 +526,65 @@ export function createValidation(options: ValidationOptions) {
     })
     await store.persisted()
     return plan.length === 0
+  }
+
+  async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
+    if (value.source.kind !== 'factory-check')
+      throw new RequestError(409, 'only a Factory Check repair can use current Check coverage')
+    const source = store.getCheckRun(value.source.checkRunId)
+    const obligations = await failures.obligations(task)
+    const current = await currentCoverage(task)
+    const progress = store.failures.progress(task.id)
+    const original = sourceCheck(value)
+    if (
+      !current ||
+      !progress ||
+      progress.pending ||
+      !source ||
+      source.startedAt >= progress.visit ||
+      !store
+        .listStageEntries(task.id)
+        .some(
+          (entry) =>
+            entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
+        ) ||
+      !original ||
+      progress.checks.some((c, position) => {
+        if (c.state === 'passed' || c.state === 'skipped') return false
+        if (c.state !== 'failed' && c.state !== 'timed-out') return true
+        const execution = validationExecution(progress, position)
+        return !store.failures
+          .list(task.id)
+          .some(
+            (failure) =>
+              failure.source.kind === 'factory-check' &&
+              failure.source.checkRunId === execution?.runId &&
+              failure.source.position === position - execution.start &&
+              obligations.cases.some(
+                (entry) =>
+                  entry.id === failure.id &&
+                  entry.disposition === 'accepted' &&
+                  entry.context === 'current',
+              ),
+          )
+      }) ||
+      progress.checks.some(
+        (c) =>
+          c.name === original.name &&
+          c.repo === original.repo &&
+          c.command === original.command &&
+          c.state !== 'skipped',
+      )
+    )
+      throw new RequestError(
+        409,
+        'complete current Checks in a fresh Validate visit and explain why the old Check is now skipped, removed or replaced',
+      )
+    return failures.verifyResult(
+      task,
+      value.id,
+      `${evidence}\n\nTask Lead reported repair against Validate visit ${progress.visit}. Current Checks: ${generatedFailureText(summary(progress.checks)) || '(empty plan)'}. Original execution remains failed.`,
+    )
   }
 
   async function requireCoverage(task: StoredTask): Promise<void> {
@@ -559,6 +637,7 @@ export function createValidation(options: ValidationOptions) {
     resolve: resolveValidationFailure,
     currentCoverage,
     requireCoverage,
+    verifyRepair,
     recover,
   }
 }

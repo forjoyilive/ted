@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   CheckRun,
@@ -13,7 +13,7 @@ import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
-import { api, stubClaudePath, waitUntil } from './helpers.ts'
+import { api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
@@ -294,50 +294,72 @@ async function restart() {
   }
 }
 
-test('restart reconstructs a persisted failed execution before its case was recorded and preserves remaining Checks', async () => {
-  const s = await setup()
-  await ctx.daemon?.stop()
-  ctx.daemon = undefined
-  const store = await openStore({ directory: tedPaths(ctx.home).store })
-  const progress = store.failures.progress(s.task.id)
-  expect(progress).toBeDefined()
-  if (!progress) throw new Error('Validate progress missing')
-  const run = store.startChecks({
-    taskId: s.task.id,
-    trigger: 'validate',
-    stage: 'validate',
-    checks: progress.checks.map((check) => ({ ...check, state: 'waiting' })),
-  })
-  store.checkFinished(run.id, 0, { state: 'failed', exitCode: 1, durationMs: 1 })
-  const finished = store.finishChecks(run.id, 'failed')
-  store.failures.saveProgress({
-    ...progress,
-    executions: [
-      ...progress.executions,
-      { runId: run.id, start: 0, ...(progress.contextId && { contextId: progress.contextId }) },
-    ],
-    checks: finished.checks,
-    next: 0,
-    pending: true,
-    failureId: undefined,
-  })
-  await store.persisted()
-  await store.close()
-  const client = await restart()
-  const recovered = await waitUntil(async () => {
-    const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
-    return cases.find((f) => f.source.kind === 'factory-check' && f.source.checkRunId === run.id)
-  }, 'reconstructed failure case')
-  const obligations = await waitUntil(async () => {
-    const value = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
-    return value.progress?.pending === false ? value : undefined
-  }, 'recovered diagnosis hold')
-  expect(obligations.progress?.failureId).toBe(recovered.id)
-  expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
-  expect(obligations.satisfied).toBe(false)
-  expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
-  expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).at(-1)).toEqual(finished)
-})
+test.each(['ordinary', 'unsafe output'])(
+  'restart reconstructs a persisted failed execution before its case was recorded: %s',
+  async (kind) => {
+    const s = await setup()
+    await ctx.daemon?.stop()
+    ctx.daemon = undefined
+    const store = await openStore({ directory: tedPaths(ctx.home).store })
+    const progress = store.failures.progress(s.task.id)
+    expect(progress).toBeDefined()
+    if (!progress) throw new Error('Validate progress missing')
+    const run = store.startChecks({
+      taskId: s.task.id,
+      trigger: 'validate',
+      stage: 'validate',
+      checks: progress.checks.map((check) => ({ ...check, state: 'waiting' })),
+    })
+    const recoveredLog = path.join(
+      tedPaths(ctx.home).logs,
+      'checks',
+      s.task.displayId,
+      run.id,
+      '1.log',
+    )
+    if (kind === 'unsafe output') {
+      await mkdir(path.dirname(recoveredLog), { recursive: true })
+      await writeFile(
+        recoveredLog,
+        'https://example.test/api?token=fixture\nhttps://[redacted]@example.test/api',
+      )
+    }
+    store.checkFinished(run.id, 0, { state: 'failed', exitCode: 1, durationMs: 1 })
+    const finished = store.finishChecks(run.id, 'failed')
+    store.failures.saveProgress({
+      ...progress,
+      executions: [
+        ...progress.executions,
+        { runId: run.id, start: 0, ...(progress.contextId && { contextId: progress.contextId }) },
+      ],
+      checks: finished.checks,
+      next: 0,
+      pending: true,
+      failureId: undefined,
+    })
+    await store.persisted()
+    await store.close()
+    const client = await restart()
+    const recovered = await waitUntil(async () => {
+      const cases = await client.read<FailureCase[]>(`${s.root}/failures`)
+      return cases.find((f) => f.source.kind === 'factory-check' && f.source.checkRunId === run.id)
+    }, 'reconstructed failure case')
+    const obligations = await waitUntil(async () => {
+      const value = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
+      return value.progress?.pending === false ? value : undefined
+    }, 'recovered diagnosis hold')
+    if (kind === 'unsafe output') {
+      expect(recovered.evidence).toContain('[unsafe or invalid link omitted]')
+      expect(recovered.evidence).toContain(recoveredLog)
+      expect(recovered.evidence).not.toContain('token=fixture')
+    }
+    expect(obligations.progress?.failureId).toBe(recovered.id)
+    expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+    expect(obligations.satisfied).toBe(false)
+    expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
+    expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).at(-1)).toEqual(finished)
+  },
+)
 
 test.each([false, true])(
   'restart resumes a persisted Finding Fix once (send-back recorded: %s)',
@@ -572,4 +594,164 @@ test('restart reconciles durable passing retry before interrupted suffix', async
   const result = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
   expect(result.progress?.checks.map((c) => c.state)).toEqual(['passed', 'passed'])
   expect(result.satisfied, JSON.stringify(result)).toBe(true)
+})
+
+test.each(['revert', 'remove', 'replace', 'accepted'])(
+  'repair has an evidenced completion path when a Check becomes %s',
+  async (kind) => {
+    const s = await setup(['      - { name: Tests, run: "test ! -f work.txt" }'])
+    const before = await s.obligations()
+    await s.assess(s.one, 'regression')
+    await s.post('/outcome', {
+      outcome: 'back',
+      to: 'work',
+      findings: 'The work.txt change causes this Check failure.',
+    })
+    const current = await getTask(s.client, s.task.id)
+    const repo = current.repos[0]
+    if (!repo) throw Error('missing fixture worktree')
+    if (kind === 'revert') await rm(path.join(repo.worktree, 'work.txt'))
+    else
+      await commitToOrigin(ctx.scratch, {
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'order: [intake, work, validate, review]',
+          'stages:',
+          '  validate:',
+          kind === 'remove'
+            ? '    checks: []'
+            : kind === 'accepted'
+              ? '    checks: [{ name: Tests, run: "echo repaired" }, { name: Later, run: "exit 1" }]'
+              : '    checks: [{ name: Tests, run: "echo repaired" }]',
+          '',
+        ].join('\n'),
+      })
+    await s.post('/outcome', { outcome: 'advance' })
+    const result = await waitUntil(async () => {
+      const o = await s.obligations()
+      return o.progress?.visit !== before.progress?.visit && o.progress?.pending === false
+        ? o
+        : undefined
+    }, 'fresh validation finishes')
+    expect(result.progress?.checks.map((c) => c.state)).toEqual(
+      kind === 'revert'
+        ? ['skipped']
+        : kind === 'remove'
+          ? []
+          : kind === 'accepted'
+            ? ['passed', 'failed']
+            : ['passed'],
+    )
+    expect(result.satisfied).toBe(false)
+    const original = (await s.runs())[0]
+    if (kind === 'accepted') {
+      const later = await s.failure(2)
+      expect((await s.answer(await s.ask(later), 'Accept this failure')).status).toBe(200)
+      await waitUntil(async () => {
+        const progress = (await s.obligations()).progress
+        return progress && !progress.pending && progress.next === progress.checks.length
+      }, 'accepted later failure completes coverage')
+    }
+    if (kind === 'replace') {
+      await writeFile(path.join(repo.worktree, 'work.txt'), 'changed after verification\n')
+      expect(
+        (
+          await s.lead.call('POST', `${s.root}/failures/${s.one.id}/verification`, {
+            evidence: 'Cannot close using stale coverage.',
+          })
+        ).status,
+      ).toBe(409)
+      const rerun = await s.post<CheckRun>('/checks')
+      await waitUntil(async () => {
+        const progress = (await s.obligations()).progress
+        return progress?.executions.at(-1)?.runId === rerun.id && !progress.pending
+      }, 'fresh repaired coverage')
+    }
+    const verified = await s.post<FailureCase>(`/failures/${s.one.id}/verification`, {
+      evidence: `The repair ${kind} makes the previous Check obsolete. The current plan completed; original failure is preserved.`,
+    })
+    expect(verified.verifications?.at(-1)?.evidence).toContain('Original execution remains failed')
+    expect((await s.obligations()).satisfied).toBe(true)
+    expect((await s.runs())[0]).toEqual(original)
+    await ctx.daemon?.stop()
+    ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+    const restarted = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+    const after = await waitUntil(async () => {
+      const response = await restarted.call('GET', `${s.root}/validation-obligations`)
+      expect(response.status).toBe(200)
+      const value = response.body as ValidationObligations
+      return value.satisfied ? value : undefined
+    }, 'restart reconciles completed validation')
+    expect(after.satisfied, JSON.stringify(after)).toBe(true)
+    expect(after.progress?.checks.map((c) => c.state)).toEqual(
+      result.progress?.checks.map((c) => c.state),
+    )
+  },
+)
+
+test('Task Lead verification cannot bypass a current failed Check or incomplete repair coverage', async () => {
+  const s = await setup()
+  await s.assess(s.one, 'regression')
+  const verify = () =>
+    s.lead.call('POST', `${s.root}/failures/${s.one.id}/verification`, {
+      evidence: 'Claimed repair without complete current verification.',
+    })
+  expect((await verify()).status).toBe(409)
+  await s.post('/outcome', { outcome: 'back', to: 'work', findings: 'Repair the failed Check.' })
+  await s.post('/outcome', { outcome: 'advance' })
+  const second = await s.failure(2)
+  const before = await s.cases()
+  expect((await verify()).status).toBe(409)
+  await s.assess(second, 'regression')
+  expect(
+    (
+      await s.lead.call('POST', `${s.root}/failures/${second.id}/verification`, {
+        evidence: 'Claimed repair despite the current failure.',
+      })
+    ).status,
+  ).toBe(409)
+  expect((await s.cases()).find((c) => c.id === s.one.id)?.verifications).toEqual(
+    before.find((c) => c.id === s.one.id)?.verifications,
+  )
+  expect((await s.cases()).find((c) => c.id === second.id)?.verifications).toBeUndefined()
+  expect((await s.obligations()).satisfied).toBe(false)
+})
+
+test.each([
+  ["printf 'https://example.test/path?%s=value' token; exit 1", 'token=value'],
+  ['echo https://user:password@example.test/api; exit 1', 'user:password'],
+  ["echo 'https://[redacted]@example.test/api'; exit 1", '[redacted]@'],
+  ["echo 'https://['; exit 1", 'https://['],
+])('generated Check evidence survives unsafe links: %s', async (command, unsafe) => {
+  const s = await setup([
+    `      - { name: Tests, run: ${JSON.stringify(command)} }`,
+    '      - { name: Lint, run: "echo linted" }',
+  ])
+  expect(s.one.evidence).toContain('[unsafe or invalid link omitted]')
+  expect(s.one.evidence).not.toContain(unsafe)
+  expect(s.one.source.kind).toBe('factory-check')
+  expect((await s.obligations()).progress?.pending).toBe(false)
+  expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+  expect(await s.backs()).toEqual([])
+})
+
+test('sanitized Check metadata retains retry identity and manual evidence remains strict', async () => {
+  const s = await setup([
+    `      - { name: Tests, run: "if [ -f stub-retry ]; then exit 0; else touch stub-retry; echo https://example.test/api?token=fixture; exit 1; fi" }`,
+    '      - { name: Lint, run: "echo linted" }',
+  ])
+  expect(s.one.originalCheck?.command).toContain('[unsafe or invalid link omitted]')
+  expect((await s.runs())[0]?.checks[0]?.command).toContain('token=fixture')
+  const unsafe = await s.lead.call('POST', `${s.root}/failures/${s.one.id}/evidence`, {
+    evidence: 'https://example.test/api?token=fixture',
+  })
+  expect(unsafe.status).toBe(400)
+  expect((await s.cases())[0]?.additions).toEqual([])
+  expect((await s.answer(await s.ask(s.one, 'uncertain'), 'Retry')).status).toBe(200)
+  await waitUntil(
+    async () => (await s.obligations()).satisfied,
+    'retry verifies the authoritative source Check',
+  )
+  expect((await s.cases())[0]?.verifications).toHaveLength(1)
+  expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
 })

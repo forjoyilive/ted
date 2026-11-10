@@ -42,9 +42,6 @@ export function validationReport(
           f.source.kind === 'factory-check' &&
           f.source.checkRunId === execution?.runId &&
           f.source.position === position - execution.start &&
-          f.originalCheck?.name === check.name &&
-          f.originalCheck?.repo === check.repo &&
-          f.originalCheck?.command === check.command &&
           f.resolutions.at(-1)?.resolution === 'accepted' &&
           !f.verifications?.length &&
           !f.invalidations.some((i) => i.requestId === f.resolutions.at(-1)?.requestId),

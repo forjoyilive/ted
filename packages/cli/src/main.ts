@@ -83,7 +83,7 @@ const usage = `Usage:
   ted failure record --file <json>          Record a source, evidence and optional contextId
   ted failure evidence <id> --file <json>    Append evidence and optional contextId
   ted failure assess <id> --file <json>      Record assessment and recommendation
-  ted failure verify <id> --file <json>     Record fresh passing evidence for a retried Finding
+  ted failure verify <id> --file <json>     Record fresh Finding or obsolete Check repair evidence
   ted failure ask <id>                      Request the human’s failure decision
   ted checks [--name <Check>]                Run the Factory’s Checks now, one after another,
                                              stopping at the first failure

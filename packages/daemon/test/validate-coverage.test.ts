@@ -5,6 +5,7 @@ import { tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { openStore } from '../src/store/index.ts'
 import { api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
 import { ctx, getTask, run, setGh, start, useMergeHarness } from './merge-harness.ts'
 
@@ -273,4 +274,21 @@ test('newly resolved Checks hold advancement before posting a Validate Gate', as
   expect((await s.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied).toBe(
     false,
   )
+})
+
+test('reading a completed Task preserves its historical validation summary', async () => {
+  const s = await passing()
+  const before = await s.obligations()
+  expect(before.satisfied).toBe(true)
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  store.changeStage(s.task.id, 'done')
+  store.worktreeRemoved(s.task.id, s.repo.name)
+  await store.persisted()
+  await store.close()
+  ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+  const after = await s.obligations()
+  expect(after.progress).toEqual(before.progress)
+  expect(after.satisfied).toBe(true)
 })
