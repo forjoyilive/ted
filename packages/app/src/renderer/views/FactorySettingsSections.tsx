@@ -196,7 +196,13 @@ export function WorkflowSection({
         <div className={`${styles.workflowRow} ${styles.headRow}`}>
           <span>Stage</span>
           <span>On</span>
-          <span>Gate</span>
+          <span className={styles.gateHeading}>
+            Gate
+            <Help>
+              A Gate makes the Task wait for your sign-off at the end of this Stage before moving
+              on. If the Stage skips itself, its Gate is skipped too.
+            </Help>
+          </span>
           <span>Send-backs</span>
           <span>Clarify depth</span>
           <span>From</span>

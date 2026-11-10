@@ -144,7 +144,13 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               <div className={`${styles.row} ${sections.headRow}`}>
                 <span>Stage</span>
                 <span>On</span>
-                <span>Gate</span>
+                <span className={sections.gateHeading}>
+                  Gate
+                  <Help>
+                    A Gate makes the Task wait for your sign-off at the end of this Stage before
+                    moving on. If the Stage skips itself, its Gate is skipped too.
+                  </Help>
+                </span>
                 <span>Send-backs</span>
                 <span>Clarify depth</span>
                 <span>Source</span>
