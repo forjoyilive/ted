@@ -5,7 +5,7 @@ import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
-import { useCoordinator, useCoordinatorChat } from '../data.ts'
+import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
@@ -34,8 +34,10 @@ export function CoordinatorView({
   factory: Factory
   onOpenTask: (id: string) => void
 }) {
-  const coordinator = useCoordinator(factory.id)
-  const chat = useCoordinatorChat(factory.id, coordinator?.runIds ?? [])
+  const resource = useCoordinatorState(factory.id)
+  const coordinator = resource.value
+  const chatResource = useCoordinatorChatState(factory.id, coordinator?.runIds ?? [])
+  const chat = chatResource.value
   const [text, setText] = useState('')
   const [lead, setLead] = useState<TaskLead>()
   const [busy, setBusy] = useState(false)
@@ -120,6 +122,8 @@ export function CoordinatorView({
           <ChatSection
             chat={coordinator === undefined ? undefined : (chat ?? undefined)}
             loading="Loading the Coordinator…"
+            error={resource.error ?? chatResource.error}
+            retry={resource.error ? resource.retry : chatResource.retry}
             options={{
               bar: false,
               extra: (coordinator?.receipts ?? []).map((receipt) => ({

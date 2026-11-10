@@ -2,6 +2,7 @@ import type { CommandLineStatus } from '@ted/protocol'
 import { tedVersion } from '@ted/protocol/version'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { aboutLine, updateChip } from '../../updates.ts'
+import { Loading } from '../components/Loading.tsx'
 import { useUpdateStatus } from '../data.ts'
 import { ted } from '../ted.ts'
 import styles from './command-line.module.css'
@@ -50,7 +51,9 @@ export function CommandLineGroup({ children }: { children?: ReactNode }) {
   }
 
   const addToPath = status?.state === 'installed' ? status.addToPath : undefined
-  const detail = problem ?? commandDetail(status)
+  const detail = problem ?? commandDetail(status) ?? (
+    <Loading compact label="Loading command line status…" />
+  )
 
   return (
     <SettingsGroup label="Editor and command line">
@@ -127,11 +130,16 @@ function UpdateRow() {
 
 export function AboutGroup() {
   const [licenses, setLicenses] = useState<string>()
+  const [loading, setLoading] = useState(false)
   const [problem, setProblem] = useState<string>()
 
   const view = () => {
     setProblem(undefined)
-    ted.thirdPartyLicenses().then(setLicenses, (error: unknown) => setProblem(errorText(error)))
+    setLoading(true)
+    ted
+      .thirdPartyLicenses()
+      .then(setLicenses, (error: unknown) => setProblem(errorText(error)))
+      .finally(() => setLoading(false))
   }
 
   return (
@@ -142,7 +150,9 @@ export function AboutGroup() {
         help="The open-source code TED is built from, and the license for each part."
         {...(problem !== undefined && { detail: problem })}
       >
-        <Button onClick={view}>View</Button>
+        <Button onClick={view} disabled={loading}>
+          {loading ? <Loading compact label="Loading licenses…" /> : 'View'}
+        </Button>
       </SettingRow>
       {licenses !== undefined && (
         <LicensesDialog text={licenses} onClose={() => setLicenses(undefined)} />

@@ -434,7 +434,7 @@ export const ted = {
   listAutomations: (factoryId?: string) =>
     window.ted.request('listAutomations', factoryId) as Promise<Automation[]>,
   getAutomation: (id: string) =>
-    window.ted.request('getAutomation', id) as Promise<AutomationDetail>,
+    window.ted.request('getAutomation', id) as Promise<AutomationDetail | null>,
   draftAutomationPrompt: (input: DraftAutomationPromptRequest) =>
     window.ted.request('draftAutomationPrompt', input) as Promise<AutomationPromptDraft>,
   getAutomationPromptDraft: (id: string) =>
