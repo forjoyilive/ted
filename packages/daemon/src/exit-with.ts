@@ -1,8 +1,9 @@
+import { tedEnv } from '@ted/protocol'
 export const exitWithPidEnv = 'TED_EXIT_WITH_PID'
 
 export function watchExitWith(
   onGone: () => void,
-  pidText = process.env[exitWithPidEnv],
+  pidText = tedEnv(exitWithPidEnv),
   intervalMs = 500,
 ): void {
   const pid = Number(pidText)

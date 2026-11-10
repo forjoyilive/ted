@@ -463,12 +463,13 @@ export function createValidation(options: ValidationOptions) {
     task: StoredTask,
     id: string,
     input: ResolveFailureRequest,
+    sendDrafts = true,
   ) {
     const value = failures.get(task, id)
     if (!value.validation) {
       if (input.resolution === 'retry' || input.resolution === 'fix')
         throw new RequestError(400, 'this failure does not support Validate actions')
-      return failures.resolve(task, id, input)
+      return failures.resolve(task, id, input, sendDrafts)
     }
     if (task.stage !== 'validate')
       throw new RequestError(409, 'this Validate decision is no longer current')
@@ -494,7 +495,7 @@ export function createValidation(options: ValidationOptions) {
         store.failures.progress(task.id)?.failureId !== id
       )
         throw new RequestError(409, 'this failure is not the outstanding Check')
-      const result = await failures.resolve(task, id, input)
+      const result = await failures.resolve(task, id, input, sendDrafts)
       if (input.resolution === 'fix') {
         await options.fix(find(task.id), result)
       } else if (

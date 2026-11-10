@@ -10,6 +10,7 @@ import {
   type FoundEditor,
   type MachineSettings,
   type OpenInEditorRequest,
+  tedEnv,
 } from '@ted/protocol'
 import { worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
@@ -59,7 +60,7 @@ const jetBrains: readonly EditorId[] = [
 ]
 
 export function defaultAppDirs(): string[] {
-  const given = process.env.TED_EDITOR_APP_DIRS
+  const given = tedEnv('TED_EDITOR_APP_DIRS')
   if (given !== undefined) return given.split(path.delimiter).filter((dir) => dir !== '')
   if (process.platform !== 'darwin') return []
   return ['/Applications', path.join(homedir(), 'Applications')]

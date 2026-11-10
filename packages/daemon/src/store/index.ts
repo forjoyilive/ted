@@ -149,6 +149,7 @@ import {
   tasks,
   workflowLayers,
 } from './schema.ts'
+import { createTaskHistory, type TaskHistory } from './task-history.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -441,7 +442,7 @@ export interface HeldRun {
   sessionId?: string
 }
 
-export interface TedStore {
+export interface TedStore extends TaskHistory {
   addFactory(
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
@@ -1077,33 +1078,25 @@ export async function openStore({
   const reposOf = (taskId: string) =>
     store.query(queryDb(taskRepos.where({ taskId }).orderBy('createdAt', 'asc'))).map(toTaskRepo)
 
-  const mergePendingFor = (
-    taskId: string,
-    entries: readonly (typeof stageEntries.Type)[],
-    repos: readonly TaskRepo[],
-  ): boolean => {
-    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
-    const open = repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged')
-    if (!open) return false
-    const last = store
+  const readTaskLog = (taskId: string): LoggedEvent[] =>
+    store
       .query(queryDb(taskLog.where({ taskId })))
-      .filter(
-        (e) => (e.name === 'v1.MergeStarted' || e.name === 'v1.MergeCanceled') && e.at >= since,
-      )
+      .map(({ id, name, data, at }) => ({
+        id,
+        name,
+        data: JSON.parse(data) as Record<string, unknown>,
+        at,
+      }))
       .sort((a, b) => sequence(a.id) - sequence(b.id))
-      .at(-1)
-    return last?.name === 'v1.MergeStarted'
-  }
 
-  const mergeCanceledFor = (
-    taskId: string,
-    entries: readonly (typeof stageEntries.Type)[],
-  ): boolean => {
-    const since = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
-    return store
-      .query(queryDb(taskLog.where({ taskId, name: 'v1.MergeCanceled' })))
-      .some((e) => e.at >= since)
-  }
+  const history = createTaskHistory(
+    readTaskLog,
+    (taskId) => entryRows(taskId).findLast((e) => e.stage === 'merge')?.at ?? '',
+  )
+
+  const mergePendingFor = (taskId: string, repos: readonly TaskRepo[]): boolean =>
+    repos.some((r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged') &&
+    history.mergeHistory(taskId).latest === 'started'
 
   const isMerged = (taskId: string): boolean =>
     taskRow(taskId)?.stage === 'done' &&
@@ -1235,7 +1228,7 @@ export async function openStore({
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
             ?.waiting
         : undefined
-    const mergeWaits = stage === 'merge' && mergePendingFor(row.id, entries, repos)
+    const mergeWaits = stage === 'merge' && mergePendingFor(row.id, repos)
     const autoMergeLeft =
       stage === 'merge' &&
       !mergeWaits &&
@@ -1243,7 +1236,7 @@ export async function openStore({
         (r) =>
           !r.removed && r.pullRequest?.autoMerge !== undefined && r.pullRequest.state !== 'merged',
       ) &&
-      mergeCanceledFor(row.id, entries)
+      history.mergeHistory(row.id).canceledAt !== undefined
     const checking = checkRunRows(row.id).find((r) => r.finishedAt === null)
     const checkingNow = checking && checkProgress(checking.id)
     const queued = store.query(queryDb(taskQueue.where({ taskId: row.id }))).at(0)
@@ -3103,7 +3096,7 @@ export async function openStore({
     },
     mergePending(taskId) {
       const task = taskRow(taskId)
-      return task?.stage === 'merge' && mergePendingFor(taskId, entryRows(taskId), reposOf(taskId))
+      return task?.stage === 'merge' && mergePendingFor(taskId, reposOf(taskId))
     },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
@@ -3399,16 +3392,8 @@ export async function openStore({
       if (ids.length === 0) return
       commit(events.commentAnswersDelivered({ ids, runId, at: new Date().toISOString() }))
     },
-    taskLog: (taskId) =>
-      store
-        .query(queryDb(taskLog.where({ taskId })))
-        .map(({ id, name, data, at }) => ({
-          id,
-          name,
-          data: JSON.parse(data) as Record<string, unknown>,
-          at,
-        }))
-        .sort((a, b) => sequence(a.id) - sequence(b.id)),
+    ...history,
+    taskLog: readTaskLog,
     listOpenRequests: () => openRequestRows().map(toComment),
     listAnsweredRequests: () =>
       store
