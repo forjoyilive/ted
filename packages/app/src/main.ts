@@ -526,7 +526,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
-  getAutomation: (client, id) => client.getAutomation(String(id)),
+  getAutomation: (client, id) =>
+    client.getAutomation(String(id)).catch((error: unknown) => {
+      if (error instanceof DaemonRequestError && error.status === 404) return null
+      throw error
+    }),
   draftAutomationPrompt: (client, input) =>
     client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
   getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),

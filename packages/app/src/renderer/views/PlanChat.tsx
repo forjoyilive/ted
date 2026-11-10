@@ -13,6 +13,7 @@ import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
@@ -22,7 +23,7 @@ import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import { sendOnEnter } from '../composer-keys.ts'
-import { usePlan, useRunChat } from '../data.ts'
+import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import {
   planEnded,
   planStartedLine,
@@ -793,12 +794,19 @@ function PlanChat({
   onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
-  const detail = usePlan(planId)
+  const resource = usePlanState(planId)
+  const detail = resource.value
   const [, setAnswered] = useState(0)
   if (!detail) {
     return (
       <section className={views.pane} aria-label="Planning chat">
-        <p className={views.empty}>Loading the planning chat…</p>
+        <div className={views.empty}>
+          {resource.error ? (
+            <LoadingError error={resource.error} retry={resource.retry} />
+          ) : (
+            <Skeleton shape="history" label="Loading the planning chat…" />
+          )}
+        </div>
       </section>
     )
   }

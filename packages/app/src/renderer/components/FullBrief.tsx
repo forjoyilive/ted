@@ -4,14 +4,19 @@ import { useComments } from '../data.ts'
 import { briefLines, briefPart, briefUpdatedLine } from '../details.ts'
 import { useNow } from '../requests.ts'
 import styles from './FullBrief.module.css'
+import { LoadingError, Skeleton } from './Loading.tsx'
 
 export function FullBrief({
   task,
   brief,
+  error,
+  retry,
   onBack,
 }: {
   task: Task
   brief: TaskBrief | null | undefined
+  error?: string | undefined
+  retry?: (() => void) | undefined
   onBack: () => void
 }) {
   const comments = useComments(task.id)
@@ -28,8 +33,9 @@ export function FullBrief({
         </div>
       </header>
       <div className={styles.body}>
+        {error && retry && <LoadingError error={error} retry={retry} />}
         {brief === undefined ? (
-          <p className={styles.empty}>Loading…</p>
+          !(error && retry) && <Skeleton label="Loading Task brief…" />
         ) : brief === null ? (
           <p className={styles.empty}>The Task Lead hasn’t written a Task brief yet.</p>
         ) : (

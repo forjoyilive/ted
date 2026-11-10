@@ -5,6 +5,7 @@ import { openInEditor } from '../editor.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import styles from './FileView.module.css'
+import { Loading } from './Loading.tsx'
 
 export function FileView({
   taskId,
@@ -86,7 +87,7 @@ export function FileView({
         </p>
       )}
       {content === undefined ? (
-        !error && <p className={styles.message}>Loading file…</p>
+        !error && <Loading label="Loading file…" />
       ) : content.kind === 'text' ? (
         <pre className={styles.content}>
           {lines.map((line) => (
