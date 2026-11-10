@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -19,6 +20,7 @@ import {
   type Effort,
   efforts,
   type Factory,
+  filterTedEnv,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
@@ -32,6 +34,7 @@ import {
   runTokenFrom,
   type SetTaskReposRequest,
   type TaskLead,
+  tedEnv,
   tedHome,
   tedPaths,
   type ValidateJudgments,
@@ -244,11 +247,11 @@ const options = parsed?.values ?? {}
 const home = tedHome()
 
 function inPlan(): boolean {
-  return options.task === undefined && !process.env.TED_TASK && !!process.env.TED_PLAN
+  return options.task === undefined && !tedEnv('TED_TASK') && !!tedEnv('TED_PLAN')
 }
 
 function taskRef(given?: string): string {
-  const ref = given ?? options.task ?? process.env.TED_TASK
+  const ref = given ?? options.task ?? tedEnv('TED_TASK')
   if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
   return ref
 }
@@ -429,8 +432,8 @@ try {
   } else if (
     group === 'comment' &&
     options.task === undefined &&
-    !process.env.TED_TASK &&
-    process.env.TED_AUTOMATION
+    !tedEnv('TED_TASK') &&
+    tedEnv('TED_AUTOMATION')
   ) {
     const body = [command, ...rest].filter((s) => s !== undefined).join(' ') || (await readStdin())
     if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
@@ -646,7 +649,7 @@ try {
       `Sent to sub-agent “${printable(sub.name)}”. Run \`ted run wait ${sub.id}\` for its answer.`,
     )
   } else if (group === 'run' && command === 'boundary' && rest.length === 0) {
-    const runId = process.env.TED_RUN
+    const runId = tedEnv('TED_RUN')
     if (!runId) throw new UsageError('ted run boundary only works inside a Run')
     await withDaemon(home, (client) => client.reachedBoundary(runId))
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
@@ -1013,7 +1016,7 @@ async function openApp(): Promise<void> {
     },
   )
   if (result?.opened) return void console.log('Opened TED')
-  const app = process.env.TED_APP_EXECUTABLE
+  const app = tedEnv('TED_APP_EXECUTABLE')
   if (!app) {
     console.error('ted: TED isn’t open. Open it from your app launcher.')
     process.exitCode = 1
@@ -1024,7 +1027,7 @@ async function openApp(): Promise<void> {
 }
 
 function launchApp(executable: string): void {
-  const { ELECTRON_RUN_AS_NODE: _, ...env } = process.env
+  const { ELECTRON_RUN_AS_NODE: _, ...env } = filterTedEnv(process.env)
   const bundle = /^(.+\.app)\/Contents\/MacOS\/[^/]+$/.exec(executable)?.[1]
   const [command, args] = bundle ? ['/usr/bin/open', [bundle]] : [executable, []]
   spawn(command, args, { detached: true, stdio: 'ignore', env }).unref()
