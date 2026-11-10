@@ -83,6 +83,7 @@ function Preview({
   } else if (choice.kind === 'window') {
     const { app } = choice
     const live = isLive(app)
+    const yours = live && app.startedBy === 'human'
     const ended = !live && app.startedAt !== undefined
     detail =
       live || ended ? `${app.name} · ${appStatusLine(app, now)}` : `${app.name} isn’t running`
@@ -100,10 +101,10 @@ function Preview({
         <Button
           size="small"
           variant="primary"
-          disabled={busy || live || task.archived !== undefined}
+          disabled={busy || yours || task.archived !== undefined}
           onClick={() => confirm(() => act(() => ted.startApp(task.id, app.repo, app.name)))}
         >
-          {live ? (app.state === 'running' ? 'Running' : 'Starting…') : `Open ${app.name}`}
+          {yours ? (app.state === 'running' ? 'Running' : 'Starting…') : `Open ${app.name}`}
         </Button>
       </>
     )

@@ -64,7 +64,7 @@ export function OutsideSandboxDialog({
   }
 
   return (
-    <Dialog onClose={onCancel}>
+    <Dialog onClose={() => !busy && onCancel()}>
       {(headingId) => (
         <>
           <h2 id={headingId} className={styles.heading}>
@@ -87,7 +87,9 @@ export function OutsideSandboxDialog({
             </p>
           )}
           <div className={styles.buttons}>
-            <Button onClick={onCancel}>Cancel</Button>
+            <Button disabled={busy} onClick={onCancel}>
+              Cancel
+            </Button>
             <Button variant="primary" disabled={busy} onClick={() => void run()}>
               Run
             </Button>
