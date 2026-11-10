@@ -215,6 +215,7 @@ import {
 } from './merge.ts'
 import { placeBetween } from './order.ts'
 import { overnightGuidance } from './overnight.ts'
+import { createPeers, type Peers } from './peers.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import {
   createPullRequests,
@@ -405,6 +406,7 @@ export interface Tasks {
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
   writeBrief(ref: string, caller: Caller, text: string): TaskBrief
   brief(ref: string, caller: Caller): TaskBrief
+  peers: Peers
   inbox(): InboxItem[]
   answered(): InboxItem[]
   setLead(ref: string, lead: TaskLead): Task
@@ -498,7 +500,9 @@ export function createTasks(options: {
     health,
     attachmentFile,
   } = options
+  const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
+  const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const interrupted = new Set<string>()
   const signedOutAt = new Map<string, string>()
@@ -3323,22 +3327,28 @@ export function createTasks(options: {
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
         : []),
     ].join('\n\n')
-    const run = await runs.start({
-      agent,
-      prompt,
-      cwd,
-      taskId: task.id,
-      env: { ...env, ...(await apps.envFor(task.id)), TED_TASK: task.displayId },
-      permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
-      ...(resumeSession !== undefined && { resume: resumeSession }),
-      ...(lead.model !== undefined && { model: lead.model }),
-      ...(lead.effort !== undefined && { effort: lead.effort }),
-    })
-    overnightSeen.set(run.id, overnightMode)
-    store.commentsDelivered(
-      waiting.comments.map((c) => c.id),
-      run.id,
-    )
+    let run: Run
+    for (const comment of waiting.comments) promptComments.add(comment.id)
+    try {
+      run = await runs.start({
+        agent,
+        prompt,
+        cwd,
+        taskId: task.id,
+        env: { ...env, ...(await apps.envFor(task.id)), TED_TASK: task.displayId },
+        permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
+        ...(resumeSession !== undefined && { resume: resumeSession }),
+        ...(lead.model !== undefined && { model: lead.model }),
+        ...(lead.effort !== undefined && { effort: lead.effort }),
+      })
+      overnightSeen.set(run.id, overnightMode)
+      store.commentsDelivered(
+        waiting.comments.map((c) => c.id),
+        run.id,
+      )
+    } finally {
+      for (const comment of waiting.comments) promptComments.delete(comment.id)
+    }
     store.answersDelivered(
       waiting.answers.map((c) => c.id),
       run.id,
@@ -3376,7 +3386,9 @@ export function createTasks(options: {
       comments: store
         .listComments(taskId)
         .filter(
-          (c) => (c.author.kind === 'human' || failureNotice(c)) && c.delivered === undefined,
+          (c) =>
+            (c.author.kind === 'human' || failureNotice(c) || peers.isMessage(c.id)) &&
+            c.delivered === undefined,
         ),
       answers: store.heldAnswers(taskId),
     }
@@ -3396,7 +3408,7 @@ export function createTasks(options: {
       ...comments.map((c) => ({
         at: c.createdAt,
         line: withLines(
-          `- ${c.createdAt}: ${failureNotice(c) ? 'TED: ' : ''}${flat(plainText(c))}`,
+          `- ${c.createdAt}: ${failureNotice(c) ? 'TED: ' : ''}${peers.isMessage(c.id) ? plainText(c) : flat(plainText(c))}`,
           c,
         ),
       })),
@@ -5939,14 +5951,26 @@ export function createTasks(options: {
     pending(run) {
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || liveLead(task)?.id !== run.id) return []
-      return waitingForRun(task.id).comments.map((comment) => ({
-        id: comment.id,
-        text:
-          comment.author.kind === 'human'
-            ? humanMessage(commentText(comment))
-            : commentText(comment),
-        at: comment.createdAt,
-      }))
+      return waitingForRun(task.id)
+        .comments.filter(
+          (comment) =>
+            !promptComments.has(comment.id) &&
+            (!peers.isMessage(comment.id) ||
+              (run.state === 'working' &&
+                !task.stopped &&
+                !task.archived &&
+                task.stage !== 'done' &&
+                task.stage !== 'merge' &&
+                openRequests(task.id).length === 0)),
+        )
+        .map((comment) => ({
+          id: comment.id,
+          text:
+            comment.author.kind === 'human'
+              ? humanMessage(commentText(comment))
+              : commentText(comment),
+          at: comment.createdAt,
+        }))
     },
     delivered(run, ids) {
       store.commentsDelivered(ids, run.id)
@@ -6985,6 +7009,8 @@ export function createTasks(options: {
       if (!brief) throw new RequestError(404, `${task.displayId} has no Task brief yet`)
       return brief
     },
+
+    peers,
 
     inbox() {
       return waitingItems(store.listOpenRequests(), store.listTasks())

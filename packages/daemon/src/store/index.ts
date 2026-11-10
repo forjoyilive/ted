@@ -4,7 +4,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { NewTaskDraft, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
+import type { NewTaskDraft, PeerMessage, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -121,6 +121,7 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  peerMessages,
   planRequests,
   plans,
   planTasks,
@@ -770,6 +771,12 @@ export interface TedStore {
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
   automations: AutomationStore
+  isPeerMessage(id: string): boolean
+  peerMessages(): PeerMessage[]
+  recordPeerMessage(
+    input: Omit<PeerMessage, 'id' | 'createdAt' | 'delivered'>,
+    body: string,
+  ): PeerMessage
   coordinators: CoordinatorStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
@@ -2180,6 +2187,28 @@ export async function openStore({
 
   return {
     automationDrafts: createAutomationDraftStore({ store, commit }),
+    isPeerMessage: (id) => store.query(queryDb(peerMessages.where({ id }))).length > 0,
+    peerMessages() {
+      return store.query(queryDb(peerMessages)).map((row) => {
+        const delivered = getComment(row.id)?.delivered
+        return { ...row, ...(delivered && { delivered }) }
+      })
+    },
+    recordPeerMessage(input, body) {
+      const createdAt = new Date().toISOString()
+      const { id, event } = commentPosted(
+        {
+          taskId: input.recipientTaskId,
+          body,
+          author: { kind: 'run', runId: input.senderRunId },
+        },
+        createdAt,
+      )
+      const row = { ...input, id, createdAt }
+      commit(event, events.peerMessageSent(row))
+      emit({ type: 'comment-posted', comment: requireComment(id) })
+      return row
+    },
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,

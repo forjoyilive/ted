@@ -85,6 +85,7 @@ import type {
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type { LinearLookup, LinearStatus, SaveLinearKeyRequest } from './linear.ts'
+import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type { Plan, PlanDetail, PlanInboxItem, PlanRequest, StartPlanRequest } from './plan.ts'
 import type {
   AgentKind,
@@ -360,6 +361,29 @@ export class DaemonClient {
 
   answerPlanRequest(id: string, answer: AnswerRequest): Promise<PlanRequest> {
     return this.#request('POST', `/plan-requests/${encodeURIComponent(id)}/answer`, answer)
+  }
+
+  peers(offset = 0): Promise<PeerPage> {
+    return this.#request('GET', `/peers?offset=${offset}`)
+  }
+
+  peer(ref: string): Promise<PeerDetail> {
+    return this.#request('GET', `/peers/tasks/${encodeURIComponent(ref)}`)
+  }
+
+  watchPeers(cursor: string, timeout = 25): Promise<PeerPage> {
+    return this.#request(
+      'GET',
+      `/peers/watch?cursor=${encodeURIComponent(cursor)}&timeout=${timeout}`,
+    )
+  }
+
+  sendPeer(ref: string, input: SendPeerMessage): Promise<PeerMessage> {
+    return this.#request('POST', `/peers/tasks/${encodeURIComponent(ref)}/messages`, input)
+  }
+
+  peerInbox(offset = 0): Promise<PeerInbox> {
+    return this.#request('GET', `/peers/inbox?offset=${offset}`)
   }
 
   listTasks(): Promise<Task[]> {

@@ -298,6 +298,14 @@ export {
   type StatusFilter,
 } from './list-view.ts'
 export { tedHome, tedPaths } from './paths.ts'
+export type {
+  PeerDetail,
+  PeerInbox,
+  PeerMessage,
+  PeerPage,
+  PeerSummary,
+  SendPeerMessage,
+} from './peers.ts'
 export {
   openPlanRequest,
   type Plan,

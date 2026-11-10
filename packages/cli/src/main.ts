@@ -106,6 +106,13 @@ const usage = `Usage:
                                              a source it already tracks; --follow-up revisits
                                              a Done Task. --sentry-id puts Fixes <SHORT-ID> in
                                              the pull request
+  ted peers [--offset <n>]                  See current Tasks in this Lead’s Factory
+  ted peers show <Task>                     Read a peer’s description and latest brief
+  ted peers watch [--cursor <cursor>] [--timeout <seconds>]
+                                             Wait up to 25 seconds for activity to change
+  ted peers send <Task> --operation <unique-id> "<text>"
+                                             Send an attributed peer note (stdin if no text)
+  ted peers inbox [--offset <n>]            Read received messages and delivery receipts
   ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks
   ted coordinator task <id> [--offset <n>]   Read a Task, brief, Comments and current version
   ted coordinator start <id> --operation <id> --version <version>
@@ -145,6 +152,8 @@ function parse() {
       strict: true,
       options: {
         offset: { type: 'string' },
+        timeout: { type: 'string' },
+        cursor: { type: 'string' },
         operation: { type: 'string' },
         version: { type: 'string' },
         neighbours: { type: 'string' },
@@ -257,6 +266,36 @@ try {
     await doctor()
   } else if (group === 'open' && command === undefined) {
     await openApp()
+  } else if (group === 'peers') {
+    const offset = Number(options.offset ?? '0')
+    const timeout = Number(options.timeout ?? '25')
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      throw new UsageError('offset must be a nonnegative integer')
+    if (!Number.isFinite(timeout) || timeout < 0 || timeout > 25)
+      throw new UsageError('timeout must be between 0 and 25 seconds')
+    await withDaemon(home, async (client) => {
+      if (command === undefined) console.log(JSON.stringify(await client.peers(offset)))
+      else if (command === 'show' && rest.length === 1)
+        console.log(JSON.stringify(await client.peer(rest[0] ?? '')))
+      else if (command === 'inbox' && rest.length === 0)
+        console.log(JSON.stringify(await client.peerInbox(offset)))
+      else if (command === 'watch' && rest.length === 0) {
+        const cursor = options.cursor ?? (await client.peers()).cursor
+        console.log(JSON.stringify(await client.watchPeers(cursor, timeout)))
+      } else if (command === 'send' && rest.length >= 1) {
+        if (!options.operation)
+          throw new UsageError('operation is required for replay-safe sending')
+        const text = rest.slice(1).join(' ') || (await readStdin())
+        console.log(
+          JSON.stringify(
+            await client.sendPeer(rest[0] ?? '', { operation: options.operation, text }),
+          ),
+        )
+      } else
+        throw new UsageError(
+          'Use peers, peers show <Task>, peers watch, peers send <Task> <text>, or peers inbox',
+        )
+    })
   } else if (group === 'coordinator') {
     const page = Number(options.offset ?? '0')
     if (!Number.isSafeInteger(page) || page < 0)

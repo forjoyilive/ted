@@ -361,6 +361,20 @@ export const taskLog = State.SQLite.table({
   },
 })
 
+export const peerMessages = State.SQLite.table({
+  name: 'peerMessages',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    senderTaskId: State.SQLite.text(),
+    senderRunId: State.SQLite.text(),
+    recipientTaskId: State.SQLite.text(),
+    operation: State.SQLite.text(),
+    text: State.SQLite.text(),
+    createdAt: State.SQLite.text(),
+  },
+})
+
 export const taskBriefs = State.SQLite.table({
   name: 'taskBriefs',
   columns: {
@@ -1306,6 +1320,19 @@ export const events = {
       proposal: Schema.NullOr(Schema.String),
       sizeCheck: Schema.NullOr(Schema.String),
       gate: Schema.NullOr(Schema.String),
+      createdAt: Schema.String,
+    }),
+  }),
+  peerMessageSent: Events.synced({
+    name: 'v1.PeerMessageSent',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      senderTaskId: Schema.String,
+      senderRunId: Schema.String,
+      recipientTaskId: Schema.String,
+      operation: Schema.String,
+      text: Schema.String,
       createdAt: Schema.String,
     }),
   }),
@@ -2866,6 +2893,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
+        peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
@@ -2913,6 +2941,7 @@ const materializers = counted(
       'v1.RoundTalkStarted': ({ id, runId, at }) =>
         comments.update({ talkRunId: runId, talkStartedAt: at, talkDoneAt: null }).where({ id }),
       'v1.RoundTalkDone': ({ id, at }) => comments.update({ talkDoneAt: at }).where({ id }),
+      'v1.PeerMessageSent': (row) => peerMessages.insert(row),
       'v1.TaskBriefWritten': ({ at, ...brief }) => taskBriefs.insert({ ...brief, createdAt: at }),
       'v1.TaskSentBack': ({ from, to, ...row }) =>
         sendBacks.insert({ ...row, fromStage: from, toStage: to }),
@@ -3217,6 +3246,7 @@ const materializers = counted(
         taskDraftConsumptions.delete().where({ factoryId }),
       ],
       'v1.FactoryRemoved': ({ factoryId }) => [
+        peerMessages.delete().where({ factoryId }),
         factories.delete().where({ id: factoryId }),
         factoryRepos.delete().where({ factoryId }),
         factoryOrder.delete().where({ factoryId }),
@@ -3414,6 +3444,7 @@ const state = State.SQLite.makeState({
     comments,
     lineComments,
     taskLog,
+    peerMessages,
     taskBriefs,
     taskDescriptions,
     sendBacks,
