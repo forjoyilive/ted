@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   type DaemonEvent,
@@ -10,9 +11,11 @@ import {
   type TaskShell,
 } from '@ted/protocol'
 import * as pty from 'node-pty'
-import { loginShell } from './command-env.ts'
+import { loginShell, worktreeCommandEnv } from './command-env.ts'
 import { RequestError } from './errors.ts'
 import type { IdleTimer } from './idle.ts'
+import { redactSecrets } from './redact.ts'
+import { signalGroup } from './signal.ts'
 
 export interface ShellTarget {
   taskId: string
@@ -26,6 +29,7 @@ export interface ShellsOptions {
   subscribe(listener: (event: DaemonEvent) => void): () => void
   idle?: IdleTimer
   program?: () => string
+  env?: () => NodeJS.ProcessEnv
   onRunning?: (count: number) => void
   scrollbackChars?: number
   maxWaitMs?: number
@@ -55,6 +59,8 @@ interface Shell {
   path: string
   generation: number
   process: pty.IPty | undefined
+  started: string | undefined
+  cleanupTimer?: NodeJS.Timeout
   text: string
   start: number
   exitCode?: number
@@ -90,7 +96,7 @@ export function createShells(options: ShellsOptions): Shells {
         if (key.startsWith(`${event.taskId}\0`)) workspaces.delete(key)
       }
       for (const shell of shells.values()) {
-        if (shell.taskId === event.taskId) end(shell)
+        if (shell.taskId === event.taskId) discard(shell)
       }
     } else if (event.type === 'task-updated') {
       for (const changed of resolving) changed.add(event.task.id)
@@ -107,7 +113,7 @@ export function createShells(options: ShellsOptions): Shells {
       for (const shell of shells.values()) {
         if (shell.taskId !== event.task.id) continue
         const repo = event.task.repos.find((r) => r.name === shell.repo)
-        if (!repo || repo.removed || repo.worktree !== shell.path) end(shell)
+        if (!repo || repo.removed || repo.worktree !== shell.path) discard(shell)
       }
     }
   })
@@ -130,25 +136,144 @@ export function createShells(options: ShellsOptions): Shells {
     }
   }
 
-  function end(shell: Shell): void {
-    shells.delete(shell.id)
-    stop(shell)
-    wake(shell)
-    report()
+  function processGroups(): {
+    pid: number
+    parent: number
+    group: number
+    state: string
+    started: string
+  }[] {
+    try {
+      const text = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat=,lstart='], {
+        encoding: 'utf8',
+        timeout: 2_000,
+        maxBuffer: 8 * 1024 * 1024,
+        env: worktreeCommandEnv({}, { LC_ALL: 'C' }, options.env?.() ?? process.env),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+      return text.split('\n').flatMap((line) => {
+        const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line)
+        return match
+          ? [
+              {
+                pid: Number(match[1]),
+                parent: Number(match[2]),
+                group: Number(match[3]),
+                state: match[4] ?? '',
+                started: match[5] ?? '',
+              },
+            ]
+          : []
+      })
+    } catch {
+      throw new RequestError(503, 'Couldn’t inspect this shell’s processes. Try again.')
+    }
+  }
+
+  function signal(group: number, kind: NodeJS.Signals): void {
+    try {
+      signalGroup(group, kind)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+    }
   }
 
   function stop(shell: Shell): void {
     const running = shell.process
+    if (running) {
+      const groups = new Set<number>()
+      let complete = false
+      try {
+        // Shell jobs can have separate process groups. Freeze parents before rescanning
+        // so cleanup includes their children without racing another fork.
+        for (let round = 0; round < 16; round++) {
+          const rows = processGroups()
+          const root = rows.find(
+            (row) =>
+              row.pid === running.pid &&
+              row.parent === process.pid &&
+              row.started === shell.started,
+          )
+          if (!root) {
+            complete = true
+            break
+          }
+          const daemon = rows.find((row) => row.pid === process.pid)
+          const owned = new Set([root.pid])
+          let added = true
+          while (added) {
+            added = false
+            for (const row of rows)
+              if (owned.has(row.parent) && !owned.has(row.pid)) {
+                owned.add(row.pid)
+                added = true
+              }
+          }
+          const children = rows.filter((row) => owned.has(row.pid))
+          if (!daemon || children.some((row) => row.group <= 1 || row.group === daemon.group))
+            throw new RequestError(503, 'Couldn’t safely identify this shell’s processes.')
+          const newGroups = [...new Set([root.group, ...children.map((row) => row.group)])].filter(
+            (group) => !groups.has(group),
+          )
+          if (newGroups.length === 0 && children.every((row) => /^[TZ]/.test(row.state))) {
+            complete = true
+            break
+          }
+          for (const group of newGroups) {
+            signal(group, 'SIGSTOP')
+            groups.add(group)
+          }
+        }
+        if (!complete)
+          throw new RequestError(
+            503,
+            'The shell is still starting processes. Try closing it again.',
+          )
+      } catch (error) {
+        for (const group of groups) {
+          try {
+            signal(group, 'SIGCONT')
+          } catch {}
+        }
+        throw error
+      }
+      try {
+        for (const group of [...groups].reverse()) signal(group, 'SIGKILL')
+      } catch (error) {
+        for (const group of groups) {
+          try {
+            signal(group, 'SIGCONT')
+          } catch {}
+        }
+        throw error
+      }
+    }
     shell.process = undefined
+    shell.started = undefined
     shell.release?.()
     shell.release = undefined
-    if (!running) return
+    if (shell.cleanupTimer) clearTimeout(shell.cleanupTimer)
+    delete shell.cleanupTimer
+    report()
+  }
+
+  function end(shell: Shell): void {
+    stop(shell)
+    shells.delete(shell.id)
+    wake(shell)
+    report()
+  }
+
+  function discard(shell: Shell): void {
     try {
-      process.kill(-running.pid, 'SIGHUP')
-    } catch {}
-    try {
-      running.kill('SIGHUP')
-    } catch {}
+      end(shell)
+    } catch (error) {
+      console.error(redactSecrets(`Closing a Task shell failed: ${String(error)}`))
+      shell.cleanupTimer ??= setTimeout(() => {
+        delete shell.cleanupTimer
+        discard(shell)
+      }, 1_000).unref()
+    }
   }
 
   function wake(shell: Shell): void {
@@ -182,6 +307,28 @@ export function createShells(options: ShellsOptions): Shells {
       cwd: target.worktree,
       env: env as Record<string, string>,
     })
+    try {
+      const rows = processGroups()
+      const own = rows.find((row) => row.pid === child.pid)
+      const daemon = rows.find((row) => row.pid === process.pid)
+      if (
+        !own ||
+        !daemon ||
+        own.group !== child.pid ||
+        own.parent !== process.pid ||
+        own.group === daemon.group
+      )
+        throw new RequestError(503, 'The shell didn’t start in its own process group.')
+      shell.started = own.started
+    } catch (error) {
+      try {
+        signalGroup(child.pid, 'SIGKILL')
+      } catch {}
+      try {
+        child.kill('SIGKILL')
+      } catch {}
+      throw error
+    }
     shell.generation += 1
     shell.text = ''
     shell.start = 0
@@ -195,6 +342,7 @@ export function createShells(options: ShellsOptions): Shells {
     child.onExit(({ exitCode }) => {
       if (shell.generation !== generation || shell.process !== child) return
       shell.process = undefined
+      shell.started = undefined
       shell.exitCode = exitCode
       shell.release?.()
       shell.release = undefined
@@ -252,6 +400,7 @@ export function createShells(options: ShellsOptions): Shells {
       path: target.worktree,
       generation: 0,
       process: undefined,
+      started: undefined,
       text: '',
       start: 0,
       waiters: new Set(),

@@ -228,6 +228,63 @@ describe('Task shell', () => {
     await first.getByText('still=kept', { exact: true }).waitFor()
   })
 
+  test('layout changes retain terminal and Find state without stealing control focus', async () => {
+    await startedTask()
+    const window = await launchApp()
+    await app?.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()[0]?.setSize(1440, 1000),
+    )
+    const code = await openTask(window)
+    await code.getByRole('button', { name: 'Shell' }).click()
+    const shell = window.getByRole('region', { name: 'Shell', exact: true })
+    const first = shell.getByRole('region', { name: 'Shell 1', exact: true })
+    const terminal = await first.locator('.xterm-helper-textarea').elementHandle()
+    if (!terminal) throw new Error('no terminal')
+    await first.getByRole('button', { name: 'Find', exact: true }).click()
+    const find = first.getByRole('textbox', { name: 'Find', exact: true })
+    await find.fill('kept')
+    await first.getByRole('button', { name: 'Split right', exact: true }).click()
+    const second = shell.getByRole('region', { name: 'Shell 2', exact: true })
+    await second.locator('.xterm-helper-textarea').waitFor()
+    expect(await terminal.evaluate((element) => element.isConnected)).toBe(true)
+    expect(await find.inputValue()).toBe('kept')
+    const secondTerminal = await second.locator('.xterm-helper-textarea').elementHandle()
+    if (!secondTerminal) throw new Error('no second terminal')
+    await second.getByRole('button', { name: 'Split below', exact: true }).click()
+    const third = shell.getByRole('region', { name: 'Shell 3', exact: true })
+    await third.locator('.xterm-helper-textarea').waitFor()
+    expect(await secondTerminal.evaluate((element) => element.isConnected)).toBe(true)
+    await find.click()
+    await window.keyboard.type('needle')
+    expect(await find.inputValue()).toBe('keptneedle')
+    expect(await find.evaluate((element) => element === document.activeElement)).toBe(true)
+    await third.locator('.xterm-helper-textarea').focus()
+    const split = first.getByRole('button', { name: 'Split right', exact: true })
+    await split.focus()
+    await window.keyboard.press('Enter')
+    await shell
+      .getByRole('region', { name: 'Shell 4', exact: true })
+      .locator('.xterm-helper-textarea')
+      .waitFor()
+    expect(await terminal.evaluate((element) => element.isConnected)).toBe(true)
+    for (const number of [4, 3]) {
+      await shell.getByRole('button', { name: `Close Shell ${number}`, exact: true }).click()
+      await window
+        .getByRole('dialog', { name: `Close Shell ${number}?` })
+        .getByRole('button', { name: 'Close shell', exact: true })
+        .click()
+      await expect
+        .poll(() => shell.getByRole('region', { name: `Shell ${number}`, exact: true }).count())
+        .toBe(0)
+    }
+    expect(await secondTerminal.evaluate((element) => element.isConnected)).toBe(true)
+    await expect
+      .poll(() => secondTerminal.evaluate((element) => element === document.activeElement))
+      .toBe(true)
+    expect(await find.inputValue()).toBe('keptneedle')
+    expect(await terminal.evaluate((element) => element.isConnected)).toBe(true)
+  })
+
   test('closing a pane confirms, keeps the other alive, and closing all stays empty', async () => {
     await startedTask()
     const window = await launchApp()

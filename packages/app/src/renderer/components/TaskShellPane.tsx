@@ -4,7 +4,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { type ITheme, Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
-import { useConnection, useSettings } from '../data.ts'
+import { useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import findStyles from './FindBar.module.css'
@@ -84,6 +84,7 @@ export function TaskShellPane({
   shell: initialShell,
   number,
   active,
+  focusRequest,
   canSplit,
   onFocus,
   onSplit,
@@ -96,6 +97,7 @@ export function TaskShellPane({
   shell: Shell
   number: number
   active: boolean
+  focusRequest: number
   canSplit: boolean
   onFocus: () => void
   onSplit: (direction: 'right' | 'below') => void
@@ -104,7 +106,6 @@ export function TaskShellPane({
   onMissing: () => void
 }) {
   const settings = useSettings()
-  const { epoch } = useConnection()
   const fontSize = settings?.terminalFontSize ?? 13
   const fontSizeRef = useRef(fontSize)
   fontSizeRef.current = fontSize
@@ -123,7 +124,6 @@ export function TaskShellPane({
   activeRef.current = active
 
   useEffect(() => {
-    void epoch
     const element = host.current
     if (!element) return
     const terminal = new Terminal({
@@ -258,11 +258,11 @@ export function TaskShellPane({
       terminal.dispose()
       terminalRef.current = undefined
     }
-  }, [taskId, repo, shellId, initialShell.generation, epoch])
+  }, [taskId, repo, shellId, initialShell.generation])
 
   useEffect(() => {
-    if (active) terminalRef.current?.focus()
-  }, [active])
+    if (focusRequest > 0) terminalRef.current?.focus()
+  }, [focusRequest])
 
   useEffect(() => {
     const terminal = terminalRef.current

@@ -133,32 +133,29 @@
   font-size: var(--text-12);
 }
 
-.split {
-  display: flex;
-  flex: 1;
+.canvas {
+  position: relative;
+  flex-shrink: 0;
 }
 
-.below {
-  flex-direction: column;
-}
-
-.child {
+.positionedPane {
+  position: absolute;
   display: flex;
 }
 
 .divider {
+  position: absolute;
   margin: 0;
   border: none;
-  flex: 0 0 6px;
   background: var(--border-default);
   touch-action: none;
 }
 
-.right > .divider {
+.rightDivider {
   cursor: col-resize;
 }
 
-.below > .divider {
+.belowDivider {
   cursor: row-resize;
 }
 

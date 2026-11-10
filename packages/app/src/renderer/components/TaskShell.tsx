@@ -28,6 +28,7 @@ export function TaskShell({
   const { epoch } = useConnection()
   const [workspace, setWorkspace] = useState<ShellWorkspace>()
   const [active, setActive] = useState<string>()
+  const [focus, setFocus] = useState<{ id: string; sequence: number }>()
   const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [confirm, setConfirm] = useState<{ id: string; kind: 'close' | 'restart' }>()
@@ -37,7 +38,6 @@ export function TaskShell({
     void epoch
     alive.current = true
     let closed = false
-    setWorkspace(undefined)
     setProblem(undefined)
     const load = async () => {
       try {
@@ -65,6 +65,11 @@ export function TaskShell({
       })
   }
 
+  const focusPane = (id: string | undefined) => {
+    setActive(id)
+    if (id) setFocus((last) => ({ id, sequence: (last?.sequence ?? 0) + 1 }))
+  }
+
   const change = async (request: ShellChange) => {
     if (busy) return
     setBusy(true)
@@ -75,9 +80,12 @@ export function TaskShell({
       setWorkspace(next)
       if (request.kind === 'split') {
         const added = next.shells.find((s) => !workspace?.shells.some((old) => old.id === s.id))
-        if (added) setActive(added.id)
+        if (added) focusPane(added.id)
       } else if (request.kind === 'close') {
-        setActive(next.shells[0]?.id)
+        const neighbor = workspace?.layout
+          ? neighborOf(workspace.layout, request.shellId)
+          : undefined
+        focusPane(next.shells.some((s) => s.id === neighbor) ? neighbor : next.shells[0]?.id)
       }
     } catch (error) {
       if (alive.current) {
@@ -101,7 +109,7 @@ export function TaskShell({
       try {
         await ted.restartShell(taskId, repo, initialSize, action.id)
         if (alive.current) {
-          setActive(action.id)
+          focusPane(action.id)
           refresh()
         }
       } catch (error) {
@@ -116,53 +124,38 @@ export function TaskShell({
     ? active
     : workspace?.shells[0]?.id
   const numbers = new Map(workspace?.shells.map((s, i) => [s.id, i + 1]))
-  const draw = (layout: ShellLayout): ReactNode => {
-    if ('shellId' in layout) {
-      const shell = workspace?.shells.find((s) => s.id === layout.shellId)
-      return (
-        shell && (
-          <TaskShellPane
-            key={shell.id}
-            taskId={taskId}
-            repo={repo}
-            shell={shell}
-            number={numbers.get(shell.id) ?? 1}
-            active={selected === shell.id}
-            canSplit={!busy && (workspace?.shells.length ?? 0) < maxShellPanes}
-            onFocus={() => setActive(shell.id)}
-            onSplit={(direction) => {
-              if (workspace)
-                void change({
-                  kind: 'split',
-                  revision: workspace.revision,
-                  shellId: shell.id,
-                  direction,
-                  size: initialSize,
-                })
-            }}
-            onClose={() => {
-              if (!busy) setConfirm({ id: shell.id, kind: 'close' })
-            }}
-            onRestart={() => {
-              if (!busy) setConfirm({ id: shell.id, kind: 'restart' })
-            }}
-            onMissing={refresh}
-          />
-        )
-      )
-    }
+  const draw = (shellId: string): ReactNode => {
+    const shell = workspace?.shells.find((s) => s.id === shellId)
     return (
-      <ShellSplit
-        key={layout.id}
-        layout={layout}
-        disabled={busy}
-        onRatio={(ratio) => {
-          if (workspace)
-            void change({ kind: 'ratio', revision: workspace.revision, branchId: layout.id, ratio })
-        }}
-        first={draw(layout.first)}
-        second={draw(layout.second)}
-      />
+      shell && (
+        <TaskShellPane
+          taskId={taskId}
+          repo={repo}
+          shell={shell}
+          number={numbers.get(shell.id) ?? 1}
+          active={selected === shell.id}
+          focusRequest={focus?.id === shell.id ? focus.sequence : 0}
+          canSplit={!busy && (workspace?.shells.length ?? 0) < maxShellPanes}
+          onFocus={() => setActive(shell.id)}
+          onSplit={(direction) => {
+            if (workspace)
+              void change({
+                kind: 'split',
+                revision: workspace.revision,
+                shellId: shell.id,
+                direction,
+                size: initialSize,
+              })
+          }}
+          onClose={() => {
+            if (!busy) setConfirm({ id: shell.id, kind: 'close' })
+          }}
+          onRestart={() => {
+            if (!busy) setConfirm({ id: shell.id, kind: 'restart' })
+          }}
+          onMissing={refresh}
+        />
+      )
     )
   }
 
@@ -195,10 +188,17 @@ export function TaskShell({
           {problem}
         </p>
       )}
-      <div className={styles.workspace}>
-        {workspace?.layout ? (
-          draw(workspace.layout)
-        ) : (
+      {workspace?.layout ? (
+        <ShellLayoutView
+          layout={workspace.layout}
+          disabled={busy}
+          renderPane={draw}
+          onRatio={(branchId, ratio) =>
+            change({ kind: 'ratio', revision: workspace.revision, branchId, ratio })
+          }
+        />
+      ) : (
+        <div className={styles.workspace}>
           <div className={styles.empty}>
             {workspace ? (
               <>
@@ -221,8 +221,8 @@ export function TaskShell({
               <p>{problem ? 'The shells could not be opened.' : 'Opening shells…'}</p>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
       {confirm && (
         <Dialog onClose={() => setConfirm(undefined)}>
           {(headingId) => (
@@ -249,6 +249,34 @@ export function TaskShell({
   )
 }
 
+function leafIds(layout: ShellLayout): string[] {
+  return 'shellId' in layout
+    ? [layout.shellId]
+    : [...leafIds(layout.first), ...leafIds(layout.second)]
+}
+
+function neighborOf(layout: ShellLayout, id: string): string | undefined {
+  if ('shellId' in layout) return undefined
+  if ('shellId' in layout.first && layout.first.shellId === id) return leafIds(layout.second)[0]
+  if ('shellId' in layout.second && layout.second.shellId === id)
+    return leafIds(layout.first).at(-1)
+  return neighborOf(layout.first, id) ?? neighborOf(layout.second, id)
+}
+
+interface Rect {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+interface Divider {
+  id: string
+  direction: 'right' | 'below'
+  ratio: number
+  parent: Rect
+  rect: Rect
+}
+
 function minimum(layout: ShellLayout): { width: number; height: number } {
   if ('shellId' in layout) return { width: 220, height: 180 }
   const a = minimum(layout.first),
@@ -258,93 +286,150 @@ function minimum(layout: ShellLayout): { width: number; height: number } {
     : { width: Math.max(a.width, b.width), height: a.height + b.height + 6 }
 }
 
-function ShellSplit({
-  layout,
-  first,
-  second,
-  onRatio,
-  disabled,
-}: {
-  layout: Exclude<ShellLayout, { shellId: string }>
-  first: ReactNode
-  second: ReactNode
-  onRatio: (ratio: number) => void
-  disabled: boolean
-}) {
-  const host = useRef<HTMLDivElement>(null)
-  const [ratio, setRatio] = useState(layout.ratio)
-  const value = useRef(ratio)
-  const dragging = useRef(false)
-  const right = layout.direction === 'right'
-  useEffect(() => {
-    setRatio(layout.ratio)
-    value.current = layout.ratio
-  }, [layout])
-  const update = (next: number) => {
-    value.current = Math.max(0.1, Math.min(0.9, next))
-    setRatio(value.current)
+function arrange(
+  layout: ShellLayout,
+  rect: Rect,
+  draft: { id: string; ratio: number } | undefined,
+  panes: Map<string, Rect>,
+  dividers: Divider[],
+): void {
+  if ('shellId' in layout) {
+    panes.set(layout.shellId, rect)
+    return
   }
+  const right = layout.direction === 'right'
+  const ratio = draft?.id === layout.id ? draft.ratio : layout.ratio
   const a = minimum(layout.first),
     b = minimum(layout.second)
+  const available = (right ? rect.width : rect.height) - 6
+  const extent = Math.max(
+    right ? a.width : a.height,
+    Math.min(available - (right ? b.width : b.height), available * ratio),
+  )
+  const first = { ...rect, ...(right ? { width: extent } : { height: extent }) }
+  const divider = {
+    ...rect,
+    ...(right ? { left: rect.left + extent, width: 6 } : { top: rect.top + extent, height: 6 }),
+  }
+  const second = {
+    ...rect,
+    ...(right
+      ? { left: divider.left + 6, width: available - extent }
+      : { top: divider.top + 6, height: available - extent }),
+  }
+  dividers.push({ id: layout.id, direction: layout.direction, ratio, parent: rect, rect: divider })
+  arrange(layout.first, first, draft, panes, dividers)
+  arrange(layout.second, second, draft, panes, dividers)
+}
+
+function ShellLayoutView({
+  layout,
+  disabled,
+  renderPane,
+  onRatio,
+}: {
+  layout: ShellLayout
+  disabled: boolean
+  renderPane: (id: string) => ReactNode
+  onRatio: (branchId: string, ratio: number) => Promise<void>
+}) {
+  const host = useRef<HTMLDivElement>(null)
+  const canvas = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const [draft, setDraft] = useState<{ id: string; ratio: number }>()
+  const pending = useRef(draft)
+  pending.current = draft
+  const drag = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const element = host.current
+    if (!element) return
+    const measure = () => setSize({ width: element.clientWidth, height: element.clientHeight })
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const min = minimum(layout)
+  const width = Math.max(min.width, size.width),
+    height = Math.max(min.height, size.height)
+  const panes = new Map<string, Rect>(),
+    dividers: Divider[] = []
+  arrange(layout, { left: 0, top: 0, width, height }, draft, panes, dividers)
+  const update = (id: string, value: number) => {
+    const next = { id, ratio: Math.max(0.1, Math.min(0.9, value)) }
+    pending.current = next
+    setDraft(next)
+    return next.ratio
+  }
+  const commit = (id: string, ratio: number) => {
+    void onRatio(id, ratio).finally(() => setDraft(undefined))
+  }
   return (
-    <div
-      ref={host}
-      className={`${styles.split} ${right ? styles.right : styles.below}`}
-      style={{ minWidth: minimum(layout).width, minHeight: minimum(layout).height }}
-    >
-      <div
-        className={styles.child}
-        style={{ flex: `${ratio} 1 0`, minWidth: a.width, minHeight: a.height }}
-      >
-        {first}
-      </div>
-      <hr
-        className={styles.divider}
-        tabIndex={disabled ? -1 : 0}
-        aria-label="Resize shell panes"
-        aria-orientation={right ? 'vertical' : 'horizontal'}
-        aria-valuemin={10}
-        aria-valuemax={90}
-        aria-valuenow={Math.round(ratio * 100)}
-        onPointerDown={(event) => {
-          if (disabled) return
-          dragging.current = true
-          event.currentTarget.setPointerCapture(event.pointerId)
-        }}
-        onPointerMove={(event) => {
-          if (!dragging.current || !host.current) return
-          const rect = host.current.getBoundingClientRect()
-          update(
-            right
-              ? (event.clientX - rect.left) / rect.width
-              : (event.clientY - rect.top) / rect.height,
+    <div ref={host} className={styles.workspace}>
+      <div ref={canvas} className={styles.canvas} style={{ width, height }}>
+        {size.width > 0 &&
+          size.height > 0 &&
+          [...panes].map(([id, rect]) => (
+            <div key={id} className={styles.positionedPane} style={rect}>
+              {renderPane(id)}
+            </div>
+          ))}
+        {dividers.map((divider) => {
+          const right = divider.direction === 'right'
+          return (
+            <hr
+              key={divider.id}
+              className={`${styles.divider} ${right ? styles.rightDivider : styles.belowDivider}`}
+              style={divider.rect}
+              tabIndex={disabled ? -1 : 0}
+              aria-label="Resize shell panes"
+              aria-orientation={right ? 'vertical' : 'horizontal'}
+              aria-valuemin={10}
+              aria-valuemax={90}
+              aria-valuenow={Math.round(divider.ratio * 100)}
+              onPointerDown={(event) => {
+                if (!disabled) {
+                  drag.current = divider.id
+                  event.currentTarget.setPointerCapture(event.pointerId)
+                }
+              }}
+              onPointerMove={(event) => {
+                if (drag.current !== divider.id || !canvas.current) return
+                const bounds = canvas.current.getBoundingClientRect()
+                update(
+                  divider.id,
+                  right
+                    ? (event.clientX - bounds.left - divider.parent.left) /
+                        (divider.parent.width - 6)
+                    : (event.clientY - bounds.top - divider.parent.top) /
+                        (divider.parent.height - 6),
+                )
+              }}
+              onPointerUp={() => {
+                if (drag.current === divider.id) {
+                  drag.current = undefined
+                  if (pending.current?.id === divider.id) commit(divider.id, pending.current.ratio)
+                }
+              }}
+              onPointerCancel={() => {
+                drag.current = undefined
+                pending.current = undefined
+                setDraft(undefined)
+              }}
+              onKeyDown={(event) => {
+                if (disabled) return
+                const backwards = right ? 'ArrowLeft' : 'ArrowUp',
+                  forwards = right ? 'ArrowRight' : 'ArrowDown'
+                if (event.key !== backwards && event.key !== forwards) return
+                event.preventDefault()
+                commit(
+                  divider.id,
+                  update(divider.id, divider.ratio + (event.key === backwards ? -0.05 : 0.05)),
+                )
+              }}
+            />
           )
-        }}
-        onPointerUp={() => {
-          if (dragging.current) {
-            dragging.current = false
-            onRatio(value.current)
-          }
-        }}
-        onPointerCancel={() => {
-          dragging.current = false
-          update(layout.ratio)
-        }}
-        onKeyDown={(event) => {
-          if (disabled) return
-          const backwards = right ? 'ArrowLeft' : 'ArrowUp',
-            forwards = right ? 'ArrowRight' : 'ArrowDown'
-          if (event.key !== backwards && event.key !== forwards) return
-          event.preventDefault()
-          update(value.current + (event.key === backwards ? -0.05 : 0.05))
-          onRatio(value.current)
-        }}
-      />
-      <div
-        className={styles.child}
-        style={{ flex: `${1 - ratio} 1 0`, minWidth: b.width, minHeight: b.height }}
-      >
-        {second}
+        })}
       </div>
     </div>
   )

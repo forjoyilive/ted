@@ -1,8 +1,16 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
-  DaemonEvent,
   Factory,
   FoundEditor,
   MachineSettings,
@@ -13,9 +21,7 @@ import type {
   TaskShell,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { RequestError } from '../src/errors.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { createShells } from '../src/shells.ts'
 import {
   api,
   commitToOrigin,
@@ -231,90 +237,119 @@ function firstShell(workspace: ShellWorkspace): TaskShell {
   return shell
 }
 
-describe('shell launch boundaries', () => {
-  test('a failed split leaves the original shell and layout intact', async () => {
-    let unavailable = false
-    const shells = createShells({
-      target: async () => ({
-        taskId: 'task',
-        repo: 'widgets',
-        worktree: scratch,
-        env: { ...process.env, ENV: '' },
-      }),
-      subscribe: () => () => undefined,
-      program: () => {
-        if (unavailable) throw new Error('shell launcher unavailable')
-        return '/bin/sh'
-      },
-    })
+describe('Task shell panes', () => {
+  test('a refused split leaves the original layout intact when its worktree is missing', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const worktree = task.repos[0]?.worktree
+    if (!worktree) throw new Error('no worktree')
+    await rename(worktree, `${worktree}.away`)
     try {
-      const original = await shells.workspace('task', 'widgets', size)
-      unavailable = true
-      await expect(
-        shells.change('task', 'widgets', {
-          kind: 'split',
-          revision: original.revision,
-          shellId: firstShell(original).id,
-          direction: 'right',
-          size,
-        }),
-      ).rejects.toThrow()
-      expect(await shells.workspace('task', 'widgets')).toEqual(original)
-      await shells.write('task', 'widgets', 'echo still-alive\r', firstShell(original).id)
-      const output = await shells.read(
-        'task',
-        'widgets',
-        { generation: 0, from: 0, waitMs: 0 },
-        new AbortController().signal,
-        firstShell(original).id,
-      )
-      expect(output.running).toBe(true)
+      expect(
+        (
+          await ted.call('POST', `${workspaceRoute(task)}/change`, {
+            kind: 'split',
+            revision: opened.revision,
+            shellId: firstShell(opened).id,
+            direction: 'right',
+            size,
+          })
+        ).status,
+      ).toBe(409)
     } finally {
-      shells.close()
+      await rename(`${worktree}.away`, worktree)
     }
+    expect(await ted.ok('GET', workspaceRoute(task))).toEqual(opened)
   })
 
-  test.each(['removed', 'shutdown'])(
-    'a pending worktree lookup cannot start a shell after %s',
+  test('opening while the worktree is removed leaves no running panes', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    await ted.ok('POST', `/tasks/${task.id}/stop`)
+    const [open] = await Promise.all([
+      ted.call('POST', workspaceRoute(task), size),
+      ted.ok('POST', `/tasks/${task.id}/archive`),
+    ])
+    expect([200, 404, 409, 503]).toContain(open.status)
+    await waitUntil(async () => {
+      const state = await ted.call('GET', workspaceRoute(task))
+      const activity = await ted.ok<{ shellsRunning: number }>('GET', '/activity')
+      return (state.status === 404 && activity.shellsRunning === 0) || undefined
+    }, 'removed worktree to have no live shells')
+  })
+
+  test.each(['close', 'restart', 'archive'] as const)(
+    '%s ends HUP-resistant shells and child jobs',
     async (ending) => {
-      let notify: ((event: DaemonEvent) => void) | undefined
-      let release: (() => void) | undefined
-      let removed = false
-      const ready = new Promise<void>((resolve) => {
-        release = resolve
+      const ted = await startTed()
+      const task = await startedTask(ted)
+      const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+      const first = firstShell(opened)
+      const ws = await changeWorkspace(ted, task, {
+        kind: 'split',
+        revision: opened.revision,
+        shellId: first.id,
+        direction: 'right',
+        size,
       })
-      const running: number[] = []
-      const shells = createShells({
-        async target() {
-          if (removed) throw new RequestError(404, 'Task removed')
-          await ready
-          return { taskId: 'task', repo: 'widgets', worktree: scratch, env: { ...process.env } }
-        },
-        subscribe(listener) {
-          notify = listener
-          return () => undefined
-        },
-        program: () => '/bin/sh',
-        onRunning: (count) => running.push(count),
+      const sibling = ws.shells[1]
+      if (!sibling) throw new Error('no sibling')
+      await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+        data: 'MARK=kept; echo "sibling=$MARK"\r',
       })
+      await readUntil(ted, task, sibling, (t) => t.includes('sibling=kept'), sibling.id)
+      await ted.ok('POST', paneRoute(task, first.id, '/input'), {
+        data: 'trap "" HUP; nohup sleep 120 >/dev/null 2>&1 & printf "CHILD_PID="; jobs -p; printf "ROOT_PID=%s\\n" "$$"\r',
+      })
+      const text = await readUntil(
+        ted,
+        task,
+        first,
+        (t) => /CHILD_PID=\d+/.test(t) && /ROOT_PID=\d+/.test(t),
+        first.id,
+      )
+      const child = Number(/CHILD_PID=(\d+)/.exec(text)?.[1])
+      const root = Number(/ROOT_PID=(\d+)/.exec(text)?.[1])
       try {
-        const opening = shells.workspace('task', 'widgets', size)
-        removed = true
-        if (ending === 'removed') notify?.({ type: 'task-deleted', taskId: 'task' })
-        else shells.close()
-        release?.()
-        await expect(opening).rejects.toThrow(
-          ending === 'removed' ? 'Task removed' : 'shutting down',
+        expect(alive(child)).toBe(true)
+        if (ending === 'close')
+          await changeWorkspace(ted, task, {
+            kind: 'close',
+            revision: ws.revision,
+            shellId: first.id,
+          })
+        else if (ending === 'restart') {
+          const restarted = await ted.ok<TaskShell>(
+            'POST',
+            paneRoute(task, first.id, '/restart'),
+            size,
+          )
+          expect(restarted.generation).toBeGreaterThan(first.generation)
+        } else {
+          await ted.ok('POST', `/tasks/${task.id}/stop`)
+          await ted.ok('POST', `/tasks/${task.id}/archive`)
+        }
+        await waitUntil(
+          async () => (!alive(root) && !alive(child)) || undefined,
+          'the shell and its HUP-resistant job to exit',
         )
-        expect(running).toEqual([])
+        if (ending !== 'archive') {
+          await ted.ok('POST', paneRoute(task, sibling.id, '/input'), {
+            data: 'echo "still=$MARK"\r',
+          })
+          await readUntil(ted, task, sibling, (t) => t.includes('still=kept'), sibling.id)
+        }
       } finally {
-        shells.close()
+        for (const pid of [child, root]) {
+          try {
+            process.kill(pid, 'SIGKILL')
+          } catch {}
+        }
       }
     },
   )
-})
 
-describe('Task shell panes', () => {
   test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
     const ted = await startTed()
     const task = await startedTask(ted)

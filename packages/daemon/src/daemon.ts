@@ -381,6 +381,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }),
       })
       const shells = createShells({
+        env: environment.current,
         async target(ref, repo) {
           const access = await tasks.worktreeAccess(ref, repo)
           return { ...access, env: { ...access.env, TED_HOME: paths.home } }
