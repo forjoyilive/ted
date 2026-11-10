@@ -25,10 +25,21 @@ export interface StubLinearAccount {
   attachments?: { issue: string; url: string; title: string }[]
 }
 
+export interface StubLinearUpload {
+  body?: string | Buffer
+  contentType?: string
+  status?: number
+  redirect?: string
+}
+
 export interface StubLinear {
   url: string
+  origin: string
   requests: { authorization: string | undefined; query: string; variables: unknown }[]
+  downloads: { authorization: string | undefined; path: string }[]
   accounts: Map<string, StubLinearAccount>
+  uploads: Map<string, StubLinearUpload>
+  uploadUrl(name: string): string
   close(): Promise<void>
 }
 
@@ -47,11 +58,30 @@ export const stubLinearIssueId = (identifier: string) => `uuid-${identifier}`
 export async function startStubLinear(
   accounts: Record<string, StubLinearAccount> = {},
 ): Promise<StubLinear> {
-  const stub: Omit<StubLinear, 'url' | 'close'> = {
+  const stub: Omit<StubLinear, 'url' | 'origin' | 'uploadUrl' | 'close'> = {
     requests: [],
+    downloads: [],
     accounts: new Map(Object.entries(accounts)),
+    uploads: new Map(),
   }
   const server = http.createServer((req, res) => {
+    const pathname = new URL(req.url ?? '/', 'http://stub').pathname
+    if (req.method === 'GET' && pathname.startsWith('/uploads/')) {
+      stub.downloads.push({ authorization: req.headers.authorization, path: pathname })
+      const upload = stub.uploads.get(pathname)
+      if (!upload) {
+        res.writeHead(404, { 'content-type': 'text/plain' })
+        return res.end('Not found')
+      }
+      if (upload.redirect !== undefined) {
+        res.writeHead(upload.status ?? 302, { location: upload.redirect })
+        return res.end()
+      }
+      res.writeHead(upload.status ?? 200, {
+        'content-type': upload.contentType ?? 'application/octet-stream',
+      })
+      return res.end(upload.body ?? '')
+    }
     let body = ''
     req.setEncoding('utf8')
     req.on('data', (chunk) => {
@@ -138,6 +168,11 @@ export async function startStubLinear(
         return reply(200, {
           data: {
             issue: {
+              attachments: {
+                nodes: (account.attachments ?? [])
+                  .filter((a) => a.issue === issue.identifier)
+                  .map(({ url, title }) => ({ url, title })),
+              },
               identifier: issue.identifier,
               title: issue.title,
               description: issue.description ?? null,
@@ -155,9 +190,12 @@ export async function startStubLinear(
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const { port } = server.address() as AddressInfo
+  const origin = `http://127.0.0.1:${port}`
   return {
     ...stub,
-    url: `http://127.0.0.1:${port}/graphql`,
+    url: `${origin}/graphql`,
+    origin,
+    uploadUrl: (name) => `${origin}/uploads/${name}`,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve())

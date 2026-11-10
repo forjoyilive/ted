@@ -149,6 +149,14 @@
   font-size: var(--text-12);
 }
 
+.sourceFiles {
+  margin: 0 10px 10px;
+}
+
+.sourceFiles figure img {
+  max-height: 120px;
+}
+
 .sourceDescription {
   max-height: 160px;
   margin: 0 10px 10px;

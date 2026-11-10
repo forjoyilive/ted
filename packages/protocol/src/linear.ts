@@ -1,4 +1,4 @@
-import type { Priority } from './task.ts'
+import type { Attachment, Priority } from './task.ts'
 
 export type LinearKeyPlace = 'keyring' | 'file'
 
@@ -32,6 +32,18 @@ export interface LinearIssue {
   priority: Priority
   branchName?: string
   description?: string
+  files?: LinearFile[]
+  unfetched?: LinearUnfetched[]
+}
+
+export interface LinearFile extends Attachment {
+  url: string
+}
+
+export interface LinearUnfetched {
+  name: string
+  url: string
+  reason: string
 }
 
 export type LinearLookup =

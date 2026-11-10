@@ -1120,6 +1120,7 @@ function OriginalRequest({ task }: { task: Task }) {
                 : 'No description.'}
         </p>
       )}
+      {open && task.attachments.length > 0 && <CommentFiles files={task.attachments} />}
       {history && versions !== undefined && (
         <DescriptionHistory task={task} versions={versions} onClose={() => setHistory(false)} />
       )}

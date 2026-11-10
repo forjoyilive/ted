@@ -425,3 +425,154 @@ describe('creating a Task from a Linear URL', () => {
     expect(started.branch).toBe('ted/nb-1-bad-branch')
   })
 })
+
+describe('files on a Linear issue', () => {
+  const png = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from('a tiny picture'),
+  ])
+  const pdf = Buffer.from('%PDF-1.7 a tiny report')
+  const imageUrl = () => `${linear.uploadUrl('org/1111/2222')}?signature=abc.def`
+  const reportUrl = () => linear.uploadUrl('org/3333/4444')
+
+  function addIssue(identifier: string, description: string, files: [string, string][] = []) {
+    const account = linear.accounts.get(key)
+    if (!account) throw new Error('no stub account')
+    account.issues?.push({ identifier, title: `Issue ${identifier}`, description })
+    account.attachments ??= []
+    for (const [url, title] of files) account.attachments.push({ issue: identifier, url, title })
+    return `https://linear.app/kriyadesign/issue/${identifier}`
+  }
+
+  beforeEach(() => {
+    linear.uploads.set('/uploads/org/1111/2222', { body: png, contentType: 'image/png' })
+    linear.uploads.set('/uploads/org/3333/4444', { body: pdf, contentType: 'application/pdf' })
+  })
+
+  test('a lookup downloads the description’s images and the issue’s uploaded files with the key', async () => {
+    const client = await start({ secret: key })
+    const url = addIssue('NOTE-300', `Look:\n\n![the bug](${imageUrl()})\n\nThanks`, [
+      [reportUrl(), 'report.pdf'],
+      ['https://github.com/acme/widgets/pull/7', 'PR #7'],
+    ])
+
+    const lookup = await client.lookupLinear(url)
+
+    expect(lookup).toMatchObject({
+      state: 'found',
+      issue: {
+        description: `Look:\n\n![the bug](${imageUrl()})\n\nThanks`,
+        files: [
+          { name: 'the bug.png', mediaType: 'image/png', size: png.length, url: imageUrl() },
+          { name: 'report.pdf', mediaType: 'application/pdf', size: pdf.length, url: reportUrl() },
+        ],
+      },
+    })
+    expect(lookup.state === 'found' && lookup.issue.unfetched).toBeUndefined()
+    expect(linear.downloads).toEqual([
+      { authorization: key, path: '/uploads/org/1111/2222' },
+      { authorization: key, path: '/uploads/org/3333/4444' },
+    ])
+    const [image] = lookup.state === 'found' ? (lookup.issue.files ?? []) : []
+    const bytes = await client.readAttachment({ hash: image?.hash ?? '', name: image?.name ?? '' })
+    expect(Buffer.from(bytes.data, 'base64')).toEqual(png)
+  })
+
+  test('a Task made from the issue carries the files, and the Task Lead gets their paths in place of the links', async () => {
+    const origin = await makeOriginRepo(scratch)
+    const client = await start({ secret: key })
+    await client.addFactory({ repo: origin, key: 'NB' })
+    const url = addIssue('NOTE-301', `See ![shot](${imageUrl()}) here`, [
+      [reportUrl(), 'report.pdf'],
+    ])
+
+    const task = await client.createTask({ factory: 'NB', description: url, source: url })
+
+    expect(task.attachments.map((a) => [a.name, a.mediaType])).toEqual([
+      ['shot.png', 'image/png'],
+      ['report.pdf', 'application/pdf'],
+    ])
+    const imagePath = path.join(tedPaths(home).attachments, `${task.attachments[0]?.hash}.png`)
+    expect(task.source?.linear?.description).toBe(`See ![shot](${imagePath}) here`)
+    expect(await readFile(imagePath)).toEqual(png)
+    expect(await client.listComments(task.id)).toEqual([])
+
+    const started = await client.startTask(task.id)
+    const { run } = await client.getRun(
+      await waitUntil(
+        async () => (await client.listTasks()).find((t) => t.id === started.id)?.leadRunId,
+        'the Task Lead to start',
+      ),
+    )
+    expect(run.prompt).toContain(`See ![shot](${imagePath}) here`)
+    expect(run.prompt).toContain(`- shot.png: ${imagePath}`)
+    expect(run.prompt).not.toContain('signature=')
+  })
+
+  test('expired, redirected and mislabelled files never block the Task; one note lists what couldn’t be fetched', async () => {
+    const elsewhere = await startStubLinear()
+    try {
+      elsewhere.uploads.set('/uploads/x', { body: png, contentType: 'image/png' })
+      linear.uploads.set('/uploads/expired', { status: 403, body: 'Signature expired' })
+      linear.uploads.set('/uploads/away', { redirect: elsewhere.uploadUrl('x') })
+      linear.uploads.set('/uploads/fake', { body: 'not a picture', contentType: 'image/png' })
+      const client = await start({ secret: key })
+      const url = addIssue(
+        'NOTE-302',
+        [
+          `![expired](${linear.uploadUrl('expired')})`,
+          `![away](${linear.uploadUrl('away')})`,
+          `![fake](${linear.uploadUrl('fake')})`,
+          `![not linear](${elsewhere.uploadUrl('x')})`,
+        ].join('\n'),
+      )
+
+      const task = await client.createTask({ description: url, source: url })
+
+      expect(task.attachments).toEqual([
+        expect.objectContaining({ name: 'fake', mediaType: 'application/octet-stream' }),
+      ])
+      expect(elsewhere.downloads).toEqual([])
+      const comments = await client.listComments(task.id)
+      expect(comments).toHaveLength(1)
+      expect(comments[0]).toMatchObject({ kind: 'note', author: { kind: 'ted' } })
+      expect(comments[0]?.body).toBe(
+        [
+          'TED couldn’t fetch 2 files from Linear NOTE-302. Their links:',
+          `- expired: Linear answered 403. ${linear.uploadUrl('expired')}`,
+          `- away: Linear redirected the download to another host. ${linear.uploadUrl('away')}`,
+        ].join('\n'),
+      )
+      expect(task.source?.linear?.description).toContain(linear.uploadUrl('expired'))
+      expect(task.source?.linear?.description).toContain(elsewhere.uploadUrl('x'))
+    } finally {
+      await elsewhere.close()
+    }
+  })
+
+  test('TED takes at most 20 files from an issue', async () => {
+    const client = await start({ secret: key })
+    const lines: string[] = []
+    for (let n = 1; n <= 22; n++) {
+      linear.uploads.set(`/uploads/many/${n}`, {
+        body: Buffer.concat([png, Buffer.from(String(n))]),
+        contentType: 'image/png',
+      })
+      lines.push(`![shot ${n}](${linear.uploadUrl(`many/${n}`)})`)
+    }
+    const url = addIssue('NOTE-303', lines.join('\n'))
+
+    const task = await client.createTask({ description: url, source: url })
+
+    expect(task.attachments).toHaveLength(20)
+    expect(linear.downloads).toHaveLength(20)
+    const [note] = await client.listComments(task.id)
+    expect(note?.body).toBe(
+      [
+        'TED couldn’t fetch 2 files from Linear NOTE-303. Their links:',
+        `- shot 21: TED takes at most 20 files from an issue. ${linear.uploadUrl('many/21')}`,
+        `- shot 22: TED takes at most 20 files from an issue. ${linear.uploadUrl('many/22')}`,
+      ].join('\n'),
+    )
+  })
+})

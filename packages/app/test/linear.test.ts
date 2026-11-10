@@ -199,6 +199,34 @@ describe('New Task dialog with a Linear URL', () => {
     })
   })
 
+  test('the issue’s images show in the source preview and come with the Task', async () => {
+    await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+    linear.uploads.set('/uploads/org/1/2', {
+      body: Buffer.from('GIF89a\u0001\u0000\u0001\u0000\u0000\u0000\u0000;', 'latin1'),
+      contentType: 'image/gif',
+    })
+    const issue = linear.accounts.get(key)?.issues?.[0]
+    if (issue)
+      issue.description = `Typing “cafe” fails.\n\n![search results](${linear.uploadUrl('org/1/2')})`
+    const window = await openNewTask()
+    const open = dialog(window)
+
+    await paste(open.getByLabel('Description'), issueUrl)
+
+    await open
+      .getByRole('group', { name: 'Source' })
+      .getByText('NOTE-212 · Search ignores accents')
+      .waitFor()
+    await open.getByRole('img', { name: 'search results.gif' }).waitFor()
+    await open.getByLabel('Start now').uncheck()
+    await open.getByRole('button', { name: 'Create', exact: true }).click()
+    await open.waitFor({ state: 'detached' })
+    const [task] = await (await client()).listTasks()
+    expect(task?.attachments).toEqual([
+      expect.objectContaining({ name: 'search results.gif', mediaType: 'image/gif' }),
+    ])
+  })
+
   test('removing the source card creates the Task without a source', async () => {
     await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
     const window = await openNewTask()
