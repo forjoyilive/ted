@@ -667,6 +667,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
           selected={navigation.requestId}
+          onClear={() => dispatch({ type: 'open', screen })}
           onOpen={({ request, task: on }) =>
             dispatch({
               type: 'open-task',
@@ -690,8 +691,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onNewTask={() => openNewTask()}
         >
           {opened ??
-            (navigation.automation?.runId !== undefined &&
-              automationRun(navigation.automation.id, navigation.automation.runId))}
+            (navigation.automation?.runId === undefined
+              ? undefined
+              : automationRun(navigation.automation.id, navigation.automation.runId))}
         </Inbox>
       )
     }
