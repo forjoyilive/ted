@@ -229,6 +229,9 @@
 }
 
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 3px 9px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;

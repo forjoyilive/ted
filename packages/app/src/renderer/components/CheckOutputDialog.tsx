@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import styles from './CheckOutputDialog.module.css'
 import { FailureDetails } from './FailureDetails.tsx'
 import { CloseIcon } from './icons.tsx'
+import { Loading } from './Loading.tsx'
 
 export function CheckOutputDialog({
   checkRun,
@@ -108,8 +109,14 @@ export function CheckOutputDialog({
           {error}
         </p>
       ) : (
-        <pre className={styles.output}>
-          {text === undefined ? 'Loading…' : text === '' ? 'No output.' : text}
+        <pre className={`${styles.output} ${text === undefined ? styles.pending : ''}`}>
+          {text === undefined ? (
+            <Loading terminal label="Loading Check output…" />
+          ) : text === '' ? (
+            'No output.'
+          ) : (
+            text
+          )}
         </pre>
       )}
       {output?.position === shown && <p className={styles.log}>Full log: {output.log}</p>}

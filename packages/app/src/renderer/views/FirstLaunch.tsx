@@ -12,6 +12,7 @@ import { minGhVersion } from '@ted/protocol/integrations'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useAgentHealth } from '../data.ts'
 import { useIntegrations } from '../settings/IntegrationsPage.tsx'
@@ -104,10 +105,10 @@ function Row({
   return (
     <fieldset className={styles.row} aria-label={name} data-tone={tone}>
       <div className={styles.head}>
-        <StatusIcon tone={tone} />
+        {tone === 'checking' ? <Loading compact label={chip} /> : <StatusIcon tone={tone} />}
         <span className={styles.name}>{name}</span>
         {help !== undefined && <Help>{help}</Help>}
-        <StatusChip tone={chipTones[tone]}>{chip}</StatusChip>
+        {tone !== 'checking' && <StatusChip tone={chipTones[tone]}>{chip}</StatusChip>}
         <span className={styles.spacer} />
         {actions !== undefined && <div className={styles.actions}>{actions}</div>}
       </div>

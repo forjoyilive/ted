@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react'
 import { Button } from './Button.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
 import styles from './FilesSection.module.css'
+import { Skeleton } from './Loading.tsx'
 
 interface Folder {
   folders: Map<string, Folder>
@@ -95,7 +96,7 @@ export function FileListState({
       {error}
     </p>
   ) : files === undefined ? (
-    <p className={styles.message}>Loading files…</p>
+    <Skeleton label="Loading files…" />
   ) : (
     files.repos.map((repo) => (
       <div key={repo.repo}>

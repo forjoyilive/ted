@@ -101,6 +101,23 @@ test('a failed Validate thread event opens its associated Check output and switc
     },
   ])
   a.handle('listCheckRuns', () => [run])
+  a.handle('listFailures', () => [
+    {
+      id: 'failure-1',
+      taskId: 'NB-1',
+      validation: true,
+      source: { kind: 'factory-check', checkRunId: run.id, position: 1 },
+      evidence: 'The stored Tests execution failed.',
+      recordedBy: 'lead-1',
+      provenance: 'stored-check',
+      createdAt,
+      assessments: [],
+      additions: [],
+      decisions: [],
+      resolutions: [{ requestId: 'decision-1', resolution: 'accepted', at: createdAt }],
+      invalidations: [],
+    },
+  ])
   a.handle('checkOutput', (id, position) => {
     expect(id).toBe('checks-1')
     return { text: position === 1 ? 'SearchPanel hangs' : 'typed', log: '/test/check.log' }
@@ -109,7 +126,9 @@ test('a failed Validate thread event opens its associated Check output and switc
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
   const thread = await screen.findByRole('region', { name: 'Task thread' })
-  await user().click(await within(thread).findByRole('button', { name: '✗Tests' }))
+  await user().click(
+    await within(thread).findByRole('button', { name: /✗Tests.*failed, accepted by you/ }),
+  )
   const output = await screen.findByRole('dialog', { name: 'Tests output' })
   await within(output).findByText('SearchPanel hangs')
   expect(a.request).toHaveBeenCalledWith('checkOutput', 'checks-1', 1)

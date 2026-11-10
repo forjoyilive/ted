@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { useBytes } from './CommentFiles.tsx'
 import styles from './DesignReview.module.css'
+import { Loading } from './Loading.tsx'
 import { ImageViewer, Viewer } from './Viewer.tsx'
 
 const prototypeSrc = ({ hash, name }: DesignFile) =>
@@ -27,12 +28,15 @@ function ScreenshotTile({ file, files }: { file: DesignFile; files: readonly Att
         type="button"
         className={styles.tile}
         aria-label={`View ${label(file)}`}
+        disabled={src === undefined}
         onClick={() => setOpen(true)}
       >
         {src !== undefined ? (
           <img className={styles.shot} src={src} alt={label(file)} />
         ) : (
-          <span className={styles.loading}>{error ?? 'Loading…'}</span>
+          <span className={styles.loading}>
+            {error ?? <Loading compact label="Loading image…" />}
+          </span>
         )}
         <span className={styles.tileCaption}>{label(file)}</span>
       </button>
@@ -60,7 +64,8 @@ function useBlobUrl(data: string | undefined, mediaType: string): string | undef
 function VideoPlayer({ file, files }: { file: DesignFile; files: readonly Attachment[] }) {
   const { data, error } = useBytes({ hash: file.hash, name: file.name, size: 0, mediaType: '' })
   const src = useBlobUrl(data, mediaTypeOf(file, files, 'video/mp4'))
-  if (src === undefined) return <p className={styles.loading}>{error ?? 'Loading…'}</p>
+  if (src === undefined)
+    return <p className={styles.loading}>{error ?? <Loading compact label="Loading video…" />}</p>
   return (
     <video className={styles.video} src={src} controls autoPlay>
       <track kind="captions" />

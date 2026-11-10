@@ -4,7 +4,7 @@
 import type { RunChat as Chat, ChatDiff, ChatItem, RunSummary } from '@ted/protocol'
 import { type ReactNode, useEffect, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useRunChat } from '../data.ts'
+import { useRunChatState } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -12,6 +12,7 @@ import { AgentAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
+import { LoadingError, Skeleton } from './Loading.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
 import { ScrollMemory } from './ScrollMemory.tsx'
@@ -751,28 +752,43 @@ export function RunChat({
   runId: string
   onStopTask?: (() => void) | undefined
 } & ChatOptions) {
-  const chat = useRunChat(runId)
-  return <ChatSection chat={chat} onStopTask={onStopTask} options={options} />
+  const resource = useRunChatState(runId)
+  return (
+    <ChatSection
+      chat={resource.value}
+      error={resource.error}
+      retry={resource.retry}
+      onStopTask={onStopTask}
+      options={options}
+    />
+  )
 }
 
 export function ChatSection({
   chat,
   loading = 'Loading the Run…',
+  error,
+  retry,
   onStopTask,
   options = {},
 }: {
   chat: Chat | undefined
   loading?: string
+  error?: string | undefined
+  retry?: (() => void) | undefined
   onStopTask?: (() => void) | undefined
   options?: ChatOptions
 }) {
   return (
     <section className={styles.chat} aria-label="Run chat">
+      {error && retry && <LoadingError error={error} retry={retry} />}
       {chat ? (
         <ChatBody chat={chat} onStopTask={onStopTask} options={options} />
-      ) : (
-        <p className={styles.loading}>{loading}</p>
-      )}
+      ) : !error ? (
+        <div className={styles.loading}>
+          <Skeleton shape="history" label={loading} />
+        </div>
+      ) : null}
     </section>
   )
 }

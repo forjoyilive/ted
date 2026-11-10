@@ -35,7 +35,7 @@ import type {
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
-import { type TedEvent, ted } from './ted.ts'
+import { readableError, type TedEvent, ted } from './ted.ts'
 
 export interface Connection {
   connection: DaemonConnection
@@ -111,16 +111,23 @@ function useLiveList<T extends { id: string }>(
   pick: (event: TedEvent) => T | undefined,
   order: (a: T, b: T) => number,
   drop: (event: TedEvent) => string | undefined = keepAll,
-): { items: T[]; loaded: boolean } {
+): { items: T[]; loaded: boolean; error: string | undefined; retry: () => void } {
   const [items, setItems] = useState<T[]>([])
   const [done, setDone] = useState(false)
+  const [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
 
   const loaded = useRef(load)
 
   useEffect(() => {
     void epoch
-    if (loaded.current !== load) setItems([])
+    void attempt
+    if (loaded.current !== load) {
+      setItems([])
+      setDone(false)
+    }
+    setError(undefined)
     loaded.current = load
     let active = true
     let fresh: T[] | undefined = []
@@ -148,15 +155,23 @@ function useLiveList<T extends { id: string }>(
         setDone(true)
         fresh = undefined
       },
-      () => undefined,
+      (failure: unknown) => {
+        if (active) setError(readableError(failure))
+      },
     )
     return () => {
       active = false
       unsubscribe()
     }
-  }, [load, pick, order, drop, epoch])
+  }, [load, pick, order, drop, epoch, attempt])
 
-  return { items, loaded: done }
+  const current = loaded.current === load
+  return {
+    items: current ? items : [],
+    loaded: current && done,
+    error: current ? error : undefined,
+    retry: () => setAttempt((n) => n + 1),
+  }
 }
 
 const byCreatedAt = (a: { createdAt: string }, b: { createdAt: string }) =>
@@ -190,6 +205,10 @@ export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
 }
 
 export function useComments(taskId: string): Comment[] {
+  return useCommentList(taskId).items
+}
+
+export function useCommentList(taskId: string) {
   const load = useCallback(() => ted.listComments(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
@@ -199,12 +218,16 @@ export function useComments(taskId: string): Comment[] {
         : undefined,
     [taskId],
   )
-  return useLive(load, pick, byCreatedAt)
+  return useLiveList(load, pick, byCreatedAt)
 }
 
 const byStartedAt = (a: CheckRun, b: CheckRun) => a.startedAt.localeCompare(b.startedAt)
 
 export function useCheckRuns(taskId: string): CheckRun[] {
+  return useCheckRunList(taskId).items
+}
+
+export function useCheckRunList(taskId: string) {
   const load = useCallback(() => ted.listCheckRuns(taskId), [taskId])
   const pick = useCallback(
     (event: TedEvent) =>
@@ -213,43 +236,22 @@ export function useCheckRuns(taskId: string): CheckRun[] {
         : undefined,
     [taskId],
   )
-  return useLive(load, pick, byStartedAt)
+  return useLiveList(load, pick, byStartedAt)
 }
 
 export function useThreadEvents(taskId: string): ThreadEvent[] {
-  const [events, setEvents] = useState<ThreadEvent[]>([])
-  const { epoch } = useConnection()
+  return useThreadEventList(taskId).value ?? []
+}
 
-  useEffect(() => {
-    void epoch
-    let latest = 0
-    setEvents([])
-    const load = () => {
-      const call = ++latest
-      void ted.listThreadEvents(taskId).then(
-        (loaded) => {
-          if (call === latest) setEvents(loaded)
-        },
-        () => undefined,
-      )
-    }
-    const unsubscribe = ted.onEvent((event) => {
-      if (
-        (event.type === 'task-updated' && event.task.id === taskId) ||
-        ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
-          event.comment.taskId === taskId)
-      ) {
-        load()
-      }
-    })
-    load()
-    return () => {
-      latest = -1
-      unsubscribe()
-    }
-  }, [taskId, epoch])
-
-  return events
+export function useThreadEventList(taskId: string) {
+  return useReloadingState(
+    () => ted.listThreadEvents(taskId),
+    (event) =>
+      (event.type === 'task-updated' && event.task.id === taskId) ||
+      ((event.type === 'comment-posted' || event.type === 'comment-updated') &&
+        event.comment.taskId === taskId),
+    taskId,
+  )
 }
 
 const inboxEvents = new Set<TedEvent['type']>([
@@ -299,27 +301,42 @@ function useInboxList(list: () => Promise<InboxItem[]>, enabled: boolean): Inbox
 }
 
 export function useSettings(): MachineSettings | undefined {
+  return useSettingsState().settings
+}
+
+export function useSettingsState() {
   const [settings, setSettings] = useState<MachineSettings>()
+  const [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
 
   useEffect(() => {
     void epoch
+    void attempt
     let changed = false
+    let active = true
+    setError(undefined)
     const unsubscribe = ted.onEvent((event) => {
       if (event.type !== 'settings-changed') return
       changed = true
       setSettings(event.settings)
+      setError(undefined)
     })
     void ted.getSettings().then(
       (loaded) => {
-        if (!changed) setSettings(loaded)
+        if (active && !changed) setSettings(loaded)
       },
-      () => undefined,
+      (failure: unknown) => {
+        if (active && !changed) setError(readableError(failure))
+      },
     )
-    return unsubscribe
-  }, [epoch])
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [epoch, attempt])
 
-  return settings
+  return { settings, error, retry: () => setAttempt((n) => n + 1) }
 }
 
 export function useSlots(): RunSlots | undefined {
@@ -373,27 +390,42 @@ export function useDrift(): DriftCounts | undefined {
 }
 
 export function useDataStatus(): DataStatus | undefined {
+  return useDataStatusState().status
+}
+
+export function useDataStatusState() {
   const [status, setStatus] = useState<DataStatus>()
+  const [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
 
   useEffect(() => {
     void epoch
+    void attempt
+    let active = true
+    setError(undefined)
     let changed = false
     const unsubscribe = ted.onEvent((event) => {
       if (event.type !== 'data-status') return
       changed = true
       setStatus(event.status)
+      setError(undefined)
     })
     void ted.getDataStatus().then(
       (loaded) => {
-        if (!changed) setStatus(loaded)
+        if (active && !changed) setStatus(loaded)
       },
-      () => undefined,
+      (failure: unknown) => {
+        if (active && !changed) setError(readableError(failure))
+      },
     )
-    return unsubscribe
-  }, [epoch])
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [epoch, attempt])
 
-  return status
+  return { status, error, retry: () => setAttempt((n) => n + 1) }
 }
 
 export function useStageEntries(taskId: string, stage: StageId): StageEntry[] {
@@ -462,11 +494,19 @@ export function useBanners(): Banner[] {
 }
 
 export function useAgentHealth(): AgentHealth[] {
+  return useAgentHealthState().health
+}
+
+export function useAgentHealthState() {
   const [health, setHealth] = useState<AgentHealth[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [error, setError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
 
   useEffect(() => {
     void epoch
+    void attempt
     const merge = (incoming: AgentHealth[]) =>
       setHealth((current) => {
         const byAgent = new Map(current.map((h) => [h.agent, h]))
@@ -479,11 +519,26 @@ export function useAgentHealth(): AgentHealth[] {
     const unsubscribe = ted.onEvent((event) => {
       if (event.type === 'agent-health-changed') merge([event.health])
     })
-    void ted.agentHealth().then(merge, () => undefined)
-    return unsubscribe
-  }, [epoch])
+    let active = true
+    setError(undefined)
+    void ted.agentHealth().then(
+      (next) => {
+        if (active) {
+          merge(next)
+          setLoaded(true)
+        }
+      },
+      (failure: unknown) => {
+        if (active) setError(readableError(failure))
+      },
+    )
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [epoch, attempt])
 
-  return health
+  return { health, loaded, error, retry: () => setAttempt((n) => n + 1) }
 }
 
 function useReloading<T>(
@@ -491,7 +546,16 @@ function useReloading<T>(
   affects: (event: TedEvent) => boolean,
   key: string,
 ): T | undefined {
-  const [value, setValue] = useState<T>()
+  return useReloadingState(load, affects, key).value
+}
+
+function useReloadingState<T>(
+  load: () => Promise<T>,
+  affects: (event: TedEvent) => boolean,
+  key: string,
+) {
+  const [state, setState] = useState<{ key: string; value?: T; error?: string }>()
+  const [attempt, setAttempt] = useState(0)
   const { epoch } = useConnection()
   const loadRef = useRef(load)
   const affectsRef = useRef(affects)
@@ -500,11 +564,14 @@ function useReloading<T>(
 
   useEffect(() => {
     void epoch
-    void key
+    void attempt
     let active = true
     let running = false
     let again = false
-    setValue(undefined)
+    setState((previous) => ({
+      key,
+      ...(previous?.key === key && previous.value !== undefined && { value: previous.value }),
+    }))
     const run = () => {
       if (running) {
         again = true
@@ -514,10 +581,13 @@ function useReloading<T>(
       loadRef
         .current()
         .then(
-          (loaded) => {
-            if (active) setValue(loaded)
+          (value) => {
+            if (active) setState({ key, value })
           },
-          () => undefined,
+          (failure: unknown) => {
+            if (active)
+              setState((previous) => ({ ...previous, key, error: readableError(failure) }))
+          },
         )
         .finally(() => {
           running = false
@@ -535,9 +605,13 @@ function useReloading<T>(
       active = false
       unsubscribe()
     }
-  }, [key, epoch])
+  }, [key, epoch, attempt])
 
-  return value
+  return {
+    value: state?.key === key ? state.value : undefined,
+    error: state?.key === key ? state.error : undefined,
+    retry: () => setAttempt((n) => n + 1),
+  }
 }
 
 const planEvent = (event: TedEvent, planId?: string) =>
@@ -548,7 +622,11 @@ const planEvent = (event: TedEvent, planId?: string) =>
   event.type === 'task-updated'
 
 export function useCoordinator(factoryId: string): Coordinator | null | undefined {
-  return useReloading(
+  return useCoordinatorState(factoryId).value
+}
+
+export function useCoordinatorState(factoryId: string) {
+  return useReloadingState(
     () => ted.getCoordinator(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
@@ -564,7 +642,11 @@ export function useCoordinatorChat(
   factoryId: string,
   runIds: readonly string[],
 ): RunChat | null | undefined {
-  return useReloading(
+  return useCoordinatorChatState(factoryId, runIds).value
+}
+
+export function useCoordinatorChatState(factoryId: string, runIds: readonly string[]) {
+  return useReloadingState(
     () => ted.getCoordinatorChat(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
@@ -586,11 +668,15 @@ export function useCoordinatorStatuses(): CoordinatorStatus[] {
 }
 
 export function usePlan(planId: string | undefined): PlanDetail | undefined {
-  return useReloading(
+  return usePlanState(planId).value
+}
+
+export function usePlanState(planId: string | undefined) {
+  return useReloadingState(
     () => (planId === undefined ? Promise.resolve(undefined) : ted.getPlan(planId)),
     (event) => planId !== undefined && planEvent(event, planId),
     planId ?? '',
-  ) as PlanDetail | undefined
+  )
 }
 
 export function usePlans(factoryId: string): Plan[] {
@@ -624,7 +710,11 @@ export function usePlanInbox(): PlanInboxItem[] {
 }
 
 export function useRunChat(runId: string): RunChat | undefined {
-  return useReloading(
+  return useRunChatState(runId).value
+}
+
+export function useRunChatState(runId: string) {
+  return useReloadingState(
     () => ted.getRunChat(runId),
     (event) =>
       (event.type === 'run-output' && event.runId === runId) ||
@@ -670,7 +760,11 @@ export function useTaskApps(taskId: string): TaskApp[] {
 }
 
 export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
-  return useReloading(
+  return useTaskBriefState(taskId).value
+}
+
+export function useTaskBriefState(taskId: string) {
+  return useReloadingState(
     () => ted.taskBrief(taskId),
     (event) => event.type === 'task-updated' && event.task.id === taskId,
     taskId,
@@ -678,7 +772,11 @@ export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
 }
 
 export function useDescriptions(taskId: string): DescriptionVersion[] | undefined {
-  return useReloading(
+  return useDescriptionsState(taskId).value
+}
+
+export function useDescriptionsState(taskId: string) {
+  return useReloadingState(
     () => ted.taskDescriptions(taskId),
     (event) => event.type === 'task-updated' && event.task.id === taskId,
     taskId,
@@ -696,7 +794,11 @@ const automationEvents = new Set<TedEvent['type']>([
 ])
 
 export function useAutomations(factoryId: string | undefined): Automation[] | undefined {
-  return useReloading(
+  return useAutomationsState(factoryId).value
+}
+
+export function useAutomationsState(factoryId: string | undefined) {
+  return useReloadingState(
     () => ted.listAutomations(factoryId),
     (event) => automationEvents.has(event.type),
     factoryId ?? '',
@@ -704,8 +806,12 @@ export function useAutomations(factoryId: string | undefined): Automation[] | un
 }
 
 export function useAutomation(id: string): AutomationDetail | null | undefined {
-  return useReloading(
-    () => ted.getAutomation(id).catch(() => null),
+  return useAutomationState(id).value
+}
+
+export function useAutomationState(id: string) {
+  return useReloadingState(
+    () => ted.getAutomation(id),
     (event) => automationEvents.has(event.type),
     id,
   )

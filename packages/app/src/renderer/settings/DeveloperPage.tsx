@@ -1,34 +1,53 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ted } from '../ted.ts'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
+import { readableError, ted } from '../ted.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './settings.module.css'
 
 const refreshMs = 2_000
 
-function usePolled<T>(load: () => Promise<T>): T | undefined {
-  const [value, setValue] = useState<T>()
-
+function usePolled<T>(load: () => Promise<T>) {
+  const [state, setState] = useState<{
+    load: () => Promise<T>
+    value?: T | undefined
+    error?: string
+  }>()
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
+    void attempt
     let stopped = false
-    setValue(undefined)
-    const tick = () =>
-      load().then(
-        (next) => {
-          if (!stopped) setValue(next)
-        },
-        () => {},
-      )
+    let running = false
+    setState((current) => (current?.load === load ? { load, value: current.value } : { load }))
+    const tick = () => {
+      if (running) return
+      running = true
+      return load()
+        .then(
+          (value) => {
+            if (!stopped) setState({ load, value })
+          },
+          (error: unknown) => {
+            if (!stopped) setState((current) => ({ ...current, load, error: readableError(error) }))
+          },
+        )
+        .finally(() => {
+          running = false
+        })
+    }
     void tick()
     const timer = setInterval(tick, refreshMs)
     return () => {
       stopped = true
       clearInterval(timer)
     }
-  }, [load])
-
-  return value
+  }, [load, attempt])
+  return {
+    value: state?.load === load ? state.value : undefined,
+    error: state?.load === load ? state.error : undefined,
+    retry: () => setAttempt((n) => n + 1),
+  }
 }
 
 const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(0)} MB`
@@ -55,7 +74,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
   const report = useCopyReport()
 
   useEffect(() => {
-    void ted.tedFolder().then(setFolder)
+    void ted.tedFolder().then(setFolder, (error: unknown) => setFolderProblem(readableError(error)))
   }, [])
 
   const fileManager = folder?.platform === 'darwin' ? 'Finder' : 'file manager'
@@ -73,7 +92,12 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
             onChange={(developerMode) => void ted.updateSettings({ developerMode })}
           />
         </SettingRow>
-        <SettingRow title="TED’s folder" detail={folderProblem ?? folder?.path ?? ' '}>
+        <SettingRow
+          title="TED’s folder"
+          detail={
+            folderProblem ?? folder?.path ?? <Loading compact label="Loading TED’s folder…" />
+          }
+        >
           <Button
             onClick={() => {
               setFolderProblem(undefined)
@@ -100,10 +124,16 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
 }
 
 function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
-  const diagnostics = usePolled(ted.getDiagnostics)
+  const resource = usePolled(ted.getDiagnostics)
+  const diagnostics = resource.value
   return (
     <>
-      <DiagnosticsView diagnostics={diagnostics} onCopyReport={onCopyReport} />
+      {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
+      {diagnostics === undefined ? (
+        !resource.error && <Skeleton shape="settings" label="Loading diagnostics…" />
+      ) : (
+        <DiagnosticsView diagnostics={diagnostics} onCopyReport={onCopyReport} />
+      )}
       <LogViewer runs={diagnostics?.runs.map((r) => r.runId) ?? []} />
     </>
   )
@@ -217,12 +247,13 @@ function LogViewer({ runs }: { runs: string[] }) {
     () => (source === daemonLog ? ted.readDaemonLog() : ted.readRunOutput(source)),
     [source],
   )
-  const log = usePolled<LogText>(load)
+  const resource = usePolled<LogText>(load)
+  const log = resource.value
   const view = useRef<HTMLPreElement>(null)
   const pinned = useRef(true)
   const text =
     log === undefined
-      ? 'Reading…'
+      ? (resource.error ?? <Loading terminal label="Loading log…" />)
       : `${log.truncated ? '… earlier lines not shown\n' : ''}${log.text || 'Empty.'}`
 
   useEffect(() => {
@@ -243,6 +274,7 @@ function LogViewer({ runs }: { runs: string[] }) {
         </h2>
         <Select id="log-source" value={source} options={options} onChange={setSource} width={260} />
       </div>
+      {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
       <pre
         ref={view}
         className={styles.log}

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { formatSize } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './CommentFiles.module.css'
+import { Loading } from './Loading.tsx'
 import { ImageViewer } from './Viewer.tsx'
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'])
@@ -41,7 +42,9 @@ function ImageFile({ attachment }: { attachment: Attachment }) {
           <img src={src} alt={attachment.name} />
         </button>
       ) : (
-        <div className={styles.placeholder}>{error ?? 'Loading…'}</div>
+        <div className={styles.placeholder}>
+          {error ?? <Loading compact label={`Loading ${attachment.name}…`} />}
+        </div>
       )}
       <figcaption className={styles.caption}>{attachment.name}</figcaption>
       {open && src !== undefined && (
@@ -75,7 +78,9 @@ function HtmlFile({ attachment }: { attachment: Attachment }) {
           srcDoc={decode(data)}
         />
       ) : (
-        <div className={styles.placeholder}>{error ?? 'Loading…'}</div>
+        <div className={styles.placeholder}>
+          {error ?? <Loading compact label={`Loading ${attachment.name}…`} />}
+        </div>
       )}
     </section>
   )

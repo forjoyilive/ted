@@ -1,13 +1,17 @@
 import type { Factory, MachineSettings } from '@ted/protocol'
 import { DotIcon } from '../components/icons.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ResizableSidebar } from '../components/ResizableSidebar.tsx'
 import type { NavigationAction, SettingsSectionId } from '../navigation.ts'
+import { SettingsPage } from './controls.tsx'
 import { NotBuiltYet, settingsSections } from './sections.tsx'
 import styles from './settings.module.css'
 
 interface SettingsShellProps {
   section: SettingsSectionId
   settings: MachineSettings | undefined
+  error?: string | undefined
+  retry?: (() => void) | undefined
   factories: readonly Factory[]
   inboxCount: number
   stopsWork?: Partial<Record<SettingsSectionId, boolean>>
@@ -18,6 +22,8 @@ interface SettingsShellProps {
 export function SettingsShell({
   section,
   settings,
+  error,
+  retry,
   factories,
   inboxCount,
   stopsWork = {},
@@ -82,6 +88,15 @@ export function SettingsShell({
         </nav>
       </ResizableSidebar>
       <main className={styles.main} aria-label={current?.label}>
+        {!settings && (
+          <SettingsPage title={current?.label ?? 'Settings'}>
+            {error && retry ? (
+              <LoadingError error={error} retry={retry} />
+            ) : (
+              <Skeleton shape="settings" label="Loading settings…" />
+            )}
+          </SettingsPage>
+        )}
         {settings &&
           current &&
           (current.Page ? (
