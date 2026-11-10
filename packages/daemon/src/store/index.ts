@@ -88,6 +88,7 @@ import {
   taskStatuses,
 } from '../tasks/status.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
+import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
@@ -103,6 +104,7 @@ import {
   comments,
   conversationEntries,
   conversationTabs,
+  coordinators,
   deletedTasks,
   events,
   factories,
@@ -755,6 +757,7 @@ export interface TedStore {
   setTaskChecking(taskId: string, on: boolean): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automations: AutomationStore
+  coordinators: CoordinatorStore
   plans: PlanStore
   close(): Promise<void>
 }
@@ -1969,7 +1972,10 @@ export async function openStore({
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
-        queued: 0,
+        queued: store.query(queryDb(coordinators)).filter((row) => {
+          const value = JSON.parse(row.data) as { phase: string }
+          return value.phase === 'queued'
+        }).length,
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
@@ -2119,7 +2125,17 @@ export async function openStore({
     },
   })
 
+  const coordinatorStore = createCoordinatorStore({
+    store,
+    commit,
+    changed(factoryId) {
+      emit({ type: 'coordinator-changed', factoryId })
+      noteActivity()
+    },
+  })
+
   return {
+    coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
     addFactory(input) {

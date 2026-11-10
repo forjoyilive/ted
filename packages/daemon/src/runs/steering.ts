@@ -47,7 +47,10 @@ export function createSteering(options: {
     return next
   }
 
-  const queued = (runId: string) => store.runMessages(runId).filter((m) => m.queued === true)
+  const queued = (runId: string) =>
+    store.coordinators.forRun(runId)
+      ? []
+      : store.runMessages(runId).filter((m) => m.queued === true)
 
   function deliverable(runId: string): RunMessage[] {
     const interrupts = store.runInterrupts(runId)

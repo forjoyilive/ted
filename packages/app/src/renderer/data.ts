@@ -8,6 +8,7 @@ import type {
   Banner,
   CheckRun,
   Comment,
+  Coordinator,
   DataStatus,
   DescriptionVersion,
   DriftCounts,
@@ -537,6 +538,19 @@ const planEvent = (event: TedEvent, planId?: string) =>
   (event.type === 'run-updated' && (planId === undefined || event.run.id === planId)) ||
   event.type === 'slots-changed' ||
   event.type === 'task-updated'
+
+export function useCoordinator(factoryId: string): Coordinator | null | undefined {
+  return useReloading(
+    () => ted.getCoordinator(factoryId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      event.type === 'task-updated' ||
+      event.type === 'run-updated' ||
+      event.type === 'slots-changed' ||
+      event.type === 'agent-health-changed',
+    factoryId,
+  )
+}
 
 export function usePlan(planId: string | undefined): PlanDetail | undefined {
   return useReloading(

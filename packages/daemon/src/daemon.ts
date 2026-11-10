@@ -9,6 +9,7 @@ import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
+import { createCoordinators } from './coordinators/coordinators.ts'
 import { createData } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -409,6 +410,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
+      const coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health })
       wake = () => {
         tasks.wake()
         automations.check()
@@ -449,6 +451,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       started = tasks
       const factoryRemovals = createFactoryRemovals({
+        coordinators,
         store,
         banners,
         tasks,
@@ -461,6 +464,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       factories.start()
       const stayAwake = options.holdAwake && stayAwakeWhileWorking(store, options.holdAwake)
       const conversations = createConversations({
+        coordinators,
         home: paths.home,
         store,
         runs,
@@ -478,6 +482,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        coordinators,
         automations,
         plans,
         runs,
@@ -498,6 +503,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         editors,
         async close() {
           shells.close()
+          coordinators.close()
           automations.close()
           plans.close()
           libraryWatch.close()

@@ -10,6 +10,7 @@ import {
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
+import type { CoordinatorMessage } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -143,6 +144,11 @@ function shellSize(value: unknown): { cols: number; rows: number } {
 }
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
+  getCoordinator: (client, id) => client.coordinator(String(id)),
+  messageCoordinator: (client, id, input) =>
+    client.messageCoordinator(String(id), input as CoordinatorMessage),
+  stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
+  retryCoordinator: (client, id) => client.retryCoordinator(String(id)),
   listTasks: (client) => client.listTasks(),
   listComments: (client, taskId) => client.listComments(String(taskId)),
   postComment: (client, taskId, body, attachments) =>

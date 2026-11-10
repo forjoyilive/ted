@@ -119,6 +119,14 @@ export {
   type Subscription,
 } from './client.ts'
 export type { CommandLineStatus } from './command-line.ts'
+export type {
+  Coordinator,
+  CoordinatorAction,
+  CoordinatorMessage,
+  CoordinatorReceipt,
+  CoordinatorTask,
+  CoordinatorTaskSummary,
+} from './coordinator.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export {
   type Backup,

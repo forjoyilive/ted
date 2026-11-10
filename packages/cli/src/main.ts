@@ -105,6 +105,11 @@ const usage = `Usage:
                                              a source it already tracks; --follow-up revisits
                                              a Done Task. --sentry-id puts Fixes <SHORT-ID> in
                                              the pull request
+  ted coordinator tasks [--offset <n>]       Read this Coordinator’s Factory Tasks
+  ted coordinator task <id> [--offset <n>]   Read a Task, brief, Comments and current version
+  ted coordinator start <id> --operation <id> --version <version>
+  ted coordinator move <id> --after <id> / --before <id> --operation <id> --version <version> --neighbours <json>
+                                             Start or reorder waiting Tasks (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task propose --file <file> [--supersedes <request-id>]
@@ -138,6 +143,12 @@ function parse() {
       allowPositionals: true,
       strict: true,
       options: {
+        offset: { type: 'string' },
+        operation: { type: 'string' },
+        version: { type: 'string' },
+        neighbours: { type: 'string' },
+        after: { type: 'string' },
+        before: { type: 'string' },
         choice: { type: 'string', multiple: true },
         attach: { type: 'string', multiple: true },
         agent: { type: 'string' },
@@ -245,6 +256,33 @@ try {
     await doctor()
   } else if (group === 'open' && command === undefined) {
     await openApp()
+  } else if (group === 'coordinator') {
+    const page = Number(options.offset ?? '0')
+    if (!Number.isSafeInteger(page) || page < 0)
+      throw new UsageError('offset must be a nonnegative integer')
+    await withDaemon(home, async (client) => {
+      if (command === 'tasks' && rest.length === 0)
+        console.log(JSON.stringify(await client.coordinatorTasks(page)))
+      else if (command === 'task' && rest.length === 1)
+        console.log(JSON.stringify(await client.coordinatorTask(rest[0] ?? '', page)))
+      else if ((command === 'start' || command === 'move') && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(options.after && { after: options.after }),
+              ...(options.before && { before: options.before }),
+              ...(options.neighbours && {
+                neighbours: JSON.parse(options.neighbours) as Record<string, string>,
+              }),
+            }),
+          ),
+        )
+      } else throw new UsageError('Use coordinator tasks, task, start or move')
+    })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)
   } else if (

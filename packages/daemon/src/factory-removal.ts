@@ -8,6 +8,7 @@ import type {
 import type { Automations } from './automations/automations.ts'
 import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
+import type { Coordinators } from './coordinators/coordinators.ts'
 import { RequestError } from './errors.ts'
 import type { Factories } from './factory-setup.ts'
 import type { Plans } from './plans/plans.ts'
@@ -26,6 +27,7 @@ export function createFactoryRemovals(options: {
   banners: Banners
   tasks: Pick<Tasks, 'removeFactoryTasks'>
   automations: Pick<Automations, 'removeFactory'>
+  coordinators?: Pick<Coordinators, 'removeFactory'>
   plans: Pick<Plans, 'removeFactory'>
   factories: Pick<Factories, 'forget'>
   checkTries: Pick<CheckTries, 'forget'>
@@ -81,6 +83,7 @@ export function createFactoryRemovals(options: {
       try {
         await options.factories.forget(factory.id)
         await options.automations.removeFactory(factory.id)
+        await options.coordinators?.removeFactory(factory.id)
         await options.plans.removeFactory(factory.id)
         await options.tasks.removeFactoryTasks(factory.id, { closePullRequests })
         await options.checkTries.forget(factory.id)

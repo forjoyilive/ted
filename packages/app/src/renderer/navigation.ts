@@ -11,7 +11,7 @@ export const settingsSectionIds = [
 
 export type SettingsSectionId = (typeof settingsSectionIds)[number]
 
-export type FactoryView = 'board' | 'list' | 'plans' | 'automations' | 'settings'
+export type FactoryView = 'coordinator' | 'board' | 'list' | 'plans' | 'automations' | 'settings'
 
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
@@ -221,5 +221,6 @@ export function backLink(state: Navigation): string | undefined {
   if (screen.kind === 'all-tasks') return '← All Tasks'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
+  if (screen.kind === 'factory' && screen.view === 'coordinator') return '← Coordinator'
   return undefined
 }
