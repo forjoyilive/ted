@@ -315,7 +315,10 @@ export function RequestCard({
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
-  const shown = summary(request)
+  const shown =
+    request.permission && request.body.trim() === ''
+      ? 'The agent didn’t provide an explanation for this request.'
+      : summary(request)
   const typed = text.trim() !== ''
   const [showingFirst, setShowingFirst] = useState(false)
   const simulators = useSimulators()
