@@ -19,6 +19,7 @@ import {
   isSimulatorApp,
   type SimulatorSlots,
   type TaskApp,
+  tedEnv,
 } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -181,7 +182,7 @@ const runners: Record<TaskApp['kind'], Runner> = {
 function markers(): Record<string, string> {
   return Object.fromEntries(
     testMarkers.flatMap((name) => {
-      const value = process.env[name]
+      const value = tedEnv(name)
       return value === undefined ? [] : [[name, value]]
     }),
   )

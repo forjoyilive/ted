@@ -24,7 +24,7 @@ import type {
   RunProblem,
   RunState,
 } from '@ted/protocol'
-import { runTokenEnv } from '@ted/protocol'
+import { filterTedEnv, runTokenEnv } from '@ted/protocol'
 import {
   type AutoModeSignal,
   type CredentialReport,
@@ -163,7 +163,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const billingOf = (kind: AgentKind) => store.settings().billing[kind]
 
   const environment = (): NodeJS.ProcessEnv => {
-    const base = options.env?.() ?? process.env
+    const base = filterTedEnv(options.env?.() ?? process.env)
     return {
       ...base,
       TED_HOME: home,
