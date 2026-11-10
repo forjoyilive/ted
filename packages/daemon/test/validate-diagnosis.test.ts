@@ -922,3 +922,109 @@ test('restart starts a fresh Validate visit rather than reusing the previous fai
   expect(runs[1]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
   expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
 })
+
+test.each(['answer', 'resolve'])(
+  'busy Retry/Accept through %s retain every execution and decision',
+  async (route) => {
+    const s = await setup([
+      '      - { name: Tests, run: "if [ -e stub-started ]; then while [ ! -e stub-release ]; do sleep 0.05; done; fi; touch stub-started; exit 1" }',
+      '      - { name: Later, run: "echo later" }',
+    ])
+    const decision = await s.ask(s.one, 'uncertain')
+    const requestId = decision.decisions.at(-1)?.commentId
+    const repo = (await getTask(s.client, s.task.id)).repos[0]
+    if (!repo) throw new Error('missing worktree')
+    await s.post('/checks')
+    await waitUntil(
+      async () => (await s.runs()).at(-1)?.checks.some((c) => c.state === 'running'),
+      'manual rerun running',
+    )
+    try {
+      for (const [choice, resolution] of [
+        ['Retry', 'retry'],
+        ['Accept this failure', 'accepted'],
+      ]) {
+        const response =
+          route === 'answer'
+            ? await s.answer(decision, choice ?? '')
+            : await s.client.call('POST', `${s.root}/failures/${s.one.id}/resolve`, {
+                requestId,
+                resolution,
+              })
+        expect(response.status).toBe(409)
+        expect((await s.runs()).filter((r) => !r.finishedAt)).toHaveLength(1)
+        expect(await s.runs()).toHaveLength(2)
+        expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
+        const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+        expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
+      }
+    } finally {
+      await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
+    }
+    const second = await s.failure(2)
+    await waitUntil(
+      async () => (await s.obligations()).progress?.pending === false,
+      'manual rerun recorded',
+    )
+    expect((await s.runs()).map((r) => r.checks.map((c) => c.state))).toEqual([
+      ['failed', 'not-run'],
+      ['failed', 'not-run'],
+    ])
+    expect((await s.obligations()).satisfied).toBe(false)
+    await s.answer(await s.ask(second, 'uncertain'), 'Accept this failure')
+    await waitUntil(async () => (await s.obligations()).satisfied, 'remaining Check completes')
+    const client = await restart()
+    await waitUntil(
+      async () =>
+        (await client.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied,
+      'recovered accepted suffix',
+    )
+    expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).map((r) => r.outcome)).toEqual([
+      'failed',
+      'failed',
+      'passed',
+    ])
+    expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
+  },
+)
+
+test.each(['omitted', 'explicit failure', 'explicit pass'])(
+  'accepted visual Finding keeps its failed judgment: %s',
+  async (judgment) => {
+    const s = await setup()
+    await s.answer(await s.ask(s.one), 'Accept this failure')
+    await waitUntil(async () => (await s.obligations()).satisfied, 'Checks resolved')
+    const task = await getTask(s.client, s.task.id)
+    const context = await s.post<{ id: string }>('/failure-contexts')
+    const finding = await s.post<FailureCase>('/failures', {
+      source: {
+        kind: 'finding',
+        runId: task.leadRunId,
+        category: 'visual',
+        finding: 'Protected action overlaps text',
+      },
+      evidence: 'The captured screenshot shows overlapping text.',
+      contextId: context.id,
+    })
+    expect(finding.source).toMatchObject({ category: 'visual' })
+    await s.answer(await s.ask(finding, 'unrelated'), 'Accept this failure')
+    if (judgment === 'explicit pass') {
+      const denied = await s.lead.call('POST', `${s.root}/outcome`, {
+        outcome: 'advance',
+        judged: { visual: { passed: true } },
+      })
+      expect(denied.status).toBe(409)
+      expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
+    }
+    await s.post('/outcome', {
+      outcome: 'advance',
+      ...(judgment !== 'omitted' && { judged: { visual: { passed: false } } }),
+    })
+    const events = await s.client.ok<ThreadEvent[]>('GET', `${s.root}/events`)
+    expect(events.findLast((e) => e.validate === 'passed')?.judgments).toContainEqual({
+      name: 'Visual',
+      passed: false,
+    })
+    expect((await getTask(s.client, s.task.id)).stage).toBe('review')
+  },
+)

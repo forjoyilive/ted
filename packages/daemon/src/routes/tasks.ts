@@ -82,8 +82,22 @@ function failureSource(value: unknown): FailureSource {
       position: body.position as number,
     }
   }
-  if (kind === 'finding')
-    return { kind, runId: failureString(body, 'runId'), finding: failureString(body, 'finding') }
+  if (kind === 'finding') {
+    const category = body.category
+    if (
+      category !== undefined &&
+      category !== 'review' &&
+      category !== 'visual' &&
+      category !== 'test'
+    )
+      throw new HttpError(400, 'Finding category must be review, visual or test')
+    return {
+      kind,
+      runId: failureString(body, 'runId'),
+      finding: failureString(body, 'finding'),
+      ...(category !== undefined && { category }),
+    }
+  }
   if (kind === 'github-ci') {
     if (!Number.isSafeInteger(body.number) || (body.number as number) < 1)
       throw new HttpError(400, 'number must be a positive PR number')

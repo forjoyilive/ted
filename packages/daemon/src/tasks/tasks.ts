@@ -4581,18 +4581,28 @@ export function createTasks(options: {
       .reviewers(task.id)
       .filter((r) => r.purpose === 'review' && r.at >= since)
     const reviewer = reviewers.at(-1)
-    const acceptedReviewFailure = store.failures.list(task.id).some((value) => {
-      const decision = value.resolutions.at(-1)
-      const source = value.source
-      return (
-        value.validation &&
-        source.kind === 'finding' &&
-        reviewers.some((r) => r.runId === source.runId) &&
-        !value.verifications?.length &&
-        decision?.resolution === 'accepted' &&
-        !value.invalidations.some((i) => i.requestId === decision.requestId)
+    const acceptedFinding = (category: 'review' | 'visual') =>
+      store.failures.list(task.id).some((value) => {
+        const decision = value.resolutions.at(-1)
+        const source = value.source
+        return (
+          value.validation &&
+          source.kind === 'finding' &&
+          (source.category === category ||
+            (category === 'review' && reviewers.some((r) => r.runId === source.runId))) &&
+          !value.verifications?.length &&
+          decision?.resolution === 'accepted' &&
+          !value.invalidations.some((i) => i.requestId === decision.requestId)
+        )
+      })
+    const acceptedReviewFailure = acceptedFinding('review')
+    const acceptedVisualFailure = acceptedFinding('visual')
+    const visual = judged?.visual ?? (acceptedVisualFailure ? { passed: false } : undefined)
+    if (acceptedVisualFailure && visual?.passed)
+      throw new RequestError(
+        409,
+        'Visual has an accepted failure; report --visual fail to keep its result factual',
       )
-    })
     const review =
       judged?.review ??
       (acceptedReviewFailure
@@ -4610,7 +4620,7 @@ export function createTasks(options: {
       outcome,
       ...(checkRun !== undefined && { checkRunId: checkRun.id }),
       ...(review !== undefined && { review }),
-      ...(judged?.visual !== undefined && { visual: judged.visual }),
+      ...(visual !== undefined && { visual }),
       ...(reviewer !== undefined && {
         reviewer: {
           agent: reviewer.agent,

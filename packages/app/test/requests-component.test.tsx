@@ -476,80 +476,83 @@ test('an obsolete Check repair does not claim a later execution', () => {
   expect(screen.getByText(/verified with recorded evidence/)).toBeTruthy()
 })
 
-test('Review confirmation keeps a failed reviewer judgment beside its accepted Finding', async () => {
-  const failure: FailureCase = {
-    id: 'review-failure',
-    taskId: 'NB-1',
-    validation: true,
-    source: {
-      kind: 'finding',
-      runId: 'reviewer-1',
-      finding: 'Protected action verification failed',
-    },
-    recordedBy: 'lead-1',
-    provenance: 'task-lead-reported',
-    evidence: 'The fixture service rejected the action.',
-    createdAt,
-    assessments: [
-      {
-        id: 'assessment-1',
-        assessment: 'unrelated',
-        recommendation: 'Accept this fixture failure.',
-        runId: 'lead-1',
-        at: createdAt,
+test.each(['Review', 'Visual'])(
+  'Review confirmation keeps a failed %s judgment beside its accepted Finding',
+  async (name) => {
+    const failure: FailureCase = {
+      id: 'review-failure',
+      taskId: 'NB-1',
+      validation: true,
+      source: {
+        kind: 'finding',
+        runId: 'reviewer-1',
+        finding: 'Protected action verification failed',
       },
-    ],
-    additions: [],
-    decisions: [{ commentId: 'decision-1', assessmentId: 'assessment-1' }],
-    resolutions: [
-      {
-        requestId: 'decision-1',
-        assessmentId: 'assessment-1',
-        resolution: 'accepted',
-        at: createdAt,
-      },
-    ],
-    invalidations: [],
-  }
-  bridge({
-    simulators: () => ({ supported: false }),
-    listApps: () => [],
-    listFailures: () => [failure],
-    listCheckRuns: () => [],
-    listThreadEvents: () => [
-      {
-        id: 'validated-1',
-        taskId: 'NB-1',
-        at: createdAt,
-        tone: 'done',
-        text: 'Validate passed',
-        validate: 'passed',
-        judgments: [{ name: 'Review', passed: false }],
-      },
-    ],
-    validationObligations: () => ({
-      satisfied: true,
-      blockers: [],
-      cases: [{ id: failure.id, disposition: 'accepted', context: 'current' }],
-      checkRuns: [],
-      progress: {
-        taskId: 'NB-1',
-        visit: createdAt,
-        checks: [],
-        next: 0,
-        pending: false,
-        executions: [],
-      },
-    }),
-  })
-  render(
-    <RequestCard
-      task={task()}
-      request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
-    />,
-  )
-  const judgment = await screen.findByText('Review', { exact: true })
-  expect(judgment.textContent).toBe('✗Review')
-  expect(await screen.findByText('Protected action verification failed')).toBeTruthy()
-  expect(screen.getByText(/failed, accepted by you/)).toBeTruthy()
-})
+      recordedBy: 'lead-1',
+      provenance: 'task-lead-reported',
+      evidence: 'The fixture service rejected the action.',
+      createdAt,
+      assessments: [
+        {
+          id: 'assessment-1',
+          assessment: 'unrelated',
+          recommendation: 'Accept this fixture failure.',
+          runId: 'lead-1',
+          at: createdAt,
+        },
+      ],
+      additions: [],
+      decisions: [{ commentId: 'decision-1', assessmentId: 'assessment-1' }],
+      resolutions: [
+        {
+          requestId: 'decision-1',
+          assessmentId: 'assessment-1',
+          resolution: 'accepted',
+          at: createdAt,
+        },
+      ],
+      invalidations: [],
+    }
+    bridge({
+      simulators: () => ({ supported: false }),
+      listApps: () => [],
+      listFailures: () => [failure],
+      listCheckRuns: () => [],
+      listThreadEvents: () => [
+        {
+          id: 'validated-1',
+          taskId: 'NB-1',
+          at: createdAt,
+          tone: 'done',
+          text: 'Validate passed',
+          validate: 'passed',
+          judgments: [{ name, passed: false }],
+        },
+      ],
+      validationObligations: () => ({
+        satisfied: true,
+        blockers: [],
+        cases: [{ id: failure.id, disposition: 'accepted', context: 'current' }],
+        checkRuns: [],
+        progress: {
+          taskId: 'NB-1',
+          visit: createdAt,
+          checks: [],
+          next: 0,
+          pending: false,
+          executions: [],
+        },
+      }),
+    })
+    render(
+      <RequestCard
+        task={task()}
+        request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+      />,
+    )
+    const judgment = await screen.findByText(name, { exact: true })
+    expect(judgment.textContent).toBe(`✗${name}`)
+    expect(await screen.findByText('Protected action verification failed')).toBeTruthy()
+    expect(screen.getByText(/failed, accepted by you/)).toBeTruthy()
+  },
+)

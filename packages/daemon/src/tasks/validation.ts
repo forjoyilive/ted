@@ -467,41 +467,47 @@ export function createValidation(options: ValidationOptions) {
         409,
         'use Retry, Fix in this Task or Accept this failure for a Validate case',
       )
-    if (input.resolution === 'fix' && options.isChecking(task.id))
+    if (options.isChecking(task.id))
       throw new RequestError(
         409,
-        'Checks are still running; wait for their results before choosing Fix in this Task',
+        'Checks are still running; wait for their results before deciding this failure',
       )
-    failures.pendingDecision(task, id, input.requestId)
-    const resolution = await options.workflow(find(task.id))
-    if (input.resolution === 'fix') options.checkFix(resolution)
-    if (
-      value.source.kind === 'factory-check' &&
-      input.resolution === 'retry' &&
-      store.failures.progress(task.id)?.failureId !== id
-    )
-      throw new RequestError(409, 'this failure is not the outstanding Check')
-    const result = await failures.resolve(task, id, input)
-    if (input.resolution === 'fix') {
-      await options.fix(find(task.id), result)
-    } else if (
-      value.source.kind === 'factory-check' &&
-      (input.resolution === 'retry' || input.resolution === 'accepted') &&
-      store.failures.progress(task.id)?.failureId === id
-    ) {
-      const progress = store.failures.progress(task.id)
-      if (progress?.failureId !== id)
+    options.setChecking(task.id, true)
+    let continuing = false
+    try {
+      failures.pendingDecision(task, id, input.requestId)
+      const resolution = await options.workflow(find(task.id))
+      if (input.resolution === 'fix') options.checkFix(resolution)
+      if (
+        value.source.kind === 'factory-check' &&
+        input.resolution === 'retry' &&
+        store.failures.progress(task.id)?.failureId !== id
+      )
         throw new RequestError(409, 'this failure is not the outstanding Check')
-      store.failures.saveProgress({
-        ...progress,
-        next: input.resolution === 'accepted' ? progress.next + 1 : progress.next,
-        pending: true,
-      })
-      await store.persisted()
-      options.setChecking(task.id, true)
-      options.background(`continue ${task.displayId}’s Checks`, () => validateChecks(task.id))
+      const result = await failures.resolve(task, id, input)
+      if (input.resolution === 'fix') {
+        await options.fix(find(task.id), result)
+      } else if (
+        value.source.kind === 'factory-check' &&
+        (input.resolution === 'retry' || input.resolution === 'accepted') &&
+        store.failures.progress(task.id)?.failureId === id
+      ) {
+        const progress = store.failures.progress(task.id)
+        if (progress?.failureId !== id)
+          throw new RequestError(409, 'this failure is not the outstanding Check')
+        store.failures.saveProgress({
+          ...progress,
+          next: input.resolution === 'accepted' ? progress.next + 1 : progress.next,
+          pending: true,
+        })
+        await store.persisted()
+        continuing = true
+        options.background(`continue ${task.displayId}’s Checks`, () => validateChecks(task.id))
+      }
+      return result
+    } finally {
+      if (!continuing) options.setChecking(task.id, false)
     }
-    return result
   }
 
   async function currentCoverage(task: StoredTask): Promise<boolean> {

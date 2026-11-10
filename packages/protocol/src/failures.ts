@@ -8,7 +8,7 @@ export const failureChoices = {
 
 export type FailureSource =
   | { kind: 'factory-check' | 'post-rebase-check'; checkRunId: string; position: number }
-  | { kind: 'finding'; runId: string; finding: string }
+  | { kind: 'finding'; runId: string; finding: string; category?: 'review' | 'visual' | 'test' }
   | { kind: 'github-ci'; repo: string; number: number; head: string; attempt: string }
 
 export interface FailureContext {

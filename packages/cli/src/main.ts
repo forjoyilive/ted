@@ -81,6 +81,7 @@ const usage = `Usage:
                                              or inspect remaining validation obligations
   ted failure show <id>                     Show evidence, assessment and decision history
   ted failure record --file <json>          Record a source, evidence and optional contextId
+                                             Finding source: category test|review|visual
   ted failure evidence <id> --file <json>    Append evidence and optional contextId
   ted failure assess <id> --file <json>      Record assessment and recommendation
   ted failure verify <id> --file <json>     Record fresh Finding or obsolete Check repair evidence
