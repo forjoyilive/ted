@@ -153,6 +153,7 @@ export function TaskShellPane({
     terminalRef.current = terminal
     fitRef.current = fit
     searchRef.current = search
+    setFinding(false)
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type === 'keydown' && (event.metaKey || event.ctrlKey) && event.key === 'f') {
         event.preventDefault()

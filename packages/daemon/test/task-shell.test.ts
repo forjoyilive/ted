@@ -318,11 +318,75 @@ describe('Task shell panes', () => {
     await waitUntil(async () => !alive(root) || undefined, 'the retried Close to end its shell')
   })
 
-  test.each(
-    (['close', 'restart', 'archive', 'shutdown'] as const).flatMap((ending) =>
+  test('shutdown retries a refused pane while cleaning the remaining panes', async () => {
+    const ted = await startTed()
+    const task = await startedTask(ted)
+    const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
+    const first = firstShell(opened)
+    const split = await changeWorkspace(ted, task, {
+      kind: 'split',
+      revision: opened.revision,
+      shellId: first.id,
+      direction: 'right',
+      size,
+    })
+    const roots: number[] = []
+    for (const pane of split.shells) {
+      await ted.ok('POST', paneRoute(task, pane.id, '/input'), {
+        data: 'printf "ROOT_PID=%s\\n" "$$"\r',
+      })
+      const text = await readUntil(ted, task, pane, (t) => /ROOT_PID=\d+/.test(t), pane.id)
+      roots.push(Number(/ROOT_PID=(\d+)/.exec(text)?.[1]))
+    }
+    const firstRoot = roots[0]
+    const siblingRoot = roots[1]
+    if (!firstRoot || !siblingRoot) throw new Error('no fixture shell PIDs')
+    const kill = process.kill.bind(process)
+    const failure = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (pid === -firstRoot && signal === 'SIGSTOP')
+        throw Object.assign(new Error('fixture refuses cleanup'), { code: 'EPERM' })
+      return kill(pid, signal)
+    })
+    let finished = false
+    let rejected: unknown
+    const stopping = daemon?.stop().then(
+      () => {
+        finished = true
+      },
+      (error) => {
+        rejected = error
+        finished = true
+      },
+    )
+    try {
+      await waitUntil(
+        async () => !alive(siblingRoot) || undefined,
+        'the other pane to stop despite the refusal',
+      )
+      expect(alive(firstRoot)).toBe(true)
+      expect(finished).toBe(false)
+      failure.mockRestore()
+      await stopping
+      expect(rejected).toBeUndefined()
+      expect(alive(firstRoot)).toBe(false)
+    } finally {
+      failure.mockRestore()
+      await stopping
+      daemon = undefined
+      for (const pid of roots) {
+        try {
+          process.kill(pid, 'SIGKILL')
+        } catch {}
+      }
+    }
+  })
+
+  test.each([
+    ...(['close', 'restart', 'archive', 'shutdown'] as const).flatMap((ending) =>
       [false, true].map((exited) => ({ ending, exited })),
     ),
-  )('$ending ends child jobs (shell exited: $exited)', async ({ ending, exited }) => {
+    { ending: 'reopen' as const, exited: true },
+  ])('$ending ends child jobs (shell exited: $exited)', async ({ ending, exited }) => {
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -375,6 +439,14 @@ describe('Task shell panes', () => {
           size,
         )
         expect(restarted.generation).toBeGreaterThan(first.generation)
+      } else if (ending === 'reopen') {
+        const reopened = await ted.ok<TaskShell>('POST', shellRoute(task), size)
+        expect(reopened.generation).toBeGreaterThan(first.generation)
+        await changeWorkspace(ted, task, {
+          kind: 'close',
+          revision: ws.revision,
+          shellId: first.id,
+        })
       } else if (ending === 'shutdown') {
         await daemon?.stop()
         daemon = undefined

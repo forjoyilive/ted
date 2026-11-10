@@ -522,7 +522,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
-          shells.close()
+          const shellsClosed = shells.close()
           await coordinators.close()
           await automations.close()
           plans.close()
@@ -539,6 +539,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await factories.close()
           await tasks.close()
           await runs.close()
+          await shellsClosed
         },
       }
     },

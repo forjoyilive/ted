@@ -49,7 +49,7 @@ export interface Shells {
     signal: AbortSignal,
     id?: string,
   ): Promise<ShellOutput>
-  close(): void
+  close(): Promise<void>
 }
 
 interface Shell {
@@ -82,6 +82,8 @@ export function createShells(options: ShellsOptions): Shells {
   const program = options.program ?? (() => loginShell(process.env))
   const resolving = new Set<Set<string>>()
   let closed = false
+  let closing: Promise<void> | undefined
+  let resolveClosed: (() => void) | undefined
   let reported = 0
   const report = () => {
     const count = [...shells.values()].filter((s) => s.process !== undefined).length
@@ -310,6 +312,7 @@ export function createShells(options: ShellsOptions): Shells {
   function end(shell: Shell): void {
     stop(shell)
     shells.delete(shell.id)
+    if (shells.size === 0) resolveClosed?.()
     wake(shell)
     report()
   }
@@ -322,7 +325,9 @@ export function createShells(options: ShellsOptions): Shells {
       shell.cleanupTimer ??= setTimeout(() => {
         delete shell.cleanupTimer
         discard(shell)
-      }, 1_000).unref()
+      }, 1_000)
+      if (closed) shell.cleanupTimer.ref()
+      else shell.cleanupTimer.unref()
     }
   }
 
@@ -490,8 +495,8 @@ export function createShells(options: ShellsOptions): Shells {
         workspace.revision++
       } else {
         shell = find(target, id)
-        if (fresh) stop(shell)
-        if (!shell.process && (fresh || id === undefined)) {
+        if (fresh || (!shell.process && id === undefined)) {
+          stop(shell)
           launch(shell, target, size)
           wake(shell)
         } else shell.process?.resize(size.cols, size.rows)
@@ -630,11 +635,17 @@ export function createShells(options: ShellsOptions): Shells {
     },
 
     close() {
+      if (closing) return closing
       closed = true
       unsubscribe()
       workspaces.clear()
       resolving.clear()
-      for (const shell of [...shells.values()]) end(shell)
+      closing = new Promise<void>((resolve) => {
+        resolveClosed = resolve
+      })
+      for (const shell of [...shells.values()]) discard(shell)
+      if (shells.size === 0) resolveClosed?.()
+      return closing
     },
   }
 }

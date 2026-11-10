@@ -137,6 +137,9 @@ describe('Task shell', () => {
     await window.keyboard.press('Control+Backquote')
     await shell.getByText('task=NB-1 sum=42').waitFor()
 
+    await shell.getByRole('button', { name: 'Find', exact: true }).click()
+    await shell.getByRole('textbox', { name: 'Find', exact: true }).fill('task=NB-1 sum=42')
+    await shell.getByText('1 of 1', { exact: true }).waitFor()
     await shell.getByRole('button', { name: 'Restart shell' }).click()
     await window
       .getByRole('dialog', { name: 'Restart Shell 1?' })
@@ -146,6 +149,12 @@ describe('Task shell', () => {
       async () => (await shell.getByText('task=NB-1 sum=42').count()) === 0 || undefined,
       'the restarted shell to start empty',
     )
+    await expect.poll(() => shell.getByRole('search', { name: 'Find in shell' }).count()).toBe(0)
+    await typeInShell(window, 'printf "fresh-%s\\n" "needle"')
+    await shell.getByText('fresh-needle', { exact: true }).waitFor()
+    await shell.getByRole('button', { name: 'Find', exact: true }).click()
+    await shell.getByRole('textbox', { name: 'Find', exact: true }).fill('fresh-needle')
+    await shell.getByText('1 of 1', { exact: true }).waitFor()
   })
 
   test('nested panes keep their shells and layout across navigation and reload', async () => {
