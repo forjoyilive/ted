@@ -36,8 +36,7 @@ export const automationRoutes: Route[] = [
     fileToken: true,
     async handle({ req }, { automations }) {
       const body = bodyObject(await readJson(req))
-      const timeZone = optionalText(body.timeZone, 'timeZone')
-      return [200, automations.preview(scheduleInput(body.schedule), timeZone)]
+      return [200, automations.preview(scheduleInput(body.schedule))]
     },
   },
   {
@@ -199,13 +198,11 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
   const out: Partial<Omit<AutomationInput, 'template'>> = {}
   const name = optionalText(body.name, 'name')
   const prompt = optionalText(body.prompt, 'prompt')
-  const timeZone = optionalText(body.timeZone, 'timeZone')
   if (name !== undefined) out.name = name
   if (prompt !== undefined) {
     if (Buffer.byteLength(prompt) > maxPromptBytes) throw new HttpError(413, 'prompt is too long')
     out.prompt = prompt
   }
-  if (timeZone !== undefined) out.timeZone = timeZone
   if (body.schedule !== undefined) out.schedule = scheduleInput(body.schedule)
   Object.assign(out, agentChoice(body))
   if (body.on !== undefined) {

@@ -10,6 +10,7 @@ import { describeSchedule } from '@ted/protocol/schedule'
 import type { StatusTone } from './components/StatusChip.tsx'
 import { ago } from './requests.ts'
 import { agentLabels } from './task-fields.ts'
+import { formatDate, formatTime, timePreferences } from './time.ts'
 
 export type ScheduleKind = AutomationSchedule['kind']
 
@@ -73,40 +74,19 @@ export function scheduleOf(draft: ScheduleDraft): AutomationSchedule | string {
 }
 
 export function templateScheduleText(schedule: AutomationSchedule): string {
-  return describeSchedule(schedule, 'UTC').replace(/ · UTC$/, '')
+  return describeSchedule(schedule, 'UTC', timePreferences().timeFormat).replace(/ · UTC$/, '')
 }
 
-const dateParts = (iso: string, timeZone: string) => {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(new Date(iso))
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((p) => p.type === type)?.value ?? ''
-  return {
-    weekday: part('weekday'),
-    day: part('day'),
-    month: part('month'),
-    clock: `${part('hour')}:${part('minute')}`,
-  }
+export function firingDate(iso: string): string {
+  return `${formatDate(iso, { weekday: 'short', day: 'numeric', month: 'short' }).replace(',', '')} ${formatTime(iso)}`
 }
 
-export function firingDate(iso: string, timeZone?: string): string {
-  const { weekday, day, month, clock } = dateParts(iso, timeZone ?? localZone())
-  return `${weekday} ${day} ${month} ${clock}`
+export function clockOf(iso: string): string {
+  return formatTime(iso)
 }
 
-export function clockOf(iso: string, timeZone?: string): string {
-  return dateParts(iso, timeZone ?? localZone()).clock
-}
-
-function localZone(): string {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone
+export function scheduleDescription(automation: Automation): string {
+  return describeSchedule(automation.schedule, automation.timeZone, timePreferences().timeFormat)
 }
 
 function hoursAndMinutes(ms: number): string {
@@ -122,7 +102,7 @@ export function nextFiring(automation: Automation, now: number): string {
   if (!automation.on || next === undefined) return 'Off'
   const ms = Date.parse(next) - now
   if (ms < 24 * 60 * 60_000) return `in ${hoursAndMinutes(ms)}`
-  return firingDate(next, automation.timeZone)
+  return firingDate(next)
 }
 
 export interface LastResult {
@@ -185,7 +165,6 @@ export function agentModel(automation: Pick<Automation, 'agent' | 'model'>): str
 export function trigger(
   run: AutomationRun,
   history: readonly AutomationRun[],
-  timeZone: string,
 ): { text: string; under?: string } {
   switch (run.trigger) {
     case 'scheduled':
@@ -195,13 +174,11 @@ export function trigger(
     case 'made-up':
       return run.slotAt === undefined
         ? { text: 'Made up' }
-        : { text: 'Made up', under: `for ${firingDate(run.slotAt, timeZone)}` }
+        : { text: 'Made up', under: `for ${firingDate(run.slotAt)}` }
     case 'retry': {
       const of = history.find((r) => r.id === run.retryOf)
       const at = of?.slotAt ?? of?.at
-      return at === undefined
-        ? { text: 'Retry' }
-        : { text: 'Retry', under: `of ${clockOf(at, timeZone)}` }
+      return at === undefined ? { text: 'Retry' } : { text: 'Retry', under: `of ${clockOf(at)}` }
     }
   }
 }
@@ -211,13 +188,10 @@ export function retryable(history: readonly AutomationRun[]): string | undefined
   return newest && newest.retriedAt === undefined ? newest.id : undefined
 }
 
-export function historyResult(
-  run: AutomationRun,
-  timeZone: string,
-): { text: string; failed?: true; under?: string } {
+export function historyResult(run: AutomationRun): { text: string; failed?: true; under?: string } {
   const under =
     run.retriedAt !== undefined
-      ? { under: `Retried at ${clockOf(run.retriedAt, timeZone)}` }
+      ? { under: `Retried at ${clockOf(run.retriedAt)}` }
       : run.message !== undefined
         ? { under: run.message }
         : {}
@@ -257,7 +231,6 @@ export function duplicateOf(automation: Automation): CreateAutomationRequest {
     name: `${automation.name} copy`,
     prompt: automation.prompt,
     schedule: automation.schedule,
-    timeZone: automation.timeZone,
     agent: automation.agent,
     ...(automation.model !== undefined && { model: automation.model }),
     ...(automation.effort !== undefined && { effort: automation.effort }),

@@ -460,3 +460,12 @@
   font-size: var(--text-12);
   font-variant-numeric: tabular-nums;
 }
+
+.timeNote {
+  margin: 0;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--text-12-5);
+  line-height: 1.5;
+}

@@ -83,6 +83,7 @@ export interface DaemonEditorsOptions {
 }
 
 export interface DaemonAutomationsOptions {
+  systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
   graceMs?: number

@@ -485,11 +485,7 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   getAutomation: (client, id) => client.getAutomation(String(id)),
   automationTemplates: (client) => client.automationTemplates(),
   automationRequests: (client) => client.automationRequests(),
-  previewSchedule: (client, schedule, timeZone) =>
-    client.previewSchedule(
-      schedule as AutomationSchedule,
-      timeZone === undefined ? undefined : String(timeZone),
-    ),
+  previewSchedule: (client, schedule) => client.previewSchedule(schedule as AutomationSchedule),
   createAutomation: (client, input) => client.createAutomation(input as CreateAutomationRequest),
   editAutomation: (client, id, input) =>
     client.editAutomation(String(id), input as EditAutomationRequest),

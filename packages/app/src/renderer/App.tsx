@@ -94,6 +94,7 @@ import {
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
+import { timePreferences } from './time.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
@@ -134,7 +135,7 @@ function pausedFooter(health: readonly AgentHealth[]) {
 }
 
 function planFooter(health: readonly AgentHealth[]) {
-  const chips = health.flatMap((h) => planChip(h) ?? [])
+  const chips = health.flatMap((h) => planChip(h, undefined, timePreferences()) ?? [])
   return chips.length > 0 ? { planChips: chips } : {}
 }
 

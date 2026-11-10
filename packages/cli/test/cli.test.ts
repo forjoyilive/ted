@@ -450,11 +450,11 @@ describe('ted automation', () => {
         'ted: Create, change, run or delete Automations in the TED app. From a terminal, ted automation can list, show, history and disable.\n',
     })
 
+    await app.updateSettings({ timeFormat: '24-hour', timeZone: 'Europe/London' })
     await app.createAutomation({
       factory: 'NB',
       name: 'Sentry crash intake',
       schedule: { kind: 'weekdays', at: '09:00' },
-      timeZone: 'Europe/London',
       prompt: JSON.stringify({ steps: [{ say: 'No new crashes' }, { endTurn: true }] }),
     })
     const listed = await ted(['automation', 'list'])

@@ -55,6 +55,7 @@ const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   const ted = await daemonAsApp(home, env())
+  await ted.updateSettings({ timeFormat: '24-hour', timeZone: 'Europe/London' })
   await ted.addFactory({ repo: origin, key: 'NB' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
   const window = await app.firstWindow()
@@ -87,7 +88,7 @@ async function openFirstFactory(window: Page) {
 
 describe('Automations in the app', () => {
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
-    const { window } = await launch()
+    const { window, ted } = await launch()
     await openAutomations(window)
     const page = window.getByRole('region', { name: 'Automations' })
     await page.getByRole('heading', { name: 'No Automations yet' }).waitFor()
@@ -104,6 +105,20 @@ describe('Automations in the app', () => {
       true,
     )
     await form.getByText(/^Next: .+ · .+ · .+/).waitFor()
+    expect(await form.getByLabel('Timezone', { exact: true }).count()).toBe(0)
+    await ted.updateSettings({ timeFormat: '12-hour' })
+    await form.getByLabel('AM or PM').waitFor()
+    await form.getByLabel('Hour', { exact: true }).selectOption('12')
+    await form.getByLabel('AM or PM').selectOption('AM')
+    await ted.updateSettings({ timeFormat: '24-hour' })
+    await expect.poll(() => form.getByLabel('Hour', { exact: true }).inputValue()).toBe('0')
+    expect(await form.getByLabel('AM or PM').count()).toBe(0)
+    await ted.updateSettings({ timeFormat: '12-hour' })
+    await form.getByLabel('AM or PM').waitFor()
+    await form.getByLabel('AM or PM').selectOption('PM')
+    await ted.updateSettings({ timeFormat: '24-hour' })
+    await expect.poll(() => form.getByLabel('Hour', { exact: true }).inputValue()).toBe('12')
+    await form.getByLabel('Hour', { exact: true }).selectOption('9')
 
     await form.getByLabel('Repeat').selectOption('every')
     await form.getByLabel('How often').fill('5')
@@ -122,7 +137,8 @@ describe('Automations in the app', () => {
     await form.getByRole('textbox', { name: 'Prompt' }).fill('Sweep stale Tasks.')
     await form.getByLabel('Repeat').selectOption('weekly')
     await form.getByRole('button', { name: 'Thursday' }).click()
-    await form.getByLabel('Time', { exact: true }).fill('14:00')
+    await form.getByLabel('Hour', { exact: true }).selectOption('14')
+    await form.getByLabel('Minute', { exact: true }).selectOption('0')
     await form.getByText(/^Next: (Mon|Thu) /).waitFor()
     await form.getByLabel('On', { exact: true }).uncheck()
     await window.keyboard.press('Meta+Enter')
@@ -213,7 +229,6 @@ describe('Automations in the app', () => {
       factory: 'NB',
       name: 'Daily triage',
       schedule: { kind: 'weekdays', at: '09:00' },
-      timeZone: 'Europe/London',
       on: false,
       prompt: steps({ say: 'Starting' }, { exit: 3 }),
     })

@@ -3,6 +3,10 @@ import type { ListView } from './list-view.ts'
 import type { AgentKind } from './run.ts'
 import type { EditorChoice } from './shell.ts'
 
+export const timeFormats = ['system', '12-hour', '24-hour'] as const
+
+export type TimeFormat = (typeof timeFormats)[number]
+
 export const appearances = ['system', 'light', 'dark'] as const
 
 export type Appearance = (typeof appearances)[number]
@@ -16,6 +20,8 @@ export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 export type QuitChoice = (typeof quitChoices)[number]
 
 export interface MachineSettings {
+  timeFormat: TimeFormat
+  timeZone: string
   appearance: Appearance
   terminalFontSize: number
   profilePicture: string | null
@@ -41,6 +47,8 @@ export interface MachineSettings {
 }
 
 export const defaultMachineSettings: MachineSettings = {
+  timeFormat: 'system',
+  timeZone: 'system',
   appearance: 'system',
   terminalFontSize: 13,
   profilePicture: null,

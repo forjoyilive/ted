@@ -357,7 +357,9 @@ export {
   type Profile,
   type QuitChoice,
   quitChoices,
+  type TimeFormat,
   terminalFontSizes,
+  timeFormats,
   workingRunLimits,
 } from './settings.ts'
 export {
@@ -505,6 +507,14 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export {
+  effectiveTimeZone,
+  formatClockTime,
+  systemTimeZone,
+  type TimePreferences,
+  timeOptions,
+  uses12HourTime,
+} from './time.ts'
 export type { UpdateWork } from './update.ts'
 export { tedVersion } from './version.ts'
 export type { WaitingRequest } from './waiting.ts'

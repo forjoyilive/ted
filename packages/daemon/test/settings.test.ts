@@ -45,6 +45,8 @@ describe('machine settings in the store', () => {
   test('machine settings start at their defaults and keep every change across a reopen', async () => {
     const first = await openStore({ directory: dir })
     expect(first.settings()).toEqual({
+      timeFormat: 'system',
+      timeZone: 'system',
       appearance: 'system',
       terminalFontSize: 13,
       profilePicture: null,
@@ -177,6 +179,24 @@ describe('settings and Factories over the daemon API', () => {
     return appClient(info, daemon?.appToken)
   }
 
+  test('time preferences persist and reset to system through the client', async () => {
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const ted = await client()
+    expect(await ted.getSettings()).toMatchObject({ timeFormat: 'system', timeZone: 'system' })
+    await ted.updateSettings({ timeFormat: '12-hour', timeZone: 'Asia/Tokyo' })
+    await daemon.stop()
+    daemon = await startDaemon({ home, version: '9.9.9' })
+    const reopened = await client()
+    expect(await reopened.getSettings()).toMatchObject({
+      timeFormat: '12-hour',
+      timeZone: 'Asia/Tokyo',
+    })
+    await reopened.updateSettings({ timeFormat: '24-hour', timeZone: 'UTC' })
+    expect(await reopened.getSettings()).toMatchObject({ timeFormat: '24-hour', timeZone: 'UTC' })
+    await reopened.updateSettings({ timeFormat: 'system', timeZone: 'system' })
+    expect(await reopened.getSettings()).toMatchObject({ timeFormat: 'system', timeZone: 'system' })
+  })
+
   test('a client reads and changes Appearance, and subscribers hear the change', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const ted = await client()
@@ -193,6 +213,9 @@ describe('settings and Factories over the daemon API', () => {
   })
 
   test.each([
+    ['an unknown time format', { timeFormat: 'military' }],
+    ['an unknown time zone', { timeZone: 'Mars/Olympus' }],
+    ['a non-string time zone', { timeZone: 12 }],
     ['an unknown Appearance', { appearance: 'sepia' }],
     ['an unknown setting', { fontSize: 20 }],
     ['a terminal font size below 10', { terminalFontSize: 9 }],

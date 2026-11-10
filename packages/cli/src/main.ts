@@ -150,7 +150,6 @@ function parse() {
         description: { type: 'string' },
         'follow-up': { type: 'string' },
         schedule: { type: 'string' },
-        tz: { type: 'string' },
         template: { type: 'string' },
         off: { type: 'boolean' },
         factory: { type: 'string' },

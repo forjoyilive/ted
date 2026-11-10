@@ -86,13 +86,12 @@ import {
   priorityLabels,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { formatDate, formatTime } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
-
-const time = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
 function leadAgent(task: Task, comment: Comment) {
   const { author } = comment
@@ -130,7 +129,7 @@ function NoteRow({
       <div>
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
-          <span className={styles.taskMeta}>{time.format(new Date(comment.createdAt))}</span>
+          <span className={styles.taskMeta}>{formatTime(comment.createdAt)}</span>
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
@@ -814,9 +813,7 @@ function ArchivedBar({ task }: { task: Task }) {
   const at = task.archived?.at
   return (
     <div className={styles.archivedBar}>
-      <span>
-        {`Archived ${at ? new Date(at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}`}
-      </span>
+      <span>{`Archived ${at ? formatDate(at, { day: 'numeric', month: 'short' }) : ''}`}</span>
       <span aria-hidden>·</span>
       <button
         type="button"
@@ -1130,13 +1127,6 @@ function OriginalRequest({ task }: { task: Task }) {
   )
 }
 
-const historyTime = new Intl.DateTimeFormat(undefined, {
-  day: 'numeric',
-  month: 'short',
-  hour: '2-digit',
-  minute: '2-digit',
-})
-
 function DescriptionHistory({
   task,
   versions,
@@ -1174,8 +1164,8 @@ function DescriptionHistory({
           <li key={v.version} className={styles.historyItem}>
             <p className={styles.historyMeta}>
               {v.version === 1
-                ? `Original request · ${historyTime.format(new Date(v.at))}`
-                : `Version ${v.version} · edited by you ${historyTime.format(new Date(v.at))}`}
+                ? `Original request · ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                : `Version ${v.version} · edited by you ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
               {v.version === versions.length && versions.length > 1 ? ' · current' : ''}
             </p>
             <p className={styles.historyText}>

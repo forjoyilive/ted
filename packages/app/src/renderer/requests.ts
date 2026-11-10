@@ -1,5 +1,6 @@
 import type { Comment, CommentKind, Task } from '@ted/protocol'
 import { useEffect, useState } from 'react'
+import { formatTime } from './time.ts'
 
 export const kindLabels: Record<CommentKind, string> = {
   note: 'Note',
@@ -44,10 +45,8 @@ export function ago(iso: string, now: number): string {
   return short === 'now' ? 'just now' : `${short} ago`
 }
 
-const clock = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
-
 export function clockTime(iso: string): string {
-  return clock.format(new Date(iso))
+  return formatTime(iso)
 }
 
 export function useNow(): number {

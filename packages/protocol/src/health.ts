@@ -1,5 +1,6 @@
 import type { FixCommand } from './integrations.ts'
 import type { AgentKind } from './run.ts'
+import { type TimePreferences, timeOptions } from './time.ts'
 
 export const agentProblem = 'agent-unavailable'
 
@@ -72,28 +73,47 @@ export const agentShortNames: Record<AgentKind, string> = {
   codex: 'Codex',
 }
 
-const twoDigits = (n: number) => String(n).padStart(2, '0')
-
-const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-export function resetTime(at: string, now: Date = new Date()): string {
+export function resetTime(
+  at: string,
+  now: Date = new Date(),
+  preferences: TimePreferences = { timeFormat: '24-hour', timeZone: 'system' },
+): string {
   const when = new Date(at)
-  const clock = `${twoDigits(when.getHours())}:${twoDigits(when.getMinutes())}`
+  const options = timeOptions(preferences)
+  const clock = new Intl.DateTimeFormat('en-GB', {
+    ...options,
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(when)
+  const day = new Intl.DateTimeFormat('en-GB', {
+    timeZone: options.timeZone,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  })
   const soon = when.getTime() - now.getTime() < 12 * 60 * 60 * 1000
-  return when.toDateString() === now.toDateString() || soon
-    ? clock
-    : `${weekdays[when.getDay()]} ${clock}`
+  const weekday = new Intl.DateTimeFormat('en-GB', {
+    timeZone: options.timeZone,
+    weekday: 'short',
+  }).format(when)
+  return day.format(when) === day.format(now) || soon ? clock : `${weekday} ${clock}`
 }
 
-export function usageLimitText(agent: AgentKind, resetsAt: string | undefined, now?: Date): string {
+export function usageLimitText(
+  agent: AgentKind,
+  resetsAt: string | undefined,
+  now?: Date,
+  preferences?: TimePreferences,
+): string {
   const name = `${agentShortNames[agent]} usage limit`
-  return resetsAt === undefined ? name : `${name}, resets ${resetTime(resetsAt, now)}`
+  return resetsAt === undefined ? name : `${name}, resets ${resetTime(resetsAt, now, preferences)}`
 }
 
 export function pausedReason(
   agent: AgentKind,
   state: AgentHealthState,
   resetsAt?: string,
+  preferences?: TimePreferences,
 ): string | undefined {
   const name = agentDisplayNames[agent]
   switch (state) {
@@ -108,7 +128,7 @@ export function pausedReason(
     case 'wrong-credential':
       return 'Using an API key, not your subscription'
     case 'usage-limit':
-      return usageLimitText(agent, resetsAt)
+      return usageLimitText(agent, resetsAt, undefined, preferences)
     case 'offline':
       return 'offline'
   }
@@ -118,12 +138,17 @@ export function runsPaused(count: number): string {
   return `${count} ${count === 1 ? 'Run' : 'Runs'} paused`
 }
 
-export function planChip(health: AgentHealth, now?: Date): string | undefined {
+export function planChip(
+  health: AgentHealth,
+  now?: Date,
+  preferences?: TimePreferences,
+): string | undefined {
   if (health.state === 'usage-limit') return undefined
   const top = (health.planUsage?.windows ?? [])
     .filter((w) => w.percent >= planWarnPercent)
     .sort((a, b) => b.percent - a.percent)[0]
   if (!top) return undefined
-  const resets = top.resetsAt !== undefined ? ` · resets ${resetTime(top.resetsAt, now)}` : ''
+  const resets =
+    top.resetsAt !== undefined ? ` · resets ${resetTime(top.resetsAt, now, preferences)}` : ''
   return `${agentShortNames[health.agent]} ${Math.round(top.percent)}%${resets}`
 }
