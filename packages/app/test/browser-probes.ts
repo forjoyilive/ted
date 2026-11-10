@@ -4,6 +4,26 @@ import path from 'node:path'
 import type { ElectronApplication, Page } from 'playwright'
 import { expect } from 'vitest'
 
+export async function startGuestWorker(app: ElectronApplication, url: string) {
+  await app.evaluate(async ({ webContents }, url) => {
+    const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    if (!guest) throw new Error('No guest')
+    await guest.executeJavaScript(`(async () => {
+      await navigator.serviceWorker.register('/browser-service-worker.js');
+      const registration = await navigator.serviceWorker.ready;
+      registration.active.postMessage('start');
+    })()`)
+  }, url)
+  await expect.poll(async () => (await guestWorkerTraffic(url)).messages).toBeGreaterThan(1)
+}
+
+export async function guestWorkerTraffic(url: string): Promise<{
+  messages: number
+  connections: number
+}> {
+  return (await fetch(new URL('/browser-worker-traffic', url))).json()
+}
+
 export async function checkGuestNetwork(app: ElectronApplication, url: string) {
   const certificate = await app.evaluate(({ webContents }, url) => {
     const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)

@@ -10,14 +10,19 @@ import {
 import { afterEach, expect, test, vi } from 'vitest'
 
 function makeSession() {
+  const clearAllStorage = vi.fn()
   return {
+    clearAllStorage,
+    serviceWorkers: { getAllRunning: vi.fn((): Record<string, unknown> => ({})) },
     setProxy: vi.fn(async () => {}),
     setPermissionRequestHandler: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     removeAllListeners: vi.fn(),
     on: vi.fn(),
     webRequest: { onBeforeRequest: vi.fn() },
-    clearStorageData: vi.fn(async () => {}),
+    clearStorageData: vi.fn(async (options?: { storages: string[] }) => {
+      if (!options) clearAllStorage()
+    }),
     closeAllConnections: vi.fn(async () => {}),
   }
 }
@@ -154,7 +159,7 @@ test('a new client resumes polling while an idle Task retains its page and sessi
   expect(second.replies[0]?.result?.text).toContain('Try it')
   expect(mocks.views).toHaveLength(1)
   expect(view.webContents.close).not.toHaveBeenCalled()
-  expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+  expect(mocks.sessions[0]?.clearAllStorage).not.toHaveBeenCalled()
   expect(first.replies).toHaveLength(1)
 })
 
@@ -192,7 +197,7 @@ test('a delayed lookup cannot click after expiry and another Task keeps progress
   expect(
     contents.debugger.sendCommand.mock.calls.some(([method]) => method.startsWith('Input.')),
   ).toBe(false)
-  expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+  expect(mocks.sessions[0]?.clearAllStorage).not.toHaveBeenCalled()
 })
 
 test('a navigation that never finishes is bounded without stopping other Tasks', async () => {
@@ -263,7 +268,7 @@ test('a transient polling error preserves an idle page and its session', async (
   await transport.send('snapshot', 'one', 'snapshot')
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
   expect(view.webContents.close).not.toHaveBeenCalled()
-  expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+  expect(mocks.sessions[0]?.clearAllStorage).not.toHaveBeenCalled()
   expect(mocks.views).toHaveLength(1)
 })
 
@@ -323,7 +328,7 @@ test.each(['App stop', 'App restart', 'Task deletion', 'Factory deletion'])(
       validate.mockResolvedValue({ ...app, startedAt: 'tomorrow' })
     else validate.mockRejectedValue(new DaemonRequestError(404, 'Task no longer exists'))
     controller.changed('one')
-    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce())
     expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
     validate.mockResolvedValue(app)
     await transport.send('reopen', 'one', 'open')
@@ -355,7 +360,7 @@ test('reopening a restarted App clears a canceled guest session before lifecycle
   await vi.waitFor(() =>
     expect(transport.replies.some((r) => r.id === 'reopen' && r.result)).toBe(true),
   )
-  expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce()
+  expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce()
   expect(mocks.sessions).toHaveLength(2)
 })
 
@@ -403,14 +408,14 @@ test.each(['stop', 'restart'])(
       await vi.waitFor(() => expect(transport.replies).toHaveLength(index + 1))
     }
     expect(mocks.sessions).toHaveLength(1)
-    expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+    expect(mocks.sessions[0]?.clearAllStorage).not.toHaveBeenCalled()
     current.set(
       app.name,
       lifecycle === 'stop' ? { ...app, state: 'stopped' } : { ...app, startedAt: 'tomorrow' },
     )
     controller.changed('one')
-    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
-    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce())
+    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledTimes(4)
     const reopened = { ...app, startedAt: 'tomorrow' }
     current.set(app.name, reopened)
     await transport.send('reopen', 'one', 'open', {}, 1_000, undefined, reopened)
@@ -439,8 +444,8 @@ test('reopening an App after switching away detects its restart before lifecycle
   vi.mocked(transport.client.browserApp).mockResolvedValue(restarted)
   await transport.send('reopen', 'one', 'open', {}, 1_000, undefined, restarted)
   await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
-  expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce()
-  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+  expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce()
+  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledTimes(2)
   expect(mocks.sessions).toHaveLength(2)
 })
 
@@ -467,8 +472,8 @@ test('switching Apps does not discard a pending lifecycle check for the retained
   await transport.send('other', 'one', 'open', {}, 1_000, undefined, other)
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
   rejectValidation?.(new DaemonRequestError(404, 'App no longer exists'))
-  await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
-  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+  await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce())
+  expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledTimes(2)
 })
 
 test.each(['stop', 'restart', 'Task deletion', 'Factory deletion'])(
@@ -497,8 +502,8 @@ test.each(['stop', 'restart', 'Task deletion', 'Factory deletion'])(
       return lifecycle === 'stop' ? { ...app, state: 'stopped' } : { ...app, startedAt: 'tomorrow' }
     })
     controller.reconnected()
-    await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce())
-    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce())
+    expect(mocks.sessions[0]?.closeAllConnections).toHaveBeenCalledTimes(2)
     expect(mocks.views[1]?.webContents.close).toHaveBeenCalledOnce()
   },
 )
@@ -528,7 +533,7 @@ test('an obsolete reconnect validation cannot clear a later connection’s sessi
   controller.reconnected()
   reject?.(new DaemonRequestError(404, 'Old connection'))
   await new Promise((resolve) => setTimeout(resolve, 10))
-  expect(mocks.sessions[0]?.clearStorageData).not.toHaveBeenCalled()
+  expect(mocks.sessions[0]?.clearAllStorage).not.toHaveBeenCalled()
   expect(mocks.views[0]?.webContents.close).not.toHaveBeenCalled()
 })
 
@@ -610,7 +615,34 @@ test('reconnect retries temporary validation failures without losing the retaine
     .mockRejectedValueOnce(new DaemonRequestError(503, 'Store opening'))
     .mockResolvedValue({ ...app, state: 'stopped' })
   controller.reconnected()
-  await vi.waitFor(() => expect(mocks.sessions[0]?.clearStorageData).toHaveBeenCalledOnce(), {
+  await vi.waitFor(() => expect(mocks.sessions[0]?.clearAllStorage).toHaveBeenCalledOnce(), {
     timeout: 3_000,
   })
+})
+
+test('lifecycle teardown stops retained workers even after the guest was canceled', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  const ses = mocks.sessions[0]
+  if (!contents || !ses) throw new Error('Missing browser session')
+  ses.serviceWorkers.getAllRunning.mockReturnValue({ worker: {} })
+  contents.loadURL.mockImplementationOnce(() => new Promise(() => {}))
+  await transport.send('navigate', 'one', 'navigate', { value: '/slow' }, 100)
+  await vi.waitFor(() => expect(contents.close).toHaveBeenCalled())
+  expect(ses.clearAllStorage).not.toHaveBeenCalled()
+  vi.mocked(transport.client.browserApp).mockResolvedValue({ ...app, state: 'stopped' })
+  controller.changed('one')
+  await vi.waitFor(() => expect(ses.clearAllStorage).toHaveBeenCalledOnce())
+  const control = mocks.views[1]?.webContents
+  expect(control?.debugger.sendCommand).toHaveBeenCalledWith('ServiceWorker.stopAllWorkers')
+  expect(control?.close).toHaveBeenCalledOnce()
+  expect(ses.closeAllConnections).toHaveBeenCalledOnce()
 })

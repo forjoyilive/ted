@@ -18,7 +18,13 @@ import {
   stopDaemonIn,
   waitUntil,
 } from '../../daemon/test/helpers.ts'
-import { checkGuestNetwork, checkInFlightNavigation, checkModalRace } from './browser-probes.ts'
+import {
+  checkGuestNetwork,
+  checkInFlightNavigation,
+  checkModalRace,
+  guestWorkerTraffic,
+  startGuestWorker,
+} from './browser-probes.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { firstWindow } from './first-window.ts'
@@ -307,13 +313,43 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
     'Admin App',
   )
+  const otherPage = new URL(otherApp.url ?? '').href
+  await app.evaluate(async ({ webContents }, url) => {
+    await webContents
+      .getAllWebContents()
+      .find((c) => c.getURL() === url)
+      ?.executeJavaScript(
+        "localStorage.setItem('switchMarker', 'retained'); document.cookie='switchMarker=retained'",
+      )
+  }, firstPage)
+  await startGuestWorker(app, firstPage)
+  await startGuestWorker(app, otherPage)
+  const otherTraffic = await guestWorkerTraffic(otherPage)
   await command({ action: 'open', app: { name: 'Admin' } })
+  await expect.poll(async () => (await guestWorkerTraffic(firstPage)).connections).toBe(0)
+  const stoppedTraffic = await guestWorkerTraffic(firstPage)
+  await expect
+    .poll(async () => (await guestWorkerTraffic(otherPage)).messages)
+    .toBeGreaterThan(otherTraffic.messages + 2)
+  expect(await guestWorkerTraffic(firstPage)).toEqual(stoppedTraffic)
   await expect
     .poll(() => panel.getByRole('combobox', { name: 'Web App' }).inputValue())
     .toBe('widgets/Admin')
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   expect((await command({ action: 'snapshot' })).url).toBe(new URL(admin.url ?? '').href)
   await command({ action: 'open', app: { name: 'Web' } })
+  expect(
+    await app.evaluate(async ({ webContents }, url) => {
+      return webContents
+        .getAllWebContents()
+        .find((c) => c.getURL() === url)
+        ?.executeJavaScript(`(async () => ({
+          stored: localStorage.getItem('switchMarker'),
+          cookie: document.cookie.includes('switchMarker=retained'),
+          registrations: (await navigator.serviceWorker.getRegistrations()).length,
+        }))()`)
+    }, firstPage),
+  ).toEqual({ stored: 'retained', cookie: true, registrations: 0 })
   await expect
     .poll(() => panel.getByRole('combobox', { name: 'Web App' }).inputValue())
     .toBe('widgets/Web')
@@ -383,7 +419,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     )
   const previousGuest = await selectedGuest()
   expect(previousGuest).toBeTypeOf('number')
+  await startGuestWorker(app, adminUrl)
   await client.stopApp(task.id, { name: 'Web' })
+  await expect.poll(async () => (await guestWorkerTraffic(adminUrl)).connections).toBe(0)
   await expect
     .poll(
       async () => {

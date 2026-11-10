@@ -24,6 +24,27 @@ export interface BrowserBounds {
   height: number
 }
 
+async function stopSessionWorkers(ses: Session) {
+  await ses.clearStorageData({ storages: ['serviceworkers'] })
+  if (Object.keys(ses.serviceWorkers.getAllRunning()).length === 0) return
+  // Unregistering does not stop a worker kept alive by event.waitUntil().
+  const control = new WebContentsView({
+    webPreferences: { session: ses, sandbox: true, contextIsolation: true, nodeIntegration: false },
+  }).webContents
+  const timer = setTimeout(() => {
+    if (!control.isDestroyed()) control.close({ waitForBeforeUnload: false })
+  }, 5_000)
+  try {
+    await control.loadURL('about:blank')
+    control.debugger.attach('1.3')
+    await control.debugger.sendCommand('ServiceWorker.enable')
+    await control.debugger.sendCommand('ServiceWorker.stopAllWorkers')
+  } finally {
+    clearTimeout(timer)
+    if (!control.isDestroyed()) control.close({ waitForBeforeUnload: false })
+  }
+}
+
 export function createTaskBrowsers(
   getWindow: () => BrowserWindow | undefined,
   getClient: () => DaemonClient,
@@ -68,7 +89,12 @@ export function createTaskBrowsers(
     if (forget) {
       const ses = sessions.get(id)
       sessions.delete(id)
-      void ses?.session.clearStorageData().catch(() => undefined)
+      if (ses) {
+        ses.session.webRequest.onBeforeRequest((_details, callback) => callback({ cancel: true }))
+        void stopSessionWorkers(ses.session)
+          .finally(() => ses.session.clearStorageData())
+          .catch(() => undefined)
+      }
       void ses?.session.closeAllConnections().catch(() => undefined)
     }
   }
@@ -137,19 +163,20 @@ export function createTaskBrowsers(
     close(taskId, restarted)
     const ses =
       sessions.get(taskId)?.session ?? session.fromPartition(`ted-browser-${randomUUID()}`)
+    const reused = sessions.has(taskId)
     const retainedSession = sessions.get(taskId) ?? {
       session: ses,
       apps: new Map<string, TaskApp>(),
     }
     retainedSession.apps.set(appKey(app), app)
     sessions.set(taskId, retainedSession)
+    if (reused) {
+      await stopSessionWorkers(ses)
+      check()
+      await ses.closeAllConnections()
+      check()
+    }
     const origin = new URL(app.url as string).origin
-    // WebTransport bypasses webRequest but refuses proxied connections.
-    await ses.setProxy({
-      proxyRules: 'socks5://127.0.0.1:9',
-      proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
-    })
-    check()
     const allowed = (address: string) => {
       try {
         const url = new URL(address)
@@ -169,9 +196,6 @@ export function createTaskBrowsers(
     ses.setPermissionCheckHandler(() => false)
     ses.removeAllListeners('will-download')
     ses.on('will-download', (event) => event.preventDefault())
-    ses.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: !allowed(details.url) }),
-    )
     const view = new WebContentsView({
       webPreferences: {
         session: ses,
@@ -253,6 +277,15 @@ export function createTaskBrowsers(
         }
       })
       check()
+      // WebTransport bypasses webRequest but refuses proxied connections.
+      await ses.setProxy({
+        proxyRules: 'socks5://127.0.0.1:9',
+        proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
+      })
+      check()
+      ses.webRequest.onBeforeRequest((details, callback) =>
+        callback({ cancel: !allowed(details.url) }),
+      )
       await contents.debugger.sendCommand('Page.enable')
       check()
       await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
