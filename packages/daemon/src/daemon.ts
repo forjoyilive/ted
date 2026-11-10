@@ -7,6 +7,7 @@ import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createCheckTries } from './check-tries.ts'
+import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
@@ -64,6 +65,7 @@ export interface DaemonOptions {
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
+  clock?: Clock
   load?: DaemonLoadOptions
   nudgeAfterMs?: number
   appToken?: string
@@ -90,6 +92,7 @@ export interface DaemonEditorsOptions {
 }
 
 export interface DaemonAutomationsOptions {
+  clock?: Clock
   draftTimeoutMs?: number
   systemTimeZone?: () => string
   now?: () => number
@@ -156,7 +159,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.linear?.apiUrl !== undefined && { apiUrl: options.linear.apiUrl }),
   })
   const lock = acquireLock(paths.daemonLock)
-  const idle = options.idleExit && startIdleTimer(options.idleExit)
+  const idle =
+    options.idleExit &&
+    startIdleTimer({ ...options.idleExit, ...(options.clock && { clock: options.clock }) })
   const runTokens = await loadRunTokens(paths.runTokenKey).catch((error: unknown) => {
     lock.release()
     throw error
@@ -359,6 +364,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       let plans: Plans | undefined
       const tasks = createTasks({
+        ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
         store,
@@ -429,6 +435,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         workflows,
         queue: tasks,
         ...(idle && { idle }),
+        ...(options.clock && { clock: options.clock }),
         ...automationOptions,
       })
       plans = createPlans({

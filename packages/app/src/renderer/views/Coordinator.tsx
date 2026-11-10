@@ -1,6 +1,7 @@
 import type { Coordinator, Factory, TaskLead } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import { Button } from '../components/Button.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
@@ -151,7 +152,7 @@ export function CoordinatorView({
           />
         )}
       </section>
-      <aside className={views.detailsPane} aria-label="Coordinator details">
+      <DetailsPane className={views.detailsPane} aria-label="Coordinator details">
         <section className={styles.section}>
           <h2>Tasks in this conversation</h2>
           {coordinator?.tasks.length ? (
@@ -183,7 +184,7 @@ export function CoordinatorView({
             Starts enter Intake as Queued and wait for a free Run slot.
           </p>
         </section>
-      </aside>
+      </DetailsPane>
     </>
   )
 }

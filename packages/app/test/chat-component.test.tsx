@@ -23,7 +23,15 @@ const lead: RunSummary & { role: 'lead' } = {
 test('Run chat queues ordinary messages, deletes a queued message and interrupts on command Enter', async () => {
   let chat: RunChat = {
     run: lead,
-    items: [{ kind: 'agent', id: 'a1', text: 'Working on the sync layer.' }],
+    items: [
+      {
+        kind: 'agent',
+        id: 'a1',
+        text: 'Working on the sync layer.',
+        at: new Date().toISOString(),
+        writing: true,
+      },
+    ],
   }
   const api = bridge({
     getRunChat: () => chat,
@@ -45,6 +53,8 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
   })
   render(<Conversation runId="r1" />)
   await screen.findByText('Working on the sync layer.')
+  expect(screen.getByText('just now', { exact: true })).toBeTruthy()
+  expect(screen.queryByText(/writing…/)).toBeNull()
   const box = screen.getByRole('textbox', { name: 'Message to this Run' })
   fireEvent.change(box, { target: { value: 'Leave archived notes alone.' } })
   fireEvent.keyDown(box, { key: 'Enter' })
@@ -258,6 +268,7 @@ test('opening a sub-agent from Task details selects its actual Conversation and 
     model: 'gpt-6-mini',
   }
   a.state.tasks = [task()]
+  a.handle('taskGates', () => ({ overrides: {}, rows: [], revision: 'r1' }))
   a.handle('listTaskRuns', () => [lead, sub])
   a.handle('getRunChat', (id) => {
     expect(id).toBe('r2')
