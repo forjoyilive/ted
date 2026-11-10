@@ -32,3 +32,7 @@ There is a blocking Finding. Write each one, numbered, in a Findings file and ru
 ## Ask the human when
 
 A check fails for a reason outside this Task, or fixing a Finding would change what the Task delivers.
+
+## More information
+
+Computer Use isn't available here. Instead, take the screenshots with Playwright: launch this Task's TED Dev with TED_HIDDEN_WINDOW=1, open Factory settings → Danger zone, capture light and dark mode, open "Remove Factory…", capture the typed-key confirmation, then cancel it. Run that as an escalated command (outside your sandbox) and I'll approve it. Attach the screenshots to the Task.
