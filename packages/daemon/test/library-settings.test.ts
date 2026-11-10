@@ -13,6 +13,7 @@ import {
   type Task,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
@@ -128,17 +129,10 @@ describe('Library settings', () => {
 
     const after = await client.save(changes, before.version)
     expect(await libraryFile('stages/review.md')).toBe(edited)
-    expect(await libraryFile('workflow.yaml')).toBe(
-      [
-        'version: 1',
-        'stages:',
-        '  design:',
-        '    gate: false',
-        '  review:',
-        `    based_on: ${blobHash(review)}`,
-        '',
-      ].join('\n'),
-    )
+    expect(parse((await libraryFile('workflow.yaml')) ?? '')).toEqual({
+      version: 1,
+      stages: { design: { gate: false }, review: { based_on: blobHash(review) } },
+    })
     expect(after.stages.find((s) => s.id === 'review')).toMatchObject({
       from: 'library',
       libraryFile: edited,

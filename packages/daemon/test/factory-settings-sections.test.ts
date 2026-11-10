@@ -25,6 +25,7 @@ import type {
 } from '@ted/protocol'
 import { settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { defaultsDir } from '../src/workflow/layers.ts'
 import {
@@ -217,8 +218,8 @@ describe('Factory settings: Workflow', () => {
       view.version,
     )
     expect(await originFile('.ted/stages/review.md')).toBe(`${inherited}\nAlso check the docs.\n`)
-    expect(await originFile('.ted/workflow.yaml')).toMatch(
-      new RegExp(`review:\\s*\\n\\s+based_on: ${blobHash(inherited)}`),
+    expect(parse(await originFile('.ted/workflow.yaml')).stages.review.based_on).toBe(
+      blobHash(inherited),
     )
     const overridden = await client.settings()
     expect(overridden.stages.find((s) => s.id === 'review')).toMatchObject({
