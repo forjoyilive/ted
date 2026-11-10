@@ -37,7 +37,7 @@ The holding Stage at the end of a Workflow where a Task sits once all of its pul
 _Avoid_: Closed, complete, shipped
 
 **Gate**:
-A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory.
+A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task.
 _Avoid_: Approval step, checkpoint
 
 **Stage file**:

@@ -525,6 +525,9 @@ export function threadEvents(
         else add(entry, 'run', `Task Lead set Repos to ${names}`)
         break
       }
+      case 'v1.TaskGatesChanged':
+        add(entry, 'edit', 'You changed this Task’s Gates')
+        break
       case 'v1.TaskLeadSet':
         add(entry, 'edit', `Task Lead set to ${agentLine(data)}`)
         break

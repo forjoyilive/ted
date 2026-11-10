@@ -103,6 +103,35 @@ function failureSource(value: unknown): FailureSource {
 export const taskRoutes: Route[] = [
   {
     method: 'GET',
+    path: /^\/tasks\/([^/]+)\/gates$/,
+    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.taskGates(ref)],
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/gates$/,
+    async handle({ req, params: [ref = ''], caller }, { tasks }) {
+      const body = (await readJson(req)) as Record<string, unknown> | null
+      const value = body?.overrides
+      if (
+        typeof body?.revision !== 'string' ||
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value)
+      ) {
+        throw new HttpError(400, 'give a revision and Gate overrides')
+      }
+      const overrides: import('@ted/protocol').TaskGateOverrides = {}
+      for (const [key, gate] of Object.entries(value)) {
+        const stage = agentStageIds.find((id) => id === key)
+        if (!stage || typeof gate !== 'boolean')
+          throw new HttpError(400, 'Gate overrides must name Stages with boolean values')
+        overrides[stage] = gate
+      }
+      return [200, await tasks.setTaskGates(ref, caller, { overrides, revision: body.revision })]
+    },
+  },
+  {
+    method: 'GET',
     path: /^\/factories\/([^/]+)\/task-draft$/,
     handle: async ({ params: [factoryId = ''], caller }, { store }) => {
       if (caller.kind !== 'app')

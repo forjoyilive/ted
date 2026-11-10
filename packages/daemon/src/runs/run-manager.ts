@@ -435,6 +435,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
         permissions: run.permissions,
+        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
@@ -613,6 +614,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
         permissions,
+        ...(store.automationDrafts.get(id) && { tools: 'none' as const }),
         billing: billingOf(kind),
       })
       await writeLaunch(
@@ -663,6 +665,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
         ...(run.effort !== undefined && { effort: run.effort }),
         permissions: run.permissions,
+        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
         billing: billingOf(run.agent),
       })
       const inputFrom = await stat(files.input).then(
@@ -702,6 +705,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
         ...(flags.effort !== undefined && { effort: flags.effort }),
         permissions: run.permissions,
+        ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
         billing: billingOf(run.agent),
       })
       await writeLaunch(runDir, run.cwd, launch)

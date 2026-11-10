@@ -128,121 +128,170 @@ describe('automatic Backlog starts', () => {
     expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.autoStartBacklog).toBe(true)
   })
 
-  test('fills immediately, honors the machine cap, refills on waiting, and stops filling when disabled', async () => {
-    const { client, factory } = await start()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const free = path.join(scratch, 'free')
-    const a = await create(client, { title: working(free) })
-    const b = await create(client)
-    const c = await create(client)
-    await enable(client, factory)
-    await lead(client, a)
-    expect((await get(client, b)).stage).toBe('backlog')
-    expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
-    await writeFile(free, '')
-    await lead(client, b)
-    await enable(client, factory, false)
-    await client.ok('POST', `/tasks/${b.id}/stop`)
-    expect((await get(client, b)).leadRunId).toBeDefined()
-    expect((await get(client, c)).stage).toBe('backlog')
-    expect((await get(client, a)).runs[0]?.state).toBe('idle')
-  })
+  test.each(['factory', 'overnight'] as const)(
+    'fills immediately, honors the machine cap, refills on waiting, and stops filling when disabled (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      const { client, factory } = await start()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const free = path.join(scratch, 'free')
+      const a = await create(client, { title: working(free) })
+      const b = await create(client)
+      const c = await create(client)
+      await enable(client, factory)
+      await lead(client, a)
+      expect((await get(client, b)).stage).toBe('backlog')
+      expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
+      await writeFile(free, '')
+      await lead(client, b)
+      await enable(client, factory, false)
+      await client.ok('POST', `/tasks/${b.id}/stop`)
+      expect((await get(client, b)).leadRunId).toBeDefined()
+      expect((await get(client, c)).stage).toBe('backlog')
+      expect((await get(client, a)).runs[0]?.state).toBe('idle')
+    },
+  )
 
-  test('serves Queued work first and leaves excess Backlog Tasks unstarted', async () => {
-    const { client, factory } = await start()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const a = await create(client)
-    const b = await create(client)
-    await client.ok('POST', `/tasks/${a.id}/start`)
-    await client.ok('POST', `/tasks/${b.id}/start`)
-    const urgent = await create(client, { priority: 'urgent' })
-    await enable(client, factory)
-    await client.ok('POST', `/tasks/${a.id}/stop`)
-    await lead(client, b)
-    expect((await get(client, urgent)).stage).toBe('backlog')
-    expect((await slots(client)).queued).toBe(0)
-  })
+  test.each(['factory', 'overnight'] as const)(
+    'serves Queued work first and leaves excess Backlog Tasks unstarted (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      const { client, factory } = await start()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const a = await create(client)
+      const b = await create(client)
+      await client.ok('POST', `/tasks/${a.id}/start`)
+      await client.ok('POST', `/tasks/${b.id}/start`)
+      const urgent = await create(client, { priority: 'urgent' })
+      await enable(client, factory)
+      await client.ok('POST', `/tasks/${a.id}/stop`)
+      await lead(client, b)
+      expect((await get(client, urgent)).stage).toBe('backlog')
+      expect((await slots(client)).queued).toBe(0)
+    },
+  )
 
-  test('uses Priority and manual order and skips blocked and archived Tasks', async () => {
-    const { client, factory } = await start()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const low = await create(client, { priority: 'low' })
-    const blocked = await create(client, { priority: 'urgent' })
-    await client.ok('POST', `/tasks/${blocked.id}/blockers`, { by: low.id })
-    const archived = await create(client, { priority: 'urgent' })
-    await client.ok('POST', `/tasks/${archived.id}/archive`)
-    const first = await create(client, { priority: 'high' })
-    const next = await create(client, { priority: 'high' })
-    await client.ok('POST', `/tasks/${next.id}/move`, { before: first.id })
-    await enable(client, factory)
-    await lead(client, next)
-    for (const task of [low, blocked, first])
+  test.each(['factory', 'overnight'] as const)(
+    'uses Priority and manual order and skips blocked and archived Tasks (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      const { client, factory } = await start()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const low = await create(client, { priority: 'low' })
+      const blocked = await create(client, { priority: 'urgent' })
+      await client.ok('POST', `/tasks/${blocked.id}/blockers`, { by: low.id })
+      const archived = await create(client, { priority: 'urgent' })
+      await client.ok('POST', `/tasks/${archived.id}/archive`)
+      const first = await create(client, { priority: 'high' })
+      const next = await create(client, { priority: 'high' })
+      await client.ok('POST', `/tasks/${next.id}/move`, { before: first.id })
+      await enable(client, factory)
+      await lead(client, next)
+      for (const task of [low, blocked, first])
+        expect((await get(client, task)).stage).toBe('backlog')
+      await client.ok('DELETE', `/tasks/${blocked.id}/blockers`)
+      await client.ok('POST', `/tasks/${next.id}/stop`)
+      await lead(client, blocked)
+      expect((await get(client, first)).stage).toBe('backlog')
+    },
+  )
+
+  test.each(['factory', 'overnight'] as const)(
+    'respects the Factory cap after disabling and re-enabling (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
+      const { client, factory } = await start()
+      const a = await create(client)
+      const b = await create(client)
+      const c = await create(client)
+      await enable(client, factory)
+      await lead(client, a)
+      expect((await get(client, b)).stage).toBe('backlog')
+      expect((await slots(client)).factories).toEqual([
+        expect.objectContaining({ cap: 1, working: 1 }),
+      ])
+      await enable(client, factory, false)
+      await client.ok('POST', `/tasks/${a.id}/stop`)
+      await enable(client, factory)
+      await lead(client, b)
+      expect((await get(client, c)).stage).toBe('backlog')
+    },
+  )
+
+  test.each(['factory', 'overnight'] as const)(
+    'fills remaining slots on restart without starting a Task twice (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      let { client, factory } = await start()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const a = await create(client)
+      const b = await create(client)
+      await enable(client, factory)
+      await lead(client, a)
+      await daemon?.stop()
+      daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+      client = clientNow()
+      expect((await get(client, a)).runs).toHaveLength(1)
+      expect((await get(client, b)).stage).toBe('backlog')
+      await client.ok('POST', `/tasks/${a.id}/stop`)
+      const started = await lead(client, b)
+      expect(started.runs).toHaveLength(1)
+    },
+  )
+
+  test.each(['factory', 'overnight'] as const)(
+    'holds Backlog while offline and starts when agent health recovers (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      let online = false
+      const { client, factory } = await start({
+        online: { isOnline: async () => online, onlineEveryMs: 20, offlineEveryMs: 20 },
+      })
+      const task = await create(client)
+      await enable(client, factory)
       expect((await get(client, task)).stage).toBe('backlog')
-    await client.ok('DELETE', `/tasks/${blocked.id}/blockers`)
-    await client.ok('POST', `/tasks/${next.id}/stop`)
-    await lead(client, blocked)
-    expect((await get(client, first)).stage).toBe('backlog')
-  })
+      online = true
+      await lead(client, task)
+    },
+  )
 
-  test('respects the Factory cap after disabling and re-enabling', async () => {
-    await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\nmax_working_runs: 1\n' })
-    const { client, factory } = await start()
-    const a = await create(client)
-    const b = await create(client)
-    const c = await create(client)
-    await enable(client, factory)
-    await lead(client, a)
-    expect((await get(client, b)).stage).toBe('backlog')
-    expect((await slots(client)).factories).toEqual([
-      expect.objectContaining({ cap: 1, working: 1 }),
-    ])
-    await enable(client, factory, false)
-    await client.ok('POST', `/tasks/${a.id}/stop`)
-    await enable(client, factory)
-    await lead(client, b)
-    expect((await get(client, c)).stage).toBe('backlog')
-  })
-
-  test('fills remaining slots on restart without starting a Task twice', async () => {
-    let { client, factory } = await start()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const a = await create(client)
-    const b = await create(client)
-    await enable(client, factory)
-    await lead(client, a)
-    await daemon?.stop()
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
-    client = clientNow()
-    expect((await get(client, a)).runs).toHaveLength(1)
-    expect((await get(client, b)).stage).toBe('backlog')
-    await client.ok('POST', `/tasks/${a.id}/stop`)
-    const started = await lead(client, b)
-    expect(started.runs).toHaveLength(1)
-  })
-
-  test('holds Backlog while offline and starts when agent health recovers', async () => {
-    let online = false
-    const { client, factory } = await start({
-      online: { isOnline: async () => online, onlineEveryMs: 20, offlineEveryMs: 20 },
-    })
-    const task = await create(client)
-    await enable(client, factory)
-    expect((await get(client, task)).stage).toBe('backlog')
-    online = true
-    await lead(client, task)
-  })
-
-  test('holds Backlog on a full disk and fills when the hold clears', async () => {
-    let freeBytes = 100_000_000
-    const { client, factory } = await start({
-      disk: { freeBytes: async () => freeBytes, checkEveryMs: 20 },
-    })
-    const task = await create(client)
-    await enable(client, factory)
-    expect((await get(client, task)).stage).toBe('backlog')
-    freeBytes = 500_000_000_000
-    await lead(client, task)
-  })
+  test.each(['factory', 'overnight'] as const)(
+    'holds Backlog on a full disk and fills when the hold clears (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory, enabled = true) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: enabled })
+          : client.ok('PUT', route(factory), { enabled })
+      let freeBytes = 100_000_000
+      const { client, factory } = await start({
+        disk: { freeBytes: async () => freeBytes, checkEveryMs: 20 },
+      })
+      const task = await create(client)
+      await enable(client, factory)
+      expect((await get(client, task)).stage).toBe('backlog')
+      freeBytes = 500_000_000_000
+      await lead(client, task)
+    },
+  )
 
   test('fills several slots and reacts to new Tasks and higher limits', async () => {
     const { client, factory } = await start()
@@ -262,25 +311,32 @@ describe('automatic Backlog starts', () => {
     expect(await slots(client)).toMatchObject({ working: 3, queued: 0 })
   })
 
-  test('two enabled Factories share the machine cap without duplicate starts', async () => {
-    const otherScratch = path.join(scratch, 'other')
-    const otherOrigin = await makeOriginRepo(otherScratch)
-    const renamed = path.join(otherScratch, 'acme', 'other.git')
-    await rename(otherOrigin, renamed)
-    const { client, factory } = await start()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const other = await client.ok<Factory>('POST', '/dev/factories', { repo: renamed, key: 'OT' })
-    const a = await create(client)
-    const b = await client.ok<Task>('POST', '/tasks', {
-      factory: 'OT',
-      title: working(path.join(scratch, 'never')),
-    })
-    await enable(client, factory)
-    await lead(client, a)
-    await enable(client, other)
-    expect((await get(client, b)).stage).toBe('backlog')
-    await client.ok('POST', `/tasks/${a.id}/stop`)
-    expect((await lead(client, b)).runs).toHaveLength(1)
-    expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
-  })
+  test.each(['factory', 'overnight'] as const)(
+    'two Factories share the machine cap without duplicate starts (%s)',
+    async (mode) => {
+      const enable = (client: Client, factory: Factory) =>
+        mode === 'overnight'
+          ? client.ok('PATCH', '/settings', { overnightMode: true })
+          : client.ok('PUT', route(factory), { enabled: true })
+      const otherScratch = path.join(scratch, 'other')
+      const otherOrigin = await makeOriginRepo(otherScratch)
+      const renamed = path.join(otherScratch, 'acme', 'other.git')
+      await rename(otherOrigin, renamed)
+      const { client, factory } = await start()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const other = await client.ok<Factory>('POST', '/dev/factories', { repo: renamed, key: 'OT' })
+      const a = await create(client)
+      const b = await client.ok<Task>('POST', '/tasks', {
+        factory: 'OT',
+        title: working(path.join(scratch, 'never')),
+      })
+      await enable(client, factory)
+      await lead(client, a)
+      await enable(client, other)
+      expect((await get(client, b)).stage).toBe('backlog')
+      await client.ok('POST', `/tasks/${a.id}/stop`)
+      expect((await lead(client, b)).runs).toHaveLength(1)
+      expect(await slots(client)).toMatchObject({ working: 1, queued: 0 })
+    },
+  )
 })

@@ -45,6 +45,7 @@ export type {
   AutomationDetail,
   AutomationInput,
   AutomationNow,
+  AutomationPromptDraft,
   AutomationRequest,
   AutomationResult,
   AutomationRun,
@@ -53,6 +54,7 @@ export type {
   AutomationTemplateId,
   AutomationTrigger,
   CreateAutomationRequest,
+  DraftAutomationPromptRequest,
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
@@ -523,6 +525,12 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export type {
+  SetTaskGatesRequest,
+  TaskGateOverrides,
+  TaskGateRow,
+  TaskGates,
+} from './task-gates.ts'
 export {
   effectiveTimeZone,
   formatClockTime,

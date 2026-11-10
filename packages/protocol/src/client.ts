@@ -22,10 +22,12 @@ import type {
   AnswerAutomationRequest,
   Automation,
   AutomationDetail,
+  AutomationPromptDraft,
   AutomationRequest,
   AutomationRun,
   AutomationTemplate,
   CreateAutomationRequest,
+  DraftAutomationPromptRequest,
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
@@ -144,6 +146,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
 import type { FactoryBoard, StageEntry } from './workflow.ts'
@@ -203,6 +206,18 @@ export class DaemonClient {
 
   getAutomation(ref: string, factory?: string): Promise<AutomationDetail> {
     return this.#request('GET', `/automations/${encodeURIComponent(ref)}${factoryQuery(factory)}`)
+  }
+
+  draftAutomationPrompt(input: DraftAutomationPromptRequest): Promise<AutomationPromptDraft> {
+    return this.#request('POST', '/automation-prompt-drafts', input)
+  }
+
+  getAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('GET', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
+  }
+
+  cancelAutomationPromptDraft(id: string): Promise<AutomationPromptDraft> {
+    return this.#request('DELETE', `/automation-prompt-drafts/${encodeURIComponent(id)}`)
   }
 
   automationTemplates(): Promise<AutomationTemplate[]> {
@@ -378,6 +393,14 @@ export class DaemonClient {
 
   setTaskLead(ref: string, lead: SetTaskLeadRequest): Promise<Task> {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/lead`, lead)
+  }
+
+  taskGates(ref: string): Promise<TaskGates> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/gates`)
+  }
+
+  setTaskGates(ref: string, request: SetTaskGatesRequest): Promise<TaskGates> {
+    return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/gates`, request)
   }
 
   setClarifyDepth(ref: string, request: SetClarifyDepthRequest): Promise<Task> {

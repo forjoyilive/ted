@@ -120,6 +120,7 @@ export interface Agent {
     model?: string
     effort?: Effort
     permissions: PermissionMode
+    tools?: 'none'
     billing?: Billing
   }): AgentLaunch
   message(text: string): string
@@ -127,6 +128,7 @@ export interface Agent {
   interrupt(): string[]
   boundaryFrom(line: string): boolean
   stateFrom(line: string): RunState | undefined
+  turnFrom(line: string): 'started' | 'completed' | undefined
   permissionPromptFrom(line: string, earlier: EarlierLine): PermissionPrompt | undefined
   permissionClosedFrom(line: string): string | undefined
   autoModeFrom(line: string): AutoModeSignal | undefined

@@ -38,6 +38,7 @@ import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
+import { createAutomationDrafts } from './drafts.ts'
 import { automationTemplates } from './templates.ts'
 
 export interface AutomationQueue {
@@ -58,10 +59,12 @@ export interface AutomationsOptions {
   systemTimeZone?: () => string
   now?: () => number
   checkEveryMs?: number
+  draftTimeoutMs?: number
   graceMs?: number
 }
 
 export interface Automations {
+  drafts: ReturnType<typeof createAutomationDrafts>
   templates(): readonly AutomationTemplate[]
   preview(schedule: AutomationSchedule): SchedulePreview
   list(caller: Caller, factory?: string): Promise<Automation[]>
@@ -83,7 +86,7 @@ export interface Automations {
   answer(id: string, input: AnswerAutomationRequest): Promise<AutomationRequest>
   runOf(runId: string): { automation: StoredAutomation; firing: StoredFiring } | undefined
   check(): void
-  close(): void
+  close(): Promise<void>
 }
 
 export const automationFailingProblem = 'automation-failing'
@@ -104,6 +107,7 @@ function firstLine(text: string, max = 300): string {
 
 export function createAutomations(options: AutomationsOptions): Automations {
   const { store, runs, agents, health, banners, workflows } = options
+  const drafts = createAutomationDrafts(options)
   const saved = store.automations
   const now = options.now ?? Date.now
   const checkEveryMs = options.checkEveryMs ?? 60_000
@@ -958,6 +962,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       await remove(find(ref, factory))
     },
     async removeFactory(factoryId) {
+      await drafts.removeFactory(factoryId)
       for (const automation of saved.list().filter((a) => a.factoryId === factoryId)) {
         await remove(automation)
       }
@@ -1010,7 +1015,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     runOf,
     check,
-    close() {
+    drafts,
+    async close() {
+      await drafts.close()
       closed = true
       clearTimeout(timer)
       unsubscribe()

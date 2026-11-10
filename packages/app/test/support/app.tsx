@@ -70,6 +70,7 @@ export function appState() {
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],
+    taskGates: () => ({ overrides: {}, rows: [], revision: 'gates-1' }),
   })
   return {
     state,

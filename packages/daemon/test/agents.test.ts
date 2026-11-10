@@ -23,6 +23,78 @@ describe('agent kinds', () => {
     )
   })
 
+  test.each([undefined, 'existing-session'])(
+    'text-only launches stay restricted on resume %s',
+    (resume) => {
+      const claude = agents.get('claude').launch({
+        ...run,
+        tools: 'none',
+        ...(resume !== undefined && { resume }),
+        permissions: 'bypass',
+      })
+      expect(after(claude.args, '--tools')).toBe('')
+      expect(claude.args).toContain('--strict-mcp-config')
+      expect(after(claude.args, '--mcp-config')).toBe('{"mcpServers":{}}')
+      expect(after(claude.args, '--setting-sources')).toBe('')
+      expect(claude.args).toContain('--disable-slash-commands')
+      expect(JSON.parse(claude.files['settings.json'] ?? '{}')).toEqual({ disableAllHooks: true })
+      const codex = agents.get('codex').launch({
+        ...run,
+        tools: 'none',
+        ...(resume !== undefined && { resume }),
+        permissions: 'bypass',
+      })
+      expect(codex.args).toEqual(
+        expect.arrayContaining([
+          'sandbox_mode="read-only"',
+          'approval_policy="never"',
+          'features.shell_tool=false',
+          'features.js_repl=false',
+          'features.apps=false',
+          'features.plugins=false',
+          'features.multi_agent=false',
+          'features.multi_agent_v2=false',
+          'features.hooks=false',
+          'features.codex_hooks=false',
+          'web_search="disabled"',
+          'notify=[]',
+        ]),
+      )
+      expect(codex.args.join(' ')).not.toContain('danger-full-access')
+      expect(codex.args.join(' ')).not.toContain('network_access=true')
+      expect(JSON.parse(codex.input).textOnly).toBe(true)
+    },
+  )
+
+  test('turn signals distinguish completed work from an idle thread', () => {
+    const claude = agents.get('claude')
+    const codex = agents.get('codex')
+    expect(
+      codex.turnFrom(
+        JSON.stringify({ method: 'thread/status/changed', params: { status: { type: 'idle' } } }),
+      ),
+    ).toBeUndefined()
+    expect(codex.turnFrom(JSON.stringify({ method: 'turn/started' }))).toBe('started')
+    expect(codex.turnFrom(JSON.stringify({ method: 'turn/completed' }))).toBe('completed')
+    expect(
+      claude.turnFrom(
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{ type: 'text', text: 'Continue' }] },
+        }),
+      ),
+    ).toBe('started')
+    expect(
+      claude.turnFrom(
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{ type: 'tool_result', content: 'Done' }] },
+        }),
+      ),
+    ).toBeUndefined()
+    expect(claude.turnFrom(JSON.stringify({ type: 'result' }))).toBe('completed')
+  })
+
   test('bypass: Claude Code bypassPermissions; Codex danger-full-access with no approvals', () => {
     const claude = agents.get('claude').launch({ ...run, permissions: 'bypass' }).args
     const codex = agents.get('codex').launch({ ...run, permissions: 'bypass' }).args

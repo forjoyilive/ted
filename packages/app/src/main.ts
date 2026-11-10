@@ -32,6 +32,7 @@ import {
   type DaemonClient,
   type DaemonEvent,
   DaemonRequestError,
+  type DraftAutomationPromptRequest,
   type DraftLineCommentRequest,
   defaultMachineSettings,
   downloadUrl,
@@ -204,6 +205,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     }),
   search: (client, query, factoryId) =>
     client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
+  taskGates: (client, taskId) => client.taskGates(String(taskId)),
+  setTaskGates: (client, taskId, request) =>
+    client.setTaskGates(String(taskId), request as Parameters<DaemonClient['setTaskGates']>[1]),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),
@@ -500,6 +504,10 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   listAutomations: (client, factory) =>
     client.listAutomations(factory === undefined ? undefined : String(factory)),
   getAutomation: (client, id) => client.getAutomation(String(id)),
+  draftAutomationPrompt: (client, input) =>
+    client.draftAutomationPrompt(input as DraftAutomationPromptRequest),
+  getAutomationPromptDraft: (client, id) => client.getAutomationPromptDraft(String(id)),
+  cancelAutomationPromptDraft: (client, id) => client.cancelAutomationPromptDraft(String(id)),
   automationTemplates: (client) => client.automationTemplates(),
   automationRequests: (client) => client.automationRequests(),
   previewSchedule: (client, schedule) => client.previewSchedule(schedule as AutomationSchedule),

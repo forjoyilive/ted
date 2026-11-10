@@ -476,3 +476,14 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 1px;
 }
+
+.overnightActive {
+  color: var(--accent-text);
+  background: var(--accent-subtle);
+}
+
+.overnightNote {
+  margin: 4px 12px 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}

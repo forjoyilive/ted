@@ -86,6 +86,7 @@ export const tasks = State.SQLite.table({
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
+    gateOverrides: State.SQLite.text({ nullable: true }),
     changesSettings: State.SQLite.boolean({ default: false }),
     splitFrom: State.SQLite.text({ nullable: true }),
     needsPlanningAt: State.SQLite.text({ nullable: true }),
@@ -631,6 +632,20 @@ export const automations = State.SQLite.table({
   },
 })
 
+export const automationPromptDrafts = State.SQLite.table({
+  name: 'automationPromptDrafts',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    input: State.SQLite.text(),
+    state: State.SQLite.text(),
+    prompt: State.SQLite.text({ nullable: true }),
+    error: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+    updatedAt: State.SQLite.text(),
+  },
+})
+
 export const automationFirings = State.SQLite.table({
   name: 'automationFirings',
   columns: {
@@ -1062,6 +1077,10 @@ export const events = {
   taskFollowsUp: Events.synced({
     name: 'v1.TaskFollowsUp',
     schema: Schema.Struct({ taskId: Schema.String, originalId: Schema.String, at: Schema.String }),
+  }),
+  taskGatesChanged: Events.synced({
+    name: 'v1.TaskGatesChanged',
+    schema: Schema.Struct({ taskId: Schema.String, overrides: Schema.String, at: Schema.String }),
   }),
   taskGatesForced: Events.synced({
     name: 'v1.TaskGatesForced',
@@ -2281,6 +2300,29 @@ export const events = {
     name: 'v1.AutomationCommentAnswered',
     schema: Schema.Struct({ id: Schema.String, text: Schema.String, at: Schema.String }),
   }),
+  automationPromptDraftRequested: Events.synced({
+    name: 'v1.AutomationPromptDraftRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      input: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  automationPromptDraftChanged: Events.synced({
+    name: 'v1.AutomationPromptDraftChanged',
+    schema: Schema.Struct({
+      id: Schema.String,
+      state: Schema.String,
+      prompt: Schema.NullOr(Schema.String),
+      error: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  automationPromptDraftRemoved: Events.synced({
+    name: 'v1.AutomationPromptDraftRemoved',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   planStarted: Events.synced({
     name: 'v1.PlanStarted',
     schema: Schema.Struct({
@@ -2431,6 +2473,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
   'v2.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
@@ -2727,6 +2770,8 @@ const materializers = counted(
         comments.update({ design }).where({ id: commentId }),
       'v1.TaskFollowsUp': ({ taskId, originalId }) =>
         tasks.update({ followUpOf: originalId }).where({ id: taskId }),
+      'v1.TaskGatesChanged': ({ taskId, overrides, at }) =>
+        tasks.update({ gateOverrides: overrides, changedAt: at }).where({ id: taskId }),
       'v1.TaskGatesForced': ({ taskId, stages }) =>
         tasks.update({ forcedGates: JSON.stringify(stages) }).where({ id: taskId }),
       'v1.TaskChangesSettings': ({ taskId }) =>
@@ -3295,6 +3340,17 @@ const materializers = counted(
         }),
       'v1.AutomationCommentAnswered': ({ id, text, at }) =>
         automationComments.update({ answer: text, answeredAt: at }).where({ id }),
+      'v1.AutomationPromptDraftRequested': ({ at, ...draft }) =>
+        automationPromptDrafts.insert({ ...draft, state: 'queued', createdAt: at, updatedAt: at }),
+      'v1.AutomationPromptDraftChanged': ({ id, at, ...fields }) =>
+        automationPromptDrafts.update({ ...fields, updatedAt: at }).where({ id }),
+      'v1.AutomationPromptDraftRemoved': ({ id }) => [
+        automationPromptDrafts.delete().where({ id }),
+        runs.delete().where({ id }),
+        conversationEntries.delete().where({ runId: id }),
+        runMessages.delete().where({ runId: id }),
+        runInterrupts.delete().where({ runId: id }),
+      ],
       'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
@@ -3404,6 +3460,7 @@ const state = State.SQLite.makeState({
     heldRuns,
     automations,
     automationFirings,
+    automationPromptDrafts,
     automationTasks,
     automationComments,
     plans,

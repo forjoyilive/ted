@@ -266,3 +266,28 @@
   color: var(--status-failed-fg);
   font-size: var(--text-12-5);
 }
+
+.draftActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.draftBox {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-inset);
+}
+
+.draftResult {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-default);
+}

@@ -5,6 +5,7 @@ import {
   type AutomationTemplateId,
   automationTemplateIds,
   type CreateAutomationRequest,
+  type DraftAutomationPromptRequest,
   type EditAutomationRequest,
   type Weekday,
   weekdays,
@@ -19,6 +20,41 @@ const maxPromptBytes = 100_000
 const path = (pattern: string) => new RegExp(`^${pattern}$`)
 
 export const automationRoutes: Route[] = [
+  {
+    method: 'POST',
+    path: path('/automation-prompt-drafts'),
+    async handle({ req }, { automations }) {
+      const body = bodyObject(await readJson(req))
+      if (typeof body.factory !== 'string' || typeof body.request !== 'string') {
+        throw new HttpError(400, 'factory and request are required text')
+      }
+      const input: DraftAutomationPromptRequest = {
+        factory: body.factory,
+        request: body.request,
+        ...agentChoice(body),
+      }
+      const name = optionalText(body.name, 'name')
+      const prompt = optionalText(body.prompt, 'prompt')
+      if (name !== undefined) input.name = name
+      if (prompt !== undefined) input.prompt = prompt
+      return [201, await automations.drafts.start(input)]
+    },
+  },
+  {
+    method: 'GET',
+    path: path('/automation-prompt-drafts/([^/]+)'),
+    async handle({ caller, params: [id = ''] }, { automations }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'Only the TED app can read Prompt drafts')
+      return [200, automations.drafts.get(id)]
+    },
+  },
+  {
+    method: 'DELETE',
+    path: path('/automation-prompt-drafts/([^/]+)'),
+    async handle({ params: [id = ''] }, { automations }) {
+      return [200, await automations.drafts.cancel(id)]
+    },
+  },
   {
     method: 'GET',
     path: path(`/automations/templates`),
