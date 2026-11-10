@@ -224,6 +224,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       return
     }
     waits.delete(leadRunId)
+    if (closed) return
     lingering.set(
       leadRunId,
       setTimeout(() => {
