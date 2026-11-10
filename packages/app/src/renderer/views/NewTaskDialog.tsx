@@ -1,10 +1,11 @@
 import type {
+  AgentHealth,
   AgentKind,
-  Attachment,
   ClarifyDepth,
   Effort,
   Factory,
   LinearLookup,
+  NewTaskDraft,
   Priority,
   Task,
   TaskLead,
@@ -12,7 +13,15 @@ import type {
 import { findLinearUrl } from '@ted/protocol/linear'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
-import { type DragEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import {
+  type DragEvent,
+  type KeyboardEvent,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
@@ -20,6 +29,7 @@ import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { Select } from '../components/Select.tsx'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
+import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
 import {
   agentLabels,
   clarifyDepthLabels,
@@ -51,35 +61,172 @@ export function NewTaskDialog({
   onClose,
   onOpenTask,
 }: NewTaskDialogProps) {
+  const [seed, setSeed] = useState(initialDescription)
+  const [factory, setFactory] = useState(
+    () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
+  )
+  return (
+    <NewTaskForm
+      key={factory ?? ''}
+      factories={factories}
+      tasks={tasks}
+      factoryId={factory}
+      initialDescription={seed}
+      onClose={onClose}
+      {...(onOpenTask && { onOpenTask })}
+      onFactory={(id) => {
+        setSeed('')
+        setFactory(id)
+      }}
+    />
+  )
+}
+
+function NewTaskForm({
+  factories,
+  tasks,
+  factoryId: factory,
+  initialDescription = '',
+  onClose,
+  onOpenTask,
+  onFactory,
+}: NewTaskDialogProps & { onFactory: (id: string) => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const headingId = useId()
-
-  const [factory, setFactory] = useState(
-    () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
+  const [draft, showDraft] = useState(emptyTaskDraft)
+  const [ready, setReady] = useState(false)
+  const [draftError, setDraftError] = useState<string>()
+  const [session] = useState(() =>
+    taskDraftSession(factory ?? '', {
+      storage: localStorage,
+      read: () =>
+        factory === undefined ? Promise.resolve({ draft: null }) : ted.taskDraft(factory),
+      save: async (next) => {
+        const state =
+          factory === undefined ? { draft: null } : await ted.saveTaskDraft(factory, next)
+        setDraftError(undefined)
+        return state
+      },
+      changed: showDraft,
+      failed: (failure) => setDraftError(`Couldn’t save the draft: ${readableError(failure)}`),
+    }),
   )
+  const { title, description, priority, blockedBy, attachments, start, moreOpen, dismissed } = draft
+  const [defaultLead, setDefaultLead] = useState<TaskLead>()
+  const [defaultDepth, setDefaultDepth] = useState<ClarifyDepth>('auto')
+  const [defaultsReady, setDefaultsReady] = useState(false)
+  const [health, setHealth] = useState<AgentHealth[]>()
+  const [leadNotice, setLeadNotice] = useState<string>()
+  const clarifyDepth = draft.clarifyDepth ?? defaultDepth
+  const lead = draft.lead ?? defaultLead
+  const field =
+    <K extends keyof NewTaskDraft>(key: K) =>
+    (next: NewTaskDraft[K] | ((current: NewTaskDraft[K]) => NewTaskDraft[K])) => {
+      session.update((current) => ({
+        lead: current.lead ?? defaultLead,
+        clarifyDepth: current.clarifyDepth ?? defaultDepth,
+        [key]: typeof next === 'function' ? next(current[key]) : next,
+      }))
+    }
+  const setTitle = field('title')
+  const setDescription = field('description')
+  const setPriority = field('priority')
+  const setBlockedBy = field('blockedBy')
+  const setAttachments = field('attachments')
+  const setStart = field('start')
+  const setMoreOpen = field('moreOpen')
+  const setClarifyDepth = field('clarifyDepth')
+  const setLead = field('lead')
+  const setDismissed = field('dismissed')
   const setup = setupNotice(
     factories.find((f) => f.id === factory),
     tasks,
   )
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState(initialDescription)
-  const [priority, setPriority] = useState<Priority>('none')
-  const [blockedBy, setBlockedBy] = useState<string[]>([])
-  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(0)
-  const [start, setStart] = useState(true)
-  const [moreOpen, setMoreOpen] = useState(false)
-  const [clarifyDepth, setClarifyDepth] = useState<ClarifyDepth>('auto')
-  const [lead, setLead] = useState<TaskLead>()
-  const [defaultLead, setDefaultLead] = useState<TaskLead>()
+  const uploads = useRef(new Set<Promise<void>>())
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
-  const [dismissed, setDismissed] = useState<readonly string[]>([])
-  const filled = useRef<{ title?: string; priority?: Priority }>({})
   const lookups = useRef(0)
+  const mounted = useRef(false)
+  const submitting = useRef(false)
+  const deferredLookup = useRef<{ url: string; identifier: string } | undefined>(undefined)
+
+  const lookUp = useCallback(
+    (url: string, identifier: string) => {
+      if (!mounted.current) return
+      if (submitting.current) {
+        deferredLookup.current = { url, identifier }
+        return
+      }
+      const ticket = ++lookups.current
+      session.update({ source: url })
+      setSource({ url, identifier, lookup: undefined })
+      ted.lookupLinear(url).then(
+        (lookup) => {
+          if (ticket !== lookups.current) return
+          setSource({ url, identifier, lookup })
+          if (lookup.state !== 'found') return
+          const { issue } = lookup
+          session.update((current) => ({
+            title:
+              current.title.trim() === '' || current.title === current.filled.title
+                ? issue.title
+                : current.title,
+            priority:
+              current.priority === 'none' || current.priority === current.filled.priority
+                ? issue.priority
+                : current.priority,
+            filled: { title: issue.title, priority: issue.priority },
+          }))
+        },
+        (failure: unknown) => {
+          if (ticket !== lookups.current) return
+          setSource({
+            url,
+            identifier,
+            lookup: {
+              state: 'failed',
+              error: `Couldn’t fetch from Linear: ${readableError(failure)}. The Task will be created with the link only.`,
+            },
+          })
+        },
+      )
+    },
+    [session],
+  )
+
+  useEffect(() => {
+    let active = true
+    mounted.current = true
+    session.load().then(
+      () => {
+        if (!active) return
+        if (initialDescription) {
+          const text = session.get().description
+          session.update({
+            description: text ? `${text}\n\n${initialDescription}` : initialDescription,
+          })
+        }
+        setReady(true)
+        const restored = session.get()
+        const link = restored.source
+          ? findLinearUrl(restored.source)
+          : findLinearUrl(restored.description)
+        if (link && !restored.dismissed.includes(link.url)) lookUp(link.url, link.identifier)
+      },
+      (failure: unknown) => {
+        if (active) setDraftError(`Couldn’t load the draft: ${readableError(failure)}`)
+      },
+    )
+    return () => {
+      active = false
+      mounted.current = false
+      lookups.current++
+    }
+  }, [session, initialDescription, lookUp])
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -87,64 +234,82 @@ export function NewTaskDialog({
   }, [])
 
   useEffect(() => {
-    if (factory === undefined) return
+    if (factory === undefined || !ready) return
     let current = true
-    ted.taskDefaults(factory).then(
-      (defaults) => {
+    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth()]).then(
+      ([defaults, health]) => {
         if (!current) return
-        setDefaultLead(defaults.lead)
-        setLead(defaults.lead)
-        setClarifyDepth(defaults.clarifyDepth)
+        setHealth(health)
+        const fallback = health.find((entry) => entry.state !== 'not-installed')
+        const availableDefault = health.some(
+          (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+        )
+          ? defaults.lead
+          : fallback
+            ? { agent: fallback.agent }
+            : defaults.lead
+        setDefaultLead(availableDefault)
+        setDefaultDepth(defaults.clarifyDepth)
+        const restored = session.get()
+        let restoredLead = restored.lead
+        if (
+          restoredLead &&
+          health.some(
+            (entry) => entry.agent === restoredLead?.agent && entry.state === 'not-installed',
+          )
+        ) {
+          const available = health.find(
+            (entry) => entry.agent === availableDefault.agent && entry.state !== 'not-installed',
+          )
+          if (available) {
+            setLeadNotice(
+              `${agentLabels[restoredLead.agent]} isn’t installed. Task Lead changed to ${agentLabels[available.agent]}.`,
+            )
+            restoredLead = availableDefault
+          }
+        }
+        if (
+          restored.lead !== restoredLead ||
+          restored.lead === undefined ||
+          restored.clarifyDepth === undefined
+        ) {
+          session.update({
+            lead: restoredLead ?? availableDefault,
+            clarifyDepth: restored.clarifyDepth ?? defaults.clarifyDepth,
+          })
+        }
+        setDefaultsReady(true)
       },
-      () => {
-        if (current) setDefaultLead(undefined)
+      (failure: unknown) => {
+        if (current) {
+          setError(`Couldn’t check Task Lead availability: ${readableError(failure)}`)
+          setDefaultLead(undefined)
+          setDefaultsReady(true)
+        }
       },
     )
     return () => {
       current = false
     }
-  }, [factory])
+  }, [factory, ready, session])
+
+  useEffect(() => {
+    if (ready && defaultsReady) descriptionField.current?.focus()
+  }, [ready, defaultsReady])
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const fetching = source !== undefined && source.lookup === undefined
   const canCreate =
+    ready &&
+    defaultsReady &&
+    health !== undefined &&
+    agentKinds.every((agent) => health.some((entry) => entry.agent === agent)) &&
+    !health.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed') &&
     chosenFactory !== undefined &&
     description.trim() !== '' &&
     uploading === 0 &&
     !busy &&
     !fetching
-
-  function lookUp(url: string, identifier: string) {
-    const ticket = ++lookups.current
-    setSource({ url, identifier, lookup: undefined })
-    ted.lookupLinear(url).then(
-      (lookup) => {
-        if (ticket !== lookups.current) return
-        setSource({ url, identifier, lookup })
-        if (lookup.state !== 'found') return
-        const { issue } = lookup
-        const previous = filled.current
-        setTitle((current) =>
-          current.trim() === '' || current === previous.title ? issue.title : current,
-        )
-        setPriority((current) =>
-          current === 'none' || current === previous.priority ? issue.priority : current,
-        )
-        filled.current = { title: issue.title, priority: issue.priority }
-      },
-      (failure: unknown) => {
-        if (ticket !== lookups.current) return
-        setSource({
-          url,
-          identifier,
-          lookup: {
-            state: 'failed',
-            error: `Couldn’t fetch from Linear: ${readableError(failure)}. The Task will be created with the link only.`,
-          },
-        })
-      },
-    )
-  }
 
   function changeDescription(text: string) {
     setDescription(text)
@@ -153,6 +318,7 @@ export function NewTaskDialog({
       if (source) {
         lookups.current++
         setSource(undefined)
+        session.update({ source: undefined })
       }
       return
     }
@@ -165,51 +331,83 @@ export function NewTaskDialog({
     lookups.current++
     setDismissed((current) => [...current, source.url])
     setSource(undefined)
+    session.update({ source: undefined })
   }
 
   function clear() {
-    setTitle('')
-    setDescription('')
     lookups.current++
     setSource(undefined)
-    setDismissed([])
-    filled.current = {}
-    setPriority('none')
-    setBlockedBy([])
-    setAttachments([])
-    setStart(true)
-    if (defaultLead) setLead(defaultLead)
     setError(undefined)
     descriptionField.current?.focus()
   }
 
+  async function close(next = onClose) {
+    if (busy) return
+    try {
+      await Promise.all([...uploads.current])
+      await session.flush()
+      setDraftError(undefined)
+      next()
+    } catch (failure) {
+      setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
+    }
+  }
+
   async function create(more: boolean) {
-    if (!canCreate) return
+    if (!canCreate || submitting.current) return
+    submitting.current = true
+    lookups.current++
+    let created = false
     setBusy(true)
     setError(undefined)
     try {
+      await session.flush()
+      const revision = session.get().revision
       await ted.createTask({
+        draftRevision: revision,
         factory: chosenFactory.key,
         title: title.trim(),
         description,
         priority,
         clarifyDepth,
         ...(lead && { lead }),
-        blockedBy,
+        blockedBy: blockedBy.filter((id) => tasks.some((t) => t.id === id)),
         attachments: attachments.map(({ hash, name, mediaType }) => ({ hash, name, mediaType })),
         ...(source && { source: source.url }),
         start,
       })
+      created = true
+      session.consumed(revision)
       if (more) clear()
       else onClose()
     } catch (failure) {
       setError(readableError(failure))
     } finally {
+      submitting.current = false
       setBusy(false)
+      const pending = deferredLookup.current
+      deferredLookup.current = undefined
+      const current = session.get()
+      if (
+        !created &&
+        pending &&
+        current.source === pending.url &&
+        !current.dismissed.includes(pending.url)
+      ) {
+        lookUp(pending.url, pending.identifier)
+      }
     }
   }
 
-  async function attach(files: readonly File[]) {
+  function attach(files: readonly File[]) {
+    if (!ready || busy) return Promise.resolve()
+    const pending = upload(files)
+    uploads.current.add(pending)
+    void pending.finally(() => uploads.current.delete(pending))
+    return pending
+  }
+
+  async function upload(files: readonly File[]) {
     const tooBig = files.find((file) => file.size > maxAttachmentBytes)
     if (tooBig) {
       setError(`${tooBig.name} is over 25 MB.`)
@@ -263,7 +461,7 @@ export function NewTaskDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        onClose()
+        void close()
       }}
       onKeyDown={onKeyDown}
       onPointerDown={(event) => {
@@ -287,8 +485,11 @@ export function NewTaskDialog({
         <Select
           aria-label="Factory"
           value={factory ?? ''}
-          disabled={factories.length === 0}
-          onChange={(event) => setFactory(event.target.value)}
+          disabled={factories.length === 0 || !ready || busy || uploading > 0}
+          onChange={(event) => {
+            const next = event.target.value
+            void close(() => onFactory(next))
+          }}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
           {factories.map((f) => (
@@ -297,205 +498,237 @@ export function NewTaskDialog({
             </option>
           ))}
         </Select>
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
+        <button
+          type="button"
+          className={styles.close}
+          aria-label="Close"
+          onClick={() => void close()}
+        >
           <CloseIcon />
         </button>
       </header>
 
-      <input
-        className={styles.title}
-        aria-label="Title"
-        placeholder="Title (optional). Blank uses the first line of the description."
-        value={title}
-        onChange={(event) => setTitle(event.target.value)}
-      />
-      <div className={styles.descriptionBox}>
-        <textarea
-          ref={descriptionField}
-          className={styles.description}
-          aria-label="Description"
-          placeholder="Describe what you want done, or paste a Linear issue URL."
-          rows={3}
-          value={description}
-          onChange={(event) => changeDescription(event.target.value)}
-        />
-        {source && (
-          <SourceCard
-            source={source}
-            onRemove={removeSource}
-            onKeySaved={() => lookUp(source.url, source.identifier)}
-          />
-        )}
-      </div>
-
-      <fieldset
-        className={styles.attachments}
-        aria-label="Attachments"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={onDrop}
-      >
-        <PaperclipIcon className={styles.clip} />
-        {attachments.map((a) => (
-          <span key={`${a.hash}:${a.name}`} className={styles.chip}>
-            {a.name}
-            <span className={styles.chipMeta}>{formatSize(a.size)}</span>
-            <button
-              type="button"
-              className={styles.chipRemove}
-              aria-label={`Remove ${a.name}`}
-              onClick={() => setAttachments((current) => current.filter((c) => c !== a))}
-            >
-              <CloseIcon size={11} />
-            </button>
-          </span>
-        ))}
-        {uploading > 0 && <span className={styles.chipMeta}>Attaching…</span>}
-        <button type="button" className={styles.attach} onClick={() => fileInput.current?.click()}>
-          Drop files here, or click to attach
-        </button>
+      <fieldset disabled={!ready || !defaultsReady || busy} className={styles.fields}>
         <input
-          ref={fileInput}
-          type="file"
-          multiple
-          hidden
-          aria-label="Attach files"
-          onChange={(event) => {
-            void attach([...(event.target.files ?? [])])
-            event.target.value = ''
-          }}
+          className={styles.title}
+          aria-label="Title"
+          placeholder="Title (optional). Blank uses the first line of the description."
+          value={title}
+          onChange={(event) => setTitle(event.target.value)}
         />
-      </fieldset>
-
-      <div className={styles.fieldRow}>
-        <div className={styles.field}>
-          <label className={styles.label} htmlFor={`${headingId}-priority`}>
-            Priority
-          </label>
-          <Select
-            id={`${headingId}-priority`}
-            value={priority}
-            onChange={(event) => setPriority(event.target.value as Priority)}
-          >
-            {[...priorities].reverse().map((p) => (
-              <option key={p} value={p}>
-                {priorityLabels[p]}
-              </option>
-            ))}
-          </Select>
+        <div className={styles.descriptionBox}>
+          <textarea
+            ref={descriptionField}
+            className={styles.description}
+            aria-label="Description"
+            placeholder="Describe what you want done, or paste a Linear issue URL."
+            rows={3}
+            value={description}
+            onChange={(event) => changeDescription(event.target.value)}
+          />
+          {source && (
+            <SourceCard
+              source={source}
+              onRemove={removeSource}
+              onKeySaved={() => {
+                const current = session.get()
+                if (current.source !== source.url || current.dismissed.includes(source.url)) return
+                lookUp(source.url, source.identifier)
+              }}
+            />
+          )}
         </div>
-        <BlockedBy
-          tasks={tasks}
-          blockers={blockers}
-          onAdd={(id) => setBlockedBy((current) => [...current, id])}
-          onRemove={(id) => setBlockedBy((current) => current.filter((c) => c !== id))}
-        />
-      </div>
 
-      <section className={styles.more}>
-        <button
-          type="button"
-          className={styles.moreToggle}
-          aria-expanded={moreOpen}
-          onClick={() => setMoreOpen((open) => !open)}
+        <fieldset
+          className={styles.attachments}
+          aria-label="Attachments"
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={onDrop}
         >
-          <ChevronIcon open={moreOpen} className={styles.moreChevron} />
-          <span className={styles.moreLabel}>More</span>
-          {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
-        </button>
-        {moreOpen && (
-          <div className={styles.moreBody}>
-            <div className={styles.field}>
-              <span className={styles.labelRow}>
-                <span className={styles.label} id={`${headingId}-depth`}>
-                  Clarify depth
+          <PaperclipIcon className={styles.clip} />
+          {attachments.map((a) => (
+            <span key={`${a.hash}:${a.name}`} className={styles.chip}>
+              {a.name}
+              <span className={styles.chipMeta}>{formatSize(a.size)}</span>
+              <button
+                type="button"
+                className={styles.chipRemove}
+                aria-label={`Remove ${a.name}`}
+                onClick={() => setAttachments((current) => current.filter((c) => c !== a))}
+              >
+                <CloseIcon size={11} />
+              </button>
+            </span>
+          ))}
+          {uploading > 0 && <span className={styles.chipMeta}>Attaching…</span>}
+          <button
+            type="button"
+            className={styles.attach}
+            onClick={() => fileInput.current?.click()}
+          >
+            Drop files here, or click to attach
+          </button>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            hidden
+            aria-label="Attach files"
+            onChange={(event) => {
+              void attach([...(event.target.files ?? [])])
+              event.target.value = ''
+            }}
+          />
+        </fieldset>
+
+        <div className={styles.fieldRow}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor={`${headingId}-priority`}>
+              Priority
+            </label>
+            <Select
+              id={`${headingId}-priority`}
+              value={priority}
+              onChange={(event) => setPriority(event.target.value as Priority)}
+            >
+              {[...priorities].reverse().map((p) => (
+                <option key={p} value={p}>
+                  {priorityLabels[p]}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <BlockedBy
+            tasks={tasks}
+            blockers={blockers}
+            onAdd={(id) => setBlockedBy((current) => [...current, id])}
+            onRemove={(id) => setBlockedBy((current) => current.filter((c) => c !== id))}
+          />
+        </div>
+
+        <section className={styles.more}>
+          <button
+            type="button"
+            className={styles.moreToggle}
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            <ChevronIcon open={moreOpen} className={styles.moreChevron} />
+            <span className={styles.moreLabel}>More</span>
+            {!moreOpen && <span className={styles.moreSummary}>{summary}</span>}
+          </button>
+          {moreOpen && (
+            <div className={styles.moreBody}>
+              <div className={styles.field}>
+                <span className={styles.labelRow}>
+                  <span className={styles.label} id={`${headingId}-depth`}>
+                    Clarify depth
+                  </span>
+                  <Help>
+                    How hard Clarify questions you before work starts. Auto lets the Task Lead
+                    choose; Grill asks until nothing is left open.
+                  </Help>
                 </span>
+                <div
+                  className={views.segmented}
+                  role="radiogroup"
+                  aria-labelledby={`${headingId}-depth`}
+                >
+                  {clarifyDepths.map((depth) => (
+                    <label key={depth} className={views.segment}>
+                      <input
+                        type="radio"
+                        name={`${headingId}-depth`}
+                        className={views.radio}
+                        checked={clarifyDepth === depth}
+                        onChange={() => setClarifyDepth(depth)}
+                      />
+                      {clarifyDepthLabels[depth]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              {lead && (
+                <LeadFields
+                  id={headingId}
+                  lead={lead}
+                  factoryLead={defaultLead}
+                  onChange={setLead}
+                />
+              )}
+            </div>
+          )}
+        </section>
+
+        {(leadNotice ||
+          health?.some(
+            (entry) => entry.agent === lead?.agent && entry.state === 'not-installed',
+          )) && (
+          <p className={styles.setupNotice} role="status">
+            {health?.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed')
+              ? `${lead ? agentLabels[lead.agent] : 'The Task Lead'} isn’t installed. Install it or choose another Task Lead in More.`
+              : leadNotice}
+          </p>
+        )}
+        {setup && (
+          <p className={styles.setupNotice} role="note">
+            <span>{setupNoticeText(setup)}</span>
+            {onOpenTask && setup.kind === 'open' && (
+              <button
+                type="button"
+                className={styles.setupLink}
+                onClick={() => {
+                  void close(() => {
+                    onClose()
+                    onOpenTask(setup.task)
+                  })
+                }}
+              >
+                Open setup Task
+              </button>
+            )}
+          </p>
+        )}
+        <footer className={styles.footer}>
+          <div className={styles.start}>
+            <input
+              id={`${headingId}-start`}
+              type="checkbox"
+              className={styles.checkbox}
+              checked={start}
+              onChange={(event) => setStart(event.target.checked)}
+            />
+            <span className={styles.startText}>
+              <span className={styles.labelRow}>
+                <label className={styles.startLabel} htmlFor={`${headingId}-start`}>
+                  Start now
+                </label>
                 <Help>
-                  How hard Clarify questions you before work starts. Auto lets the Task Lead choose;
-                  Grill asks until nothing is left open.
+                  Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits in
+                  Backlog until you start it.
                 </Help>
               </span>
-              <div
-                className={views.segmented}
-                role="radiogroup"
-                aria-labelledby={`${headingId}-depth`}
-              >
-                {clarifyDepths.map((depth) => (
-                  <label key={depth} className={views.segment}>
-                    <input
-                      type="radio"
-                      name={`${headingId}-depth`}
-                      className={views.radio}
-                      checked={clarifyDepth === depth}
-                      onChange={() => setClarifyDepth(depth)}
-                    />
-                    {clarifyDepthLabels[depth]}
-                  </label>
-                ))}
-              </div>
-            </div>
-            {lead && (
-              <LeadFields id={headingId} lead={lead} factoryLead={defaultLead} onChange={setLead} />
-            )}
-          </div>
-        )}
-      </section>
-
-      {setup && (
-        <p className={styles.setupNotice} role="note">
-          <span>{setupNoticeText(setup)}</span>
-          {onOpenTask && setup.kind === 'open' && (
-            <button
-              type="button"
-              className={styles.setupLink}
-              onClick={() => {
-                onClose()
-                onOpenTask(setup.task)
-              }}
-            >
-              Open setup Task
-            </button>
-          )}
-        </p>
-      )}
-      <footer className={styles.footer}>
-        <div className={styles.start}>
-          <input
-            id={`${headingId}-start`}
-            type="checkbox"
-            className={styles.checkbox}
-            checked={start}
-            onChange={(event) => setStart(event.target.checked)}
-          />
-          <span className={styles.startText}>
-            <span className={styles.labelRow}>
-              <label className={styles.startLabel} htmlFor={`${headingId}-start`}>
-                Start now
-              </label>
-              <Help>
-                Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits in
-                Backlog until you start it.
-              </Help>
+              <span className={styles.note}>{note}</span>
             </span>
-            <span className={styles.note}>{note}</span>
-          </span>
-        </div>
-        <span className={styles.spacer} />
-        <Button disabled={!canCreate} onClick={() => void create(true)}>
-          Create more
-        </Button>
-        <Button
-          variant="primary"
-          shortcut="⌘↵"
-          aria-keyshortcuts="Meta+Enter"
-          disabled={!canCreate}
-          onClick={() => void create(false)}
-        >
-          Create
-        </Button>
-      </footer>
-      {(error !== undefined || factories.length === 0) && (
+          </div>
+          <span className={styles.spacer} />
+          <Button disabled={!canCreate} onClick={() => void create(true)}>
+            Create more
+          </Button>
+          <Button
+            variant="primary"
+            shortcut="⌘↵"
+            aria-keyshortcuts="Meta+Enter"
+            disabled={!canCreate}
+            onClick={() => void create(false)}
+          >
+            Create
+          </Button>
+        </footer>
+      </fieldset>
+      {(error !== undefined || draftError !== undefined || factories.length === 0) && (
         <p className={styles.error} role="alert">
-          {error ?? 'Add a Factory before you create a Task.'}
+          {error ?? draftError ?? 'Add a Factory before you create a Task.'}
         </p>
       )}
     </dialog>
@@ -597,6 +830,14 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
   const [key, setKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [problem, setProblem] = useState<string>()
+  const mounted = useRef(false)
+
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
 
   async function save() {
     if (key.trim() === '' || saving) return
@@ -604,6 +845,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
     setProblem(undefined)
     try {
       const status = await ted.saveLinearKey(key)
+      if (!mounted.current) return
       if (status.storedIn !== undefined) {
         onSaved()
         return
@@ -614,9 +856,9 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
           : 'No keyring found on this computer. Save the key in Settings → Integrations.',
       )
     } catch (failure) {
-      setProblem(readableError(failure))
+      if (mounted.current) setProblem(readableError(failure))
     } finally {
-      setSaving(false)
+      if (mounted.current) setSaving(false)
     }
   }
 
