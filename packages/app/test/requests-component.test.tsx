@@ -323,3 +323,126 @@ test('Validate failure decisions display evidence and send the selected action',
     expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
   )
 })
+
+test('historical failure request keeps its own assessment and decision', async () => {
+  bridge({
+    simulators: () => ({ supported: false }),
+    listFailures: () => [
+      {
+        id: 'failure-1',
+        taskId: 'NB-1',
+        validation: true,
+        source: { kind: 'finding', runId: 'run-1', finding: 'Original Finding' },
+        recordedBy: 'run-1',
+        provenance: 'task-lead-reported',
+        evidence: 'Original evidence',
+        createdAt,
+        additions: [],
+        invalidations: [],
+        assessments: [
+          {
+            id: 'assessment-1',
+            runId: 'run-1',
+            at: createdAt,
+            assessment: 'uncertain',
+            recommendation: 'Retry verification',
+          },
+          {
+            id: 'assessment-2',
+            runId: 'run-1',
+            at: createdAt,
+            assessment: 'unrelated',
+            recommendation: 'Accept this execution',
+          },
+        ],
+        decisions: [
+          { commentId: 'request-1', assessmentId: 'assessment-1' },
+          { commentId: 'request-2', assessmentId: 'assessment-2' },
+        ],
+        resolutions: [
+          {
+            requestId: 'request-1',
+            assessmentId: 'assessment-1',
+            resolution: 'retry',
+            at: createdAt,
+          },
+          {
+            requestId: 'request-2',
+            assessmentId: 'assessment-2',
+            resolution: 'accepted',
+            at: createdAt,
+          },
+        ],
+      },
+    ],
+  })
+  render(
+    <AnsweredCard
+      task={task()}
+      expanded
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Accept this failure'],
+        answer: { kind: 'answered', at: createdAt, choice: 'Retry' },
+      })}
+    />,
+  )
+  await screen.findByText('Original Finding')
+  expect(screen.queryByText(/Human decision: accepted/)).toBeNull()
+  expect(screen.getByText(/Human decision: retry/)).toBeTruthy()
+  expect(screen.getByText('uncertain')).toBeTruthy()
+})
+
+test('a Review confirmation shows completed Checks once when progress is available', async () => {
+  const check = { name: 'Typecheck', command: 'echo typed', timeout: '1m', state: 'passed' }
+  bridge({
+    simulators: () => ({ supported: false }),
+    listApps: () => [],
+    listFailures: () => [],
+    listThreadEvents: () => [
+      {
+        id: 'validated-1',
+        taskId: 'NB-1',
+        at: createdAt,
+        tone: 'success',
+        text: 'Validate passed',
+        validate: 'passed',
+        checkRunId: 'checks-1',
+      },
+    ],
+    listCheckRuns: () => [
+      {
+        id: 'checks-1',
+        taskId: 'NB-1',
+        stage: 'validate',
+        trigger: 'validate',
+        startedAt: createdAt,
+        outcome: 'passed',
+        checks: [check],
+      },
+    ],
+    validationObligations: () => ({
+      satisfied: true,
+      cases: [],
+      blockers: [],
+      checkRuns: [],
+      progress: {
+        taskId: 'NB-1',
+        visit: createdAt,
+        checks: [check],
+        next: 1,
+        pending: false,
+        executions: [{ runId: 'checks-1', start: 0 }],
+      },
+    }),
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+    />,
+  )
+  await screen.findByRole('button', { name: '✓Typecheck' })
+  expect(screen.getAllByRole('button', { name: '✓Typecheck' })).toHaveLength(1)
+})

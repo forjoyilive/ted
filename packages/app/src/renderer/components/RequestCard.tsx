@@ -8,7 +8,13 @@ import type {
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
-import { useCheckRuns, useComments, useFailures, useSimulators, useThreadEvents } from '../data.ts'
+import {
+  useCheckRuns,
+  useComments,
+  useSimulators,
+  useThreadEvents,
+  useValidationObligations,
+} from '../data.ts'
 import {
   age,
   ago,
@@ -171,7 +177,7 @@ function BriefSections({ text, title }: { text: string; title: string }) {
 }
 
 function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
-  const failures = useFailures(task.id)
+  const obligations = useValidationObligations(task.id)
   const events = useThreadEvents(task.id)
   const checkRuns = useCheckRuns(task.id)
   const [open, setOpen] = useState<number>()
@@ -182,7 +188,7 @@ function ConfirmationRow({ request, task }: { request: Comment; task: Task }) {
   return (
     <div className={styles.confirmation}>
       <ChecksRow
-        checks={failures.some((f) => f.validation) ? [] : (checkRun?.checks ?? [])}
+        checks={obligations?.progress ? [] : (checkRun?.checks ?? [])}
         {...(validated.judgments && { judgments: validated.judgments })}
         onOpen={setOpen}
       />

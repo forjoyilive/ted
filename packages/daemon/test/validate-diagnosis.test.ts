@@ -491,3 +491,85 @@ test.each(['fixed', 'no-longer-applicable'])(
     ])
   },
 )
+
+test('fresh passing Checks resolve invalidated old acceptance', async () => {
+  const s = await setup([
+    '      - { name: Tests, run: "grep -q repaired work.txt" }',
+    '      - { name: Lint, run: "echo linted" }',
+  ])
+  expect((await s.answer(await s.ask(s.one), 'Accept this failure')).status).toBe(200)
+  await waitUntil(async () => (await s.obligations()).satisfied, 'accepted failure and suffix')
+  const current = await getTask(s.client, s.task.id)
+  const repo = current.repos[0]
+  if (!repo) throw new Error('missing worktree')
+  await writeFile(path.join(repo.worktree, 'work.txt'), 'repaired\n')
+  await s.post('/checks')
+  await waitUntil(async () => (await s.runs()).at(-1)?.outcome === 'passed', 'fresh passing run')
+  const result = await s.obligations()
+  expect(result.progress?.checks.map((c) => c.state)).toEqual(['passed', 'passed'])
+  expect(result.satisfied, JSON.stringify(result)).toBe(true)
+})
+
+test('restart reconciles durable passing retry before interrupted suffix', async () => {
+  const s = await setup([
+    '      - { name: Tests, run: "test -e stub-repaired" }',
+    '      - { name: Lint, run: "echo linted" }',
+  ])
+  const current = await getTask(s.client, s.task.id)
+  const repo = current.repos[0]
+  if (!repo) throw new Error('missing worktree')
+  await writeFile(path.join(repo.worktree, 'stub-repaired'), 'repaired')
+  const decision = await s.ask(s.one, 'uncertain')
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  const saved = store.failures.get(s.one.id)
+  const progress = store.failures.progress(s.task.id)
+  const requestId = decision.decisions.at(-1)?.commentId
+  const assessmentId = saved?.assessments.at(-1)?.id
+  if (!saved || !progress?.contextId || !requestId || !assessmentId)
+    throw new Error('missing retry state')
+  const at = new Date().toISOString()
+  store.resolveFailure(
+    {
+      ...saved,
+      resolutions: [
+        ...saved.resolutions,
+        { requestId, assessmentId, resolution: 'retry', at, contextId: progress.contextId },
+      ],
+    },
+    requestId,
+    { kind: 'answered', at, choice: 'Retry' },
+    [],
+  )
+  const run = store.startChecks({
+    taskId: s.task.id,
+    trigger: 'validate',
+    stage: 'validate',
+    checks: progress.checks.map((c) => ({ ...c, state: 'waiting' })),
+  })
+  store.checkFinished(run.id, 0, { state: 'passed', exitCode: 0, durationMs: 1 })
+  store.checkStarted(run.id, 1)
+  const partial = store.getCheckRun(run.id)
+  if (!partial) throw new Error('missing interrupted execution')
+  store.failures.saveProgress({
+    ...progress,
+    checks: partial.checks,
+    next: 1,
+    pending: true,
+    executions: [
+      ...progress.executions,
+      { runId: run.id, start: 0, contextId: progress.contextId },
+    ],
+  })
+  await store.persisted()
+  await store.close()
+  const client = await restart()
+  await waitUntil(async () => {
+    const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+    return runs.at(-1)?.id !== run.id && runs.at(-1)?.outcome === 'passed'
+  }, 'resumed suffix passes')
+  const result = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
+  expect(result.progress?.checks.map((c) => c.state)).toEqual(['passed', 'passed'])
+  expect(result.satisfied, JSON.stringify(result)).toBe(true)
+})

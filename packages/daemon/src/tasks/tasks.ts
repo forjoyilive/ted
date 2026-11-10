@@ -6025,6 +6025,7 @@ export function createTasks(options: {
     store,
     failures,
     find,
+    context: checkContext,
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     plan: checkPlan,
     sandbox: async (task, resolution) => {
@@ -6243,18 +6244,7 @@ export function createTasks(options: {
     }
     return { ci, ciFailures }
   }
-  async function failureSnapshot(
-    task: Task,
-    observed?: PullRequestRead,
-    bindCi?: () => void,
-  ): Promise<FailureContext> {
-    const read =
-      observed ??
-      (task.repos.some((repo) => !repo.removed && repo.pullRequest)
-        ? await watch?.next({ now: true })
-        : undefined)
-    const { ci, ciFailures } = failureCi(task, read)
-    bindCi?.()
+  async function checkContext(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>> {
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
     const checks = hashContext({
@@ -6287,11 +6277,25 @@ export function createTasks(options: {
         }),
     )
     if (repos.length === 0) throw new RequestError(409, 'tested context needs a Task worktree')
+    return { repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)), checks }
+  }
+  async function failureSnapshot(
+    task: Task,
+    observed?: PullRequestRead,
+    bindCi?: () => void,
+  ): Promise<FailureContext> {
+    const read =
+      observed ??
+      (task.repos.some((repo) => !repo.removed && repo.pullRequest)
+        ? await watch?.next({ now: true })
+        : undefined)
+    const { ci, ciFailures } = failureCi(task, read)
+    bindCi?.()
+    const local = await checkContext(task)
     const context = {
       version: 2 as const,
       ciFailures: ciFailures.sort(),
-      repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)),
-      checks,
+      ...local,
       ...(ci && { ci }),
     }
     return {
@@ -7307,12 +7311,10 @@ export function createTasks(options: {
             request,
           }
         }
-        if (outcome.outcome === 'advance') {
-          const destination = (await taskWorkflow(current, { fetch: false })).workflow.next(stage)
-          await requireObligations(current, undefined, destination)
-        }
         const resolution = await taskWorkflow(current)
         const { workflow } = resolution
+        if (outcome.outcome === 'advance')
+          await requireObligations(current, undefined, workflow.next(stage))
         const changesAsked =
           (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
         if (outcome.outcome === 'back') {

@@ -7,9 +7,11 @@ import {
   approve,
   branchHead,
   type Client,
+  commitStep,
   ctx,
   getTask,
   ghCalls,
+  leadSteps,
   lines,
   merges,
   originBranches,
@@ -163,7 +165,9 @@ describe('Approve and merge', () => {
         '      - { name: Tests, run: "test -f work.txt" }',
       ],
     })
-    const { task, signoff } = await toSignoff(client)
+    const { task, signoff } = await toSignoff(client, {
+      title: leadSteps(client, `[ -e stub-built ] || { ${commitStep.run[2]}; touch stub-built; }`),
+    })
     const branch = (await getTask(client, task.id)).repos[0]?.branch ?? ''
     await commitToOrigin(ctx.scratch, { 'other.txt': 'someone else’s change\n' })
 

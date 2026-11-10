@@ -25,18 +25,38 @@ export function acceptedPositions(failures: readonly FailureCase[], runId: strin
   )
 }
 
-export function FailureDetails({ failure }: { failure: FailureCase }) {
-  const assessment = failure.assessments.at(-1)
-  const decision = failure.resolutions.at(-1)
-  const disposition = acceptedFailure(failure)
-    ? 'failed, accepted by you'
-    : failure.invalidations.length && decision?.resolution === 'accepted'
-      ? 'acceptance invalidated'
-      : failure.verifications?.at(-1)?.replacedBy
-        ? 'retry failed again; see the new failure'
-        : failure.verifications?.length
-          ? 'verified by a later execution'
-          : (decision?.resolution ?? 'unresolved')
+export function FailureDetails({
+  failure,
+  requestId,
+}: {
+  failure: FailureCase
+  requestId?: string
+}) {
+  const request = requestId ? failure.decisions.find((d) => d.commentId === requestId) : undefined
+  const assessment = request
+    ? failure.assessments.find((a) => a.id === request.assessmentId)
+    : failure.assessments.at(-1)
+  const decision = requestId
+    ? failure.resolutions.find((r) => r.requestId === requestId)
+    : failure.resolutions.at(-1)
+  const accepted =
+    decision?.resolution === 'accepted' &&
+    !failure.invalidations.some((i) => i.requestId === decision.requestId)
+  const disposition = requestId
+    ? accepted
+      ? 'failed, accepted by you'
+      : decision?.resolution === 'accepted'
+        ? 'acceptance invalidated'
+        : (decision?.resolution ?? 'unresolved')
+    : acceptedFailure(failure)
+      ? 'failed, accepted by you'
+      : failure.invalidations.length && decision?.resolution === 'accepted'
+        ? 'acceptance invalidated'
+        : failure.verifications?.at(-1)?.replacedBy
+          ? 'retry failed again; see the new failure'
+          : failure.verifications?.length
+            ? 'verified by a later execution'
+            : (decision?.resolution ?? 'unresolved')
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">
       <p className={styles.sectionBody}>
@@ -52,21 +72,31 @@ export function FailureDetails({ failure }: { failure: FailureCase }) {
       <p className={styles.sectionBody}>{assessment?.assessment ?? 'Investigation in progress'}</p>
       <h3 className={styles.sectionHeading}>Evidence</h3>
       <p className={styles.sectionBody}>{failure.evidence}</p>
-      {failure.additions.map((addition) => (
-        <p
-          key={`${addition.runId}:${addition.at}:${addition.evidence}`}
-          className={styles.sectionBody}
-        >
-          {addition.evidence}
-        </p>
-      ))}
+      {failure.additions
+        .slice(0, requestId ? assessment?.evidenceCount : undefined)
+        .map((addition) => (
+          <p
+            key={`${addition.runId}:${addition.at}:${addition.evidence}`}
+            className={styles.sectionBody}
+          >
+            {addition.evidence}
+          </p>
+        ))}
       {assessment && (
         <>
           <h3 className={styles.sectionHeading}>Recommendation</h3>
           <p className={styles.sectionBody}>{assessment.recommendation}</p>
         </>
       )}
-      <p className={styles.sectionBody}>Tested context: {failure.contextId ?? 'unknown'}</p>
+      {!requestId &&
+        failure.verifications?.map((verification) => (
+          <p key={`${verification.at}:${verification.evidence}`} className={styles.sectionBody}>
+            Verification: {verification.evidence}
+          </p>
+        ))}
+      <p className={styles.sectionBody}>
+        Tested context: {(requestId ? request?.contextId : failure.contextId) ?? 'unknown'}
+      </p>
       {decision && (
         <p className={styles.sectionBody}>
           Human decision: {decision.resolution} · {decision.reason}
@@ -92,7 +122,7 @@ export function FailureRequestDetails({
   const failures = useFailures(taskId)
   const failure = failures.find((f) => f.decisions.some((d) => d.commentId === requestId))
   return failure ? (
-    <FailureDetails failure={failure} />
+    <FailureDetails failure={failure} requestId={requestId} />
   ) : (
     <p className={styles.summary}>{fallback}</p>
   )

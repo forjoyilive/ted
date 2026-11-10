@@ -107,6 +107,7 @@ export interface ValidationProgress {
   taskId: string
   visit: string
   contextId?: string
+  coverage?: string
   checks: CheckResult[]
   executions: { runId: string; start: number; contextId?: string }[]
   next: number

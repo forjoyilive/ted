@@ -192,11 +192,11 @@ export const commitStep = {
   ],
 }
 
-export function leadSteps(client: Client) {
+export function leadSteps(client: Client, commit = commitStep.run[2]) {
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
     `[ -e '${client.mergingFile}' ] && exit 0`,
-    commitStep.run[2],
+    commit,
     `ted brief write --file '${client.briefFile}'`,
     outcome,
   ].join('\n')

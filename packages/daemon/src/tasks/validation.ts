@@ -1,9 +1,11 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  AgentStageId,
   CheckRun,
   CheckRunTrigger,
   FailureCase,
+  FailureContext,
   ResolveFailureRequest,
   Task,
 } from '@ted/protocol'
@@ -19,6 +21,7 @@ interface ValidationOptions {
   store: TedStore
   failures: ReturnType<typeof createFailureCases>
   find(id: string): StoredTask
+  context(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>>
   workflow(task: StoredTask): Promise<WorkflowResolution>
   plan(task: StoredTask, resolution: WorkflowResolution, only?: string): Promise<RunnableCheck[]>
   sandbox(task: StoredTask, resolution: WorkflowResolution): Promise<CommandSandbox | undefined>
@@ -44,6 +47,47 @@ export function createValidation(options: ValidationOptions) {
   const { store, failures, find } = options
   const visitStart = (task: Task) =>
     store.listStageEntries(task.id).findLast((e) => e.stage === 'validate')?.at ?? ''
+  const coverageOf = (context: Pick<FailureContext, 'repos' | 'checks'>) =>
+    JSON.stringify({
+      repos: context.repos.map(({ repo, head, tree }) => ({ repo, head, tree })),
+      checks: context.checks,
+    })
+  const coverage = async (task: Task) =>
+    options
+      .context(task)
+      .then(coverageOf)
+      .catch(() => undefined)
+
+  function verifyPassed(task: Task, run: CheckRun) {
+    for (const prior of store.failures.list(task.id)) {
+      if (
+        !prior.validation ||
+        prior.verifications?.length ||
+        prior.source.kind !== 'factory-check' ||
+        prior.source.checkRunId === run.id ||
+        !prior.originalCheck ||
+        run.startedAt < prior.createdAt
+      )
+        continue
+      const decision = prior.resolutions.at(-1)
+      if (
+        decision?.resolution === 'accepted' &&
+        !prior.invalidations.some((i) => i.requestId === decision.requestId)
+      )
+        continue
+      if (
+        run.checks.some(
+          (c) =>
+            c.state === 'passed' &&
+            c.name === prior.originalCheck?.name &&
+            c.repo === prior.originalCheck.repo &&
+            c.command === prior.originalCheck.command,
+        )
+      )
+        failures.verifyResult(task, prior.id, `Verification passed in Check run ${run.id}.`, run.id)
+    }
+  }
+
   async function beginChecks(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -52,9 +96,17 @@ export function createValidation(options: ValidationOptions) {
   ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
     const hold = store.newWorkHold()
     if (hold) throw new RequestError(409, hold)
+    const validating = task.stage === 'validate' && trigger !== 'merge'
+    const existing = store.failures.progress(task.id)
+    const order = resolution.workflow.order
+    const tracking =
+      validating ||
+      (existing !== undefined &&
+        only === undefined &&
+        order.indexOf(task.stage as AgentStageId) > order.indexOf('validate'))
     let plan = await options.plan(task, resolution, only)
     if (plan.length === 0) {
-      if (task.stage === 'validate' && trigger !== 'merge')
+      if (tracking)
         store.failures.saveProgress({
           taskId: task.id,
           visit: visitStart(task),
@@ -65,33 +117,35 @@ export function createValidation(options: ValidationOptions) {
         })
       return undefined
     }
-    const validating = task.stage === 'validate' && trigger !== 'merge'
-    let progress = validating ? store.failures.progress(task.id) : undefined
+    let progress = tracking ? existing : undefined
     let start = 0
     let contextId: string | undefined
-    if (validating) {
-      const context = await failures.snapshot(task).catch(() => undefined)
+    if (tracking) {
+      const local = await coverage(task)
+      const context = validating ? await failures.snapshot(task).catch(() => undefined) : undefined
       if (context) contextId = store.failures.capture(context).id
       if (context) await failures.obligations(task, context)
       const prior = progress?.contextId ? store.failures.context(progress.contextId) : undefined
       if (
         !progress ||
         progress.visit !== visitStart(task) ||
-        !context ||
-        prior?.fingerprint !== context.fingerprint ||
-        sameCheckPlan(progress.checks) !== sameCheckPlan(plan.map((p) => p.check))
+        !local ||
+        (progress.coverage ?? (prior && coverageOf(prior))) !== local ||
+        sameCheckPlan(progress.checks) !== sameCheckPlan(plan.map((p) => p.check)) ||
+        progress.checks.some((c, i) => c.state === 'skipped' && plan[i]?.check.state !== 'skipped')
       ) {
         progress = {
           taskId: task.id,
           visit: visitStart(task),
           ...(contextId && { contextId }),
+          ...(local && { coverage: local }),
           checks: plan.map((p) => p.check),
           executions: [],
           next: 0,
           pending: true,
         }
       }
-      if (trigger === 'agent' && progress.next >= plan.length) {
+      if ((!validating || trigger === 'agent') && progress.next >= plan.length) {
         const next = only === undefined ? 0 : plan.findIndex((p) => p.check.name === only)
         if (next < 0) throw new RequestError(404, 'no matching Check')
         progress = {
@@ -101,6 +155,7 @@ export function createValidation(options: ValidationOptions) {
           pending: true,
         }
       }
+      if (!validating) progress = { ...progress, next: 0, pending: true }
       start = progress.next
       if (only !== undefined && progress.checks[start]?.name !== only)
         throw new RequestError(
@@ -143,7 +198,9 @@ export function createValidation(options: ValidationOptions) {
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => {
           store.checkFinished(checkRun.id, position, finished)
-          if (validating) {
+          if (tracking) {
+            const executed = store.getCheckRun(checkRun.id)
+            if (executed) verifyPassed(find(task.id), executed)
             const current = store.failures.progress(task.id)
             if (current?.executions.at(-1)?.runId === checkRun.id) {
               const checks = [...current.checks]
@@ -165,47 +222,13 @@ export function createValidation(options: ValidationOptions) {
       if (result.outcome === 'interrupted' && options.signal.aborted) return result
       store.finishChecks(checkRun.id, result.outcome)
       options.reportNotFound(task, result)
-      if (validating && result.outcome !== 'interrupted') {
+      if (tracking && result.outcome !== 'interrupted') {
         const current = store.failures.progress(task.id)
         if (current?.executions.at(-1)?.runId === checkRun.id) {
           const executed = store.getCheckRun(checkRun.id) ?? checkRun
-          for (const prior of store.failures.list(task.id)) {
-            if (
-              !prior.validation ||
-              prior.verifications?.length ||
-              prior.source.kind !== 'factory-check' ||
-              !prior.originalCheck
-            )
-              continue
-            const accepted = prior.resolutions.at(-1)
-            if (
-              !['retry', 'fix'].includes(accepted?.resolution ?? '') &&
-              prior.assessments.at(-1)?.assessment !== 'regression'
-            )
-              continue
-            if (
-              accepted?.resolution === 'accepted' &&
-              !prior.invalidations.some((i) => i.requestId === accepted.requestId)
-            )
-              continue
-            if (
-              executed.checks.some(
-                (c) =>
-                  c.state === 'passed' &&
-                  c.name === prior.originalCheck?.name &&
-                  c.repo === prior.originalCheck.repo &&
-                  c.command === prior.originalCheck.command,
-              )
-            )
-              failures.verifyResult(
-                task,
-                prior.id,
-                `Verification passed in Check run ${checkRun.id}.`,
-                checkRun.id,
-              )
-          }
+          verifyPassed(find(task.id), executed)
           let failureId: string | undefined
-          if (result.failed) {
+          if (validating && result.failed) {
             const stored = store.getCheckRun(checkRun.id) ?? checkRun
             const evidence = (await options.findings(task, stored)) ?? summary(stored.checks)
             const value = await failures.record(find(task.id), task.leadRunId ?? 'ted', {
@@ -277,6 +300,10 @@ export function createValidation(options: ValidationOptions) {
     if (task.stage !== 'validate' || task.archived || task.stopped) {
       options.setChecking(taskId, false)
       return
+    }
+    for (const execution of progress?.executions ?? []) {
+      const run = store.getCheckRun(execution.runId)
+      if (run) verifyPassed(task, run)
     }
     const fixes = validationFixes(task)
     if (fixes.length) {
@@ -461,15 +488,15 @@ export function createValidation(options: ValidationOptions) {
     const plan = await options.plan(task, resolution)
     const samePlan =
       progress.visit === visitStart(task) &&
-      sameCheckPlan(progress.checks) === sameCheckPlan(plan.map((p) => p.check))
+      sameCheckPlan(progress.checks) === sameCheckPlan(plan.map((p) => p.check)) &&
+      progress.checks.every((c, i) => c.state !== 'skipped' || plan[i]?.check.state === 'skipped')
     const skipped =
       progress.checks.every((c) => c.state === 'skipped') &&
       plan.every((p) => p.check.state === 'skipped')
-    const context =
-      samePlan && !skipped ? await failures.snapshot(task).catch(() => undefined) : undefined
+    const local = samePlan && !skipped ? await coverage(task) : undefined
     const previous = progress.contextId ? store.failures.context(progress.contextId) : undefined
-    if (samePlan && (skipped || (context && previous?.fingerprint === context.fingerprint)))
-      return true
+    const tested = progress.coverage ?? (previous && coverageOf(previous))
+    if (samePlan && (skipped || (local && tested === local))) return true
     store.failures.saveProgress({
       taskId: task.id,
       visit: visitStart(task),
