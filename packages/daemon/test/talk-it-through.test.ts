@@ -193,7 +193,7 @@ describe('Talk it through', () => {
         (await userMessages(client, task)).find((m) => m.includes('wants to talk Round 1')),
       'the talk line to reach the Task Lead',
     )
-    expect(opened).toBe(
+    expect(opened.split('\n\n')[0]).toBe(
       'The user wants to talk Round 1 “Storage · 2 questions” through with you here; when it’s settled, post a summary with `ted ask --close --summary <file>`.',
     )
     await waitUntil(

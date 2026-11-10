@@ -15,6 +15,7 @@ export interface SteeringSource {
 export interface Steering {
   addSource(source: SteeringSource): void
   changed(runId: string): Promise<void>
+  refresh(runId: string): Promise<void>
   send(runId: string, text: string, options: { interrupt: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<void>
   sendNow(runId: string, messageId: string): Promise<RunMessage>
@@ -67,11 +68,46 @@ export function createSteering(options: {
 
   const queued = (runId: string) => store.runMessages(runId).filter((m) => m.queued === true)
 
+  function releaseState(runId: string) {
+    const release = store.runSteeringRelease(runId)
+    const holdId = store.runInterrupts(runId).findLast((interrupt) => interrupt.hold)?.id
+    return release?.holdId === holdId ? release : undefined
+  }
+
+  function releaseMessages(run: Run, messageIds: string[], first?: string) {
+    const previous = releaseState(run.id)
+    const holdId = store.runInterrupts(run.id).findLast((interrupt) => interrupt.hold)?.id
+    const pending = new Set([
+      ...queued(run.id).map((message) => message.id),
+      ...[...sources].flatMap((source) => source.pending(run).map((message) => message.id)),
+    ])
+    const priority = first ?? previous?.first
+    store.releaseRunSteering(run.id, {
+      messageIds: [
+        ...new Set([
+          ...(previous?.messageIds ?? []).filter((id) => pending.has(id)),
+          ...messageIds,
+        ]),
+      ],
+      ...(priority !== undefined && pending.has(priority) && { first: priority }),
+      ...(holdId !== undefined && { holdId }),
+    })
+  }
+
+  function releaseAll(run: Run) {
+    releaseMessages(run, [
+      ...queued(run.id).map((message) => message.id),
+      ...[...sources].flatMap((source) => source.pending(run).map((message) => message.id)),
+    ])
+  }
+
   function deliverable(runId: string): RunMessage[] {
     if (delivering.has(runId) || !options.canDeliver(runId, false)) return []
     const interrupts = store.runInterrupts(runId)
+    const released = new Set(releaseState(runId)?.messageIds)
     return queued(runId).filter(
-      (message) => !isHeld(message, interrupts) && !sendingNow.has(message.id),
+      (message) =>
+        (!isHeld(message, interrupts) || released.has(message.id)) && !sendingNow.has(message.id),
     )
   }
 
@@ -79,10 +115,13 @@ export function createSteering(options: {
     const run = store.getRun(runId)
     if (!run || run.state === 'finished' || !options.canDeliver(runId, false)) return []
     const interrupts = store.runInterrupts(runId)
+    const released = new Set(releaseState(runId)?.messageIds)
     return [...sources].flatMap((source) =>
       source
         .pending(run)
-        .filter((message) => includeHeld || !isHeld(message, interrupts))
+        .filter(
+          (message) => includeHeld || !isHeld(message, interrupts) || released.has(message.id),
+        )
         .map((message) => ({ ...message, source })),
     )
   }
@@ -127,7 +166,8 @@ export function createSteering(options: {
     messages: readonly RunMessage[],
     delivery: { admitted?: boolean; includeHeld?: boolean; first?: string } = {},
   ): Promise<number> {
-    const { admitted = false, includeHeld = false, first } = delivery
+    const { admitted = false, includeHeld = false } = delivery
+    const first = delivery.first ?? releaseState(run.id)?.first
     if (!options.canDeliver(run.id, admitted)) return 0
     const current = store.getRun(run.id)
     if (!current || current.state === 'finished') return 0
@@ -268,6 +308,12 @@ export function createSteering(options: {
         if (run.state !== 'working' && hasPending(run.id)) void flush(run).catch(logFailure(run.id))
       }
     },
+    async refresh(runId) {
+      const run = store.getRun(runId)
+      if (!run || run.state === 'finished') return
+      syncFlag(runId)
+      if (run.state !== 'working') await flush(run)
+    },
     async changed(runId) {
       const run = requireLive(runId)
       syncFlag(runId)
@@ -285,14 +331,16 @@ export function createSteering(options: {
       if (run.state === 'working') {
         if (interrupt) store.recordTurnInterrupted(runId, false)
         const message = store.queueRunMessage({ runId, text })
+        releaseAll(run)
         if (interrupt) interruptThenDeliver(run, message)
         else syncFlag(runId)
         return message
       }
       return serially(runId, async () => {
         const live = requireLive(runId)
-        if (live.state === 'working') {
+        if (live.state === 'working' || !options.canDeliver(runId, false)) {
           const message = store.queueRunMessage({ runId, text })
+          releaseAll(live)
           syncFlag(runId)
           return message
         }
@@ -314,6 +362,7 @@ export function createSteering(options: {
       const run = requireLive(runId)
       const message = queued(runId).find((m) => m.id === messageId)
       if (!message) throw new RequestError(409, 'The agent has already read this message')
+      releaseMessages(run, [message.id], message.id)
       if (run.state === 'working') {
         store.recordTurnInterrupted(runId, false)
         interruptThenDeliver(run, message)

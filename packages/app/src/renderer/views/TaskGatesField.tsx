@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { useConnection } from '../data.ts'
 import { stageName } from '../list-view.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { ted } from '../ted.ts'
 import styles from './TaskGatesField.module.css'
 
@@ -99,6 +100,7 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
       </Button>
       {open && data && (
         <section className={styles.editor} aria-label="Gates for this Task">
+          <OvernightNotice />
           <p className={styles.note}>
             Choose where TED waits for your sign-off. Stage work stays the same.
           </p>

@@ -11,7 +11,7 @@ import {
 const at = (facts: Partial<TaskFacts>): TaskFacts => ({ stage: 'work', runs: [], ...facts })
 
 describe('interrupted Tasks', () => {
-  test('offers continuation and explains it without claiming the human stopped the Task', () => {
+  test('offers continuation and explains it without claiming the user stopped the Task', () => {
     const facts = at({ interrupted: true, agentActivity: 'Old activity' })
     expect(taskCanResume(facts)).toBe(true)
     expect(taskStatus(facts)).toBeUndefined()
@@ -64,9 +64,12 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
     expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
+    expect(taskActivity(at({ tedWorking: true, checksWaiting: { place: 2 } }))).toBe(
+      'Waiting to run Checks · 2nd',
+    )
   })
 
-  test('an open request or a Run waiting on the human makes it Waiting on you', () => {
+  test('an open request or a Run waiting on the user makes it Waiting on you', () => {
     expect(taskStatus(at({ openRequests: 2, runs: ['working'] }))).toEqual({
       kind: 'waiting-on-you',
     })
@@ -109,6 +112,14 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
+    expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, heldForLoad: true }))).toEqual({
+      kind: 'queued',
+      hold: 'this computer is busy',
+    })
+    expect(
+      taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, heldForLoad: true })),
+    ).toEqual({ kind: 'queued', hold: 'disk full' })
+    expect(taskStatus(at({ runs: ['working'], heldForLoad: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',
       on: 'review',

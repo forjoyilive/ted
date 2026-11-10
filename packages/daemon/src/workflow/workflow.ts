@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
+import { writingGuidance } from '../writing.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
@@ -29,7 +30,9 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
 }
 
 export async function preambleText(): Promise<string> {
-  return (await readFile(new URL('preamble.md', defaults), 'utf8')).trim()
+  return [(await readFile(new URL('preamble.md', defaults), 'utf8')).trim(), writingGuidance].join(
+    '\n\n',
+  )
 }
 
 export async function setupInstructions(
@@ -58,7 +61,9 @@ export async function setupInstructions(
 }
 
 export async function subAgentPreamble(): Promise<string> {
-  return (await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim()
+  return [(await readFile(new URL('sub-agent.md', defaults), 'utf8')).trim(), writingGuidance].join(
+    '\n\n',
+  )
 }
 
 export async function subAgentPrompt(displayId: string, instructions: string): Promise<string> {

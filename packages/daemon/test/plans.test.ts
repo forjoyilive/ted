@@ -145,6 +145,8 @@ describe('Planning chats', () => {
     expect(roundRequest).toMatchObject({ title: 'Who can share', round: { number: 1 } })
 
     const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(run.run.prompt).toContain('## Write clearly for the user')
+    expect(run.run.prompt).toContain('Rewrite dense source wording in plain language')
     const folder = path.join(home, 'plans', plan.id)
     expect(run.run.cwd).toBe(path.join(folder, 'widgets'))
     expect(run.run.taskId).toBeUndefined()
@@ -300,7 +302,7 @@ describe('Planning chats', () => {
     )
   })
 
-  test('with the limit full the chat waits as queued, and a chat waiting on the human frees its slot', async () => {
+  test('with the limit full the chat waits as queued, and a chat waiting on the user frees its slot', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const roundFile = await file('round.json', round)
@@ -320,7 +322,7 @@ describe('Planning chats', () => {
     await waitForPlan(client, second.id, (d) => d.plan.status === 'idle', 'the second to start')
   })
 
-  test('only the human starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {
+  test('only the user starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {
     const client = await startTed()
     const plan = await start(client, `Plan it\n${steps({ say: 'Hi' }, { endTurn: true })}`)
     const renamed = await client.ok<Plan>('PATCH', `/plans/${plan.id}`, { title: '  Sharing  ' })
@@ -353,7 +355,7 @@ describe('Planning chats', () => {
 })
 
 describe('Plans list', () => {
-  test('a chat waiting on the human says what it waits on', async () => {
+  test('a chat waiting on the user says what it waits on', async () => {
     const client = await startTed()
     const roundFile = await file('round.json', round)
     const plan = await start(

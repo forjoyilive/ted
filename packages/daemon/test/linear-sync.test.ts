@@ -24,6 +24,8 @@ import {
   useMergeHarness,
   waitForStage,
 } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
 
@@ -124,7 +126,8 @@ describe('TED → Linear', () => {
   })
 
   test('with sync off or no key, TED doesn’t touch Linear', async () => {
-    const client = await startWithLinear()
+    const clock = new ManualClock()
+    const client = await startWithLinear({ daemon: { clock } })
     await client.ok('PATCH', '/settings', { linearSync: false })
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
@@ -134,7 +137,12 @@ describe('TED → Linear', () => {
     })
     await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
     const before = linear.requests.length
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    clock.advance(400)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(50),
+      'the Linear sync cycle to finish',
+    )
 
     expect(linear.requests.slice(before)).toEqual([])
     expect(asked('TedIssueStates')).toEqual([])
@@ -142,7 +150,8 @@ describe('TED → Linear', () => {
   })
 
   test('without a key, the sync makes no request', async () => {
-    const client = await startWithLinear({ withKey: false })
+    const clock = new ManualClock()
+    const client = await startWithLinear({ withKey: false, daemon: { clock } })
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
       factory: 'NB',
@@ -150,7 +159,12 @@ describe('TED → Linear', () => {
       start: true,
     })
     await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'the Task Lead')
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    clock.advance(400)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(50),
+      'the Linear sync cycle to finish',
+    )
 
     expect(linear.requests).toEqual([])
   })
@@ -180,7 +194,16 @@ describe('Linear → TED', () => {
   })
 
   test('an issue with the same identifier in another workspace leaves its Task alone', async () => {
-    const client = await startWithLinear()
+    const clock = new ManualClock()
+    const client = await startWithLinear({ daemon: { clock } })
+    const poll = async () => {
+      clock.advance(50)
+      await eventWait(
+        clock.subscribe,
+        () => clock.pending.includes(50),
+        'the workspace sync cycle to finish',
+      )
+    }
     const ours = await client.ok<Task>('POST', '/tasks', {
       title: 'Offline notes',
       factory: 'NB',
@@ -191,14 +214,16 @@ describe('Linear → TED', () => {
       factory: 'NB',
       source: 'https://linear.app/elsewhere/issue/NOTE-1/other',
     })
-    await seenAfterNow()
+    await poll()
 
     issue().state = 'Canceled'
-    await waitUntil(
+    await poll()
+    await eventWait(
+      client.subscribe,
       async () => (await getTask(client, ours.id)).archived !== undefined,
       'our Task to be archived',
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+    await poll()
 
     expect((await getTask(client, theirs.id)).archived).toBeUndefined()
     expect(await lines(client, theirs)).not.toContain(
@@ -206,7 +231,7 @@ describe('Linear → TED', () => {
     )
   })
 
-  test('a Task with a live Run asks the human once; Keep going keeps it, Archive archives it', async () => {
+  test('a Task with a live Run asks the user once; Keep going keeps it, Archive archives it', async () => {
     const client = await startWithLinear()
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
@@ -348,7 +373,7 @@ describe('Tasks an Automation made', () => {
     return { client, task }
   }
 
-  test('outside the allowed teams, TED writes nothing and acts on nothing until the human lets it', async () => {
+  test('outside the allowed teams, TED writes nothing and acts on nothing until the user lets it', async () => {
     const { client, task } = await fromAutomation()
     await seenAfterNow()
     expect(moves()).toEqual([])
@@ -377,7 +402,7 @@ describe('Tasks an Automation made', () => {
     expect(await lines(client, task)).toContain('You let TED sync this Task with NOTE-1 in Linear')
   })
 
-  test('a Task made with the token in daemon.json waits for the human too', async () => {
+  test('a Task made with the token in daemon.json waits for the user too', async () => {
     const client = await startWithLinear()
     const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
 
@@ -397,7 +422,7 @@ describe('Tasks an Automation made', () => {
     expect(byApp.linearSync).toBe('on')
   })
 
-  test('in a team the human allowed for the Factory, TED syncs at once', async () => {
+  test('in a team the user allowed for the Factory, TED syncs at once', async () => {
     const { client, task } = await fromAutomation()
     await client.ok('PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['note'] } })
 
@@ -531,7 +556,7 @@ describe('Tasks an Automation made', () => {
     expect((await getTask(client, second?.id ?? '')).linearSync).toBe('on')
   })
 
-  test('only the human answers it: a Run token or the daemon.json token can’t answer, allow or post it', async () => {
+  test('only the user answers it: a Run token or the daemon.json token can’t answer, allow or post it', async () => {
     const { client, task } = await fromAutomation()
     const ask = await firstAsk(client)
     const runId = (await getTask(client, task.id)).leadRunId ?? ''

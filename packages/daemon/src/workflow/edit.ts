@@ -195,10 +195,14 @@ export function applyChanges(
       ['gate', stage.gate],
       ['max_back', stage.maxBack],
       ['depth', stage.depth],
+      ['effort', stage.effort],
     ]
     if (fields.every(([, value]) => value === undefined)) continue
     const map = stageMap(doc, root, id)
-    for (const [key, value] of fields) if (value !== undefined) setKeepingStyle(map, key, value)
+    for (const [key, value] of fields) {
+      if (key === 'effort' && value === null) map.delete(key)
+      else if (value !== undefined) setKeepingStyle(map, key, value)
+    }
   }
   for (const [id, hash] of Object.entries(basedOn)) {
     if (hash === undefined) continue

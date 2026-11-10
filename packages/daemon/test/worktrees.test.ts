@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, Run, RunSlots, Task } from '@ted/protocol'
+import type { Factory, Run, RunSlots, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -123,6 +123,21 @@ const commandResults = async (client: Client, runId: string) =>
   )
 
 describe('worktree setup', () => {
+  test('one setup execution records one start and one completion in the thread', async () => {
+    await workflow('      setup: "echo run >> stub-count"\n')
+    const client = await startWithStub()
+    await addFactory(client)
+    const task = await createTask(client, steps({ endTurn: true }))
+
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await leadRun(client, task)
+
+    expect(await readFile(path.join(worktreeOf(), 'stub-count'), 'utf8')).toBe('run\n')
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(1)
+    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
+  })
+
   test('copy files and env are in place before setup, and setup runs before the Task Lead', async () => {
     await writeFile(path.join(localFolder, '.env'), 'SECRET=1\n')
     await mkdir(path.join(localFolder, 'config'))
@@ -170,11 +185,11 @@ describe('worktree setup', () => {
       `#!/bin/sh\nPATH='${loginBin}':"$PATH"\nexport PATH\nexec /bin/sh -c "$4"\n`,
     )
     await chmod(shell, 0o755)
-    const marker = path.join(scratch, 'teardown-saw')
+    const marker = path.join(home, 'logs', 'worktrees', 'NB-1-widgets-teardown.log')
     await workflow(
       [
         '      setup: "login-tool set-up > setup-saw.txt"',
-        `      teardown: "login-tool torn-down > '${marker}'"`,
+        '      teardown: "login-tool torn-down"',
         '',
       ].join('\n'),
     )
@@ -214,7 +229,7 @@ describe('worktree setup outcomes', () => {
     await client.ok('POST', `/tasks/${task.id}/start`)
 
     const first = await firstMessage(client, task)
-    expect(first.startsWith('# Setup failed')).toBe(true)
+    expect(first).toContain('# Setup failed')
     expect(first).toContain('exit code 3')
     expect(first).toContain('installing\nhttps://[redacted]@example.com')
     expect(first).not.toContain('hunter2')
@@ -325,7 +340,7 @@ describe('worktree setup outcomes', () => {
 
   test('setup interrupted by a daemon restart runs again, then the Task Lead starts', async () => {
     const go = path.join(scratch, 'go')
-    const count = path.join(scratch, 'count')
+    const count = path.join(worktreeOf(), 'stub-count')
     await workflow(
       `      setup: "echo run >> '${count}'; while [ ! -e '${go}' ]; do sleep 0.05; done"\n`,
     )
@@ -344,6 +359,9 @@ describe('worktree setup outcomes', () => {
     await writeFile(go, '')
 
     await leadRun(client, task)
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(2)
+    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
   })
 })
 
@@ -391,7 +409,7 @@ describe('worktree safety', () => {
 
   test('a resumed setup runs the command recorded when it started, not a newer one', async () => {
     const go = path.join(scratch, 'go')
-    const count = path.join(scratch, 'count')
+    const count = path.join(worktreeOf(), 'stub-count')
     await workflow(
       `      setup: "echo first >> '${count}'; while [ ! -e '${go}' ]; do sleep 0.05; done"\n`,
     )
@@ -435,9 +453,9 @@ describe('worktree safety', () => {
 
 describe('worktree removal', () => {
   test('at Done, teardown runs in the worktree before TED removes it', async () => {
-    const marker = path.join(scratch, 'torn-down')
+    const marker = path.join(home, 'logs', 'worktrees', 'NB-1-widgets-teardown.log')
     await workflow(
-      `      teardown: "pwd -P > '${marker}'; printf %s \\"$GREETING\\" >> '${marker}'"\n      env: { GREETING: bye }\n`,
+      `      teardown: "pwd -P; printf %s \\"$GREETING\\""\n      env: { GREETING: bye }\n`,
     )
     const client = await startWithStub()
     await addFactory(client)

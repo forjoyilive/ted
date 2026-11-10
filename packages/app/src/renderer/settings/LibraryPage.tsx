@@ -9,6 +9,7 @@ import { fileChange } from '@ted/protocol/diff'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
+import { StageEffort } from '../components/StageEffort.tsx'
 import { useConnection } from '../data.ts'
 import { type SettingsDraft, type StageDraft, stageEdited } from '../factory-settings.ts'
 import {
@@ -18,6 +19,7 @@ import {
   unsavedLibrary,
   unsavedLibraryLine,
 } from '../library.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { readableError, ted } from '../ted.ts'
 import base from '../views/FactorySettings.module.css'
 import sections from '../views/FactorySettingsSections.module.css'
@@ -120,9 +122,10 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   return (
     <SettingsPage
       title="Library"
-      help={`Your own Workflow settings and Stage files, kept in ${view?.path ?? '~/.ted/library'}. Every Factory inherits them unless it overrides them in .ted/.`}
+      help={`Your own Workflow settings and Stage files, kept in ${view?.path ?? '~/.ted/library'}. Every Factory inherits them unless it overrides them in .ted/. Stage effort applies at Stage entry unless the Task has its own effort.`}
       subtitle={libraryLine}
     >
+      <OvernightNotice />
       {view?.invalid && (
         <InvalidNotice invalid={{ ...view.invalid, file: `Library ${view.invalid.file}` }} />
       )}
@@ -140,13 +143,20 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
             <h2 id="library-workflow" className={styles.groupLabel}>
               Workflow
             </h2>
-            <div className={sections.table}>
+            <div className={`${sections.table} ${sections.workflowTable}`}>
               <div className={`${styles.row} ${sections.headRow}`}>
                 <span>Stage</span>
                 <span>On</span>
-                <span>Gate</span>
+                <span className={sections.gateHeading}>
+                  Gate
+                  <Help>
+                    A Gate makes the Task wait for your sign-off at the end of this Stage before
+                    moving on. If the Stage skips itself, its Gate is skipped too.
+                  </Help>
+                </span>
                 <span>Send-backs</span>
                 <span>Clarify depth</span>
+                <span>Task Lead effort</span>
                 <span>Source</span>
                 <span className={base.visuallyHidden}>Actions</span>
               </div>
@@ -355,6 +365,19 @@ function StageLine({
                 </option>
               ))}
             </select>
+          ) : (
+            dash
+          )}
+        </span>
+        <span>
+          {agent ? (
+            <StageEffort
+              stage={name}
+              value={stage?.effort}
+              inherited={row.inheritedEffort}
+              source={row.inheritedEffortFrom}
+              onChange={(effort) => onStage({ effort })}
+            />
           ) : (
             dash
           )}

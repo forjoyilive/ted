@@ -1,7 +1,5 @@
 import type { AgentKind, RunEnding } from '@ted/protocol'
-import type { LoggedEvent } from '../store/index.ts'
-
-export const failureWindowMs = 30 * 60_000
+import type { FailureHistory, FreshRunRequest } from '../store/task-history.ts'
 
 export const failedTitle = 'The Task Lead stopped twice in 30 minutes'
 
@@ -26,50 +24,24 @@ export function silentReason(ms: number): string {
   return `sent no output for ${seconds} ${seconds === 1 ? 'second' : 'seconds'}`
 }
 
-export function asksForFreshRun(entry: LoggedEvent): boolean {
-  return (
-    entry.name === 'v1.TaskResumed' ||
-    entry.name === 'v1.TaskStartedAfterPlanning' ||
-    entry.name === 'v1.TaskRequeuedAfterBlockers' ||
-    entry.name === 'v1.TaskRetried' ||
-    entry.name === 'v1.GitHubActivityQueued' ||
-    (entry.name === 'v1.TaskUnarchived' && entry.data.queued === true) ||
-    (entry.name === 'v1.TaskLeadFailed' && entry.data.recovery === 'fresh')
-  )
-}
-
-export function recentFailures(log: readonly LoggedEvent[], now: number): LoggedEvent[] {
-  const since = log.findLastIndex((e) => e.name === 'v1.TaskRetried' || e.name === 'v1.TaskResumed')
-  return log
-    .slice(since + 1)
-    .filter(
-      (e) =>
-        e.name === 'v1.TaskLeadFailed' &&
-        e.data.resumeFailed !== true &&
-        now - Date.parse(e.at) < failureWindowMs,
-    )
-}
-
-export function alreadyFailed(log: readonly LoggedEvent[], runId: string, since: string): boolean {
-  return log.some((e) => e.name === 'v1.TaskLeadFailed' && e.data.runId === runId && e.at >= since)
-}
-
 export function revivedMessage(reason: string): string {
   return `Your process ${reason}, so TED resumed your session. Check where you were, then carry on with this Stage.`
 }
 
-export function freshAfterFailure(entry: LoggedEvent): { heading: string; why: string } {
-  if (entry.name === 'v1.TaskRetried') {
+export function freshAfterFailure(
+  entry: Extract<FreshRunRequest, { kind: 'failure' }> | { kind: 'retried' },
+): { heading: string; why: string } {
+  if (entry.kind === 'retried') {
     return {
       heading: 'Picking up after a failure',
       why: 'The Task Lead stopped twice in 30 minutes, and the user asked TED to try again.',
     }
   }
-  const reason = typeof entry.data.reason === 'string' ? entry.data.reason : 'exited'
+  const reason = entry.failure.reason
   return {
     heading: 'Picking up after a crash',
     why:
-      entry.data.resumeFailed === true
+      entry.failure.resumeFailed === true
         ? `The last Task Lead Run ${reason} and TED couldn’t resume its session.`
         : `The last Task Lead Run ${reason}.`,
   }
@@ -77,20 +49,18 @@ export function freshAfterFailure(entry: LoggedEvent): { heading: string; why: s
 
 export function failedAsk(
   agent: AgentKind,
-  since: readonly LoggedEvent[],
+  since: readonly FailureHistory[],
   reason: string,
   ending: RunEnding | undefined,
   now: number,
 ): { title: string; body: string } {
-  const first = since.find((e) => e.name === 'v1.TaskLeadFailed')
-  const firstReason = typeof first?.data.reason === 'string' ? first.data.reason : 'exited'
-  const resumeFailed = since.some(
-    (e) => e.name === 'v1.TaskLeadFailed' && e.data.resumeFailed === true,
-  )
+  const first = since[0]
+  const firstReason = first?.reason ?? 'exited'
+  const resumeFailed = since.some((e) => e.resumeFailed)
   const tried =
-    first?.data.recovery === 'resume' && !resumeFailed
+    first?.recovery === 'resume' && !resumeFailed
       ? 'TED resumed the session'
-      : first?.data.recovery === 'resume'
+      : first?.recovery === 'resume'
         ? 'TED couldn’t resume the session, so it started a fresh Task Lead Run from the brief'
         : 'TED started a fresh Task Lead Run from the brief'
   const minutes = first ? Math.round((now - Date.parse(first.at)) / 60_000) : 0

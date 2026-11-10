@@ -2,7 +2,7 @@
 
 ## Goal
 
-Find out whether the work does what the Task asks, without breaking anything else, with as much automated checking as possible. Pass means no blocking Findings.
+Find out whether the work does what the Task asks, without breaking anything else, through Checks, independent code review and security review. Pass means no blocking Findings.
 
 ## Before you start
 
@@ -10,15 +10,19 @@ If the Factory has Checks, TED has already run them, one after another, and thei
 
 ## Steps
 
-1. Run the project’s tests, and its end-to-end tests where they exist, beyond what the Checks cover.
-2. Have the reviewer review the diff with no Work context: start it with `ted run start --reviewer --prompt-file <file>`, give it only the Task, the Design brief and the diff against the base branch, and wait for its Findings with `ted run wait`. TED picks the reviewer’s agent, model and effort.
-3. Check the change against the Task’s description and the Design brief. Look for missing cases, broken behaviour and leftover debugging code.
+1. Read the Checks and Work evidence. Run relevant tests, including end-to-end tests where appropriate, to cover gaps in that evidence. Follow the repo’s test scope rules; repeat a passing check when the change or an unresolved concern warrants it.
+2. Have the reviewer perform code review and security review of the committed diff with no Work conversation: start it with `ted run start --reviewer --prompt-file <file>` and wait for its Findings with `ted run wait <id>`. Supply the Task, acceptance criteria, Design brief, repo guidance and diff against a stated base commit. TED picks the reviewer’s agent, model and effort. One reviewer can cover both reviews. Tell the reviewer to use `code-review` if the skill is available to its agent, or follow the review criteria below manually. Keep TED’s reviewer selection and workflow commands. Ask it to report these separately:
+   - **Requested behaviour:** missing or incorrect behaviour against the acceptance criteria, missed edge cases, scope creep and tests that fail to demonstrate the result. Cite the requirement and affected file and line. If criteria are missing, report that gap rather than inventing requirements.
+   - **Repo standards:** breaches of documented rules. Cite the rule and affected file and line; distinguish violations from suggestions.
+   - **Security:** assess the change’s security impact every time. When it touches input, files, processes, network or credentials, review the relevant trust boundaries, permissions and failure cases. Use an available security review skill or tool when helpful, or review manually. State the scope, method and confirmed Findings; if there is no security-sensitive impact, explain why.
+   Findings from either review need evidence of the problem and its effect.
+3. Check each acceptance criterion against the Task’s description, Design brief and verification evidence. Confirm reviewer Findings against the files. Look for missing cases, broken behaviour and leftover debugging code.
 4. For UI changes, take screenshots of each changed screen as the preamble describes (headless, never by taking over the user’s screen), judge them against what was wanted, and attach them to your note as evidence.
-5. Sort every Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, with the notes.
+5. Confirm both reviews cover the committed change. Sort every code and security Finding as blocking (the Task isn’t done until it’s fixed) or a note (worth knowing, fine to merge). Post a short note listing what you ran and what you found, including the security review’s scope, method and outcome, with the notes.
 
 ## Done when
 
-There are no blocking Findings and the note is posted. Then report the outcome with what the review and the screenshots found, for the user’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
+Code review and security review are complete, there are no blocking Findings and the note is posted. Then report the outcome with what both reviews and the screenshots found, for the user’s confirmation row: `ted outcome advance --review pass --review-notes <n>`, counting notes from both reviews and adding `--visual pass --visual-notes <n>` when you judged screenshots. The notes go into the Review brief.
 
 ## Send back when
 

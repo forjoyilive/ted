@@ -58,7 +58,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - **GAP-16** Daemon crash. Resolved by KRI-59: the app restarts it; Reconnecting bar; stops after 3 crashes in 10 minutes.
 - **GAP-17** Automations and the daemon quitting. Resolved by KRI-59 and KRI-64: an enabled Automation counts as work running; missed firings made up once.
 - **GAP-18** Disk use and a full disk. Resolved by KRI-59: Settings → Storage; warn under 10 GB, hold new work under 2 GB.
-- **GAP-19** Migrations, backup, export. Resolved by KRI-59: versioned events, backups before schema changes and daily; no export (KRI-71).
+- **GAP-19** Migrations, backup, export. Resolved by KRI-59: versioned events and backups before schema changes and daily. KRI-71 adds Factory export to JSON or Markdown through the CLI and Settings → Storage.
 - **GAP-20** Retention. Resolved by KRI-59.
 - **GAP-21** Updates with Runs always active. Resolved by KRI-59: restarting never stops Runs.
 - **GAP-22** Loopback auth. Resolved by KRI-59: a token in `~/.ted/daemon.json` (0600), plus per-Run tokens.

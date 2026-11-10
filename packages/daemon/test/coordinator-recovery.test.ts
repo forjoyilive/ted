@@ -468,7 +468,7 @@ test('failed session launch keeps pending input available for a successful retry
   )
 })
 
-test('failed admitted input write preserves the human request for Retry', async () => {
+test('failed admitted input write preserves the user request for Retry', async () => {
   const s = await setup()
   const c = await s.message([{ say: 'Initial answer' }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')

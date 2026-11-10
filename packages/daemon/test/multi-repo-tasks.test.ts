@@ -230,6 +230,8 @@ describe('a multi-repo Task', () => {
     expect(current?.chosenRepos).toEqual(['acme/widgets', 'acme/api'])
     const lines = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
     expect(lines.map((l) => l.text)).toContain('Task Lead set Repos to widgets, api')
+    expect(lines.filter((line) => line.text.startsWith('Setting up api ·'))).toHaveLength(1)
+    expect(lines.filter((line) => line.text === 'Setup finished in api')).toHaveLength(1)
   })
 
   test('removing a repo whose worktree has commits waits for --yes, then removes the worktree', async () => {
@@ -271,6 +273,40 @@ describe('a multi-repo Task', () => {
     expect(await exists(path.join(taskFolder(), 'api'))).toBe(false)
     expect(liveRepos(await getTask(client, task.id))).toEqual(['widgets'])
   })
+
+  test.runIf(process.platform === 'darwin')(
+    'a Run cannot escape through an edited teardown script when removing a repo',
+    async () => {
+      await twoRepos(['    worktree:', '      teardown: "sh cleanup.sh"', ''].join('\n'))
+      const client = await start()
+      await addFactory(client)
+      const marker = path.join(home, 'escaped')
+      const task = await createTask(
+        client,
+        steps(
+          { run: ['ted', 'task', 'repos', 'set', 'widgets', 'api'] },
+          { run: ['sh', '-c', `echo "echo escaped > '${marker}'" > api/cleanup.sh`] },
+          { run: ['ted', 'task', 'repos', 'remove', 'api'] },
+          { endTurn: true },
+        ),
+      )
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      const run = await leadRun(client, task)
+      const results = await commandResults(client, run.id, 3)
+      expect(results.map((r) => r.code)).toEqual([0, 0, 0])
+      expect(await exists(marker)).toBe(false)
+      expect(await exists(path.join(taskFolder(), 'api'))).toBe(false)
+      const current = await getTask(client, task.id)
+      expect(current?.repos.find((r) => r.name === 'api')?.removed?.teardown?.outcome).toBe(
+        'failed',
+      )
+      const output = await readFile(
+        path.join(home, 'logs', 'worktrees', 'NB-1-api-teardown.log'),
+        'utf8',
+      )
+      expect(output).toContain('Operation not permitted')
+    },
+  )
 
   test('the user sets Repos in Backlog; both worktrees and setups are ready before the Task Lead', async () => {
     await twoRepos(['    worktree:', '      setup: "touch setup-ran"', ''].join('\n'))
@@ -359,11 +395,10 @@ describe('a multi-repo Task', () => {
   })
 
   test('archiving removes every repo’s worktree after its teardown; Unarchive makes them all again', async () => {
-    const torn = path.join(scratch, 'torn-down')
     await twoRepos(
       [
         '    worktree:',
-        `      teardown: "touch '${torn}'"`,
+        '      teardown: "echo torn-down"',
         '      setup: "touch setup-ran"',
         '',
       ].join('\n'),
@@ -395,9 +430,14 @@ describe('a multi-repo Task', () => {
     await client.ok('POST', `/tasks/${task.id}/archive`, {})
 
     await waitUntil(async () => !(await exists(taskFolder())), 'the Task folder to go')
-    expect(await exists(torn)).toBe(true)
-    const archived = await getTask(client, task.id)
-    expect(archived?.repos.every((r) => r.removed !== undefined)).toBe(true)
+    expect(
+      await readFile(path.join(home, 'logs', 'worktrees', 'NB-1-api-teardown.log'), 'utf8'),
+    ).toBe('torn-down\n')
+    const archived = await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.repos.every((r) => r.removed !== undefined) ? current : undefined
+    }, 'every repo to be recorded as removed')
+    expect(archived?.repos.find((r) => r.name === 'api')?.removed?.teardown?.outcome).toBe('passed')
 
     await client.ok('POST', `/tasks/${task.id}/unarchive`)
 

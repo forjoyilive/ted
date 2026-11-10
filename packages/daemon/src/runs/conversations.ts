@@ -12,19 +12,26 @@ import {
 } from '@ted/protocol'
 import type { AgentChatEntry, Agents } from '../agents/index.ts'
 import type { Coordinators } from '../coordinators/coordinators.ts'
-import { coordinatorOpening } from '../coordinators/coordinators.ts'
+import {
+  coordinatorFromTed,
+  coordinatorOpening,
+  coordinatorTurn,
+} from '../coordinators/coordinators.ts'
 import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { planOpening } from '../plans/prompts.ts'
+import type { PromptPart } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import type { RunManager } from './run-manager.ts'
+import type { OutputKept } from './run-output.ts'
 import type { Steering } from './steering.ts'
 
 export interface Conversations {
   chat(runId: string): Promise<RunChat>
+  coordinatorChat(factoryId: string): Promise<RunChat | null>
   taskRuns(ref: string): RunSummary[]
   send(runId: string, text: string, options?: { interrupt?: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<RunSummary>
@@ -104,6 +111,45 @@ export function withPermissions(items: ChatItem[], requests: readonly Comment[])
   )
 }
 
+function withOutputNote(kept: OutputKept, items: ChatItem[]): ChatItem[] {
+  if (kept === 'all') return items
+  const after = items.findIndex((item) => item.kind !== 'instructions' && item.kind !== 'prompt')
+  const at = after === -1 ? items.length : after
+  const note: ChatItem =
+    kept === 'none'
+      ? {
+          kind: 'ted',
+          id: 'output-not-kept',
+          title: 'Output no longer kept',
+          text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+        }
+      : {
+          kind: 'ted',
+          id: 'output-not-kept',
+          title: 'Earlier output no longer kept',
+          text: 'TED kept only the newest part of this Run’s output. Earlier messages and tool calls can’t be shown.',
+        }
+  return [...items.slice(0, at), note, ...items.slice(at)]
+}
+
+function takeDelivered(
+  unmatched: RunMessage[],
+  text: string,
+  bundle: ((messages: readonly RunMessage[]) => string) | undefined,
+): RunMessage[] {
+  const wanted = text.trim()
+  const one = unmatched.findIndex((m) => m.text.trim() === wanted)
+  if (one !== -1) return unmatched.splice(one, 1)
+  if (!bundle) return []
+  for (let from = 0; from < unmatched.length; from++) {
+    for (let to = from + 2; to <= unmatched.length; to++) {
+      if (bundle(unmatched.slice(from, to)).trim() === wanted)
+        return unmatched.splice(from, to - from)
+    }
+  }
+  return []
+}
+
 export function chatItems(input: {
   run: Run
   entries: AgentChatEntry[]
@@ -111,10 +157,17 @@ export function chatItems(input: {
   interrupts?: readonly { id: string; at: string }[]
   preamble: string
   promptFromHuman?: boolean
+  tedHeading?: string
+  promptParts?: readonly PromptPart[] | undefined
+  bundle?: (messages: readonly RunMessage[]) => string
 }): ChatItem[] {
   const { run, entries, messages, interrupts = [], preamble, promptFromHuman = false } = input
   const items: ChatItem[] = []
-  const { instructions, rest } = splitPrompt(run.prompt, preamble)
+  const { instructions, rest: wholeRest } = splitPrompt(run.prompt, preamble)
+  const tedAt = input.tedHeading === undefined ? -1 : wholeRest.indexOf(input.tedHeading)
+  const rest = tedAt === -1 ? wholeRest : wholeRest.slice(0, tedAt).trim()
+  const fromTed =
+    tedAt === -1 ? '' : wholeRest.slice(tedAt + (input.tedHeading ?? '').length).trim()
   if (instructions !== undefined) {
     items.push({
       kind: 'instructions',
@@ -124,20 +177,35 @@ export function chatItems(input: {
       at: run.startedAt,
     })
   }
-  if (rest !== '' && promptFromHuman) {
-    items.push({ kind: 'human', id: 'prompt', text: rest, at: run.startedAt, sent: true })
-  } else if (rest !== '') {
-    items.push({
-      kind: 'prompt',
-      id: 'prompt',
-      text: rest,
-      lines: lineCount(rest),
-      at: run.startedAt,
-    })
+  const fromTedItem = (id: string, text: string, at: string): ChatItem => ({
+    kind: 'ted',
+    id,
+    title: titleOf(text),
+    text,
+    at,
+  })
+  const parts = input.promptParts ?? []
+  for (const part of parts) {
+    const text = run.prompt.slice(part.start, part.end)
+    items.push(
+      part.from === 'ted'
+        ? fromTedItem(part.id, text, run.startedAt)
+        : { kind: 'human', id: part.id, text, at: part.at, sent: true },
+    )
+  }
+  if (parts.length === 0 && rest !== '') {
+    items.push(
+      promptFromHuman
+        ? { kind: 'human', id: 'prompt', text: rest, at: run.startedAt, sent: true }
+        : { kind: 'prompt', id: 'prompt', text: rest, lines: lineCount(rest), at: run.startedAt },
+    )
+  }
+  if (parts.length === 0 && fromTed !== '') {
+    items.push(fromTedItem('prompt-from-ted', fromTed, run.startedAt))
   }
   const deliveredAt = new Map<ChatItem, string>()
   const unmatched = messages.filter((m) => m.queued !== true)
-  const waiting = messages.filter((m) => m.queued === true)
+  const waiting = messages.filter((m) => m.queued === true && m.from !== 'ted')
   let promptSeen = run.prompt === ''
   for (const entry of entries) {
     if (entry.kind === 'user') {
@@ -145,9 +213,12 @@ export function chatItems(input: {
         promptSeen = true
         continue
       }
-      const index = unmatched.findIndex((m) => m.text.trim() === entry.text.trim())
-      const message = index === -1 ? undefined : unmatched.splice(index, 1)[0]
-      if (message) {
+      const delivered = takeDelivered(unmatched, entry.text, input.bundle)
+      for (const message of delivered) {
+        if (message.from === 'ted') {
+          items.push(fromTedItem(message.id, message.text, entry.at ?? message.at))
+          continue
+        }
         const item: ChatItem = {
           kind: 'human',
           id: message.id,
@@ -157,7 +228,8 @@ export function chatItems(input: {
         }
         items.push(item)
         if (entry.at !== undefined) deliveredAt.set(item, entry.at)
-      } else {
+      }
+      if (delivered.length === 0) {
         items.push({
           kind: 'ted',
           id: entry.key,
@@ -195,6 +267,7 @@ export function chatItems(input: {
     }
   }
   for (const message of unmatched) {
+    if (message.from === 'ted') continue
     items.push({ kind: 'human', id: message.id, text: message.text, at: message.at, sent: false })
   }
   const lastAgent = items.at(-1)
@@ -263,7 +336,7 @@ export function createConversations(options: {
   const steering = options.steering
 
   const summary = (run: Run, given?: readonly ConversationEntry[]): RunSummary => {
-    const entries = given ?? store.conversation(run.id)
+    const entries = given ?? runs.output.entries(run.id)
     const tokens = tokensOf(agents, run, entries)
     const billing =
       reportedCredential(agents, run, entries) ??
@@ -303,7 +376,7 @@ export function createConversations(options: {
   return {
     async chat(runId) {
       const run = requireRun(runId)
-      const entries = store.conversation(runId)
+      const entries = runs.output.entries(runId)
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
       const coordinated = store.coordinators.forRun(runId) !== undefined
@@ -318,22 +391,36 @@ export function createConversations(options: {
       const opening = coordinated
         ? run.prompt.lastIndexOf(openingText)
         : run.prompt.indexOf(openingText)
-      const planPreamble =
-        (planned || coordinated) && opening !== -1
+      const firstPart = coordinated
+        ? store.coordinators.forRun(runId)?.prompts?.[runId]?.[0]
+        : undefined
+      const planPreamble = firstPart
+        ? run.prompt.slice(0, firstPart.start).trim()
+        : (planned || coordinated) && opening !== -1
           ? run.prompt.slice(0, opening + openingText.length)
           : undefined
+      const kept = runs.output.kept(runId)
       return {
         run: summary(run, entries),
         items: withPermissions(
-          chatItems({
-            run,
-            entries: agents.get(run.agent).chat(entries, run.cwd),
-            messages: store.runMessages(runId),
-            interrupts: store.runInterrupts(runId),
-            preamble:
-              planPreamble ?? (run.parentRunId !== undefined ? await subPreamble : await preamble),
-            promptFromHuman: planPreamble !== undefined,
-          }),
+          withOutputNote(
+            kept,
+            chatItems({
+              run,
+              entries: agents.get(run.agent).chat(entries, run.cwd),
+              messages: store.runMessages(runId),
+              interrupts: store.runInterrupts(runId),
+              preamble:
+                planPreamble ??
+                (run.parentRunId !== undefined ? await subPreamble : await preamble),
+              promptFromHuman: planPreamble !== undefined,
+              ...(coordinated && {
+                tedHeading: coordinatorFromTed,
+                promptParts: store.coordinators.forRun(runId)?.prompts?.[runId],
+                bundle: coordinatorTurn,
+              }),
+            }),
+          ),
           run.taskId === undefined
             ? []
             : store
@@ -343,6 +430,65 @@ export function createConversations(options: {
                     c.kind === 'permission' && c.author.kind === 'run' && c.author.runId === run.id,
                 ),
         ),
+      }
+    },
+    async coordinatorChat(factoryId) {
+      const c = store.coordinators.get(factoryId)
+      if (!c) return null
+      const started = c.runIds.filter((id) => store.getRun(id) !== undefined)
+      const last = started.at(-1)
+      let items: ChatItem[] = []
+      let run: RunSummary | undefined
+      for (const id of c.runIds) {
+        if (!started.includes(id)) {
+          for (const message of store.runMessages(id)) {
+            if (message.queued !== true || message.from === 'ted') continue
+            const { text, at } = message
+            items.push({ kind: 'human', id: message.id, text, at, sent: false, queued: true })
+          }
+          continue
+        }
+        const chat = await this.chat(id)
+        if (id === last) run = chat.run
+        if (id !== started[0]) {
+          items.push({
+            kind: 'ted',
+            id: `${id}:new-run`,
+            title: 'New Run',
+            text: 'The earlier Run ended, so TED started a new one and gave it this conversation as context.',
+            at: chat.run.startedAt,
+          })
+        }
+        for (const item of chat.items) {
+          if (id !== started[0] && item.kind === 'instructions') continue
+          if (id !== last && item.kind === 'human' && !item.sent) continue
+          items.push(id === last ? item : { ...item, id: `${id}:${item.id}` })
+        }
+      }
+      items = mergeByTime(
+        items,
+        (c.unsentMessages ?? []).map(({ id, text, at }) => ({
+          kind: 'human',
+          id,
+          text,
+          at,
+          sent: false,
+          unsent: true,
+        })),
+      )
+      return {
+        run: run ?? {
+          id: c.runId,
+          name: 'Coordinator',
+          role: 'run',
+          agent: c.lead.agent,
+          ...(c.lead.model !== undefined && { model: c.lead.model }),
+          ...(c.lead.effort !== undefined && { effort: c.lead.effort }),
+          state: 'idle',
+          startedAt: items.find((item) => 'at' in item && item.at !== undefined)?.at ?? '',
+          current: true,
+        },
+        items,
       }
     },
     taskRuns(ref) {

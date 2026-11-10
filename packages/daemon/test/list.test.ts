@@ -153,7 +153,7 @@ describe('rank', () => {
 })
 
 describe('Priority', () => {
-  test('the human sets a Task’s Priority', async () => {
+  test('the user sets a Task’s Priority', async () => {
     const client = await startWithStub()
     const a = await create(client, 'A')
     const set = await client.ok<Task>('PUT', `/tasks/${a.id}/priority`, { priority: 'urgent' })

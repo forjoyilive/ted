@@ -339,7 +339,7 @@ describe('Factory settings', () => {
     expect(await originBranches()).toEqual(['main'])
   })
 
-  test('a repo added to .ted/workflow.yaml outside TED waits for the human to add it', async () => {
+  test('a repo added to .ted/workflow.yaml outside TED waits for the user to add it', async () => {
     const second = path.join(scratch, 'acme', 'api.git')
     await run('git', ['init', '--bare', '--initial-branch=main', second])
     await run('git', ['push', second, 'main'], { cwd: path.join(scratch, 'seed') })

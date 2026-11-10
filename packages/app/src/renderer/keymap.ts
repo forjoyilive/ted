@@ -72,6 +72,7 @@ const sections: readonly SheetSection[] = [
       { id: 'move-up', label: 'Move up in rank (Manual order)', keys: ['⌥↑'] },
       { id: 'move-down', label: 'Move down in rank (Manual order)', keys: ['⌥↓'] },
       { id: 'archive', label: 'Archive', keys: ['⌘⌫'] },
+      { id: 'quick-open', label: 'Open a file', keys: ['⌘P'] },
       { id: 'shell', label: 'Open the Task’s shell', keys: ['⌃`'] },
     ],
   },
@@ -99,3 +100,19 @@ export const keyBindings: readonly { id: string; shortcuts: readonly string[] }[
   ),
   ...Array.from({ length: 9 }, (_, i) => ({ id: `factory:${i + 1}`, shortcuts: [`⌘${i + 1}`] })),
 ]
+
+export function sidebarResizeKey(event: {
+  key: string
+  shiftKey: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+}): number | 'min' | 'max' | undefined {
+  if (event.metaKey || event.ctrlKey || event.altKey) return undefined
+  if (event.key === 'Home') return 'min'
+  if (event.key === 'End') return 'max'
+  const step = event.shiftKey ? 40 : 10
+  if (event.key === 'ArrowLeft') return -step
+  if (event.key === 'ArrowRight') return step
+  return undefined
+}

@@ -6,6 +6,7 @@ export type FailureRun = {
   ok: boolean
   failures: string[]
   problems: string[]
+  passedOnRetry?: string[]
 }
 
 type History = { version: 1; runs: FailureRun[] }
@@ -31,7 +32,8 @@ export function parseHistory(text: string): FailureRun[] {
         Number.isFinite(Date.parse(run.at)) &&
         typeof run.ok === 'boolean' &&
         strings(run.failures) &&
-        strings(run.problems),
+        strings(run.problems) &&
+        (run.passedOnRetry === undefined || strings(run.passedOnRetry)),
     )
   ) {
     throw new Error('invalid or unsupported failure history')
@@ -40,26 +42,45 @@ export function parseHistory(text: string): FailureRun[] {
 }
 
 export function appendRun(runs: FailureRun[], run: FailureRun): FailureRun[] {
-  return [...runs, { ...run, failures: [...new Set(run.failures)] }].slice(-20)
+  const { passedOnRetry, ...rest } = run
+  const retried = [...new Set(passedOnRetry ?? [])]
+  return [
+    ...runs,
+    {
+      ...rest,
+      failures: [...new Set(run.failures)],
+      ...(retried.length > 0 && { passedOnRetry: retried }),
+    },
+  ].slice(-20)
 }
 
-export function failureSummary(runs: FailureRun[]): string {
+function ranked(runs: FailureRun[], pick: (run: FailureRun) => string[]): [string, number][] {
   const counts = new Map<string, number>()
   for (const run of runs) {
-    for (const failure of new Set(run.failures)) {
-      counts.set(failure, (counts.get(failure) ?? 0) + 1)
-    }
+    for (const name of new Set(pick(run))) counts.set(name, (counts.get(name) ?? 0) + 1)
   }
-  const ranked = [...counts].sort(([a, ac], [b, bc]) => bc - ac || (a < b ? -1 : a > b ? 1 : 0))
+  return [...counts].sort(([a, ac], [b, bc]) => bc - ac || (a < b ? -1 : a > b ? 1 : 0))
+}
+
+const countLine = ([name, count]: [string, number]) =>
+  `  ${count} run${count === 1 ? '' : 's'}  ${name}`
+
+export function failureSummary(runs: FailureRun[]): string {
+  const failures = ranked(runs, (run) => run.failures)
+  const retried = ranked(runs, (run) => run.passedOnRetry ?? [])
   const incomplete = runs.filter((run) => run.problems.length > 0).length
   const lines = [
     `== Most frequently observed test failures (last ${runs.length} runs; ${incomplete} incomplete)`,
-    ...ranked
-      .slice(0, 10)
-      .map(([name, count]) => `  ${count} run${count === 1 ? '' : 's'}  ${name}`),
+    ...failures.slice(0, 10).map(countLine),
   ]
-  if (ranked.length === 0) lines.push('  No named test failures recorded.')
+  if (failures.length === 0) lines.push('  No named test failures recorded.')
   if (incomplete > 0) lines.push('  Incomplete runs may have unreported failures.')
+  if (retried.length > 0) {
+    lines.push(
+      `== Tests that failed, then passed on retry (last ${runs.length} runs)`,
+      ...retried.slice(0, 10).map(countLine),
+    )
+  }
   return lines.join('\n')
 }
 

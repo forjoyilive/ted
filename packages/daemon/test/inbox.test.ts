@@ -56,7 +56,7 @@ describe('Answered', () => {
   const now = new Date('2026-11-30T12:00:00Z')
   const tasks = [task('t', 'urgent')]
 
-  test('lists what the human answered in the last 30 days, newest answer first', () => {
+  test('lists what the user answered in the last 30 days, newest answer first', () => {
     const items = answered(
       [
         request(

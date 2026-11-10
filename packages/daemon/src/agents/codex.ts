@@ -34,6 +34,35 @@ const sandbox: Record<PermissionMode, string[]> = {
   bypass: ['sandbox_mode="danger-full-access"', 'approval_policy="never"'],
 }
 
+// Codex still exposes apply_patch without shell tools; read-only with no approvals denies it.
+const textOnly = [
+  'sandbox_mode="read-only"',
+  'approval_policy="never"',
+  'web_search="disabled"',
+  'notify=[]',
+  'tools.experimental_request_user_input.enabled=false',
+  'tools.update_plan.enabled=false',
+  ...[
+    'goals',
+    'shell_tool',
+    'shell_snapshot',
+    'shell_snapshot_v2',
+    'js_repl',
+    'apps',
+    'plugins',
+    'hooks',
+    'codex_hooks',
+    'plugin_hooks',
+    'multi_agent',
+    'multi_agent_v2',
+    'image_generation',
+    'memory_tool',
+    'view_image',
+    'tool_suggest',
+    'skill_mcp_dependency_install',
+  ].map((feature) => `features.${feature}=false`),
+]
+
 const environmentPolicy = [
   'shell_environment_policy.inherit="all"',
   'shell_environment_policy.ignore_default_excludes=true',
@@ -433,7 +462,7 @@ export function codexAgent(binary: string): Agent {
   return {
     kind: 'codex',
     binary,
-    launch({ prompt, env, resume, model, effort, permissions, billing }) {
+    launch({ prompt, env, resume, model, effort, permissions, billing, tools }) {
       if (model !== undefined && !isModelName(model)) {
         throw new Error(`“${model}” isn’t a model name`)
       }
@@ -442,6 +471,7 @@ export function codexAgent(binary: string): Agent {
           resume === undefined
             ? { method: 'thread/start', params: {} }
             : { method: 'thread/resume', params: { threadId: resume } },
+        ...(tools === 'none' && { textOnly: true }),
         prompt,
         clientVersion: tedVersion,
         ...(model !== undefined && { model }),
@@ -451,7 +481,10 @@ export function codexAgent(binary: string): Agent {
         command: binary,
         args: [
           'app-server',
-          ...[...sandbox[permissions], ...environmentPolicy].flatMap((c) => ['-c', c]),
+          ...[
+            ...(tools === 'none' ? textOnly : sandbox[permissions]),
+            ...environmentPolicy,
+          ].flatMap((c) => ['-c', c]),
         ],
         env: codexEnvironment(env, billing ?? 'subscription'),
         input: JSON.stringify(plan),
@@ -500,6 +533,12 @@ export function codexAgent(binary: string): Agent {
         return flags.length > 0 ? 'waiting' : 'working'
       }
       return stateByMethod[message.method]
+    },
+    turnFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'turn/started') return 'started'
+      if (message?.method === 'turn/completed') return 'completed'
+      return undefined
     },
     acceptedTextFrom(line) {
       const message = parse(line)

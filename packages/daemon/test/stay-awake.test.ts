@@ -59,7 +59,7 @@ describe('Stay Awake', () => {
     await expect.poll(() => calls).toEqual(['hold', 'release'])
   })
 
-  test('a Run waiting on the human doesn’t keep the machine awake', async () => {
+  test('a Run waiting on the user doesn’t keep the machine awake', async () => {
     const { raw } = await start()
 
     const run = await raw.startRun(

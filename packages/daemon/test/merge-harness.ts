@@ -16,6 +16,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import type { ManualClock } from './support/manual-clock.ts'
 
 export const run = promisify(execFile)
 
@@ -206,7 +208,11 @@ export function leadSteps(client: Client) {
   })
 }
 
-export async function toSignoff(client: Client, extra: Record<string, unknown> = {}) {
+export async function toSignoff(
+  client: Client,
+  extra: Record<string, unknown> = {},
+  clock?: ManualClock,
+) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: leadSteps(client),
     factory: 'NB',
@@ -215,7 +221,9 @@ export async function toSignoff(client: Client, extra: Record<string, unknown> =
   await client.ok('POST', `/tasks/${task.id}/start`)
   const item = await waitUntil(async () => {
     const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    return items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+    const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+    if (!item && clock?.pending.includes(100)) clock.advance(100)
+    return item
   }, 'the Review sign-off')
   await waitUntil(
     async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
@@ -236,10 +244,14 @@ export async function approve(client: Client, signoff: Comment) {
 }
 
 export const waitForStage = (client: Client, task: Task, stage: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return current.stage === stage ? current : undefined
-  }, `${task.displayId} to reach ${stage}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === stage ? current : undefined
+    },
+    `${task.displayId} to reach ${stage}`,
+  )
 
 export const ghCalls = async () =>
   (await readFile(ctx.ghLog, 'utf8').catch(() => ''))

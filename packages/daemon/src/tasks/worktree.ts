@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { copyFile, glob, lstat, mkdir, open, readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { CopySkip, WorktreeCommandOutcome } from '@ted/protocol'
+import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RepoSettings } from '../workflow/check.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
@@ -29,6 +30,7 @@ export interface CopyResult {
 export interface CommandResult {
   outcome: WorktreeCommandOutcome | 'interrupted'
   exitCode?: number
+  problem?: string
 }
 
 const defaultTimeoutMs = 15 * 60_000
@@ -147,12 +149,14 @@ export async function runWorktreeCommand(input: {
   log: string
   signal?: AbortSignal
   shell?: [string, ...string[]]
+  lowPriority: boolean
 }): Promise<CommandResult> {
   await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
   const log = await open(input.log, 'w', 0o600)
   try {
     const [shell, ...flags] = input.shell ?? ['/bin/sh', '-c']
-    const child = spawn(shell, [...flags, input.command.run], {
+    const { command, args } = workCommand(shell, [...flags, input.command.run], input.lowPriority)
+    const child = spawn(command, args, {
       cwd: input.cwd,
       env: input.env,
       detached: true,

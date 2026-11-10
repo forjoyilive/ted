@@ -321,7 +321,7 @@ test('new assessments withdraw stale requests and only the latest explicit choic
   expect((await s.obligations()).satisfied).toBe(true)
 })
 
-test('authorization separates lead operations, own-Task reads and human decisions', async () => {
+test('authorization separates lead operations, own-Task reads and user decisions', async () => {
   const s = await setup()
   const context = await s.capture()
   const decision = await s.request(await s.record(context.id))
