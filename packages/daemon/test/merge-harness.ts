@@ -76,6 +76,7 @@ Merge it.
 
 export interface GhMerge {
   disableAutoFails?: boolean
+  rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
   origin?: string
   mergeState?: string

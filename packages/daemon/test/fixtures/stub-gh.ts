@@ -47,6 +47,7 @@ interface StubMerge {
   prs?: Record<string, Omit<StubMerge, 'prs' | 'origins'>>
   mergeFails?: string
   disableAutoFails?: boolean
+  rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
   mergeState?: string
   mergeable?: string
@@ -226,12 +227,17 @@ function pullRequests(variables: Record<string, unknown>) {
                     latestStatus: { state: d.state, environmentUrl: d.url ?? null },
                   })),
                 },
-                statusCheckRollup: {
-                  contexts: {
-                    pageInfo: { hasNextPage: false },
-                    nodes: (merge.checks ?? []).map(checkNode),
-                  },
-                },
+                statusCheckRollup:
+                  merge.rollup === 'empty'
+                    ? null
+                    : merge.rollup === 'missing'
+                      ? undefined
+                      : {
+                          contexts: {
+                            pageInfo: { hasNextPage: merge.rollup === 'truncated' },
+                            nodes: (merge.checks ?? []).map(checkNode),
+                          },
+                        },
               },
             },
           ],

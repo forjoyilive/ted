@@ -4,7 +4,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { FailureCase, NewTaskDraft, TaskDraftState } from '@ted/protocol'
+import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -41,6 +41,8 @@ import {
   defaultMachineSettings,
   type Effort,
   type Factory,
+  type FailureCase,
+  failureChoices,
   type GitHubWait,
   type LayerKind,
   type LayerUse,
@@ -2184,7 +2186,7 @@ export async function openStore({
           taskId: value.taskId,
           kind: 'question',
           body,
-          choices: ['Accept this failure', 'Fixed', 'No longer applicable'],
+          choices: Object.values(failureChoices),
           author: { kind: 'ted' },
         },
         at,

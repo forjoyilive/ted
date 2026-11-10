@@ -1,23 +1,25 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type {
   AssessFailureRequest,
   Comment,
   FailureCase,
   FailureContext,
+  FailureSource,
   RecordFailureRequest,
   ResolveFailureRequest,
   Task,
   ValidationObligations,
 } from '@ted/protocol'
+import { failureChoices } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
 
-export const failureChoices = {
-  accepted: 'Accept this failure',
-  fixed: 'Fixed',
-  'no-longer-applicable': 'No longer applicable',
-} as const
+export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' }>): string {
+  return createHash('sha256')
+    .update(JSON.stringify([source.repo, source.number, source.head, source.attempt]))
+    .digest('hex')
+}
 
 export function failureText(value: string): string {
   for (const match of value.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
@@ -63,6 +65,22 @@ export function createFailureCases(options: {
       throw new RequestError(400, 'tested context must belong to this Task')
     return found
   }
+  const sourceContext = (source: FailureSource, context?: FailureContext) => {
+    if (!context) return false
+    if (source.kind === 'github-ci')
+      return context.ciFailures?.includes(ciFailureKey(source)) === true
+    if (source.kind === 'finding') {
+      const run = store.getRun(source.runId)
+      return (
+        !!run &&
+        context.capturedAt >= run.startedAt &&
+        (run.state !== 'finished' || !!run.ended) &&
+        (!run.ended || context.capturedAt <= run.ended.at)
+      )
+    }
+    const run = store.getCheckRun(source.checkRunId)
+    return !!run && context.capturedAt <= run.startedAt
+  }
   const decisionComment = (value: FailureCase) => {
     const decision = value.decisions.at(-1)
     return decision ? store.getComment(decision.commentId) : undefined
@@ -102,7 +120,10 @@ export function createFailureCases(options: {
         resolution?.resolution ?? 'unresolved'
       const context = tested(task, resolution?.contextId ?? value.contextId)
       const state =
-        !current || !context
+        !current ||
+        !context ||
+        !sourceContext(value.source, tested(task, value.contextId)) ||
+        !sourceContext(value.source, context)
           ? 'unknown'
           : current.fingerprint === context.fingerprint
             ? 'current'
@@ -192,6 +213,11 @@ export function createFailureCases(options: {
         )
       )
         throw new RequestError(400, 'CI source must identify this Task’s pull request')
+      if (context && !sourceContext(source, context))
+        throw new RequestError(
+          409,
+          'tested context does not identify this execution; omit contextId for historical or unknown evidence',
+        )
       const safeSource =
         source.kind === 'finding'
           ? { ...source, finding: failureText(source.finding) }
@@ -227,13 +253,14 @@ export function createFailureCases(options: {
         value.resolutions.at(-1)?.resolution !== 'accepted'
       )
         throw new RequestError(409, 'this case is closed; record a new failure')
+      const safeEvidence = failureText(evidence)
       withdraw(value)
       const next = {
         ...value,
         additions: [
           ...value.additions,
           {
-            evidence: failureText(evidence),
+            evidence: safeEvidence,
             runId,
             at: new Date().toISOString(),
             ...(contextId && { contextId }),
@@ -243,6 +270,7 @@ export function createFailureCases(options: {
       return store.failures.save(next, 'evidence')
     },
     async assess(task: Task, id: string, runId: string, request: AssessFailureRequest) {
+      const recommendation = failureText(request.recommendation)
       await obligations(task)
       options.assertLead(task, runId)
       const value = get(task, id)
@@ -264,7 +292,7 @@ export function createFailureCases(options: {
             {
               id: randomUUID(),
               ...request,
-              recommendation: failureText(request.recommendation),
+              recommendation,
               runId,
               ...(contextId && { contextId }),
               at: new Date().toISOString(),
@@ -296,7 +324,19 @@ export function createFailureCases(options: {
         )
       return store.postFailureDecision(
         value,
-        `Failure ${value.id}\n\n${value.evidence}\n\nAssessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}\n\nAccept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.`,
+        [
+          `Failure ${value.id}`,
+          `Source: ${JSON.stringify(value.source)}`,
+          `Original tested context: ${value.contextId ?? 'unknown'}`,
+          `Decision tested context: ${assessment.contextId ?? 'unknown'}`,
+          `Original evidence:\n${value.evidence}`,
+          ...value.additions.map(
+            (addition) =>
+              `Evidence added ${addition.at} (context ${addition.contextId ?? 'unknown'}):\n${addition.evidence}`,
+          ),
+          `Assessment: ${assessment.assessment}\nRecommendation: ${assessment.recommendation}`,
+          'Accept only this failure for its tested context, or close it as fixed or no longer applicable. Fixed and No longer applicable need a reason. Acceptance never marks the original result as passed.',
+        ].join('\n\n'),
       )
     },
     findDecision(commentId: string) {
@@ -328,7 +368,13 @@ export function createFailureCases(options: {
       const context = tested(task, decision.contextId)
       if (request.resolution === 'accepted') {
         const current = await options.snapshot(task).catch(() => undefined)
-        if (!value.contextId || !context || !current || context.fingerprint !== current.fingerprint)
+        if (
+          !sourceContext(value.source, tested(task, value.contextId)) ||
+          !sourceContext(value.source, context) ||
+          !context ||
+          !current ||
+          context.fingerprint !== current.fingerprint
+        )
           throw new RequestError(409, 'acceptance requires verified matching tested context')
       }
       const at = new Date().toISOString()

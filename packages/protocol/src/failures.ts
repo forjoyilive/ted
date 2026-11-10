@@ -1,5 +1,11 @@
 import type { CheckResult, CheckRun } from './checks.ts'
 
+export const failureChoices = {
+  accepted: 'Accept this failure',
+  fixed: 'Fixed',
+  'no-longer-applicable': 'No longer applicable',
+} as const
+
 export type FailureSource =
   | { kind: 'factory-check' | 'post-rebase-check'; checkRunId: string; position: number }
   | { kind: 'finding'; runId: string; finding: string }
@@ -8,12 +14,13 @@ export type FailureSource =
 export interface FailureContext {
   id: string
   taskId: string
-  version: 1
+  version: 1 | 2
   fingerprint: string
   capturedAt: string
   repos: { repo: string; head: string; base: string; tree: string; mergeBase: string }[]
   checks: string
   ci?: string
+  ciFailures?: string[]
 }
 
 export interface RecordFailureRequest {

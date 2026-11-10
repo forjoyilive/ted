@@ -469,3 +469,85 @@ test('later context cannot turn an unknown original execution into an acceptable
   expect((await s.resolve(asked)).status).toBe(409)
   expect((await s.resolve(asked, 'fixed', 'The later run verified the repair.')).status).toBe(200)
 })
+
+test('historical Findings remain recordable but cannot borrow a capture after their Run ended', async () => {
+  const s = await setup()
+  await s.client.ok('POST', `${s.root}/stop`)
+  await s.client.ok('POST', `${s.root}/resume`, {})
+  const fresh = await waitUntil(async () => {
+    const task = await getTask(s.client, s.task.id)
+    return task.leadRunId !== s.task.leadRunId && task.runs[0]?.state === 'idle' ? task : undefined
+  }, 'fresh lead after historical Finding')
+  const lead = api(ctx.daemon?.port ?? 0, s.tokens.issue(fresh.leadRunId ?? ''))
+  const capture = await lead.call('POST', `${s.root}/failure-contexts`, {})
+  expect(capture.status).toBe(201)
+  const context = capture.body as FailureContext
+  const source = { kind: 'finding', runId: s.task.leadRunId, finding: 'Historical observation' }
+  expect(
+    (
+      await lead.call('POST', `${s.root}/failures`, {
+        source,
+        evidence: 'Original',
+        contextId: context.id,
+      })
+    ).status,
+  ).toBe(409)
+  const recorded = await lead.call('POST', `${s.root}/failures`, { source, evidence: 'Original' })
+  expect(recorded.status).toBe(201)
+  const value = recorded.body as FailureCase
+  expect(value.source).toEqual(source)
+  expect(value.contextId).toBeUndefined()
+  expect(
+    (
+      await lead.call('POST', `${s.root}/failures/${value.id}/assessments`, {
+        assessment: 'uncertain',
+        recommendation: 'Resolve explicitly',
+      })
+    ).status,
+  ).toBe(200)
+  const request = await lead.call('POST', `${s.root}/failures/${value.id}/decision`, {})
+  expect(request.status).toBe(201)
+  const asked = request.body as FailureCase
+  expect((await s.resolve(asked)).status).toBe(409)
+  expect((await s.resolve(asked, 'fixed', 'Verified separately')).status).toBe(200)
+})
+
+test('rejected evidence and assessments preserve requests; fresh decisions expose added evidence and context', async () => {
+  const s = await setup()
+  const context = await s.capture()
+  const first = await s.request(await s.record(context.id))
+  const id = first.decisions.at(-1)?.commentId
+  const body = { evidence: 'https://user:password@example.com/log', contextId: context.id }
+  expect((await s.lead.call('POST', `${s.root}/failures/${first.id}/evidence`, body)).status).toBe(
+    400,
+  )
+  expect(
+    (
+      await s.lead.call('POST', `${s.root}/failures/${first.id}/assessments`, {
+        assessment: 'uncertain',
+        recommendation: body.evidence,
+      })
+    ).status,
+  ).toBe(400)
+  let comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  expect(comments.find((c) => c.id === id)?.answer).toBeUndefined()
+  expect((await s.resolve(first)).status).toBe(200)
+  await writeFile(path.join(s.task.repos[0]?.worktree ?? '', 'changed.txt'), 'new context')
+  expect((await s.obligations()).cases[0]?.disposition).toBe('invalidated')
+  const current = await s.capture()
+  await s.ok(`/failures/${first.id}/evidence`, {
+    evidence: 'New reproduction: Bearer abcdefghijklmnopqrstuvwxyz',
+    contextId: current.id,
+  })
+  const asked = await s.request(first)
+  comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+  const question = comments.find((c) => c.id === asked.decisions.at(-1)?.commentId)
+  expect(question?.body).toContain('Reproduced in the stub')
+  expect(question?.body).toContain('New reproduction:')
+  expect(question?.body).not.toContain('abcdefghijklmnopqrstuvwxyz')
+  expect(question?.body).toContain(`Original tested context: ${context.id}`)
+  expect(question?.body).toContain(`Decision tested context: ${current.id}`)
+  expect(question?.body).toContain(s.task.leadRunId)
+  expect(asked.evidence).toBe(first.evidence)
+  expect((await s.resolve(asked)).status).toBe(200)
+})

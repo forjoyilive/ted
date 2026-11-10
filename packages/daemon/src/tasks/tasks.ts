@@ -85,6 +85,7 @@ import {
   briefHeadings,
   clarifyDepths,
   clarifyIsOver,
+  failureChoices,
   parseLinearUrl,
   sizeChoices,
 } from '@ted/protocol'
@@ -155,7 +156,7 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
-import { createFailureCases, failureChoices, failureText } from './failure-cases.ts'
+import { ciFailureKey, createFailureCases, failureText } from './failure-cases.ts'
 import {
   alreadyFailed,
   asksForFreshRun,
@@ -6064,6 +6065,7 @@ export function createTasks(options: {
     })
     const prs = task.repos.filter((r) => !r.removed && r.pullRequest)
     let ci: string | undefined
+    const ciFailures: string[] = []
     if (prs.length > 0) {
       const read = observed ?? (await watch?.next({ now: true }))
       if (!read) throw new RequestError(409, 'GitHub context is unavailable')
@@ -6075,6 +6077,18 @@ export function createTasks(options: {
               409,
               'GitHub Check attempt identity is unavailable or incomplete',
             )
+          for (const check of pr.checks) {
+            if (check.state === 'failed' && check.identity)
+              ciFailures.push(
+                ciFailureKey({
+                  kind: 'github-ci',
+                  repo: r.repo,
+                  number: r.pullRequest?.number ?? 0,
+                  head: pr.headRefOid,
+                  attempt: check.identity,
+                }),
+              )
+          }
           return {
             repo: r.repo,
             head: pr.headRefOid,
@@ -6086,7 +6100,8 @@ export function createTasks(options: {
       )
     }
     const context = {
-      version: 1 as const,
+      version: 2 as const,
+      ciFailures: ciFailures.sort(),
       repos: repos.sort((a, b) => a.repo.localeCompare(b.repo)),
       checks,
       ...(ci && { ci }),

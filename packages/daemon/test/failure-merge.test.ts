@@ -199,3 +199,153 @@ test('failure holds persist even when GitHub refuses to disable auto-merge', asy
     'auto-merge disable retry',
   )
 })
+
+test('a known empty CI rollup permits acceptance while missing and truncated reads revoke it', async () => {
+  const client = await start({ merge: { rollup: 'empty' } })
+  const { task } = await toSignoff(client)
+  await writeFile(client.mergingFile, '')
+  const current = await getTask(client, task.id)
+  const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
+  const context = await post<FailureContext>('/failure-contexts')
+  const value = await post<FailureCase>('/failures', {
+    source: { kind: 'finding', runId: current.leadRunId, finding: 'No CI in this repo' },
+    evidence: 'Observed locally',
+    contextId: context.id,
+  })
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'unrelated',
+    recommendation: 'Accept',
+  })
+  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+  expect(
+    (
+      await client.call('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+        requestId: asked.decisions.at(-1)?.commentId,
+        resolution: 'accepted',
+      })
+    ).status,
+  ).toBe(200)
+  for (const rollup of ['missing', 'truncated'] as const) {
+    await setGh({ rollup })
+    expect((await lead.call('POST', `/tasks/${task.id}/failure-contexts`, {})).status).toBe(409)
+    expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
+      satisfied: false,
+      blockers: [value.id],
+    })
+  }
+  await setGh({ rollup: 'empty' })
+  const restored = await post<FailureContext>('/failure-contexts')
+  expect({
+    repos: restored.repos,
+    ci: restored.ci,
+    checks: restored.checks,
+    failed: restored.ciFailures,
+  }).toEqual({
+    repos: context.repos,
+    ci: context.ci,
+    checks: context.checks,
+    failed: context.ciFailures,
+  })
+  expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
+    cases: [{ id: value.id, disposition: 'invalidated', context: 'current' }],
+  })
+})
+
+test('CI acceptance binds the observed failed attempt and head; historical failures remain unknown', async () => {
+  const client = await start()
+  const { task } = await toSignoff(client)
+  await writeFile(client.mergingFile, '')
+  const current = await getTask(client, task.id)
+  const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
+  const failed = {
+    id: 'failed-attempt',
+    name: 'test',
+    conclusion: 'FAILURE',
+    startedAt: '2026-11-09T00:00:00Z',
+    completedAt: '2026-11-09T00:01:00Z',
+  }
+  await setGh({ checks: [failed] })
+  const context = await post<FailureContext>('/failure-contexts')
+  expect(context.ciFailures).toHaveLength(1)
+  expect(JSON.stringify(context)).not.toContain('failed-attempt')
+  const pr = current.repos[0]?.pullRequest
+  const source = {
+    kind: 'github-ci',
+    repo: current.repos[0]?.repo,
+    number: pr?.number,
+    head: context.repos[0]?.head,
+    attempt: `${failed.id}:${failed.startedAt}:${failed.completedAt}`,
+  }
+  const record = (changed: Record<string, unknown>, contextId?: string) =>
+    lead.call('POST', `/tasks/${task.id}/failures`, {
+      source: { ...source, ...changed },
+      evidence: 'CI execution',
+      ...(contextId && { contextId }),
+    })
+  expect((await record({ head: 'b'.repeat(40) }, context.id)).status).toBe(409)
+  expect((await record({ attempt: 'older-attempt' }, context.id)).status).toBe(409)
+  const historical = await record({ attempt: 'older-attempt' })
+  expect(historical.status).toBe(201)
+  const old = historical.body as FailureCase
+  expect(old.contextId).toBeUndefined()
+  await post(`/failures/${old.id}/assessments`, {
+    assessment: 'uncertain',
+    recommendation: 'Investigate',
+  })
+  const oldRequest = await post<FailureCase>(`/failures/${old.id}/decision`)
+  expect(
+    (
+      await client.call('POST', `/tasks/${task.id}/failures/${old.id}/resolve`, {
+        requestId: oldRequest.decisions.at(-1)?.commentId,
+        resolution: 'accepted',
+      })
+    ).status,
+  ).toBe(409)
+  const recorded = await record({}, context.id)
+  expect(recorded.status).toBe(201)
+  const value = recorded.body as FailureCase
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'unrelated',
+    recommendation: 'Accept this attempt',
+  })
+  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+  const recaptured = await post<FailureContext>('/failure-contexts')
+  expect({
+    repos: recaptured.repos,
+    ci: recaptured.ci,
+    checks: recaptured.checks,
+    failed: recaptured.ciFailures,
+  }).toEqual({
+    repos: context.repos,
+    ci: context.ci,
+    checks: context.checks,
+    failed: context.ciFailures,
+  })
+  expect(
+    (
+      await client.call('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+        requestId: asked.decisions.at(-1)?.commentId,
+        resolution: 'accepted',
+      })
+    ).status,
+  ).toBe(200)
+  await setGh({ checks: [{ ...failed, id: 'replacement-attempt' }] })
+  const replacement = await post<FailureContext>('/failure-contexts')
+  await post(`/failures/${value.id}/evidence`, {
+    evidence: 'A different execution failed',
+    contextId: replacement.id,
+  })
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'uncertain',
+    recommendation: 'Review the replacement',
+  })
+  const next = await post<FailureCase>(`/failures/${value.id}/decision`)
+  expect(
+    (
+      await client.call('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+        requestId: next.decisions.at(-1)?.commentId,
+        resolution: 'accepted',
+      })
+    ).status,
+  ).toBe(409)
+})

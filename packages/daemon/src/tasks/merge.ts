@@ -228,7 +228,11 @@ export async function readPullRequests(
       mergeStateStatus: String(pr.mergeStateStatus ?? 'UNKNOWN'),
       reviewDecision: typeof pr.reviewDecision === 'string' ? pr.reviewDecision : null,
       autoMerge: pr.autoMergeRequest != null,
-      checksComplete: commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage === false,
+      checksComplete:
+        commit?.statusCheckRollup === null ||
+        (commit?.statusCheckRollup?.contexts?.pageInfo?.hasNextPage === false &&
+          Array.isArray(commit.statusCheckRollup.contexts.nodes) &&
+          commit.statusCheckRollup.contexts.nodes.every((node) => node !== null)),
       checks: contexts.flatMap((c) => (c ? [checkOf(c)] : [])),
       threads: (pr.reviewThreads?.nodes ?? []).flatMap((t) => (t ? [threadOf(t)] : [])),
       reviews: (pr.reviews?.nodes ?? []).flatMap((r) => (r ? [reviewOf(r)] : [])),
