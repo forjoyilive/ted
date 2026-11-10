@@ -204,6 +204,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     }),
   search: (client, query, factoryId) =>
     client.search(String(query), typeof factoryId === 'string' ? factoryId : undefined),
+  taskGates: (client, taskId) => client.taskGates(String(taskId)),
+  setTaskGates: (client, taskId, request) =>
+    client.setTaskGates(String(taskId), request as Parameters<DaemonClient['setTaskGates']>[1]),
   setClarifyDepth: (client, taskId, depth) =>
     client.setClarifyDepth(String(taskId), { depth: depth as ClarifyDepth }),
   listStageEntries: (client, taskId) => client.listStageEntries(String(taskId)),

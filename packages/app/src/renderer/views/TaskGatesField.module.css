@@ -1,0 +1,68 @@
+.field {
+  min-width: 0;
+}
+
+.editor {
+  margin-top: 12px;
+}
+
+.note {
+  display: block;
+  margin: 4px 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 160px);
+  align-items: center;
+  gap: 5px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.label {
+  color: var(--text-primary);
+}
+
+.select {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--border-control);
+  border-radius: 4px;
+  background: var(--surface-pane);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.select:disabled {
+  color: var(--text-tertiary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.error {
+  color: var(--status-failed-fg);
+  font-size: 12px;
+}
+
+.rowNote,
+.mergeNote {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
