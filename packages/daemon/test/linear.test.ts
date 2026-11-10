@@ -538,9 +538,9 @@ describe('files on a Linear issue', () => {
       expect(comments[0]).toMatchObject({ kind: 'note', author: { kind: 'ted' } })
       expect(comments[0]?.body).toBe(
         [
-          'TED couldn’t fetch 2 files from Linear NOTE-302, so the Task keeps only their links:',
-          '- expired: Linear answered 403',
-          '- away: Linear redirected the download to another host',
+          'TED couldn’t fetch 2 files from Linear NOTE-302. Their links:',
+          `- expired: Linear answered 403. ${linear.uploadUrl('expired')}`,
+          `- away: Linear redirected the download to another host. ${linear.uploadUrl('away')}`,
         ].join('\n'),
       )
       expect(task.source?.linear?.description).toContain(linear.uploadUrl('expired'))
@@ -569,9 +569,9 @@ describe('files on a Linear issue', () => {
     const [note] = await client.listComments(task.id)
     expect(note?.body).toBe(
       [
-        'TED couldn’t fetch 2 files from Linear NOTE-303, so the Task keeps only their links:',
-        '- shot 21: TED takes at most 20 files from an issue',
-        '- shot 22: TED takes at most 20 files from an issue',
+        'TED couldn’t fetch 2 files from Linear NOTE-303. Their links:',
+        `- shot 21: TED takes at most 20 files from an issue. ${linear.uploadUrl('many/21')}`,
+        `- shot 22: TED takes at most 20 files from an issue. ${linear.uploadUrl('many/22')}`,
       ].join('\n'),
     )
   })

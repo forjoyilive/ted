@@ -2793,7 +2793,7 @@ export function createTasks(options: {
       ...(issue.unfetched ?? []),
       ...(issue.files ?? [])
         .filter((file) => !kept.has(file.url))
-        .map((file) => ({ name: file.name, reason: 'TED’s copy is gone' })),
+        .map((file) => ({ name: file.name, url: file.url, reason: 'TED’s copy is gone' })),
     ]
     if (missing.length === 0) return
     store.postComment({
@@ -2801,8 +2801,8 @@ export function createTasks(options: {
       kind: 'note',
       author: { kind: 'ted' },
       body: [
-        `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Linear ${issue.identifier}, so the Task keeps only their links:`,
-        ...missing.map((file) => `- ${file.name}: ${file.reason}`),
+        `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Linear ${issue.identifier}. Their links:`,
+        ...missing.map((file) => `- ${file.name}: ${file.reason}. ${file.url}`),
       ].join('\n'),
     })
   }
