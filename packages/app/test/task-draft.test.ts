@@ -95,6 +95,26 @@ describe('New Task recovery and ordered saves', () => {
     expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toBeNull()
   })
 
+  test('does not recover an earlier consumed revision over a later draft', async () => {
+    const setup = options()
+    const submitted = { ...emptyTaskDraft(), description: 'Already submitted' }
+    const current = { ...emptyTaskDraft(), description: 'Keep this newer draft' }
+    setup.storage.setItem('ted.newTaskDraft.v1.one', JSON.stringify(submitted))
+    const save = vi.fn(setup.save)
+    const session = taskDraftSession('one', {
+      ...setup,
+      save,
+      read: async () => ({
+        draft: current,
+        clearedRevision: 'later-submission',
+        clearedRevisions: [submitted.revision, 'later-submission'],
+      }),
+    })
+    expect(await session.load()).toEqual(current)
+    expect(save).not.toHaveBeenCalled()
+    expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toBeNull()
+  })
+
   test('ignores malformed recovery data instead of rendering invalid form fields', async () => {
     const setup = options()
     setup.storage.setItem(

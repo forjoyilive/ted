@@ -38,6 +38,15 @@ export const taskDrafts = State.SQLite.table({
   },
 })
 
+export const taskDraftConsumptions = State.SQLite.table({
+  name: 'taskDraftConsumptions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    revision: State.SQLite.text(),
+  },
+})
+
 export const factoryOrder = State.SQLite.table({
   name: 'factoryOrder',
   columns: {
@@ -1627,6 +1636,24 @@ export const events = {
     name: 'v1.TaskDraftCleared',
     schema: Schema.Struct({ factoryId: Schema.String, revision: Schema.String, at: Schema.String }),
   }),
+  taskDraftSavedV2: Events.synced({
+    name: 'v2.TaskDraftSaved',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      draft: Schema.String,
+      clearedRevision: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskDraftConsumed: Events.synced({
+    name: 'v1.TaskDraftConsumed',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      revision: Schema.String,
+      draft: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskDraftRemoved: Events.synced({
     name: 'v1.TaskDraftRemoved',
     schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
@@ -3013,11 +3040,28 @@ const materializers = counted(
       ],
       'v1.TaskDraftSaved': ({ factoryId, draft }) =>
         taskDrafts.insert({ factoryId, draft }).onConflict('factoryId', 'replace'),
-      'v1.TaskDraftCleared': ({ factoryId, revision }) =>
+      'v1.TaskDraftCleared': ({ factoryId, revision }) => [
         taskDrafts
           .insert({ factoryId, draft: null, clearedRevision: revision })
           .onConflict('factoryId', 'replace'),
-      'v1.TaskDraftRemoved': ({ factoryId }) => taskDrafts.delete().where({ factoryId }),
+        taskDraftConsumptions
+          .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
+          .onConflict('id', 'ignore'),
+      ],
+      'v2.TaskDraftSaved': ({ factoryId, draft, clearedRevision }) =>
+        taskDrafts.insert({ factoryId, draft, clearedRevision }).onConflict('factoryId', 'replace'),
+      'v1.TaskDraftConsumed': ({ factoryId, revision, draft }) => [
+        taskDrafts
+          .insert({ factoryId, draft, clearedRevision: revision })
+          .onConflict('factoryId', 'replace'),
+        taskDraftConsumptions
+          .insert({ id: `${factoryId}:${revision}`, factoryId, revision })
+          .onConflict('id', 'ignore'),
+      ],
+      'v1.TaskDraftRemoved': ({ factoryId }) => [
+        taskDrafts.delete().where({ factoryId }),
+        taskDraftConsumptions.delete().where({ factoryId }),
+      ],
       'v1.FactoryRemoved': ({ factoryId }) => [
         factories.delete().where({ id: factoryId }),
         factoryRepos.delete().where({ factoryId }),
@@ -3172,6 +3216,7 @@ const materializers = counted(
 const state = State.SQLite.makeState({
   tables: {
     taskDrafts,
+    taskDraftConsumptions,
     factories,
     factoryRepos,
     factoryOrder,

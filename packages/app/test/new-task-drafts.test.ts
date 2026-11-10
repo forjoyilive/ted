@@ -2,7 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type { Page } from 'playwright'
 import { describe, expect, test } from 'vitest'
-import { waitUntil } from '../../daemon/test/helpers.ts'
+import { stopDaemonIn, waitUntil } from '../../daemon/test/helpers.ts'
 import {
   ctx,
   daemonClient,
@@ -130,6 +130,41 @@ describe('New Task drafts', () => {
     await form(window).waitFor({ state: 'detached' })
     expect((await client.taskDraft(second.id)).draft).toBeNull()
     expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
+  })
+
+  test('replaces a restored Task Lead that is no longer installed and preserves valid choices', async () => {
+    let window = await setup()
+    await form(window)
+      .getByLabel('Description', { exact: true })
+      .fill('Keep my Task when the installed agents change')
+    await form(window).getByLabel('Start now', { exact: true }).uncheck()
+    await form(window).getByRole('button', { name: /^More/ }).click()
+    await form(window).getByLabel('Agent', { exact: true }).selectOption('claude')
+    await window.keyboard.press('Escape')
+    await form(window).waitFor({ state: 'detached' })
+    await closeApp(ctx.app)
+    ctx.app = undefined
+    await stopDaemonIn(ctx.home)
+    ctx.extraEnv.TED_CLAUDE_BIN = path.join(ctx.home, 'uninstalled-claude')
+    window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await open(window)
+    await form(window)
+      .getByRole('status')
+      .filter({ hasText: 'Task Lead changed to Codex' })
+      .waitFor()
+    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    await window.keyboard.press('Escape')
+    await form(window).waitFor({ state: 'detached' })
+    await open(window)
+    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByRole('status').count()).toBe(0)
+    await form(window).getByRole('button', { name: 'Create', exact: true }).click()
+    await form(window).waitFor({ state: 'detached' })
+    const task = (await (await daemonClient()).listTasks()).find(
+      (task) => task.description === 'Keep my Task when the installed agents change',
+    )
+    expect(task?.lead?.agent).toBe('codex')
   })
 
   test('a removed Linear source stays dismissed on reopening', async () => {

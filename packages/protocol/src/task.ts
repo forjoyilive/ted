@@ -359,6 +359,7 @@ export interface NewTaskDraft {
 export interface TaskDraftState {
   draft: NewTaskDraft | null
   clearedRevision?: string
+  clearedRevisions?: string[]
 }
 
 export interface CreateTaskRequest {

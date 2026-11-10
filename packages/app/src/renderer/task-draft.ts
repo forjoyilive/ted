@@ -89,7 +89,11 @@ export function taskDraftSession(
       } catch (error) {
         options.failed(error)
       }
-      if (recovery && recovery.revision === state.clearedRevision) {
+      if (
+        recovery &&
+        (recovery.revision === state.clearedRevision ||
+          state.clearedRevisions?.includes(recovery.revision))
+      ) {
         forget(recovery.revision)
         recovery = undefined
       }

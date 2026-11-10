@@ -420,17 +420,54 @@ describe('durable New Task drafts', () => {
     expect(await client.taskDraft(factory.id)).toEqual({
       draft: null,
       clearedRevision: saved.revision,
+      clearedRevisions: [saved.revision],
     })
     expect(await client.saveTaskDraft(factory.id, saved)).toEqual({
       draft: null,
       clearedRevision: saved.revision,
+      clearedRevisions: [saved.revision],
     })
     await daemon?.stop()
     daemon = undefined
     expect(await (await start()).taskDraft(factory.id)).toEqual({
       draft: null,
       clearedRevision: saved.revision,
+      clearedRevisions: [saved.revision],
     })
+  })
+
+  test('submitting an older revision preserves a newer draft and remembers both submissions across restart', async () => {
+    const { client, factory } = await withFactory()
+    const older = draft({ revision: 'older' })
+    const newer = draft({ revision: 'newer', description: 'Keep newer work' })
+    await client.saveTaskDraft(factory.id, older)
+    await client.saveTaskDraft(factory.id, newer)
+    await client.createTask({
+      factory: 'NB',
+      description: older.description,
+      draftRevision: older.revision,
+      start: false,
+    })
+    expect((await client.taskDraft(factory.id)).draft).toEqual(newer)
+    expect((await client.saveTaskDraft(factory.id, older)).draft).toEqual(newer)
+    await client.createTask({
+      factory: 'NB',
+      description: newer.description,
+      draftRevision: newer.revision,
+      start: false,
+    })
+    const current = draft({ revision: 'current', description: 'Next unfinished Task' })
+    await client.saveTaskDraft(factory.id, current)
+    await daemon?.stop()
+    daemon = undefined
+    const restarted = await start()
+    for (const submitted of [older, newer]) {
+      expect((await restarted.saveTaskDraft(factory.id, submitted)).draft).toEqual(current)
+    }
+    expect((await restarted.taskDraft(factory.id)).clearedRevisions).toEqual([
+      older.revision,
+      newer.revision,
+    ])
   })
 
   test('drafts protect uploaded bytes when a Task sharing the attachment is deleted', async () => {

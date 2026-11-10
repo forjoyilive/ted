@@ -134,6 +134,7 @@ import {
   taskBlockers,
   taskBriefs,
   taskDescriptions,
+  taskDraftConsumptions,
   taskDrafts,
   taskLog,
   taskQueue,
@@ -852,9 +853,13 @@ export async function openStore({
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
   const taskDraft = (factoryId: string): TaskDraftState => {
     const row = store.query(queryDb(taskDrafts.where({ factoryId })))[0]
+    const clearedRevisions = store
+      .query(queryDb(taskDraftConsumptions.where({ factoryId })))
+      .map((entry) => entry.revision)
     return {
       draft: row?.draft ? (JSON.parse(row.draft) as NewTaskDraft) : null,
       ...(row?.clearedRevision ? { clearedRevision: row.clearedRevision } : {}),
+      ...(clearedRevisions.length > 0 && { clearedRevisions }),
     }
   }
 
@@ -2186,12 +2191,23 @@ export async function openStore({
         !setup &&
         listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
         factoryId !== placeholderFactory.id
+      const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
       const number = setup && !used.includes(1) ? 1 : Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
       commit(
         ...(draftRevision && factoryId !== placeholderFactory.id
-          ? [events.taskDraftCleared({ factoryId, revision: draftRevision, at })]
+          ? [
+              events.taskDraftConsumed({
+                factoryId,
+                revision: draftRevision,
+                draft:
+                  currentDraft && currentDraft.revision !== draftRevision
+                    ? JSON.stringify(currentDraft)
+                    : null,
+                at,
+              }),
+            ]
           : []),
         events.taskCreatedV2({
           id,
@@ -3067,11 +3083,16 @@ export async function openStore({
     taskDraft,
     saveTaskDraft(factoryId, draft) {
       requireFactory(factoryId)
-      if (taskDraft(factoryId).clearedRevision !== draft.revision) {
+      const state = taskDraft(factoryId)
+      if (
+        state.clearedRevision !== draft.revision &&
+        !state.clearedRevisions?.includes(draft.revision)
+      ) {
         commit(
-          events.taskDraftSaved({
+          events.taskDraftSavedV2({
             factoryId,
             draft: JSON.stringify(draft),
+            clearedRevision: state.clearedRevision ?? null,
             at: new Date().toISOString(),
           }),
         )

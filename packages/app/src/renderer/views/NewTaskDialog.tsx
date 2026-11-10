@@ -1,4 +1,5 @@
 import type {
+  AgentHealth,
   AgentKind,
   ClarifyDepth,
   Effort,
@@ -116,6 +117,8 @@ function NewTaskForm({
   const [defaultLead, setDefaultLead] = useState<TaskLead>()
   const [defaultDepth, setDefaultDepth] = useState<ClarifyDepth>('auto')
   const [defaultsReady, setDefaultsReady] = useState(false)
+  const [health, setHealth] = useState<AgentHealth[]>()
+  const [leadNotice, setLeadNotice] = useState<string>()
   const clarifyDepth = draft.clarifyDepth ?? defaultDepth
   const lead = draft.lead ?? defaultLead
   const field =
@@ -223,22 +226,47 @@ function NewTaskForm({
   useEffect(() => {
     if (factory === undefined || !ready) return
     let current = true
-    ted.taskDefaults(factory).then(
-      (defaults) => {
+    Promise.all([ted.taskDefaults(factory), ted.agentHealth()]).then(
+      ([defaults, health]) => {
         if (!current) return
+        setHealth(health)
         setDefaultLead(defaults.lead)
         setDefaultDepth(defaults.clarifyDepth)
         const restored = session.get()
-        if (restored.lead === undefined || restored.clarifyDepth === undefined) {
+        let restoredLead = restored.lead
+        if (
+          restoredLead &&
+          health.some(
+            (entry) => entry.agent === restoredLead?.agent && entry.state === 'not-installed',
+          )
+        ) {
+          const available =
+            health.find(
+              (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+            ) ?? health.find((entry) => entry.state !== 'not-installed')
+          if (available) {
+            setLeadNotice(
+              `${agentLabels[restoredLead.agent]} isn’t installed. Task Lead changed to ${agentLabels[available.agent]}.`,
+            )
+            restoredLead =
+              available.agent === defaults.lead.agent ? defaults.lead : { agent: available.agent }
+          }
+        }
+        if (
+          restored.lead !== restoredLead ||
+          restored.lead === undefined ||
+          restored.clarifyDepth === undefined
+        ) {
           session.update({
-            lead: restored.lead ?? defaults.lead,
+            lead: restoredLead ?? defaults.lead,
             clarifyDepth: restored.clarifyDepth ?? defaults.clarifyDepth,
           })
         }
         setDefaultsReady(true)
       },
-      () => {
+      (failure: unknown) => {
         if (current) {
+          setError(`Couldn’t check Task Lead availability: ${readableError(failure)}`)
           setDefaultLead(undefined)
           setDefaultsReady(true)
         }
@@ -258,6 +286,8 @@ function NewTaskForm({
   const canCreate =
     ready &&
     defaultsReady &&
+    health !== undefined &&
+    !health.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed') &&
     chosenFactory !== undefined &&
     description.trim() !== '' &&
     uploading === 0 &&
@@ -581,6 +611,16 @@ function NewTaskForm({
           )}
         </section>
 
+        {(leadNotice ||
+          health?.some(
+            (entry) => entry.agent === lead?.agent && entry.state === 'not-installed',
+          )) && (
+          <p className={styles.setupNotice} role="status">
+            {health?.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed')
+              ? `${lead ? agentLabels[lead.agent] : 'The Task Lead'} isn’t installed. Install it or choose another Task Lead in More.`
+              : leadNotice}
+          </p>
+        )}
         {setup && (
           <p className={styles.setupNotice} role="note">
             <span>{setupNoticeText(setup)}</span>
