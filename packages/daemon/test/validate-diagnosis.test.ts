@@ -446,3 +446,48 @@ test.each([false, true])(
     )
   },
 )
+
+test.each(['fixed', 'no-longer-applicable'])(
+  'legacy closure %s cannot silently close a modern Validate request',
+  async (resolution) => {
+    const s = await setup([
+      '      - { name: Tests, run: "if [ -e stub-repaired ]; then exit 0; else exit 1; fi" }',
+      '      - { name: Lint, run: "echo linted" }',
+    ])
+    const decision = await s.ask(s.one)
+    const requestId = decision.decisions.at(-1)?.commentId
+    const result = await s.client.call('POST', `${s.root}/failures/${s.one.id}/resolve`, {
+      requestId,
+      resolution,
+      reason: 'Repeat verification after repair.',
+    })
+    expect(result.status).toBe(409)
+    expect((await s.cases())[0]?.resolutions).toEqual([])
+    expect((await s.obligations()).satisfied).toBe(false)
+    const client = await restart()
+    const comments = await client.read<Comment[]>(`${s.root}/comments`)
+    expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
+    const current = (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
+    const repo = current?.repos[0]
+    if (!repo) throw new Error('Worktree missing')
+    await writeFile(path.join(repo.worktree, 'stub-repaired'), 'repaired')
+    expect(
+      (
+        await client.call('POST', `/comments/${requestId}/answer`, {
+          action: 'answer',
+          choice: 'Retry',
+        })
+      ).status,
+    ).toBe(200)
+    await waitUntil(
+      async () =>
+        (await client.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied,
+      'fresh verification after rejected closure',
+    )
+    const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+    expect(runs.map((r) => r.checks.map((c) => c.state))).toEqual([
+      ['failed', 'not-run'],
+      ['passed', 'passed'],
+    ])
+  },
+)
