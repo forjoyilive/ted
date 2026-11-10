@@ -1,4 +1,4 @@
-import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Banner, CheckRun, Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
@@ -165,6 +165,34 @@ test('missing sandbox fails setup with a report, still starts the Task Lead and 
   expect(await log('teardown')).toContain('TED didn’t run teardown:')
   await expect(readdir(worktree)).rejects.toThrow()
 })
+
+test.each([false, true])(
+  'temp preparation failure reports failed setup and starts the Task Lead (unwritable log: %s)',
+  async (unwritableLog) => {
+    await mkdir(path.join(home, 'sandbox'), { recursive: true })
+    await writeFile(path.join(home, 'sandbox', 'NB-1'), 'not a directory')
+    if (unwritableLog) {
+      await mkdir(path.join(home, 'logs', 'worktrees', 'NB-1-widgets-setup.log'), {
+        recursive: true,
+      })
+    }
+    const { client, task, worktree } = await start('touch stub-setup', 'touch stub-teardown')
+    expect(task.repos[0]?.setup?.state).toBe('failed')
+    await expect(readFile(path.join(worktree, 'stub-setup'))).rejects.toThrow()
+    const conversation = await waitUntil(async () => {
+      const run = await client.getRun(task.leadRunId ?? '')
+      return run.conversation.length > 0 ? run.conversation : undefined
+    }, 'the preparation failure report')
+    expect(conversation[0]?.line).toContain('# Setup failed')
+    expect(conversation[0]?.line).toContain('TED didn’t run setup:')
+    expect(conversation[0]?.line).toContain('EEXIST')
+    if (!unwritableLog) expect(await log('setup')).toContain('TED didn’t run setup:')
+    const archived = await archive(client, task)
+    expect(archived.repos[0]?.removed?.teardown?.outcome).toBe('failed')
+    expect(await log('teardown')).toContain('TED didn’t run teardown:')
+    await expect(readdir(worktree)).rejects.toThrow()
+  },
+)
 
 test('Bypass keeps lifecycle commands unsandboxed even when no sandbox is available', async () => {
   process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')

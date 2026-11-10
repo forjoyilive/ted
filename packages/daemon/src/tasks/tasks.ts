@@ -7889,8 +7889,10 @@ function setupFailure(command: string, result: CommandResult, output: string): s
       ? 'it timed out'
       : `it failed${result.exitCode !== undefined ? ` with exit code ${result.exitCode}` : ''}`
   return [
-    `# Setup failed\n\nTED ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`,
-    `\`\`\`\n${output.trimEnd()}\n\`\`\``,
+    result.problem === undefined
+      ? `# Setup failed\n\nTED ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`
+      : `# Setup failed\n\nTED couldn’t run this worktree’s setup command, \`${command}\`, before starting you:`,
+    `\`\`\`\n${(result.problem ?? output).trimEnd()}\n\`\`\``,
   ].join('\n\n')
 }
 
