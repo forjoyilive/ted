@@ -46,6 +46,7 @@ import type {
   DriftCounts,
   EditAutomationRequest,
   EditTaskRequest,
+  ExportFormat,
   Factory,
   FactoryBoard,
   FactoryRemoval,
@@ -84,6 +85,7 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveExportResult,
   SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
@@ -219,6 +221,8 @@ export const ted = {
     window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
   checkOutput: (checkRunId: string, position: number) =>
     window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
+  exportFactory: (factoryId: string, format: ExportFormat) =>
+    window.ted.request('exportFactory', factoryId, format) as Promise<SaveExportResult>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,

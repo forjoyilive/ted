@@ -93,6 +93,7 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { saveFactoryExport } from './export.ts'
 import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
@@ -365,6 +366,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
+  exportFactory: (client, factoryId, format) =>
+    saveFactoryExport(client, factoryId, format, async (filename, extension) => {
+      const options = {
+        title: 'Export Factory',
+        defaultPath: filename,
+        filters: [{ name: extension === 'json' ? 'JSON' : 'Markdown', extensions: [extension] }],
+      }
+      const chosen = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      return chosen.canceled ? undefined : chosen.filePath
+    }),
   chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
       title: String(title),
