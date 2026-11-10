@@ -12,11 +12,16 @@ import {
 } from '@ted/protocol'
 import type { AgentChatEntry, Agents } from '../agents/index.ts'
 import type { Coordinators } from '../coordinators/coordinators.ts'
-import { coordinatorFromTed, coordinatorOpening } from '../coordinators/coordinators.ts'
+import {
+  coordinatorFromTed,
+  coordinatorOpening,
+  coordinatorTurn,
+} from '../coordinators/coordinators.ts'
 import type { DiskWatch } from '../disk.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { planOpening } from '../plans/prompts.ts'
+import type { PromptPart } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
@@ -127,6 +132,24 @@ function withOutputNote(kept: OutputKept, items: ChatItem[]): ChatItem[] {
   return [...items.slice(0, at), note, ...items.slice(at)]
 }
 
+function takeDelivered(
+  unmatched: RunMessage[],
+  text: string,
+  bundle: ((messages: readonly RunMessage[]) => string) | undefined,
+): RunMessage[] {
+  const wanted = text.trim()
+  const one = unmatched.findIndex((m) => m.text.trim() === wanted)
+  if (one !== -1) return unmatched.splice(one, 1)
+  if (!bundle) return []
+  for (let from = 0; from < unmatched.length; from++) {
+    for (let to = from + 2; to <= unmatched.length; to++) {
+      if (bundle(unmatched.slice(from, to)).trim() === wanted)
+        return unmatched.splice(from, to - from)
+    }
+  }
+  return []
+}
+
 export function chatItems(input: {
   run: Run
   entries: AgentChatEntry[]
@@ -135,6 +158,8 @@ export function chatItems(input: {
   preamble: string
   promptFromHuman?: boolean
   tedHeading?: string
+  promptParts?: readonly PromptPart[] | undefined
+  bundle?: (messages: readonly RunMessage[]) => string
 }): ChatItem[] {
   const { run, entries, messages, interrupts = [], preamble, promptFromHuman = false } = input
   const items: ChatItem[] = []
@@ -152,25 +177,31 @@ export function chatItems(input: {
       at: run.startedAt,
     })
   }
-  if (rest !== '' && promptFromHuman) {
-    items.push({ kind: 'human', id: 'prompt', text: rest, at: run.startedAt, sent: true })
-  } else if (rest !== '') {
-    items.push({
-      kind: 'prompt',
-      id: 'prompt',
-      text: rest,
-      lines: lineCount(rest),
-      at: run.startedAt,
-    })
+  const fromTedItem = (id: string, text: string, at: string): ChatItem => ({
+    kind: 'ted',
+    id,
+    title: titleOf(text),
+    text,
+    at,
+  })
+  const parts = input.promptParts ?? []
+  for (const part of parts) {
+    const text = run.prompt.slice(part.start, part.end)
+    items.push(
+      part.from === 'ted'
+        ? fromTedItem(part.id, text, run.startedAt)
+        : { kind: 'human', id: part.id, text, at: part.at, sent: true },
+    )
   }
-  if (fromTed !== '') {
-    items.push({
-      kind: 'ted',
-      id: 'prompt-from-ted',
-      title: titleOf(fromTed),
-      text: fromTed,
-      at: run.startedAt,
-    })
+  if (parts.length === 0 && rest !== '') {
+    items.push(
+      promptFromHuman
+        ? { kind: 'human', id: 'prompt', text: rest, at: run.startedAt, sent: true }
+        : { kind: 'prompt', id: 'prompt', text: rest, lines: lineCount(rest), at: run.startedAt },
+    )
+  }
+  if (parts.length === 0 && fromTed !== '') {
+    items.push(fromTedItem('prompt-from-ted', fromTed, run.startedAt))
   }
   const deliveredAt = new Map<ChatItem, string>()
   const unmatched = messages.filter((m) => m.queued !== true)
@@ -182,17 +213,12 @@ export function chatItems(input: {
         promptSeen = true
         continue
       }
-      const index = unmatched.findIndex((m) => m.text.trim() === entry.text.trim())
-      const message = index === -1 ? undefined : unmatched.splice(index, 1)[0]
-      if (message?.from === 'ted') {
-        items.push({
-          kind: 'ted',
-          id: message.id,
-          title: titleOf(message.text),
-          text: message.text,
-          at: entry.at ?? message.at,
-        })
-      } else if (message) {
+      const delivered = takeDelivered(unmatched, entry.text, input.bundle)
+      for (const message of delivered) {
+        if (message.from === 'ted') {
+          items.push(fromTedItem(message.id, message.text, entry.at ?? message.at))
+          continue
+        }
         const item: ChatItem = {
           kind: 'human',
           id: message.id,
@@ -202,7 +228,8 @@ export function chatItems(input: {
         }
         items.push(item)
         if (entry.at !== undefined) deliveredAt.set(item, entry.at)
-      } else {
+      }
+      if (delivered.length === 0) {
         items.push({
           kind: 'ted',
           id: entry.key,
@@ -358,8 +385,12 @@ export function createConversations(options: {
       const opening = coordinated
         ? run.prompt.lastIndexOf(openingText)
         : run.prompt.indexOf(openingText)
-      const planPreamble =
-        (planned || coordinated) && opening !== -1
+      const firstPart = coordinated
+        ? store.coordinators.forRun(runId)?.prompts?.[runId]?.[0]
+        : undefined
+      const planPreamble = firstPart
+        ? run.prompt.slice(0, firstPart.start).trim()
+        : (planned || coordinated) && opening !== -1
           ? run.prompt.slice(0, opening + openingText.length)
           : undefined
       const kept = runs.output.kept(runId)
@@ -377,7 +408,11 @@ export function createConversations(options: {
                 planPreamble ??
                 (run.parentRunId !== undefined ? await subPreamble : await preamble),
               promptFromHuman: planPreamble !== undefined,
-              ...(coordinated && { tedHeading: coordinatorFromTed }),
+              ...(coordinated && {
+                tedHeading: coordinatorFromTed,
+                promptParts: store.coordinators.forRun(runId)?.prompts?.[runId],
+                bundle: coordinatorTurn,
+              }),
             }),
           ),
           run.taskId === undefined

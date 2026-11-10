@@ -493,6 +493,102 @@ test('a message after Stop starts a new Run and the conversation keeps both Runs
   expect(new Set(chat.items.map((i) => `${i.kind}:${i.id}`)).size).toBe(chat.items.length)
 })
 
+const signIn = async (s: Awaited<ReturnType<typeof setup>>, signedIn: boolean) => {
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn }))
+  await s.ok('POST', '/agents/health/check')
+}
+const bubbles = (chat: RunChat) =>
+  chat.items.flatMap<Record<string, unknown>>((i) =>
+    i.kind === 'human'
+      ? [{ human: i.text, sent: i.sent, queued: i.queued, unsent: i.unsent }]
+      : i.kind === 'ted'
+        ? [{ ted: i.text }]
+        : [],
+  )
+
+test('a human message queued after Retry is delivered with TED’s continuation and each keeps its author', async () => {
+  const s = await setup()
+  const { c } = await s.start([
+    { say: 'Saved advice' },
+    { waitFor: path.join(scratch, 'fail') },
+    { exit: 1 },
+  ])
+  await writeFile(path.join(scratch, 'fail'), '')
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'the failure')
+  await signIn(s, false)
+  await s.ok('POST', `${s.base}/retry`)
+  const typed = JSON.stringify({ steps: [{ say: 'Resumed reply' }, { endTurn: true }] })
+  await s.ok('POST', `${s.base}/messages`, { text: typed })
+  expect((await s.chat()).started).toBe(true)
+  await signIn(s, true)
+  const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
+  const chat = await waitUntil(async () => {
+    const chat = await conversation()
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Resumed reply')
+      ? chat
+      : undefined
+  }, 'the resumed reply')
+  expect((await s.chat()).runId).toBe(c.runId)
+  expect(bubbles(chat).slice(1)).toEqual([
+    { ted: expect.stringContaining('Please continue the interrupted response') },
+    { human: typed, sent: true },
+  ])
+  expect((await s.chat()).unsentMessages).toEqual([])
+})
+
+test('two human messages delivered as one resumed turn show as two sent bubbles', async () => {
+  const s = await setup()
+  const { c } = await s.start([
+    { say: 'Saved advice' },
+    { waitFor: path.join(scratch, 'fail') },
+    { exit: 1 },
+  ])
+  const first = 'Look at the release Tasks first.'
+  const second = JSON.stringify({ steps: [{ say: 'Resumed reply' }, { endTurn: true }] })
+  await s.ok('POST', `${s.base}/messages`, { text: first })
+  await s.ok('POST', `${s.base}/messages`, { text: second })
+  await writeFile(path.join(scratch, 'fail'), '')
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'the failure')
+  await s.ok('POST', `${s.base}/retry`)
+  const chat = await waitUntil(async () => {
+    const chat = await s.ok<RunChat>('GET', `${s.base}/chat`)
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Resumed reply')
+      ? chat
+      : undefined
+  }, 'the resumed reply')
+  expect((await s.chat()).runId).toBe(c.runId)
+  expect(bubbles(chat).slice(1)).toEqual([
+    { human: first, sent: true },
+    { human: second, sent: true },
+  ])
+})
+
+test('an opening prompt that carries two pending messages shows each as its own sent bubble', async () => {
+  const s = await setup()
+  await signIn(s, false)
+  const first = 'Compare the release Tasks.'
+  const second = JSON.stringify({ steps: [{ say: 'Both read' }, { endTurn: true }] })
+  await s.ok('POST', `${s.base}/messages`, { text: first, agent: 'claude' })
+  await s.ok('POST', `${s.base}/messages`, { text: second })
+  const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
+  expect(bubbles(await conversation())).toEqual([
+    { human: first, sent: false, queued: true },
+    { human: second, sent: false, queued: true },
+  ])
+  await signIn(s, true)
+  const chat = await waitUntil(async () => {
+    const chat = await conversation()
+    return chat.items.some((i) => i.kind === 'agent' && i.text === 'Both read') ? chat : undefined
+  }, 'the reply')
+  expect(bubbles(chat)).toEqual([
+    { human: first, sent: true },
+    { human: second, sent: true },
+  ])
+  const own = await s.ok<RunChat>('GET', `/runs/${chat.run.id}/chat`)
+  expect(bubbles(own)).toEqual(bubbles(chat))
+  expect(own.items.filter((i) => i.kind === 'instructions')).toHaveLength(1)
+})
+
 test('disk holds keep Coordinator turns queued until space recovers', async () => {
   let free = 30e9
   const s = await setup({ freeBytes: async () => free, checkEveryMs: 20 })
