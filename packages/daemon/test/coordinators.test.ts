@@ -1019,6 +1019,7 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
   expect((await s.comments(task.id)).find((c) => c.id === idle.id)?.answer).toMatchObject({
     kind: 'answered',
     choice: 'Nudge again',
+    text: coordinatorLine,
   })
   expect(await s.waitingIds()).not.toContain(idle.id)
 })
@@ -1058,6 +1059,14 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
     (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.stage
   expect(await stage()).toBe('validate')
   const { run } = await s.start()
+  const skipped = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+    operation: 'move-on',
+    version: await version(run, task.id),
+    request: limit.id,
+    choice: 'Move to Done anyway',
+  })
+  expect(skipped.status).toBe(403)
+  expect(await stage()).toBe('validate')
   const again = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
     operation: 'try-again',
     version: await version(run, task.id),

@@ -404,6 +404,7 @@ export interface Tasks {
   coordinatorTell(ref: string, body: string): Promise<Comment>
   coordinatorAnswer(commentId: string, answer: { choice?: string; text: string }): Promise<Comment>
   isFailureDecision(commentId: string): boolean
+  humanOnlyChoices(commentId: string): string[]
   talkThrough(commentId: string): Promise<Comment>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
@@ -4097,7 +4098,12 @@ export function createTasks(options: {
         return answered
       }
       if (isIdleQuestion(comment) && choice === nudgeAgainChoice) {
-        const answered = answerRequest(task, comment, { kind: 'answered', at, choice })
+        const answered = answerRequest(task, comment, {
+          kind: 'answered',
+          at,
+          choice,
+          ...(text !== '' && { text }),
+        })
         const run = liveLead(find(task.id))
         if (run) await sendNudge(task, run)
         return answered
@@ -7266,6 +7272,13 @@ export function createTasks(options: {
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
 
     isFailureDecision: (id) => failures.findDecision(id) !== undefined,
+    humanOnlyChoices: (id) => {
+      const comment = store.getComment(id)
+      if (comment?.author.kind !== 'ted') return []
+      return (comment.choices ?? []).filter(
+        (choice) => choice === mergeAnywayChoice || moveOnAnyway.test(choice),
+      )
+    },
 
     answer: (id, request) => answerAs(id, request, true),
 
@@ -7780,6 +7793,7 @@ const skippableStages: readonly StageId[] = ['clarify', 'design']
 const sendToLeadChoice = 'Send to Task Lead'
 const keepWaitingChoice = 'Keep waiting'
 const mergeAnywayChoice = 'Merge anyway'
+const moveOnAnyway = /^Move to .+ anyway$/
 const mergeOffMessage =
   'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
 

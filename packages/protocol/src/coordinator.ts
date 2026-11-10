@@ -52,6 +52,7 @@ export interface CoordinatorRequest {
   title?: string
   text: string
   choices?: string[]
+  humanOnlyChoices?: string[]
   createdAt: string
   coordinatorMayAnswer: 'yes' | 'with a choice' | 'no'
 }

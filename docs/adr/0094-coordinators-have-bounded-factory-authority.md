@@ -31,6 +31,8 @@ The first version of answer refused every question TED asked, because some of th
 - **The FAILED ask** (“Retry”): starts a fresh Task Lead Run.
 - **CI stuck at Merge** (“Send to Task Lead”, “Keep waiting”, “Merge anyway”): sends the Task back to Work, waits again, or merges without waiting for the checks.
 - **The idle Task Lead** (“Nudge again”): sends the Task Lead the nudge.
+Two of these choices skip a check: “Merge anyway” merges without waiting for CI, and “Move to … anyway” leaves Validate with Findings open. The Coordinator reads untrusted Task text, so the daemon refuses both from it (`Tasks.humanOnlyChoices`) and shows them as `humanOnlyChoices` in what it reads. Only the human gives them.
+
 - **Model unavailable** (“Use the default model”, “Change setting”): restarts the Run on the CLI’s default model, or only closes the question.
 - **Closed in Linear** (“Archive”, “Keep going”): archives the Task, or only closes the question.
 
