@@ -1003,7 +1003,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     openGeneral: () => dispatch({ type: 'open-settings', section: 'general' }),
   }
   const frame = (content: ReactNode) => (
-    <div className={styles.window}>
+    <div className={styles.window} data-loaded={factoriesLoaded}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
         <OvernightContext value={overnight}>
