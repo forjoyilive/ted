@@ -1,6 +1,16 @@
-import { type ChildProcess, spawn } from 'node:child_process'
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import {
+  appendFile,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -18,7 +28,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { nodeEntry } from '../src/node-entry.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { forGeneration } from '../src/runs/host-files.ts'
+import { forGeneration, hostProtocol } from '../src/runs/host-files.ts'
 import {
   api,
   assistantTexts,
@@ -142,6 +152,61 @@ const said = async (client: Client, runId: string) =>
 const bash = (command: string, description: string) => ({
   permission: { tool: 'Bash', input: { command, description }, description },
 })
+
+async function waitingLegacyRun() {
+  const initial = await start('version: 1\n', true)
+  const [factory] = await initial.ok<Factory[]>('GET', '/factories')
+  const route = `/factories/${factory?.id}/permissions`
+  const task = await startTask(initial, [
+    bash('echo waiting', 'Wait before update'),
+    { endTurn: true },
+  ])
+  const run = await leadRun(initial, task)
+  await waitUntil(async () => (await initial.getRun(run.id)).run.state === 'waiting', 'waiting Run')
+  daemonChild?.kill('SIGKILL')
+  if (daemonChild) await once(daemonChild, 'exit')
+  daemonChild = undefined
+  await killRunHosts(home)
+  const entry = nodeEntry(path.resolve('packages/daemon/test/fixtures/legacy-host.ts'), [
+    path.join(home, 'runs', run.id),
+  ])
+  spawn(entry.command, entry.args, {
+    cwd: run.cwd,
+    env: { ...process.env, TED_HOME: home, TED_RUN: run.id, ELECTRON_RUN_AS_NODE: '1' },
+    stdio: 'ignore',
+    detached: true,
+  })
+  await waitUntil(
+    async () => (await hostRecords(home, run.id)).some((r) => r.t === 'start' && r.v === 3),
+    'legacy host',
+  )
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
+  const raw = api(daemon.port, { appKey: daemon.appToken })
+  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+    const res = await raw.call(method, route, body)
+    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+    return res.body as T
+  }
+  const client: Client = { ...raw, ok, fileToken: api(daemon.port, await tokenFor(home)) }
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.state === 'waiting',
+    'legacy waiting',
+  )
+  await client.ok('PUT', route, { mode: 'bypass', confirmBypass: true })
+  return { client, route, task, run }
+}
+
+async function cleanupRequests(done: () => boolean) {
+  await waitUntil(async () => {
+    await killRunHosts(home)
+    return done()
+  }, 'fixture requests settled')
+}
 
 describe('permission requests from Claude Code', () => {
   test('a prompt becomes a permission Comment in the thread and Inbox; Approve reaches the agent', async () => {
@@ -864,7 +929,7 @@ describe('local Factory permission consent', () => {
             next === 'bypass' ? 'bypassPermissions' : 'auto',
           )
           const last = (await hostRecords(home, run.id)).filter((r) => r.t === 'start').at(-1)
-          expect(last).toMatchObject({ v: 4, permissions: next })
+          expect(last).toMatchObject({ v: hostProtocol, permissions: next })
           expect(last?.hostPid).not.toBe(legacy.pid)
         } finally {
           await writeFile(gate, '')
@@ -874,6 +939,198 @@ describe('local Factory permission consent', () => {
       }
     },
   )
+
+  test.each(['legacy', 'current'] as const)(
+    'Stop cancels a %s restart during delayed shutdown',
+    async (kind) => {
+      let setup: { client: Client; task: Task; run: Run }
+      if (kind === 'legacy') setup = await waitingLegacyRun()
+      else {
+        const client = await start()
+        const [factory] = await client.ok<Factory[]>('GET', '/factories')
+        await client.ok('PUT', `/factories/${factory?.id}/permissions`, {
+          mode: 'bypass',
+          confirmBypass: true,
+        })
+        const task = await startTask(client, [{ endTurn: true }])
+        const run = await leadRun(client, task)
+        await waitUntil(async () => (await client.getRun(run.id)).run.state === 'idle', 'idle Run')
+        setup = { client, task, run }
+      }
+      const { client, task, run } = setup
+      const before = (await hostRecords(home, run.id)).filter((r) => r.t === 'start')
+      const gate = path.join(scratch, 'stop-during-shutdown')
+      await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+      let restarted = false
+      const restarting = client.call('POST', `/runs/${run.id}/restart`).finally(() => {
+        restarted = true
+      })
+      await waitUntil(() => stat(`${gate}.waiting`).catch(() => undefined), 'shutdown started')
+      const mtime = (await stat(`${gate}.waiting`, { bigint: true })).mtimeNs
+      let stopped = false
+      const stopping = client.call('POST', `/tasks/${task.id}/stop`).finally(() => {
+        stopped = true
+      })
+      try {
+        await waitUntil(
+          async () => (await stat(`${gate}.waiting`, { bigint: true })).mtimeNs > mtime,
+          'Stop reached old agent',
+        )
+        if (kind === 'current') process.kill(Number(before.at(-1)?.hostPid), 'SIGHUP')
+        await writeFile(gate, '')
+        await waitUntil(() => stopped && restarted, 'Stop and restart settled', 3_000)
+        expect((await stopping).status).toBe(200)
+        expect((await restarting).status).toBe(409)
+        expect((await client.getRun(run.id)).run).toMatchObject({
+          state: 'finished',
+          ended: { how: 'stopped' },
+        })
+        expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(
+          before.length,
+        )
+        for (const start of before) {
+          const pid = start.agentPid
+          if (typeof pid === 'number') expect(() => process.kill(pid, 0)).toThrow()
+        }
+      } finally {
+        await writeFile(gate, '')
+        await cleanupRequests(() => stopped && restarted)
+      }
+    },
+  )
+
+  test('Stop cancels automatic host replacement during delayed shutdown', async () => {
+    const initial = await start('version: 1\n', true)
+    const [factory] = await initial.ok<Factory[]>('GET', '/factories')
+    await initial.ok('PUT', `/factories/${factory?.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
+    const task = await startTask(initial, [{ endTurn: true }])
+    const run = await leadRun(initial, task)
+    await waitUntil(async () => (await initial.getRun(run.id)).run.state === 'idle', 'idle Run')
+    const gate = path.join(scratch, 'automatic-stop')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    daemonChild?.kill('SIGKILL')
+    if (daemonChild) await once(daemonChild, 'exit')
+    daemonChild = undefined
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+      oldestHost: hostProtocol + 1,
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+    await waitUntil(() => stat(`${gate}.waiting`).catch(() => undefined), 'automatic shutdown')
+    const mtime = (await stat(`${gate}.waiting`, { bigint: true })).mtimeNs
+    let stopped = false
+    const stopping = client.call('POST', `/tasks/${task.id}/stop`).finally(() => {
+      stopped = true
+    })
+    try {
+      await waitUntil(
+        async () => (await stat(`${gate}.waiting`, { bigint: true })).mtimeNs > mtime,
+        'Stop reached automatic replacement',
+      )
+      await writeFile(gate, '')
+      await waitUntil(() => stopped, 'Stop settled', 3_000)
+      expect((await stopping).status).toBe(200)
+      expect((await client.getRun(run.id)).run).toMatchObject({
+        state: 'finished',
+        ended: { how: 'stopped' },
+      })
+      expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(1)
+    } finally {
+      await writeFile(gate, '')
+      await cleanupRequests(() => stopped)
+    }
+  })
+
+  test('Stop cancels a replacement queued behind another Run’s permission lease', async () => {
+    const { client, route, task, run } = await waitingLegacyRun()
+    const holderTask = await startTask(client, [{ endTurn: true }])
+    const holder = await leadRun(client, holderTask)
+    await waitUntil(
+      async () => (await client.getRun(holder.id)).run.state === 'idle',
+      'lease holder idle',
+    )
+    const gate = path.join(scratch, 'held-lease')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    let holderDone = false
+    const holding = client.call('POST', `/runs/${holder.id}/restart`).finally(() => {
+      holderDone = true
+    })
+    await waitUntil(() => stat(`${gate}.waiting`).catch(() => undefined), 'lease held')
+    await writeFile(path.join(home, 'stub-claude.json'), '{}')
+    let restarted = false
+    const restarting = client.call('POST', `/runs/${run.id}/restart`).finally(() => {
+      restarted = true
+    })
+    await waitUntil(
+      async () => (await hostRecords(home, run.id)).some((r) => r.t === 'exit'),
+      'old host exited',
+    )
+    let stopped = false
+    const stopping = client.call('POST', `/tasks/${task.id}/stop`).finally(() => {
+      stopped = true
+    })
+    try {
+      await waitUntil(() => stopped && restarted, 'canceled requests settled without lease', 3_000)
+      expect(holderDone).toBe(false)
+      expect((await stopping).status).toBe(200)
+      expect((await restarting).status).toBe(409)
+      await writeFile(gate, '')
+      await holding
+      await client.ok('PUT', route, { mode: 'auto' })
+      expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(2)
+      expect((await client.getRun(run.id)).run).toMatchObject({
+        state: 'finished',
+        ended: { how: 'stopped' },
+      })
+    } finally {
+      await writeFile(gate, '')
+      await cleanupRequests(() => stopped && restarted && holderDone)
+    }
+  })
+
+  test('Stop cancels replacement preparation and prevents a later launch after I/O completes', async () => {
+    const { client, route, task, run } = await waitingLegacyRun()
+    const env = path.join(home, 'runs', run.id, 'env.json')
+    const content = await readFile(env)
+    await rename(env, `${env}.saved`)
+    execFileSync('mkfifo', [env])
+    let restarted = false
+    const restarting = client.call('POST', `/runs/${run.id}/restart`).finally(() => {
+      restarted = true
+    })
+    const writer = await open(env, 'w')
+    let stopped = false
+    const stopping = client.call('POST', `/tasks/${task.id}/stop`).finally(() => {
+      stopped = true
+    })
+    try {
+      await waitUntil(
+        () => stopped && restarted,
+        'canceled requests settled during preparation',
+        3_000,
+      )
+      expect((await stopping).status).toBe(200)
+      expect((await restarting).status).toBe(409)
+    } finally {
+      await writer.writeFile(content)
+      await writer.close()
+      await rm(env)
+      await rename(`${env}.saved`, env)
+      await cleanupRequests(() => stopped && restarted)
+    }
+    await client.ok('PUT', route, { mode: 'auto' })
+    expect((await hostRecords(home, run.id)).filter((r) => r.t === 'start')).toHaveLength(2)
+    expect((await client.getRun(run.id)).run).toMatchObject({
+      state: 'finished',
+      ended: { how: 'stopped' },
+    })
+  })
 
   test('failed restart preparation preserves the running agent’s recorded permissions', async () => {
     const client = await start()
@@ -1030,7 +1287,7 @@ describe('local Factory permission consent', () => {
       version: '9.9.9',
       claudeBin: stubClaudePath,
       codexBin: stubCodexPath,
-      oldestHost: 5,
+      oldestHost: hostProtocol + 1,
     })
     const reopened = api(daemon.port, { appKey: daemon.appToken })
     await waitUntil(

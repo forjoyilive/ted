@@ -25,8 +25,8 @@ export type DriveAgent = (io: {
   stop: () => void
 }) => HostDriver
 
-export const hostProtocol = 4
-export const oldestHostProtocol = 4
+export const hostProtocol = 5
+export const oldestHostProtocol = 5
 
 export type HostRecord =
   | {

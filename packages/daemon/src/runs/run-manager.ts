@@ -152,6 +152,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   const following = new Map<string, Promise<void>>()
   const stopRequested = new Set<string>()
+  const launchStops = new Map<string, AbortController>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
   const outdated = new Set<string>()
@@ -206,16 +207,26 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   function follow(runId: string, { revived = false } = {}): void {
     const release = options.idle?.hold()
-    const done = followHostLog(runId, revived)
+    const controller = new AbortController()
+    launchStops.set(runId, controller)
+    const done = followHostLog(runId, revived, controller.signal)
       .catch((error: unknown) => console.error(`stopped following Run ${runId}:`, error))
       .finally(() => {
         following.delete(runId)
+        if (launchStops.get(runId) === controller) launchStops.delete(runId)
+        replacing.delete(runId)
+        outdated.delete(runId)
+        stopRequested.delete(runId)
         release?.()
       })
     following.set(runId, done)
   }
 
-  async function followHostLog(runId: string, revived: boolean): Promise<void> {
+  async function followHostLog(
+    runId: string,
+    revived: boolean,
+    signal: AbortSignal,
+  ): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
     let offset = store.runReadOffset(runId)
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
@@ -238,6 +249,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ) {
         awaitingStart = undefined
       }
+      if (signal.aborted) replacing.delete(runId)
       const swapping = replacing.has(runId)
       if (swapping && (batch.toOffset > offset || hostGone)) {
         const exited = batch.records.some(({ record }) => record.t === 'exit')
@@ -248,17 +260,43 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           for (let waited = 0; isLockHeld(files.lock) && waited < stopGraceMs; waited += pollMs) {
             await sleep(pollMs)
           }
-          replacing.delete(runId)
           const run = store.getRun(runId)
           if (!run) return
-          await withRunPermissions(store, run, async () => {
-            const before = await startRecordCount(path.join(runsDir, runId))
-            const env = await prepareReplacement(runId)
-            const host = spawnHost(path.join(runsDir, runId), env)
-            await waitForStart(runId, before, () => {
-              killSpawnedHostGroup(host)
-            })
-          })
+          let spawned: ReturnType<typeof spawnHost> | undefined
+          try {
+            await untilCanceled(
+              withRunPermissions(store, run, async () => {
+                signal.throwIfAborted()
+                const before = await startRecordCount(path.join(runsDir, runId))
+                signal.throwIfAborted()
+                const env = await prepareReplacement(runId, signal)
+                signal.throwIfAborted()
+                spawned = spawnHost(path.join(runsDir, runId), env)
+                const host = spawned
+                await waitForStart(runId, before, () => killSpawnedHostGroup(host), signal)
+              }),
+              signal,
+            )
+          } catch (error) {
+            if (!signal.aborted) throw error
+            if (!stopRequested.has(runId)) return
+            if (spawned) killSpawnedHostGroup(spawned)
+            const latest = await lastStartRecord(path.join(runsDir, runId))
+            if (latest?.permissions !== undefined)
+              store.setRunPermissions(runId, latest.permissions)
+            commitBatch(
+              runId,
+              {
+                ...batch,
+                records: batch.records.filter(({ record }) => record.t === 'exit'),
+              },
+              true,
+              generation,
+            )
+            return
+          } finally {
+            replacing.delete(runId)
+          }
           awaitingStart = Date.now() + stopGraceMs
         }
         continue
@@ -434,14 +472,23 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   async function replaceWhenIdle(runId: string): Promise<void> {
     const run = store.getRun(runId)
-    if (closed || shuttingDown || run?.state !== 'idle' || run.sessionId === undefined) return
+    const signal = launchStops.get(runId)?.signal
+    if (
+      !signal ||
+      signal.aborted ||
+      closed ||
+      shuttingDown ||
+      run?.state !== 'idle' ||
+      run.sessionId === undefined
+    )
+      return
     if (replacing.has(runId) || !outdated.delete(runId)) return
     try {
       const runDir = path.join(runsDir, runId)
       const start = await startRecord(runDir)
       if (!start) return
       const pid = await hostPid(runDir, start)
-      if (!(await holdsLock(runFiles(runDir).lock, pid))) return
+      if (!(await holdsLock(runFiles(runDir).lock, pid)) || signal.aborted) return
       replacing.add(runId)
       await signalHost(runDir, pid, 'SIGTERM')
     } catch (error) {
@@ -450,16 +497,22 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     }
   }
 
-  async function prepareReplacement(runId: string): Promise<NodeJS.ProcessEnv> {
+  async function prepareReplacement(
+    runId: string,
+    signal: AbortSignal,
+  ): Promise<NodeJS.ProcessEnv> {
+    signal.throwIfAborted()
     const run = store.getRun(runId)
     if (!run || run.sessionId === undefined) throw new Error('No session to replace')
     const runDir = path.join(runsDir, runId)
     const files = runFiles(runDir)
     const permissions = runPermissions(store, run)
+    const env = await readRunEnv(files.env)
+    signal.throwIfAborted()
     const launch = agents.get(run.agent).launch({
       prompt: '',
       runDir,
-      env: runEnv(runId, await readRunEnv(files.env)),
+      env: runEnv(runId, env),
       resume: run.sessionId,
       ...(run.model !== undefined && !run.usesDefaultModel && { model: run.model }),
       ...(run.effort !== undefined && { effort: run.effort }),
@@ -471,7 +524,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       (info) => info.size,
       () => 0,
     )
+    signal.throwIfAborted()
     await writeLaunch(runDir, run.cwd, launch, permissions, inputFrom)
+    signal.throwIfAborted()
     return launch.env
   }
 
@@ -497,9 +552,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     runId: string,
     before: number,
     kill: () => void | Promise<void>,
+    signal?: AbortSignal,
   ): Promise<void> {
     const runDir = path.join(runsDir, runId)
     for (let waited = 0; (await startRecordCount(runDir)) === before; waited += pollMs) {
+      signal?.throwIfAborted()
       if (waited >= stopGraceMs) {
         await kill()
         throw new Error(
@@ -508,6 +565,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       await sleep(pollMs)
     }
+    signal?.throwIfAborted()
     const start = await lastStartRecord(runDir)
     if (start?.permissions !== undefined) {
       store.setRunPermissions(runId, start.permissions)
@@ -782,9 +840,13 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }
       if (run.sessionId === undefined) throw new Error(`Run ${runId} has no session to resume`)
       const sessionId = run.sessionId
+      const signal = launchStops.get(runId)?.signal
+      if (!signal) throw new Error(`Run ${runId} has no live launch controller`)
+      signal.throwIfAborted()
       const runDir = path.join(runsDir, runId)
       const start = await lastStartRecord(runDir)
       if (!start) throw new Error(`Run ${runId}'s host never started`)
+      signal.throwIfAborted()
       if (replacing.has(runId)) throw new Error(`Run ${runId}'s host is being replaced`)
       if (start.v < oldestHost) {
         const pid = await hostPid(runDir, start)
@@ -792,34 +854,41 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           throw new Error(`Run ${runId}'s host is no longer running`)
         }
         const before = await startRecordCount(runDir)
+        signal.throwIfAborted()
         const restarted = store.restartRun(runId, flags)
         outdated.delete(runId)
         replacing.add(runId)
         await signalHost(runDir, pid, 'SIGTERM')
-        await waitForStart(runId, before, () => killHostGroup(runDir, pid))
+        await waitForStart(runId, before, () => killHostGroup(runDir, pid), signal)
         return store.getRun(runId) ?? restarted
       }
-      return withRunPermissions(store, run, async () => {
-        const permissions = runPermissions(store, run)
-        const launch = agents.get(run.agent).launch({
-          prompt: '',
-          runDir,
-          env: {},
-          resume: sessionId,
-          ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
-          ...(flags.effort !== undefined && { effort: flags.effort }),
-          permissions,
-          ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
-          billing: billingOf(run.agent),
-        })
-        await writeLaunch(runDir, run.cwd, launch, permissions)
-        const before = await startRecordCount(runDir)
-        const restarted = store.restartRun(runId, flags)
-        const pid = await hostPid(runDir, start)
-        await signalHost(runDir, pid, 'SIGHUP')
-        await waitForStart(runId, before, () => killHostGroup(runDir, pid))
-        return store.getRun(runId) ?? restarted
-      })
+      return untilCanceled(
+        withRunPermissions(store, run, async () => {
+          signal.throwIfAborted()
+          const permissions = runPermissions(store, run)
+          const launch = agents.get(run.agent).launch({
+            prompt: '',
+            runDir,
+            env: {},
+            resume: sessionId,
+            ...(flags.model !== undefined && !flags.usesDefaultModel && { model: flags.model }),
+            ...(flags.effort !== undefined && { effort: flags.effort }),
+            permissions,
+            ...(store.automationDrafts.get(runId) && { tools: 'none' as const }),
+            billing: billingOf(run.agent),
+          })
+          await writeLaunch(runDir, run.cwd, launch, permissions)
+          signal.throwIfAborted()
+          const before = await startRecordCount(runDir)
+          const pid = await hostPid(runDir, start)
+          signal.throwIfAborted()
+          const restarted = store.restartRun(runId, flags)
+          await signalHost(runDir, pid, 'SIGHUP')
+          await waitForStart(runId, before, () => killHostGroup(runDir, pid), signal)
+          return store.getRun(runId) ?? restarted
+        }),
+        signal,
+      )
     },
     lastHeard: (runId) => heard.get(runId),
     async dispatch(runId, messages, steer, canDispatch) {
@@ -954,6 +1023,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const done = following.get(runId)
       if (!done) return
       stopRequested.add(runId)
+      launchStops
+        .get(runId)
+        ?.abort(new RequestError(409, 'The Run was stopped; its pending launch was canceled'))
       const runDir = path.join(runsDir, runId)
       const timeout = sleep(stopGraceMs).then(() => 'timeout' as const)
       let start = await startRecord(runDir)
@@ -962,7 +1034,6 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         start = await startRecord(runDir)
       }
       if (!start) throw new Error(`Run ${runId}'s host never started`)
-      stopRequested.add(runId)
       let held = isLockHeld(runFiles(runDir).lock)
       for (let waited = 0; !held && waited < stopGraceMs; waited += pollMs) {
         const ended = await Promise.race([done.then(() => true), sleep(pollMs).then(() => false)])
@@ -990,10 +1061,26 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     },
     async close() {
       closed = true
+      for (const controller of launchStops.values())
+        controller.abort(new RequestError(503, 'TED is shutting down'))
       await Promise.all(following.values())
     },
   }
   return manager
+}
+
+async function untilCanceled<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  let abort = () => {}
+  const canceled = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason)
+    if (signal.aborted) abort()
+    else signal.addEventListener('abort', abort, { once: true })
+  })
+  try {
+    return await Promise.race([work, canceled])
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
 }
 
 export async function startRecord(
