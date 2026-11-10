@@ -40,6 +40,7 @@ import { createShells } from './shells.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
+import { createCheckSlots } from './tasks/check-slots.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import type { WorkflowSettings } from './workflow/check.ts'
@@ -294,8 +295,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
+      const checkSlots = createCheckSlots({ limit: () => store.settings().maxChecksAtOnce })
       const checkTries = createCheckTries({
         store,
+        checkSlots,
         banners,
         workflows,
         reposDir: paths.repos,
@@ -391,6 +394,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...options.simulators,
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+        checkSlots,
         sandbox: createSandbox({
           tedHome: paths.home,
           env: environment.current,

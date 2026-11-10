@@ -20,6 +20,7 @@ export interface TaskFacts {
   tedWorking?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
+  checksWaiting?: { place: number }
   stopped?: { at: string; runs: number; why: 'human' | 'blockers-removed' }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
@@ -153,6 +154,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     const { name, index, total } = facts.checking
     return `Running Checks · ${name} (${index} of ${total})`
   }
+  if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
   if (facts.retrying && facts.paused === undefined) return 'Retrying (rate limited)'
   if (facts.planningInChat) return 'Planning in chat'
   if (facts.agentActivity !== undefined) return facts.agentActivity

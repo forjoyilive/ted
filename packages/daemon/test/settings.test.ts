@@ -80,6 +80,8 @@ describe('machine settings in the store', () => {
       linearSyncTeams: {},
       linearSyncDeclined: {},
       appsOutsideSandbox: {},
+      lowPriorityWork: true,
+      maxChecksAtOnce: 2,
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true, overnightMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -244,6 +246,7 @@ describe('settings and Factories over the daemon API', () => {
     ['a Linear team key that isn’t one', { linearSyncTeams: { f: ['not a key'] } }],
     ['a declined Linear team that isn’t one', { linearSyncDeclined: { f: ['not a key'] } }],
     ['an App outside the sandbox with no name', { appsOutsideSandbox: { f: [''] } }],
+    ['low priority that is not true or false', { lowPriorityWork: 'on' }],
     ['a profile picture that is not an image', { profilePicture: 'data:text/html;base64,PGI+' }],
     ['a profile picture that is a link', { profilePicture: 'https://example.com/me.png' }],
     [
@@ -254,6 +257,8 @@ describe('settings and Factories over the daemon API', () => {
     ['Stay Awake that is not true or false', { stayAwake: 1 }],
     ['first launch done that is not true or false', { firstLaunchDone: 'yes' }],
     ['no simulator slots', { maxBootedSimulators: 0 }],
+    ['no Checks at once', { maxChecksAtOnce: 0 }],
+    ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
     ['more simulator slots than the limit', { maxBootedSimulators: 21 }],
     ['Run output kept for no days', { runOutputDays: 0 }],
     ['Run output kept for more than a year', { runOutputDays: 366 }],

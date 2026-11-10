@@ -4,6 +4,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
+import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
 import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
@@ -71,6 +72,29 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
     [{ quitWithWorkRunning: 'stop' }],
     [{ startAtLogin: false }],
     [{ stayAwake: false }],
+  ])
+})
+
+test('Limits changes how many Checks run at once and turns low priority off', async () => {
+  const update = vi.fn()
+  bridge({
+    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    simulators: () => ({ supported: false }),
+    updateSettings: update,
+  })
+  render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await screen.findByText('Now: 0 of 6 Runs working')
+  const toggle = screen.getByRole('switch', { name: 'Run agents and Checks at low priority' })
+  expect(toggle.getAttribute('aria-checked')).toBe('true')
+  expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
+  await user().click(toggle)
+  expect(screen.getByText('Checks running at once')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'More Checks at once' }))
+  await user().click(screen.getByRole('button', { name: 'Fewer Checks at once' }))
+  expect(update.mock.calls).toEqual([
+    [{ lowPriorityWork: false }],
+    [{ maxChecksAtOnce: 3 }],
+    [{ maxChecksAtOnce: 1 }],
   ])
 })
 

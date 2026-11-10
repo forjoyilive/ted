@@ -153,6 +153,7 @@ import {
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import { fileDiffs, taskChanges } from './changes.ts'
+import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
   checkEnv,
@@ -504,6 +505,7 @@ export function createTasks(options: {
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
   sandbox: Sandbox
+  checkSlots: CheckSlots
 }): Tasks {
   const {
     store,
@@ -581,6 +583,8 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const checking = new Set<string>()
+  const checkWaits = new Map<string, AbortController>()
+  options.checkSlots.watch((places) => store.setChecksWaiting(places))
   function setChecking(taskId: string, on: boolean): void {
     if (on) checking.add(taskId)
     else checking.delete(taskId)
@@ -1571,6 +1575,17 @@ export function createTasks(options: {
       checks: plan.map((p) => p.check),
     })
     const done = (async () => {
+      const wait = new AbortController()
+      checkWaits.set(task.id, wait)
+      const release = await options.checkSlots.take({
+        taskId: task.id,
+        signal: AbortSignal.any([stopping.signal, wait.signal]),
+      })
+      checkWaits.delete(task.id)
+      if (release === undefined) {
+        if (!stopping.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
+        return { outcome: 'interrupted' as const, notFound: [] }
+      }
       const result = await runChecks({
         checks: plan,
         taskDisplayId: task.displayId,
@@ -1579,12 +1594,15 @@ export function createTasks(options: {
         logFor: (position) => checkLog(task, checkRun.id, position),
         ...(sandbox !== undefined && { sandbox }),
         signal: stopping.signal,
+        lowPriority: store.settings().lowPriorityWork,
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
-      }).catch((error: unknown) => {
-        console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
-        return { outcome: 'interrupted' as const, notFound: [] }
       })
+        .catch((error: unknown) => {
+          console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
+          return { outcome: 'interrupted' as const, notFound: [] }
+        })
+        .finally(release)
       if (result.outcome === 'interrupted' && stopping.signal.aborted) return result
       store.finishChecks(checkRun.id, result.outcome)
       reportNotFound(factory.id, result)
@@ -3455,6 +3473,7 @@ export function createTasks(options: {
       env: commandEnv(task, entry.env),
       log: commandLog(task, 'teardown', repo.name),
       signal: stopping.signal,
+      lowPriority: store.settings().lowPriorityWork,
     }).catch((error: unknown) => {
       console.error(`couldn’t run teardown for ${task.displayId}:`, error)
       return { outcome: 'failed' as const }
@@ -4519,6 +4538,7 @@ export function createTasks(options: {
       env: commandEnv(task, setup.env),
       log,
       signal,
+      lowPriority: store.settings().lowPriorityWork,
     })
     const now = find(task.id)
     if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {
@@ -5589,6 +5609,7 @@ export function createTasks(options: {
 
   async function clearAway(taskId: string): Promise<void> {
     if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
+    checkWaits.get(taskId)?.abort()
     settingUp.get(taskId)?.abort()
     for (const [key, cancel] of repoSetups) if (key.startsWith(`${taskId}:`)) cancel.abort()
     await beginning.get(taskId)?.catch(() => undefined)
@@ -6305,6 +6326,7 @@ export function createTasks(options: {
     try {
       if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
+      checkWaits.get(task.id)?.abort()
       subAgents.dropFor(task.id)
       settingUp.get(task.id)?.abort()
       await beginning.get(task.id)?.catch(() => undefined)
@@ -6670,6 +6692,7 @@ export function createTasks(options: {
 
   const stopPumping = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
+      options.checkSlots.recheck()
       overnightChangedAt = new Date().toISOString()
       for (const run of store.listRuns()) {
         if (run.state === 'working') options.steering.syncQueuedFlag(run.id)

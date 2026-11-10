@@ -1,5 +1,5 @@
 import { simulatorSlotLimits } from '@ted/protocol/app'
-import { workingRunLimits } from '@ted/protocol/settings'
+import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
 import { useSimulators, useSlots } from '../data.ts'
 import { nowLine } from '../slots.ts'
 import { ted } from '../ted.ts'
@@ -54,6 +54,30 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title="Checks running at once"
+          help="A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running."
+        >
+          <Stepper
+            value={settings.maxChecksAtOnce}
+            min={checkLimits.min}
+            max={checkLimits.max}
+            lessLabel="Fewer Checks at once"
+            moreLabel="More Checks at once"
+            onChange={(maxChecksAtOnce) => void ted.updateSettings({ maxChecksAtOnce })}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Run agents and Checks at low priority"
+          help="For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority."
+          detail="Applies to work started after you change it. A Run that is already going keeps its priority."
+        >
+          <Switch
+            label="Run agents and Checks at low priority"
+            checked={settings.lowPriorityWork}
+            onChange={(lowPriorityWork) => void ted.updateSettings({ lowPriorityWork })}
+          />
+        </SettingRow>
       </SettingsGroup>
       {slots && <p className={styles.nowLine}>{nowLine(slots, simulators)}</p>}
     </SettingsPage>
