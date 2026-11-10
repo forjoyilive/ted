@@ -19,6 +19,16 @@ export function demoHome(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(env.TED_HOME || path.join(homedir(), '.ted-dev-demo'))
 }
 
+async function canonicalPath(file: string): Promise<string> {
+  try {
+    return await realpath(file)
+  } catch (error) {
+    const parent = path.dirname(file)
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || parent === file) throw error
+    return path.join(await canonicalPath(parent), path.basename(file))
+  }
+}
+
 export async function checkDemoHome(home: string): Promise<DemoManifest | undefined> {
   if (edition !== 'dev') throw new Error('Demo data is available only in TED Dev.')
   const resolved = path.resolve(home)
@@ -26,12 +36,20 @@ export async function checkDemoHome(home: string): Promise<DemoManifest | undefi
   const localTrials = fileURLToPath(
     new URL('../../../../node_modules/.cache/ted-home', import.meta.url),
   )
-  const inTrials = resolved === localTrials || resolved.startsWith(`${localTrials}${path.sep}`)
+  const comparable = async (p: string) => (await canonicalPath(p)).toLowerCase()
+  const [canonical, userHome, trials, protectedPaths] = await Promise.all([
+    canonicalPath(resolved),
+    comparable(homedir()),
+    canonicalPath(localTrials),
+    Promise.all(protectedHomes.map(comparable)),
+  ])
+  const candidate = canonical.toLowerCase()
+  const inTrials = canonical === trials || canonical.startsWith(`${trials}${path.sep}`)
   if (
-    [homedir(), path.parse(resolved).root, ...protectedHomes].some(
-      (p) => resolved === p || p.startsWith(`${resolved}${path.sep}`),
+    [userHome, path.parse(candidate).root, ...protectedPaths].some(
+      (p) => candidate === p || p.startsWith(`${candidate}${path.sep}`),
     ) ||
-    (!inTrials && protectedHomes.some((p) => resolved.startsWith(`${p}${path.sep}`)))
+    (!inTrials && protectedPaths.some((p) => candidate.startsWith(`${p}${path.sep}`)))
   ) {
     throw new Error('Choose a separate demo home, outside the TED and TED Dev homes.')
   }
