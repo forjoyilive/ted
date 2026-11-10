@@ -35,6 +35,7 @@ import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { SearchPalette } from './components/SearchPalette.tsx'
 import { SetupNoticeDialog } from './components/SetupNoticeDialog.tsx'
 import { ShortcutSheet } from './components/ShortcutSheet.tsx'
@@ -433,6 +434,10 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const onShortcut = useRef<(event: KeyboardEvent) => void>(() => undefined)
   onShortcut.current = (event) => {
     if (event.defaultPrevented || event.isComposing || offline) return
+    if (resizeSidebarFromKey(event)) {
+      sequences.current.reset()
+      return
+    }
     const commandKey = event.metaKey || event.ctrlKey
     const typing = isTyping(event.target)
     if (typing && !commandKey) {
@@ -997,7 +1002,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
         <ArmedContext value={armed}>
-          <div className={styles.app}>{content}</div>
+          <SidebarLayout className={styles.app}>{content}</SidebarLayout>
         </ArmedContext>
       </ProfileProvider>
     </div>

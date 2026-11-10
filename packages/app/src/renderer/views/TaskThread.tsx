@@ -48,6 +48,7 @@ import {
   RequestCard,
   WaitingRow,
 } from '../components/RequestCard.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff, RunChat } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
 import { ScrollMemory } from '../components/ScrollMemory.tsx'
@@ -890,11 +891,7 @@ export function TaskDetails({
   const clarifyOver = clarifyIsOver(task.stage)
   const factory = factories.find((f) => f.id === task.factoryId)
   return (
-    <aside
-      className={styles.detailsPane}
-      aria-label="Task details"
-      style={hidden ? { display: 'none' } : undefined}
-    >
+    <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
       {task.setup && (
         <p className={styles.setupNote}>
           The Design and Review Gates are always on for a setup Task. Tasks started before it merges
@@ -1031,7 +1028,7 @@ export function TaskDetails({
         open={briefOpen}
         onOpenBrief={() => onOpenBrief?.()}
       />
-    </aside>
+    </DetailsPane>
   )
 }
 

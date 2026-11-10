@@ -31,6 +31,7 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { DotIcon } from '../components/icons.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
@@ -623,7 +624,7 @@ export function AutomationView({
           />
         )}
       </section>
-      <aside className={views.detailsPane} aria-label="Automation details">
+      <DetailsPane className={views.detailsPane} aria-label="Automation details">
         <Details title="Schedule">
           <p className={styles.detailText}>
             {scheduleDescription(automation).replace(/ · [^·]+$/, '')}
@@ -677,7 +678,7 @@ export function AutomationView({
             by you
           </p>
         </Details>
-      </aside>
+      </DetailsPane>
     </>
   )
 }
@@ -901,7 +902,7 @@ export function AutomationRunView({
           />
         </div>
       </section>
-      <aside className={views.detailsPane} aria-label="Run details">
+      <DetailsPane className={views.detailsPane} aria-label="Run details">
         <Details title={`Tasks created · ${created.length}`}>
           {created.length === 0 ? (
             <p className={styles.detailNote}>None yet.</p>
@@ -945,7 +946,7 @@ export function AutomationRunView({
           </p>
           <p className={styles.detailNote}>{scheduleDescription(automation)}</p>
         </Details>
-      </aside>
+      </DetailsPane>
     </>
   )
 }
