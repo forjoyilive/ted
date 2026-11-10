@@ -51,6 +51,7 @@ export interface Coordinators {
     input: CoordinatorAction,
   ): Promise<CoordinatorReceipt>
   deliveryAllowed(runId: string, admitted: boolean): boolean
+  deliveryFinished(runId: string, error?: unknown): void
   messageRemoved(runId: string): void
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
@@ -295,7 +296,7 @@ export function createCoordinators(options: {
     settled(run) {
       if (closed) return
       const c = saved.forRun(run.id)
-      if (!c || c.runId !== run.id || c.phase !== 'working') return
+      if (!c || c.runId !== run.id || c.phase !== 'working' || steering.delivering(run.id)) return
       save({ ...c, phase: pending(run.id).length > 0 ? 'queued' : 'ready' })
       pump()
     },
@@ -316,17 +317,21 @@ export function createCoordinators(options: {
     if (closed) return
     for (const c of saved.list().filter((c) => c.lead.agent === agent && c.phase === 'working')) {
       stopping.add(c.factoryId)
-      if (pending(c.runId).length === 0)
-        store.queueRunMessage({
-          runId: c.runId,
-          text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
-        })
       save({ ...c, phase: 'queued' })
       const work = (async () => {
         await launches.get(c.factoryId)
-        if (closed) return
-        if (store.getRun(c.runId)?.state !== 'finished' && store.getRun(c.runId))
-          await runs.stop(c.runId)
+        await steering.drain(c.runId)
+        if (closed || removing.has(c.factoryId)) return
+        const latest = saved.get(c.factoryId)
+        if (!latest) return
+        if (pending(latest.runId).length === 0)
+          store.queueRunMessage({
+            runId: latest.runId,
+            text: 'Continue the interrupted response using fresh facts. Do not repeat completed actions.',
+          })
+        await store.persisted()
+        if (store.getRun(latest.runId)?.state !== 'finished' && store.getRun(latest.runId))
+          await runs.stop(latest.runId)
       })()
         .catch((error) => fail(c.factoryId, error))
         .finally(() => {
@@ -490,6 +495,15 @@ export function createCoordinators(options: {
         (admitted || (!launching.has(c.factoryId) && store.getRun(runId)?.state === 'working'))
       )
     },
+    deliveryFinished(runId, error) {
+      if (closed) return
+      const c = saved.forRun(runId)
+      if (!c || c.runId !== runId || stopping.has(c.factoryId) || removing.has(c.factoryId)) return
+      if (error) fail(c.factoryId, error)
+      else if (c.phase === 'working' && store.getRun(runId)?.state === 'idle')
+        save({ ...c, phase: pending(runId).length > 0 ? 'queued' : 'ready' })
+      pump()
+    },
     messageRemoved(runId) {
       if (closed) return
       const c = saved.forRun(runId)
@@ -499,33 +513,30 @@ export function createCoordinators(options: {
       }
     },
     async stop(id) {
-      const c = requireChat(id)
+      requireChat(id)
       stopping.add(id)
       try {
-        const canceled = [...pending(c.runId), ...(c.launch?.messages ?? [])]
+        await launches.get(id)
+        const current = requireChat(id)
+        await steering.drain(current.runId)
+        const latest = requireChat(id)
+        const canceled = [...pending(latest.runId), ...(latest.launch?.messages ?? [])]
         save(
           {
-            ...c,
+            ...latest,
             phase: 'ready',
             error: undefined,
             launch: undefined,
+            opening: store.getRun(latest.runId) ? latest.opening : '',
             unsentMessages: [
-              ...(c.unsentMessages ?? []),
+              ...(latest.unsentMessages ?? []),
               ...canceled.map(({ id, runId, text, at }) => ({ id, runId, text, at })),
             ],
           },
           canceled,
         )
-        await launches.get(id)
-        const latest = requireChat(id)
         if (store.getRun(latest.runId)?.state !== 'finished' && store.getRun(latest.runId))
           await runs.stop(latest.runId)
-        save({
-          ...latest,
-          phase: 'ready',
-          opening: store.getRun(latest.runId) ? latest.opening : '',
-          error: undefined,
-        })
       } finally {
         stopping.delete(id)
         pump()
@@ -537,7 +548,7 @@ export function createCoordinators(options: {
       if (stopping.has(id)) throw new RequestError(409, 'The Coordinator is stopping')
       if (c.phase !== 'failed' && store.getRun(c.runId)?.state !== 'finished')
         throw new RequestError(409, 'The Coordinator has not failed')
-      if (store.getRun(c.runId))
+      if (store.getRun(c.runId) && pending(c.runId).length === 0 && !c.launch)
         store.queueRunMessage({
           runId: c.runId,
           text: 'Please continue the interrupted response. Check fresh facts and recorded action results; do not repeat completed actions.',
@@ -700,6 +711,7 @@ export function createCoordinators(options: {
       try {
         await launches.get(id)?.catch(() => {})
         await chains.get(id)?.catch(() => {})
+        await steering.drain(c.runId)
         const latest = saved.get(id) ?? c
         for (const runId of latest.runIds) {
           if (store.getRun(runId)?.state !== 'finished' && store.getRun(runId))
@@ -727,7 +739,12 @@ export function createCoordinators(options: {
     async close() {
       closed = true
       unsubscribe()
-      await Promise.allSettled([...launches.values(), ...chains.values(), ...background])
+      await Promise.allSettled([
+        ...launches.values(),
+        ...chains.values(),
+        ...background,
+        ...saved.list().map((c) => steering.drain(c.runId)),
+      ])
     },
   }
   pump()

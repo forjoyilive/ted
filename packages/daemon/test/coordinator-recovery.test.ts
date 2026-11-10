@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -7,6 +7,7 @@ import {
   type CoordinatorTask,
   type Factory,
   type RunChat,
+  type RunSlots,
   type Task,
   tedPaths,
 } from '@ted/protocol'
@@ -20,6 +21,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -28,6 +30,12 @@ const pauses = vi.hoisted(() => ({
   defaults: undefined as (() => Promise<void>) | undefined,
   removal: undefined as (() => Promise<void>) | undefined,
   resume: undefined as (() => Promise<void>) | undefined,
+  started: undefined as (() => Promise<void>) | undefined,
+  resumed: undefined as (() => Promise<void>) | undefined,
+  dispatch: undefined as (() => Promise<void>) | undefined,
+  dispatched: undefined as (() => Promise<void>) | undefined,
+  persisted: undefined as (() => Promise<void>) | undefined,
+  dispatchPhase: undefined as string | undefined,
 }))
 vi.mock('node:fs/promises', async (original) => {
   const fs = await original<typeof import('node:fs/promises')>()
@@ -81,11 +89,41 @@ vi.mock('../src/runs/run-manager.ts', async (original) => {
       const runs = await module.startRunManager(...args)
       return {
         ...runs,
+        start: async (...input: Parameters<typeof runs.start>) => {
+          const result = await runs.start(...input)
+          await pauses.started?.()
+          return result
+        },
         revive: async (...input: Parameters<typeof runs.revive>) => {
           await pauses.resume?.()
-          return runs.revive(...input)
+          const result = await runs.revive(...input)
+          await pauses.resumed?.()
+          return result
+        },
+        dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
+          await pauses.dispatch?.()
+          pauses.dispatchPhase = args[0].store.coordinators.forRun(input[0])?.phase
+          const result = await runs.dispatch(...input)
+          await pauses.dispatched?.()
+          return result
         },
       }
+    },
+  }
+})
+
+vi.mock('../src/store/index.ts', async (original) => {
+  const module = await original<typeof import('../src/store/index.ts')>()
+  return {
+    ...module,
+    openStore: async (...args: Parameters<typeof module.openStore>) => {
+      const store = await module.openStore(...args)
+      const persisted = store.persisted
+      store.persisted = async () => {
+        await persisted()
+        if (new Error().stack?.includes('/runs/steering.ts:')) await pauses.persisted?.()
+      }
+      return store
     },
   }
 })
@@ -102,13 +140,19 @@ afterEach(async () => {
   pauses.defaults = undefined
   pauses.removal = undefined
   pauses.resume = undefined
+  pauses.started = undefined
+  pauses.resumed = undefined
+  pauses.dispatch = undefined
+  pauses.dispatched = undefined
+  pauses.persisted = undefined
+  pauses.dispatchPhase = undefined
   await daemon?.stop()
   daemon = undefined
   await killRunHosts(home)
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })
-function pause(at: keyof typeof pauses) {
+function pause(at: Exclude<keyof typeof pauses, 'dispatchPhase'>) {
   const entered = Promise.withResolvers<void>()
   const gate = Promise.withResolvers<void>()
   pauses[at] = async () => {
@@ -126,7 +170,12 @@ function pause(at: keyof typeof pauses) {
 }
 async function setup() {
   const origin = await makeOriginRepo(scratch)
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
   let client = api(daemon.port, { appKey: daemon.appToken })
   async function call<T>(method: string, route: string, body?: unknown): Promise<T> {
     const result = await client.call(method, route, body)
@@ -148,7 +197,12 @@ async function setup() {
       }),
     async restart() {
       await daemon?.stop()
-      daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+      daemon = await startDaemon({
+        home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        codexBin: stubCodexPath,
+      })
       client = api(daemon.port, { appKey: daemon.appToken })
       return daemon
     },
@@ -386,3 +440,247 @@ test('failed session launch keeps pending input available for a successful retry
     true,
   )
 })
+
+test('failed admitted input write preserves the human request for Retry', async () => {
+  const s = await setup()
+  const c = await s.message([{ say: 'Initial answer' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')
+  pauses.dispatch = async () => {
+    throw new Error('simulated input append failure')
+  }
+  const input = JSON.stringify({ steps: [{ say: 'Recovered human request' }, { endTurn: true }] })
+  await s.call('POST', `${s.base}/messages`, { text: input })
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'delivery failure')
+  const before = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(before.items.find((i) => i.kind === 'human' && i.text === input)).toMatchObject({
+    queued: true,
+    sent: false,
+  })
+  pauses.dispatch = undefined
+  await s.restart()
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'retried answer')
+  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(
+    after.items.filter((i) => i.kind === 'agent' && i.text === 'Recovered human request'),
+  ).toHaveLength(1)
+})
+
+test('restart after input acceptance recovers the delivery without replaying an action', async () => {
+  const s = await setup()
+  const a = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'A' })
+  const b = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'B' })
+  const c = await s.message([{ waitFor: path.join(scratch, 'initial-end') }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).started, 'initial Run')
+  if (!daemon) throw new Error('missing daemon')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const run = api(daemon.port, tokens.issue(c.runId))
+  const read = async (id: string) => {
+    const result = await run.call('GET', `/coordinator/tasks/${id}`)
+    return JSON.parse(
+      (result.body as { context: string }).context.split('\n').slice(1, -1).join('\n'),
+    ) as CoordinatorTask
+  }
+  const av = await read(a.id),
+    bv = await read(b.id)
+  await writeFile(path.join(scratch, 'initial-end'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'initial settlement')
+  pauses.dispatched = async () => {
+    await waitUntil(
+      async () =>
+        (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(
+          (i) => i.kind === 'agent' && i.text === 'Action completed',
+        ),
+      'completed action',
+    )
+    throw new Error('simulated exit before delivery checkpoint')
+  }
+  const input = JSON.stringify({
+    steps: [
+      {
+        run: [
+          'ted',
+          'coordinator',
+          'move',
+          a.id,
+          '--after',
+          b.id,
+          '--operation',
+          'once-only',
+          '--version',
+          av.version,
+          '--neighbours',
+          JSON.stringify({ [b.id]: bv.version }),
+        ],
+      },
+      { say: 'Action completed' },
+      { endTurn: true },
+    ],
+  })
+  await s.call('POST', `${s.base}/messages`, { text: input })
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'interrupted checkpoint')
+  const pending = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.find(
+    (i) => i.kind === 'human' && i.text === input,
+  )
+  expect(pending).toMatchObject({ queued: true })
+  if (!pending) throw new Error('missing pending request')
+  const receipts = (await s.chat()).receipts
+  expect(receipts).toHaveLength(1)
+  expect(receipts[0]?.text).toContain('Moved')
+  expect(receipts[0]?.after?.rank).not.toBe(receipts[0]?.before?.rank)
+  const tasks = await s.call<Task[]>('GET', '/tasks')
+  pauses.dispatched = undefined
+  await s.restart()
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'recovered checkpoint')
+  const after = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+  expect(
+    after.items.filter((i) => i.kind === 'agent' && i.text === 'Action completed'),
+  ).toHaveLength(1)
+  expect((await s.chat()).receipts).toEqual(receipts)
+  expect((await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === a.id)?.rank).toBe(
+    tasks.find((t) => t.id === a.id)?.rank,
+  )
+  const records = (await readFile(path.join(home, 'runs', c.runId, 'input.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as { deliveryIds?: string[] })
+  expect(records.filter((r) => r.deliveryIds?.includes(pending.id))).toHaveLength(1)
+})
+
+test('boundary delivery retains admission across settlement while other work waits', async () => {
+  const s = await setup()
+  await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
+  const c = await s.message([{ waitFor: path.join(scratch, 'settle') }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).started, 'initial Run')
+  const input = JSON.stringify({
+    steps: [
+      { say: 'Admitted follow-up' },
+      { waitFor: path.join(scratch, 'followup-end') },
+      { endTurn: true },
+    ],
+  })
+  await s.call('POST', `${s.base}/messages`, { text: input })
+  const gate = pause('persisted')
+  if (!daemon) throw new Error('missing daemon')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const boundary = api(daemon.port, tokens.issue(c.runId)).call('POST', `/runs/${c.runId}/boundary`)
+  await gate.entered
+  await writeFile(path.join(scratch, 'settle'), '')
+  await waitUntil(
+    async () => (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state === 'idle',
+    'original settlement',
+  )
+  const other = await s.call<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({
+      steps: [{ waitFor: path.join(scratch, 'other-end') }, { endTurn: true }],
+    }),
+  })
+  await s.call('POST', `/tasks/${other.id}/start`)
+  expect((await s.chat()).status).toBe('working')
+  expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
+  expect(
+    (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId,
+  ).toBeUndefined()
+  gate.release()
+  await boundary
+  expect(pauses.dispatchPhase).toBe('working')
+  expect(
+    (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId,
+  ).toBeUndefined()
+  await writeFile(path.join(scratch, 'followup-end'), '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'follow-up settlement')
+  await waitUntil(
+    async () =>
+      (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId !==
+      undefined,
+    'waiting Task admitted',
+  )
+})
+
+test.each(['initial', 'revival'] as const)(
+  'health pause during %s launch preserves continuation',
+  async (kind) => {
+    const s = await setup()
+    let c: Coordinator
+    let gate: ReturnType<typeof pause>
+    if (kind === 'initial') {
+      gate = pause('started')
+      c = await s.message([{ waitFor: path.join(scratch, 'original-response') }, { endTurn: true }])
+    } else {
+      c = await s.message([{ waitFor: path.join(scratch, 'fail-response') }, { exit: 1 }])
+      await waitUntil(async () => (await s.chat()).started, 'initial Run')
+      await writeFile(path.join(scratch, 'fail-response'), '')
+      await waitUntil(async () => (await s.chat()).status === 'failed', 'failed Run')
+      gate = pause('resumed')
+      await s.call('POST', `${s.base}/retry`)
+    }
+    await gate.entered
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+    await s.call('POST', '/agents/health/check')
+    expect((await s.chat()).status).toBe('paused')
+    gate.release()
+    await waitUntil(
+      async () => (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).run.state === 'finished',
+      'paused Run stopped',
+    )
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+    await s.call('POST', '/agents/health/check')
+    await waitUntil(async () => (await s.chat()).runId !== c.runId, 'replacement response')
+    await waitUntil(async () => (await s.chat()).started, 'continued response launched')
+    const after = await s.chat()
+    expect(after.status).toBe('working')
+    const run = (await s.call<RunChat>('GET', `/runs/${after.runId}/chat`)).run
+    expect(run.state).toBe('working')
+    const history = await s.call<RunChat>('GET', `/runs/${after.runId}/chat`)
+    expect(JSON.stringify(history.items)).toContain(
+      'Continue the interrupted response using fresh facts',
+    )
+    await s.call('POST', `${s.base}/stop`)
+  },
+)
+
+test.each(['claude', 'codex'] as const)(
+  '%s acknowledges identical queued requests separately',
+  async (agent) => {
+    const s = await setup()
+    await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+      agent,
+      text: JSON.stringify({ steps: [{ say: 'Initial answer' }, { endTurn: true }] }),
+    })
+    await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')
+    const other = await s.call<Task>('POST', '/tasks', {
+      factory: 'NB',
+      title: JSON.stringify({
+        steps: [{ waitFor: path.join(scratch, 'other-end') }, { endTurn: true }],
+      }),
+    })
+    await s.call('POST', `/tasks/${other.id}/start`)
+    await waitUntil(
+      async () =>
+        (await s.call<Task[]>('GET', '/tasks')).find((t) => t.id === other.id)?.leadRunId !==
+        undefined,
+      'occupied slot',
+    )
+    const text = JSON.stringify({
+      steps: [{ say: 'Repeated request answered' }, { endTurn: true }],
+    })
+    await Promise.all([
+      s.call('POST', `${s.base}/messages`, { text }),
+      s.call('POST', `${s.base}/messages`, { text }),
+    ])
+    expect((await s.chat()).status).toBe('queued')
+    await s.call('PATCH', '/settings', { maxWorkingRuns: 2 })
+    await waitUntil(async () => (await s.chat()).status === 'ready', 'both requests answered')
+    const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
+    expect(
+      chat.items.filter((i) => i.kind === 'agent' && i.text === 'Repeated request answered'),
+    ).toHaveLength(2)
+    expect(
+      chat.items.filter((i) => i.kind === 'human' && i.text === text && i.sent === true),
+    ).toHaveLength(2)
+    expect((await s.call<RunSlots>('GET', '/slots')).working).toBe(1)
+  },
+)

@@ -418,6 +418,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         runs,
         isCurrentLead: (run) =>
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
+        deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
         canDeliver: (runId, admitted) =>
           !store.coordinators.forRun(runId) ||
           coordinators?.deliveryAllowed(runId, admitted) === true,

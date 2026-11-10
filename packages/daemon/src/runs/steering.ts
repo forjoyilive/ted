@@ -13,6 +13,8 @@ export interface Steering {
   sendNow(runId: string, messageId: string): Promise<RunMessage>
   remove(runId: string, messageId: string): RunMessage
   deliverAdmitted(runId: string): Promise<number>
+  delivering(runId: string): boolean
+  drain(runId: string): Promise<void>
   syncQueuedFlag(runId: string): void
   boundary(runId: string): Promise<{ delivered: number }>
 }
@@ -31,11 +33,13 @@ export function createSteering(options: {
   runs: RunManager
   isCurrentLead: (run: Run) => boolean
   canDeliver: (runId: string, admitted: boolean) => boolean
+  deliveryFinished?: (runId: string, error?: unknown) => void
 }): Steering {
   const { home, store, runs, isCurrentLead } = options
   const chains = new Map<string, Promise<unknown>>()
   const waiters = new Set<{ runId: string; texts: string[]; done: () => void }>()
   const sendingNow = new Set<string>()
+  const delivering = new Set<string>()
 
   const flagFile = (runId: string) => runFiles(path.join(home, 'runs', runId)).queued
 
@@ -53,7 +57,7 @@ export function createSteering(options: {
   const queued = (runId: string) => store.runMessages(runId).filter((m) => m.queued === true)
 
   function deliverable(runId: string): RunMessage[] {
-    if (!options.canDeliver(runId, false)) return []
+    if (delivering.has(runId) || !options.canDeliver(runId, false)) return []
     const interrupts = store.runInterrupts(runId)
     return queued(runId).filter(
       (message) => !isHeld(message, interrupts) && !sendingNow.has(message.id),
@@ -103,6 +107,38 @@ export function createSteering(options: {
     const still = new Set(queued(run.id).map((m) => m.id))
     const sending = messages.filter((m) => still.has(m.id))
     if (sending.length === 0) return 0
+    if (store.coordinators.forRun(run.id)) {
+      delivering.add(run.id)
+      syncFlag(run.id)
+      let failure: unknown
+      try {
+        await store.persisted()
+        if (!options.canDeliver(run.id, admitted)) return 0
+        const pending = new Set(queued(run.id).map((message) => message.id))
+        const dispatch = sending.filter((message) => pending.has(message.id))
+        if (dispatch.length === 0) return 0
+        if (
+          !(await runs.dispatch(run.id, dispatch, !admitted, () =>
+            options.canDeliver(run.id, admitted),
+          ))
+        )
+          return 0
+        store.deliverRunMessages(
+          run.id,
+          dispatch.map((message) => message.id),
+          false,
+        )
+        await store.persisted()
+        return dispatch.length
+      } catch (error) {
+        failure = error
+        throw error
+      } finally {
+        delivering.delete(run.id)
+        syncFlag(run.id)
+        options.deliveryFinished?.(run.id, failure)
+      }
+    }
     store.deliverRunMessages(
       run.id,
       sending.map((m) => m.id),
@@ -172,6 +208,10 @@ export function createSteering(options: {
   }
 
   return {
+    delivering: (runId) => delivering.has(runId),
+    drain: async (runId) => {
+      await chains.get(runId)?.catch(() => {})
+    },
     syncQueuedFlag: syncFlag,
     deliverAdmitted: (runId) =>
       serially(runId, () => deliver(requireLive(runId), queued(runId), true)),
@@ -237,10 +277,12 @@ export function createSteering(options: {
           syncFlag(runId)
           return { delivered: 0 }
         }
-        const seen = accepted(
-          runId,
-          messages.map((m) => m.text),
-        )
+        const seen = store.coordinators.forRun(runId)
+          ? undefined
+          : accepted(
+              runId,
+              messages.map((m) => m.text),
+            )
         const delivered = await deliver(run, messages)
         if (delivered > 0) await seen
         return { delivered }

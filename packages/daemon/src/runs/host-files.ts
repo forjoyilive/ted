@@ -34,6 +34,26 @@ export interface GenerationLine {
   line: string
 }
 
+export interface QueuedInput extends GenerationLine {
+  deliveryIds: string[]
+  text: string
+  outputFrom: number
+}
+
+export function readQueuedInput(line: string): QueuedInput | undefined {
+  const tagged = readGenerationLine(line)
+  if (!tagged) return undefined
+  const value = JSON.parse(line) as Partial<QueuedInput>
+  return Array.isArray(value.deliveryIds) &&
+    value.deliveryIds.every((id) => typeof id === 'string') &&
+    typeof value.text === 'string' &&
+    typeof value.outputFrom === 'number' &&
+    Number.isFinite(value.outputFrom) &&
+    value.outputFrom >= 0
+    ? { ...tagged, deliveryIds: value.deliveryIds, text: value.text, outputFrom: value.outputFrom }
+    : undefined
+}
+
 export const forGeneration = (generation: number, line: string) =>
   JSON.stringify({ forGeneration: generation, line } satisfies GenerationLine)
 
