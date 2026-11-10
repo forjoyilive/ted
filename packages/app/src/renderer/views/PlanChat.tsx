@@ -14,6 +14,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
+import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { RunIcon } from '../components/RunIcon.tsx'
@@ -283,7 +284,7 @@ function NewPlanChat({
           </div>
         </div>
       </section>
-      <aside className={views.detailsPane} aria-label="Planning chat details">
+      <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
         <Section title="Started from">
           {earlier ? (
             <FromPlan
@@ -297,7 +298,7 @@ function NewPlanChat({
         <Section title="Proposed Tasks">
           <p className={styles.paneMuted}>None yet.</p>
         </Section>
-      </aside>
+      </DetailsPane>
     </>
   )
 }
@@ -870,7 +871,7 @@ function PlanPane({
   const { plan, requests, tasks } = detail
   const proposal = requests.findLast((r) => r.kind === 'proposal')
   return (
-    <aside className={views.detailsPane} aria-label="Planning chat details">
+    <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
       <Section title="Started from">
         {plan.fromPlan ? (
           <FromPlan plan={plan} onOpenPlan={onOpenPlan} />
@@ -921,7 +922,7 @@ function PlanPane({
         </Section>
       )}
       {plan.runId !== undefined && <RunsSection plan={plan} runId={plan.runId} />}
-    </aside>
+    </DetailsPane>
   )
 }
 

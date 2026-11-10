@@ -4,7 +4,7 @@ import path from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { makeAdapter } from '@livestore/adapter-node'
 import { createStorePromise, queryDb, StoreInternalsSymbol } from '@livestore/livestore'
-import type { NewTaskDraft, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
+import type { NewTaskDraft, PeerMessage, TaskDraftState, TaskGateOverrides } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -30,7 +30,6 @@ import {
   type CommentAnswer,
   type CommentAuthor,
   type CommentKind,
-  type ConversationEntry,
   type ConversationTab,
   type CopySkip,
   type CreatedBy,
@@ -108,7 +107,6 @@ import {
   checkRuns,
   commentAttachments,
   comments,
-  conversationEntries,
   conversationTabs,
   coordinators,
   deletedTasks,
@@ -122,6 +120,7 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  peerMessages,
   planRequests,
   plans,
   planTasks,
@@ -180,7 +179,7 @@ export interface GitHubNoticeRecord {
 
 export interface RunOutput {
   toOffset: number
-  entries: ConversationEntry[]
+  output?: { lastAt?: string }
   state?: RunState
   sessionId?: string
   problem?: RunProblem
@@ -539,6 +538,10 @@ export interface TedStore {
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
+  gateSkippedOvernight(taskId: string, stage: AgentStageId): void
+  gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
+  gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
+  gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
   mergeCanceled(taskId: string, commentId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
@@ -661,6 +664,7 @@ export interface TedStore {
   listOpenRequests(): Comment[]
   listAnsweredRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
+  listBriefs(taskId: string): TaskBrief[]
   latestBrief(taskId: string): TaskBrief | undefined
   recordSendBack(input: {
     taskId: string
@@ -736,10 +740,9 @@ export interface TedStore {
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
-  conversation(runId: string): ConversationEntry[]
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
-  queueRunMessage(input: { runId: string; text: string }): RunMessage
+  queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
@@ -767,10 +770,18 @@ export interface TedStore {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  holdForLoad(held: boolean): void
   setTaskChecking(taskId: string, on: boolean): void
+  setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
   automations: AutomationStore
+  isPeerMessage(id: string): boolean
+  peerMessages(): PeerMessage[]
+  recordPeerMessage(
+    input: Omit<PeerMessage, 'id' | 'createdAt' | 'delivered'>,
+    body: string,
+  ): PeerMessage
   coordinators: CoordinatorStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
@@ -823,8 +834,10 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
+  let heldForLoad = false
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
+  let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
@@ -1285,6 +1298,7 @@ export async function openStore({
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...(place > 0 && heldForLoad && { heldForLoad }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
       ...permissionWait(row.id, lead?.id),
@@ -1299,6 +1313,9 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      ...(checksWaiting.has(row.id) && {
+        checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
+      }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
@@ -1479,6 +1496,7 @@ export async function openStore({
 
   const toRun = ({
     readOffset: _,
+    lastOutputAt: _lastOutputAt,
     taskId,
     sessionId,
     model,
@@ -1716,6 +1734,7 @@ export async function openStore({
     startedAt: row.startedAt,
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
     ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+    ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
   })
   const checkProgress = (checkRunId: string) => {
     const rows = checkResultRows(checkRunId)
@@ -2016,10 +2035,13 @@ export async function openStore({
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning: new Set([
-        ...checkingTasks,
-        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-      ]).size,
+      checksRunning: [
+        ...new Set([
+          ...checkingTasks,
+          ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+        ]),
+      ].filter((taskId) => !checksWaiting.has(taskId)).length,
+      checksWaiting: checksWaiting.size,
       shellsRunning,
     }
   }
@@ -2181,6 +2203,28 @@ export async function openStore({
 
   return {
     automationDrafts: createAutomationDraftStore({ store, commit }),
+    isPeerMessage: (id) => store.query(queryDb(peerMessages.where({ id }))).length > 0,
+    peerMessages() {
+      return store.query(queryDb(peerMessages)).map((row) => {
+        const delivered = getComment(row.id)?.delivered
+        return { ...row, ...(delivered && { delivered }) }
+      })
+    },
+    recordPeerMessage(input, body) {
+      const createdAt = new Date().toISOString()
+      const { id, event } = commentPosted(
+        {
+          taskId: input.recipientTaskId,
+          body,
+          author: { kind: 'run', runId: input.senderRunId },
+        },
+        createdAt,
+      )
+      const row = { ...input, id, createdAt }
+      commit(event, events.peerMessageSent(row))
+      emit({ type: 'comment-posted', comment: requireComment(id) })
+      return row
+    },
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
@@ -3023,6 +3067,36 @@ export async function openStore({
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    gateKeptOvernight(taskId, stage, reason) {
+      commit(events.gateKeptOvernight({ taskId, stage, reason, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    gateRequestedFor(taskId, commentId, name, requested) {
+      commit(
+        events.gateRequestedFor({
+          taskId,
+          commentId,
+          name,
+          commit: requested,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    gateApprovalBound(taskId, commentId, name, approved) {
+      commit(
+        events.gateApprovalBound({
+          taskId,
+          commentId,
+          name,
+          commit: approved,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    gateSkippedOvernight(taskId, stage) {
+      commit(events.gateSkippedOvernight({ taskId, stage, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     mergeCanceled(taskId, commentId) {
       commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
       updatedTask(taskId)
@@ -3362,6 +3436,7 @@ export async function openStore({
       updatedTask(taskId)
       return toBrief(brief)
     },
+    listBriefs: (taskId) => briefRows(taskId).map(toBrief),
     latestBrief(taskId) {
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
@@ -3493,6 +3568,7 @@ export async function openStore({
         manualPermissions: false,
         state: 'working',
         readOffset: 0,
+        lastOutputAt: null,
         revivedAt: null,
         ended: null,
       })
@@ -3633,7 +3709,7 @@ export async function openStore({
       runId,
       {
         toOffset,
-        entries,
+        output,
         state,
         sessionId,
         problem,
@@ -3687,10 +3763,10 @@ export async function openStore({
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
       commit(
-        events.runOutputReadV2({
+        events.runOutputReadV3({
           runId,
           toOffset,
-          entries: entries.map((entry) => ({ ...entry, at: entry.at ?? at })),
+          lastOutputAt: output ? (output.lastAt ?? at) : null,
         }),
         ...(sessionId !== undefined && sessionId !== current.sessionId
           ? [events.runSessionIdentified({ runId, sessionId })]
@@ -3707,7 +3783,7 @@ export async function openStore({
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
       )
-      if (entries.length > 0) emit({ type: 'run-output', runId })
+      if (output) emit({ type: 'run-output', runId })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
       if (asked.length > 0 || withdrawnOnce.length > 0 || retryChanged) {
@@ -3759,10 +3835,7 @@ export async function openStore({
       if (taskId !== undefined) updatedTask(taskId)
       return run
     },
-    lastOutputAt: (runId) =>
-      store
-        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'desc').limit(1)))
-        .at(0)?.at ?? undefined,
+    lastOutputAt: (runId) => runRow(runId)?.lastOutputAt ?? undefined,
     getRun(id) {
       const row = runRow(id)
       return row && toRun(row)
@@ -3806,10 +3879,6 @@ export async function openStore({
     },
     listRuns: () => store.query(allRuns).map(toRun),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
-    conversation: (runId) =>
-      store
-        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
-        .map(({ offset, line, at }) => ({ offset, line, ...(at !== null && { at }) })),
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null
@@ -3819,12 +3888,16 @@ export async function openStore({
       if (taskId !== null && lead) updatedTask(taskId)
       return message
     },
-    queueRunMessage({ runId, text }) {
+    queueRunMessage({ runId, text, from }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      commit(events.runMessageQueued({ ...message, taskId }))
+      commit(
+        from === 'ted'
+          ? events.runMessageQueuedV2({ ...message, taskId, from })
+          : events.runMessageQueued({ ...message, taskId }),
+      )
       emit({ type: 'run-output', runId })
-      return { ...message, queued: true }
+      return { ...message, queued: true, ...(from && { from }) }
     },
     deliverRunMessages(runId, ids, lead) {
       if (ids.length === 0) return
@@ -3855,7 +3928,14 @@ export async function openStore({
     runMessages: (runId) =>
       store
         .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))
-        .map(({ id, text, at, queued }) => ({ id, runId, text, at, ...(queued && { queued }) })),
+        .map(({ id, text, at, queued, fromTed }) => ({
+          id,
+          runId,
+          text,
+          at,
+          ...(queued && { queued }),
+          ...(fromTed && { from: 'ted' as const }),
+        })),
     runInterrupts: (runId) =>
       store
         .query(queryDb(runInterrupts.where({ runId }).orderBy('at', 'asc')))
@@ -4003,6 +4083,11 @@ export async function openStore({
       updatedQueue()
     },
     newWorkHold: () => newWorkHeld,
+    holdForLoad(held) {
+      if (held === heldForLoad) return
+      heldForLoad = held
+      updatedQueue()
+    },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
       if (on) {
@@ -4010,6 +4095,17 @@ export async function openStore({
         checkingTasks.add(taskId)
       } else checkingTasks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
+      noteActivity()
+    },
+    setChecksWaiting(places) {
+      const before = checksWaiting
+      checksWaiting = new Map([...places].filter(([taskId]) => taskRow(taskId)))
+      for (const taskId of new Set([...before.keys(), ...checksWaiting.keys()])) {
+        if (before.get(taskId) === checksWaiting.get(taskId) || !taskRow(taskId)) continue
+        const unfinished = checkRunRows(taskId).find((r) => r.finishedAt === null)
+        if (unfinished) updatedCheckRun(unfinished.id)
+        else updatedTask(taskId)
+      }
       noteActivity()
     },
     onWriteResult(listener) {

@@ -28,6 +28,8 @@ import {
   useMergeHarness,
   waitForStage,
 } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
 
@@ -37,12 +39,16 @@ const comments = (client: Client, task: Task) =>
   client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
 
 const mergeSignoff = (client: Client, task: Task) =>
-  waitUntil(async () => {
-    const items = await client.ok<InboxItem[]>('GET', '/inbox')
-    return items.find(
-      (i) => i.task.id === task.id && i.request.kind === 'signoff' && i.request.stage === 'merge',
-    )?.request
-  }, 'the Merge sign-off')
+  eventWait(
+    client.subscribe,
+    async () => {
+      const items = await client.ok<InboxItem[]>('GET', '/inbox')
+      return items.find(
+        (i) => i.task.id === task.id && i.request.kind === 'signoff' && i.request.stage === 'merge',
+      )?.request
+    },
+    'the Merge sign-off',
+  )
 
 describe('Merge Gate', () => {
   test('TED posts the Merge sign-off only once CI passes, and Merge merges at once', async () => {
@@ -62,7 +68,6 @@ describe('Merge Gate', () => {
         : undefined
     }, 'Waiting for CI')
     expect(waiting.status).toEqual({ kind: 'waiting-for-github', on: 'ci' })
-    await new Promise((resolve) => setTimeout(resolve, 400))
     expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
 
     await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })
@@ -95,6 +100,62 @@ describe('Merge Gate', () => {
     expect(await merges()).toHaveLength(1)
   })
 
+  test('overnight mode merges without the Merge sign-off, and turning it off does not bring the Gate back', async () => {
+    const client = await start({
+      files: ci,
+      workflow: ['stages:', '  merge: { gate: true }'],
+      merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
+    })
+    const { task, signoff } = await toSignoff(client)
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    await approve(client, signoff)
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
+    }, 'Waiting for CI')
+    expect(await lines(client, task)).toContain(
+      'Overnight mode is on, so TED skipped the Merge Gate',
+    )
+    await client.ok('PATCH', '/settings', { overnightMode: false })
+    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    expect(rows.find((r) => r.stage === 'merge')).toMatchObject({
+      inherited: true,
+      effective: false,
+      overnight: true,
+    })
+    expect(await merges()).toEqual([])
+
+    await setGh({ checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }] })
+    const done = await waitForStage(client, task, 'done')
+    expect(done.repos[0]?.pullRequest?.state).toBe('merged')
+    expect(await merges()).toHaveLength(1)
+    expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
+  })
+
+  test('a Merge sign-off open when overnight mode turns on still waits for the human', async () => {
+    const client = await start({ workflow: ['stages:', '  merge: { gate: true }'] })
+    const { task, signoff } = await toSignoff(client)
+    await approve(client, signoff)
+    const card = await mergeSignoff(client, task)
+    await client.ok('PATCH', '/settings', { overnightMode: true })
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).stage).toBe('merge')
+    const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
+    expect(merge.map((c) => [c.id, c.answer])).toEqual([[card.id, undefined]])
+    const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    const row = rows.find((r) => r.stage === 'merge')
+    expect(row).toMatchObject({ effective: true })
+    expect(row?.overnight).toBeUndefined()
+
+    await client.ok('POST', `/comments/${card.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
+    expect(await lines(client, task)).not.toContain(
+      'Overnight mode is on, so TED skipped the Merge Gate',
+    )
+  })
+
   test('Request changes at the Merge Gate holds the merge until the Task goes back', async () => {
     const client = await start({
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
@@ -105,17 +166,18 @@ describe('Merge Gate', () => {
       action: 'request-changes',
       text: 'Not yet.',
     })
-    await new Promise((resolve) => setTimeout(resolve, 600))
     const merge = (await comments(client, task)).filter((c) => c.stage === 'merge')
     expect(merge.map((c) => c.answer?.kind)).toEqual(['changes-requested'])
     expect(await merges()).toEqual([])
   })
 
   test('Request changes waits for a Run that holds the Task instead of failing', async () => {
+    const clock = new ManualClock()
     const client = await start({
+      daemon: { clock },
       workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
     })
-    const { task, signoff } = await toSignoff(client)
+    const { task, signoff } = await toSignoff(client, {}, clock)
     await writeFile(client.mergingFile, '')
     const lead = await waitUntil(async () => (await getTask(client, task.id)).leadRunId, 'a Lead')
     const factory = (await client.ok<Factory[]>('GET', '/factories'))[0]
@@ -149,7 +211,11 @@ describe('Merge Gate', () => {
         .finally(() => {
           settled = true
         })
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await eventWait(
+        clock.subscribe,
+        () => clock.pending.includes(15_000),
+        'Request changes to wait on the held Task',
+      )
       expect(settled).toBe(false)
       await rm(gate)
       expect((await answer).status).toBe(200)
@@ -200,7 +266,6 @@ describe('Merge off', () => {
     }, 'Waiting for merge')
     expect(waiting.stage).toBe('merge')
     expect(waiting.status).toEqual({ kind: 'waiting-for-github', on: 'merge' })
-    await new Promise((resolve) => setTimeout(resolve, 400))
     expect((await getTask(client, task.id)).repos[0]?.removed).toBeUndefined()
     expect((await getTask(client, blocked.id)).leadRunId).toBeUndefined()
 
@@ -279,7 +344,9 @@ async function mergeSignoffOrReview(client: Client, task: Task, count: number) {
 
 describe('Sending after sign-off', () => {
   test('Send and cancel merge cancels the merge, turns auto-merge off and counts as Request changes', async () => {
+    const clock = new ManualClock()
     const client = await start({
+      daemon: { clock },
       files: ci,
       merge: {
         mergeState: 'BLOCKED',
@@ -324,7 +391,13 @@ describe('Sending after sign-off', () => {
       mergeState: 'CLEAN',
       checks: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
     })
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the GitHub poll to rearm')
+    clock.advance(500)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the next GitHub poll to finish',
+    )
     expect(
       (await merges()).filter((m) => !m.includes('--auto') && !m.includes('--disable-auto')),
     ).toEqual([])
@@ -376,17 +449,38 @@ describe('CI stuck', () => {
   const stuck = { noChecks: 300, pending: 700 }
 
   const question = (client: Client, task: Task, count: number) =>
-    waitUntil(async () => {
-      const asked = (await comments(client, task)).filter(
-        (c) => c.kind === 'question' && c.author.kind === 'ted',
-      )
-      return asked.length >= count ? asked[count - 1] : undefined
-    }, `CI-stuck question ${count}`)
+    eventWait(
+      client.subscribe,
+      async () => {
+        const asked = (await comments(client, task)).filter(
+          (c) => c.kind === 'question' && c.author.kind === 'ted',
+        )
+        return asked.length >= count ? asked[count - 1] : undefined
+      },
+      `CI-stuck question ${count}`,
+    )
 
   test('no check after the push asks the human; Keep waiting asks again later; Merge anyway merges', async () => {
-    const client = await start({ files: ci, ciStuckMs: stuck })
+    const clock = new ManualClock()
+    const client = await start({ files: ci, ciStuckMs: stuck, daemon: { clock } })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
+    await eventWait(
+      client.subscribe,
+      async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
+      'the initial CI read',
+    )
+    const entries = await client.ok<{ stage: string; at: string }[]>(
+      'GET',
+      `/tasks/${task.id}/stage-entries`,
+    )
+    const enteredAt = Date.parse(entries.findLast((e) => e.stage === 'merge')?.at ?? '')
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the initial GitHub poll to finish',
+    )
+    clock.advance(enteredAt + stuck.noChecks - clock.now())
 
     const first = await question(client, task, 1)
     expect(first.title).toBe('CI hasn’t started on acme/widgets#7')
@@ -398,16 +492,29 @@ describe('CI stuck', () => {
       action: 'answer',
       choice: 'Keep waiting',
     })
+    await eventWait(clock.subscribe, () => clock.pending.includes(100), 'the GitHub poll to rearm')
+    clock.advance(Date.parse(kept.answer?.at ?? '') + stuck.pending - clock.now())
     const second = await question(client, task, 2)
-    expect(Date.parse(second.createdAt) - Date.parse(kept.answer?.at ?? '')).toBeGreaterThanOrEqual(
-      stuck.pending,
-    )
+    expect(clock.now() - Date.parse(kept.answer?.at ?? '')).toBe(stuck.pending)
     expect(await merges()).toEqual([])
 
     await client.ok('POST', `/comments/${second.id}/answer`, {
       action: 'answer',
       choice: 'Merge anyway',
     })
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the GitHub poll to rearm after the answer',
+    )
+    clock.advance(100)
+    await waitUntil(async () => (await readGh()).merge.merged, 'GitHub to finish the merge')
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the GitHub poll to rearm after merging',
+    )
+    clock.advance(100)
     const done = await waitForStage(client, task, 'done')
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
   })

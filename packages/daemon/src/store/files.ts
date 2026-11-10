@@ -9,9 +9,20 @@ const metaFile = 'ted-store.json'
 const eventlogPattern = /^eventlog@(\d+)\.db$/
 const statePrefix = `state${schema.state.sqlite.hash}@`
 
+export interface OutputCompaction {
+  state: 'done' | 'failed'
+  by: string
+  at: string
+  rewritten?: number
+  bytesBefore?: number
+  bytesAfter?: number
+  reason?: string
+}
+
 export interface StoreMeta {
   lastOpenedBy: string
   lastOpenedAt: string
+  outputCompaction?: OutputCompaction
 }
 
 export type StoreCheck =
@@ -108,18 +119,55 @@ export async function removeStaleStateFiles(directory: string): Promise<void> {
   }
 }
 
-export async function readStoreMeta(directory: string): Promise<StoreMeta | undefined> {
+async function readMetaFile(directory: string): Promise<Record<string, unknown>> {
   try {
-    const meta = JSON.parse(await readFile(path.join(directory, metaFile), 'utf8')) as StoreMeta
-    return typeof meta.lastOpenedBy === 'string' ? meta : undefined
+    const meta: unknown = JSON.parse(await readFile(path.join(directory, metaFile), 'utf8'))
+    return typeof meta === 'object' && meta !== null && !Array.isArray(meta)
+      ? (meta as Record<string, unknown>)
+      : {}
   } catch {
-    return undefined
+    return {}
   }
 }
 
-export async function writeStoreMeta(directory: string, meta: StoreMeta): Promise<void> {
+async function writeMetaFile(directory: string, meta: Record<string, unknown>): Promise<void> {
   const file = path.join(directory, metaFile)
   const tmp = `${file}.${process.pid}.tmp`
   await writeFile(tmp, JSON.stringify(meta, null, 2), { mode: 0o600 })
   await rename(tmp, file)
+}
+
+function compactionIn(meta: Record<string, unknown>): OutputCompaction | undefined {
+  const marker = meta.outputCompaction as Partial<OutputCompaction> | undefined
+  return (marker?.state === 'done' || marker?.state === 'failed') && typeof marker.by === 'string'
+    ? (marker as OutputCompaction)
+    : undefined
+}
+
+export async function readStoreMeta(directory: string): Promise<StoreMeta | undefined> {
+  const meta = await readMetaFile(directory)
+  if (typeof meta.lastOpenedBy !== 'string') return undefined
+  const outputCompaction = compactionIn(meta)
+  return {
+    lastOpenedBy: meta.lastOpenedBy,
+    lastOpenedAt: typeof meta.lastOpenedAt === 'string' ? meta.lastOpenedAt : '',
+    ...(outputCompaction && { outputCompaction }),
+  }
+}
+
+export async function writeStoreMeta(directory: string, meta: StoreMeta): Promise<void> {
+  await writeMetaFile(directory, { ...(await readMetaFile(directory)), ...meta })
+}
+
+export async function readOutputCompaction(
+  directory: string,
+): Promise<OutputCompaction | undefined> {
+  return compactionIn(await readMetaFile(directory))
+}
+
+export async function markOutputCompaction(
+  directory: string,
+  outputCompaction: OutputCompaction,
+): Promise<void> {
+  await writeMetaFile(directory, { ...(await readMetaFile(directory)), outputCompaction })
 }

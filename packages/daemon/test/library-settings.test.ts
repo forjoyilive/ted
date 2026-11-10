@@ -18,6 +18,7 @@ import { defaultsDir } from '../src/workflow/layers.ts'
 import {
   api,
   appClient,
+  basedOnLine,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -135,7 +136,7 @@ describe('Library settings', () => {
         '  design:',
         '    gate: false',
         '  review:',
-        `    based_on: ${blobHash(review)}`,
+        `    ${basedOnLine(blobHash(review))}`,
         '',
       ].join('\n'),
     )

@@ -93,6 +93,8 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { saveFactoryExport } from './export.ts'
+import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
   type LoginItem,
@@ -146,6 +148,8 @@ function shellSize(value: unknown): { cols: number; rows: number } {
 
 const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Promise<unknown>> = {
   getCoordinator: (client, id) => client.coordinator(String(id)),
+  getCoordinatorChat: (client, id) => client.coordinatorChat(String(id)),
+  coordinatorStatuses: (client) => client.coordinatorStatuses(),
   messageCoordinator: (client, id, input) =>
     client.messageCoordinator(String(id), input as CoordinatorMessage),
   stopCoordinator: (client, id) => client.stopCoordinator(String(id)),
@@ -364,6 +368,18 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   setTaskRepos: (client, taskId, request) =>
     client.setTaskRepos(String(taskId), request as Parameters<DaemonClient['setTaskRepos']>[1]),
+  exportFactory: (client, factoryId, format) =>
+    saveFactoryExport(client, factoryId, format, async (filename, extension) => {
+      const options = {
+        title: 'Export Factory',
+        defaultPath: filename,
+        filters: [{ name: extension === 'json' ? 'JSON' : 'Markdown', extensions: [extension] }],
+      }
+      const chosen = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options)
+      return chosen.canceled ? undefined : chosen.filePath
+    }),
   chooseFolder: async (_, title) => {
     const options: OpenDialogOptions = {
       title: String(title),
@@ -491,7 +507,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
-  runFix: (client, request) => client.runFix(request as RunFixRequest),
+  runFix: async (client, request) => {
+    const result = await client.runFix(request as RunFixRequest)
+    if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
+    return result
+  },
   getLinear: (client) => client.getLinear(),
   saveLinearKey: (client, key, inFile) =>
     client.saveLinearKey({ key: String(key), inFile: inFile === true }),

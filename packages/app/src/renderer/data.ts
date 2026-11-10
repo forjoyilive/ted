@@ -9,6 +9,7 @@ import type {
   CheckRun,
   Comment,
   Coordinator,
+  CoordinatorStatus,
   DataStatus,
   DescriptionVersion,
   DriftCounts,
@@ -556,6 +557,31 @@ export function useCoordinator(factoryId: string): Coordinator | null | undefine
       event.type === 'slots-changed' ||
       event.type === 'agent-health-changed',
     factoryId,
+  )
+}
+
+export function useCoordinatorChat(
+  factoryId: string,
+  runIds: readonly string[],
+): RunChat | null | undefined {
+  return useReloading(
+    () => ted.getCoordinatorChat(factoryId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      (event.type === 'run-output' && runIds.includes(event.runId)) ||
+      (event.type === 'run-updated' && runIds.includes(event.run.id)) ||
+      event.type === 'agent-health-changed',
+    factoryId,
+  )
+}
+
+export function useCoordinatorStatuses(): CoordinatorStatus[] {
+  return (
+    useReloading(
+      () => ted.coordinatorStatuses(),
+      (event) => event.type === 'coordinator-changed' || event.type === 'agent-health-changed',
+      'coordinator-statuses',
+    ) ?? []
   )
 }
 

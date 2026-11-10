@@ -1028,3 +1028,48 @@ test.each(['omitted', 'explicit failure', 'explicit pass'])(
     expect((await getTask(s.client, s.task.id)).stage).toBe('review')
   },
 )
+
+test('accepted continuation waits for the machine Check slot and keeps its failure history', async () => {
+  const s = await setup([
+    '      - { name: Tests, run: "if [ ! -e stub-hold ]; then exit 1; fi; touch stub-running; while [ ! -e stub-release ]; do sleep 0.05; done" }',
+    '      - { name: Later, run: "echo later" }',
+  ])
+  await s.client.ok('PATCH', '/settings', { maxChecksAtOnce: 1 })
+  const other = await s.client.ok<Task>('POST', '/tasks', {
+    title: '{"steps":[{"endTurn":true}]}',
+    factory: 'NB',
+    start: true,
+  })
+  const current = await waitUntil(async () => {
+    const task = await getTask(s.client, other.id)
+    return task.runs[0]?.state === 'idle' && task.repos[0] ? task : undefined
+  }, 'other Task Lead ready')
+  const repo = current.repos[0]
+  if (!repo) throw new Error('missing other worktree')
+  await writeFile(path.join(repo.worktree, 'work.txt'), 'implemented\n')
+  await writeFile(path.join(repo.worktree, 'stub-hold'), 'hold')
+  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
+  for (let i = 0; i < 2; i++) {
+    const response = await lead.call('POST', `/tasks/${other.id}/outcome`, { outcome: 'advance' })
+    expect(response.status, JSON.stringify(response.body)).toBe(200)
+  }
+  await waitUntil(async () => {
+    const runs = await s.client.ok<CheckRun[]>('GET', `/tasks/${other.id}/check-runs`)
+    return runs.at(-1)?.checks[0]?.state === 'running'
+  }, 'other Task holds Check slot')
+  try {
+    expect((await s.answer(await s.ask(s.one, 'uncertain'), 'Accept this failure')).status).toBe(
+      200,
+    )
+    await waitUntil(async () => (await s.runs()).at(-1)?.waiting, 'accepted suffix waits for slot')
+    expect((await s.runs()).at(-1)?.checks.map((c) => c.state)).toEqual(['waiting'])
+    expect((await s.obligations()).satisfied).toBe(false)
+    expect(await s.backs()).toEqual([])
+  } finally {
+    await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
+  }
+  await waitUntil(async () => (await s.obligations()).satisfied, 'accepted suffix completes')
+  expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
+  expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+})

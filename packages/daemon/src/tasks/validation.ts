@@ -29,6 +29,8 @@ interface ValidationOptions {
   env(): NodeJS.ProcessEnv
   libraryDir: string
   signal: AbortSignal
+  lowPriority(): boolean
+  takeCheckSlot(taskId: string): Promise<(() => void) | undefined>
   checkLog(task: Task, id: string, position: number): string
   checkDir(task: Task, id: string): string
   findings(task: Task, run: CheckRun): Promise<string | undefined>
@@ -204,6 +206,11 @@ export function createValidation(options: ValidationOptions) {
       })
     await store.persisted()
     const done = (async () => {
+      const release = await options.takeCheckSlot(task.id)
+      if (release === undefined) {
+        if (!options.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
+        return { outcome: 'interrupted' as const, notFound: [] }
+      }
       const result = await runChecks({
         checks: plan,
         taskDisplayId: task.displayId,
@@ -212,6 +219,7 @@ export function createValidation(options: ValidationOptions) {
         logFor: (position) => options.checkLog(task, checkRun.id, position),
         ...(sandbox !== undefined && { sandbox }),
         signal: options.signal,
+        lowPriority: options.lowPriority(),
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => {
           store.checkFinished(checkRun.id, position, finished)
@@ -232,10 +240,12 @@ export function createValidation(options: ValidationOptions) {
             }
           }
         },
-      }).catch((error: unknown) => {
-        console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
-        return { outcome: 'interrupted' as const, notFound: [] }
       })
+        .catch((error: unknown) => {
+          console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
+          return { outcome: 'interrupted' as const, notFound: [] }
+        })
+        .finally(release)
       if (result.outcome === 'interrupted' && options.signal.aborted) return result
       store.finishChecks(checkRun.id, result.outcome)
       options.reportNotFound(task, result)

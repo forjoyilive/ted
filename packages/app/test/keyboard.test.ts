@@ -15,7 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -51,7 +51,6 @@ const env = () => ({
   TED_HIDDEN_WINDOW: '1',
 })
 
-const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
 const title = (window: Page) => window.getByRole('heading', { level: 1 }).first()
 
 async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
@@ -61,9 +60,8 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   if (!info) throw new Error('no daemon.json')
   const ted = appClient(info, process.env.TED_APP_TOKEN)
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return { window, ted }
 }
 
@@ -222,6 +220,16 @@ describe('Keyboard shortcuts', () => {
     await window.getByRole('region', { name: 'Task thread' }).waitFor()
 
     await press(window, 'a', 'Enter')
-    await window.getByText('You approved · this request only').waitFor()
+    await expect
+      .poll(async () => (await ted.listComments(task.id)).find((c) => c.permission)?.answer?.kind)
+      .toBe('approved')
+    const inbox = window.getByRole('region', { name: 'Inbox' })
+    await inbox.getByText('Nothing waiting on you').waitFor()
+    await inbox.getByRole('switch', { name: 'Answered' }).click()
+    await inbox.getByRole('button').filter({ hasText: 'Permission' }).click()
+    await window
+      .getByRole('region', { name: 'Task thread' })
+      .getByText('You approved · this request only')
+      .waitFor()
   })
 })

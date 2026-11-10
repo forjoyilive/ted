@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
@@ -367,7 +367,33 @@ describe('TED app', () => {
     await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
     await chat.getByRole('button', { name: /^Edit/ }).click()
     await chat.getByText('by pinned').waitFor()
-    expect(await chat.getByRole('button', { name: 'Restart' }).isEnabled()).toBe(true)
+    expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)
+    const taskHeader = window.getByRole('region', { name: 'Task thread' }).locator('header')
+    await taskHeader.getByRole('button', { name: 'Task actions' }).click()
+    expect(
+      await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled(),
+    ).toBe(true)
+    const runId = (await client.listTasks())[0]?.leadRunId
+    if (runId === undefined) throw new Error('Task has no Lead Run')
+    const { run } = await client.getRun(runId)
+    await writeFile(
+      path.join(ctx.home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ say: 'Noted.' }, { endTurn: true }] }),
+    )
+    await taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).click()
+    await expect
+      .poll(
+        async () =>
+          (await readFile(path.join(run.cwd, 'stub-starts.jsonl'), 'utf8')).trim().split('\n')
+            .length,
+      )
+      .toBe(2)
+    expect((await client.listTasks())[0]?.leadRunId).toBe(runId)
+    await taskHeader.getByRole('button', { name: 'Task actions' }).click()
+    await expect
+      .poll(() => taskHeader.getByRole('menuitem', { name: 'Restart', exact: true }).isEnabled())
+      .toBe(true)
+    await window.keyboard.press('Escape')
 
     const box = chat.getByRole('textbox', { name: 'Message to this Run' })
     await box.fill('Keep pinned notes in the order they were pinned.')

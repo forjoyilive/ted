@@ -81,6 +81,7 @@ export interface StageRowView {
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind
@@ -123,6 +124,7 @@ export interface CheckTry {
   name: string
   repo: string
   state: CheckTryState
+  waiting?: boolean
   exitCode?: number
   setupFailed?: boolean
   durationMs?: number
@@ -274,6 +276,7 @@ export interface LibraryStageRow {
   inOrder: boolean
   enabled: boolean
   gate: boolean
+  overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
   from: LayerKind
