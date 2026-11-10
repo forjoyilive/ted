@@ -654,6 +654,11 @@ export function TaskThread({
         <RunChat
           key={shownRun}
           runId={shownRun}
+          endedNote={
+            task.canResume
+              ? 'This Run has ended and is read-only. Resume the Task to carry on.'
+              : undefined
+          }
           onStopTask={() =>
             void ted.stopTask(task.id).catch((error: unknown) => console.error(error))
           }

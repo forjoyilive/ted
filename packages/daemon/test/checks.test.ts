@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
+import type { Activity, Banner, CheckRun, Factory, SendBack, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -345,6 +345,83 @@ describe('Checks at Validate', () => {
 })
 
 describe('Checks over the send-back limit and across restarts', () => {
+  test('Resume is refused while interrupted Validate Checks are being prepared again', async () => {
+    await workflow(
+      '      - { name: Tests, run: "echo run >> stub-count; while [ ! -e stub-go ]; do sleep 0.05; done" }',
+    )
+    let client = await startTed()
+    const task = await startTask(
+      client,
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        advance,
+      ),
+    )
+    const count = await worktreeFile(client, task, 'stub-count')
+    const go = path.join(path.dirname(count), 'stub-go')
+    await waitUntil(
+      () =>
+        readFile(count, 'utf8').then(
+          (text) => text === 'run\n',
+          () => false,
+        ),
+      'the original Check to start',
+    )
+    const lead = (await getTask(client, task.id))?.leadRunId
+    await client.ok('POST', '/shutdown', {})
+    await daemon?.stop()
+
+    const preparing = path.join(scratch, 'preparing')
+    const release = path.join(scratch, 'release')
+    const program = path.join(scratch, 'sandbox-prepare')
+    await writeFile(
+      program,
+      `#!/bin/sh\necho waiting > '${preparing}'\nwhile [ ! -e '${release}' ]; do sleep 0.01; done\nexec ${process.platform === 'darwin' ? '/usr/bin/sandbox-exec' : 'bwrap'} "$@"\n`,
+      { mode: 0o755 },
+    )
+    const previous = process.env.TED_SANDBOX_BIN
+    process.env.TED_SANDBOX_BIN = program
+    try {
+      client = await startTed()
+      await waitUntil(
+        () =>
+          readFile(preparing, 'utf8').then(
+            () => true,
+            () => false,
+          ),
+        'the restarted Check preparation to wait',
+      )
+      expect(await checkRuns(client, task)).toMatchObject([{ outcome: 'interrupted' }])
+      const during = await getTask(client, task.id)
+      expect((await client.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
+      expect(during).not.toHaveProperty('canResume', true)
+      expect(during?.leadRunId).toBe(lead)
+      expect(during?.status?.kind).toBe('working')
+      expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(1)
+      await writeFile(release, '')
+      await waitUntil(
+        async () => (await checkRuns(client, task)).length === 2,
+        'the replacement Check',
+      )
+      expect(await getTask(client, task.id)).not.toHaveProperty('canResume', true)
+      expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(1)
+      await writeFile(go, '')
+      await finishedRuns(client, task, 2)
+      await waitUntil(
+        async () => (await getTask(client, task.id))?.canResume,
+        'Resume after Checks finish',
+      )
+      expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(0)
+    } finally {
+      if (previous === undefined) delete process.env.TED_SANDBOX_BIN
+      else process.env.TED_SANDBOX_BIN = previous
+      await writeFile(release, '')
+      await writeFile(go, '')
+    }
+  }, 60_000)
+
   test('past max_back a failing Check asks the human instead of sending back', async () => {
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
