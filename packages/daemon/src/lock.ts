@@ -68,6 +68,11 @@ export async function lockHolders(lockPath: string): Promise<number[]> {
     .map(Number)
 }
 
+export async function holdsLock(lockPath: string, pid: number): Promise<boolean> {
+  if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) return false
+  return (await lockHolders(lockPath)).includes(pid)
+}
+
 async function openedByOnLinux(file: string): Promise<number[]> {
   const pids = (await readdir('/proc').catch(() => [])).filter((name) => /^\d+$/.test(name))
   const holders: number[] = []

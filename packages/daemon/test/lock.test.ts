@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from '../src/index.ts'
-import { tryLock, waitForLock } from '../src/lock.ts'
+import { holdsLock, tryLock, waitForLock } from '../src/lock.ts'
 import { makeTempHome } from './helpers.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -72,4 +72,25 @@ test('a host waits out a brief probe of its lock, but not a lock someone keeps',
   expect(won).toBeDefined()
   expect(await waitForLock(file, 200)).toBeUndefined()
   won?.release()
+})
+
+test('holdsLock is true only for the process holding the lock', async () => {
+  const daemonProcess = spawn(process.execPath, [mainPath], {
+    env: { ...process.env, TED_HOME: home },
+    stdio: 'ignore',
+  })
+  const other = spawn('sleep', ['60'], { env: { ...process.env }, stdio: 'ignore' })
+  try {
+    for (let i = 0; i < 200 && !(await readDaemonInfo(home)); i++) await sleep(25)
+    const lock = path.join(home, 'daemon-lock.db')
+
+    expect(await holdsLock(lock, Number(daemonProcess.pid))).toBe(true)
+    expect(await holdsLock(lock, Number(other.pid))).toBe(false)
+    expect(await holdsLock(lock, 1)).toBe(false)
+    expect(await holdsLock(path.join(home, 'missing.db'), Number(daemonProcess.pid))).toBe(false)
+  } finally {
+    daemonProcess.kill('SIGKILL')
+    other.kill('SIGKILL')
+    await once(daemonProcess, 'exit')
+  }
 })
