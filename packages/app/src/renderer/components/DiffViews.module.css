@@ -211,3 +211,8 @@
   color: var(--status-failed-fg);
   font-size: var(--text-13);
 }
+
+.pending {
+  display: grid;
+  place-items: center;
+}

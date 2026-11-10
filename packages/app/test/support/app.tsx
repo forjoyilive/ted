@@ -59,12 +59,12 @@ export function appState() {
       api.emit({ type: 'settings-changed', settings: state.settings })
       return state.settings
     },
+    taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],
     listThreadEvents: () => [],
     listCheckRuns: () => [],
     listTaskRuns: () => [],
     taskBrief: () => null,
-    taskGates: () => ({ overrides: {}, rows: [], revision: 'test' }),
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
     taskFiles: (taskId) => ({ taskId, repos: [] }),

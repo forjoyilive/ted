@@ -45,6 +45,7 @@ import {
   useDiffComments,
   useLineComments,
 } from '../components/LineComments.tsx'
+import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import {
   AnsweredCard,
@@ -62,13 +63,14 @@ import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
-  useCheckRuns,
+  useCheckRunList,
+  useCommentList,
   useComments,
-  useDescriptions,
+  useDescriptionsState,
   useStageEntries,
-  useTaskBrief,
+  useTaskBriefState,
   useTaskRuns,
-  useThreadEvents,
+  useThreadEventList,
 } from '../data.ts'
 import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
@@ -348,7 +350,8 @@ export function TaskPanes({
     go({ kind: 'file', file })
   }
   const changes = useTaskChanges(task)
-  const brief = useTaskBrief(task.id)
+  const briefResource = useTaskBriefState(task.id)
+  const brief = briefResource.value
   const pane = middlePane(state, task, changes !== undefined)
   const { changes: view, app: shownApp, brief: fullBrief, run: visibleRun, all } = pane
   const showChanges = (next: ChangesView | undefined) => go({ kind: 'changes', view: next })
@@ -454,7 +457,13 @@ export function TaskPanes({
         />
       )}
       {fullBrief && (
-        <FullBrief task={task} brief={brief} onBack={() => go({ kind: 'brief', open: false })} />
+        <FullBrief
+          task={task}
+          brief={brief}
+          error={briefResource.error}
+          retry={briefResource.retry}
+          onBack={() => go({ kind: 'brief', open: false })}
+        />
       )}
       {view?.kind === 'diff' && (
         <DiffView
@@ -528,6 +537,8 @@ export function TaskPanes({
           />
         }
         brief={brief}
+        briefError={briefResource.error}
+        onRetryBrief={briefResource.retry}
         briefOpen={fullBrief}
         onOpenBrief={openBrief}
       />
@@ -572,9 +583,20 @@ export function TaskThread({
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onCloseApp?: (() => void) | undefined
 }) {
-  const comments = useComments(task.id)
-  const events = useThreadEvents(task.id)
-  const checkRuns = useCheckRuns(task.id)
+  const commentList = useCommentList(task.id)
+  const eventList = useThreadEventList(task.id)
+  const checkList = useCheckRunList(task.id)
+  const comments = commentList.items
+  const events = eventList.value ?? []
+  const checkRuns = checkList.items
+  const historyError = commentList.error ?? eventList.error ?? checkList.error
+  const historyLoading =
+    !historyError && (!commentList.loaded || eventList.value === undefined || !checkList.loaded)
+  const retryHistory = () => {
+    commentList.retry()
+    eventList.retry()
+    checkList.retry()
+  }
   const [output, setOutput] = useState<{ checkRun: CheckRun; position: number }>()
   const openOutput: OpenOutput = (checkRun, position) => setOutput({ checkRun, position })
   const sentBackRuns = new Set(events.flatMap((e) => (e.checkRunId ? [e.checkRunId] : [])))
@@ -760,82 +782,93 @@ export function TaskThread({
             active={!hidden}
             className={styles.thread}
           >
-            {shown.map((item) => {
-              if (item.kind === 'event') {
-                const { event } = item
-                return (
-                  <EventRow
-                    key={event.id}
-                    event={event}
-                    checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
-                    onOpenOutput={openOutput}
-                    onOpenRun={onOpenRun}
-                    onOpenPlan={onOpenPlan}
-                  />
-                )
-              }
-              if (item.kind === 'check-run') {
-                return (
-                  <CheckRunLine
-                    key={item.checkRun.id}
-                    checkRun={item.checkRun}
-                    onOpenOutput={openOutput}
-                  />
-                )
-              }
-              const { comment } = item
-              if (comment.kind === 'note' && comment.author.kind === 'ted') {
-                return (
-                  <EventLine
-                    key={comment.id}
-                    tone="quiet"
-                    text={comment.body.replace(/\s+/g, ' ')}
-                    at={comment.createdAt}
-                  />
-                )
-              }
-              if (comment.kind === 'note') {
-                return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} />
-              }
-              if (comment.answer !== undefined) {
-                const { answer } = comment
-                const newer =
-                  answer.kind === 'superseded'
-                    ? comments.find((c) => c.id === answer.by)
-                    : undefined
+            {historyError && (
+              <li>
+                <LoadingError error={historyError} retry={retryHistory} />
+              </li>
+            )}
+            {historyLoading && (
+              <li aria-busy="true">
+                <Skeleton shape="history" label="Loading Task history…" />
+              </li>
+            )}
+            {!historyLoading &&
+              shown.map((item) => {
+                if (item.kind === 'event') {
+                  const { event } = item
+                  return (
+                    <EventRow
+                      key={event.id}
+                      event={event}
+                      checkRun={checkRuns.find((r) => r.id === event.checkRunId)}
+                      onOpenOutput={openOutput}
+                      onOpenRun={onOpenRun}
+                      onOpenPlan={onOpenPlan}
+                    />
+                  )
+                }
+                if (item.kind === 'check-run') {
+                  return (
+                    <CheckRunLine
+                      key={item.checkRun.id}
+                      checkRun={item.checkRun}
+                      onOpenOutput={openOutput}
+                    />
+                  )
+                }
+                const { comment } = item
+                if (comment.kind === 'note' && comment.author.kind === 'ted') {
+                  return (
+                    <EventLine
+                      key={comment.id}
+                      tone="quiet"
+                      text={comment.body.replace(/\s+/g, ' ')}
+                      at={comment.createdAt}
+                    />
+                  )
+                }
+                if (comment.kind === 'note') {
+                  return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} />
+                }
+                if (comment.answer !== undefined) {
+                  const { answer } = comment
+                  const newer =
+                    answer.kind === 'superseded'
+                      ? comments.find((c) => c.id === answer.by)
+                      : undefined
+                  return (
+                    <li key={comment.id} className={styles.requestItem}>
+                      <AnsweredCard
+                        key={comment.id === answeredId ? 'shown' : 'collapsed'}
+                        request={comment}
+                        task={task}
+                        newer={newer}
+                        expanded={comment.id === answeredId}
+                        onOpenRun={onOpenRun}
+                      />
+                      {comment.lineComments && (
+                        <SentLineComments
+                          comments={comment.lineComments}
+                          taskId={task.id}
+                          current={lines?.current ?? []}
+                          onOpen={(c) => lines?.onOpen(c)}
+                        />
+                      )}
+                    </li>
+                  )
+                }
                 return (
                   <li key={comment.id} className={styles.requestItem}>
-                    <AnsweredCard
-                      key={comment.id === answeredId ? 'shown' : 'collapsed'}
+                    <OpenRequestLine
                       request={comment}
                       task={task}
-                      newer={newer}
-                      expanded={comment.id === answeredId}
-                      onOpenRun={onOpenRun}
+                      pinned={comment.id === pinned?.id}
+                      others={open.length - 1}
+                      onPin={() => pin(comment.id)}
                     />
-                    {comment.lineComments && (
-                      <SentLineComments
-                        comments={comment.lineComments}
-                        taskId={task.id}
-                        current={lines?.current ?? []}
-                        onOpen={(c) => lines?.onOpen(c)}
-                      />
-                    )}
                   </li>
                 )
-              }
-              return (
-                <li key={comment.id} className={styles.requestItem}>
-                  <OpenRequestLine
-                    request={comment}
-                    task={task}
-                    pinned={comment.id === pinned?.id}
-                    others={open.length - 1}
-                    onPin={() => pin(comment.id)}
-                  />
-                </li>
-              )
-            })}
+              })}
           </ScrollMemory>
           {pinned ? (
             <div className={styles.pinned}>
@@ -928,6 +961,8 @@ export function TaskDetails({
   shownApp,
   onOpenApp,
   brief,
+  briefError,
+  onRetryBrief,
   briefOpen = false,
   onOpenBrief,
 }: {
@@ -942,6 +977,8 @@ export function TaskDetails({
   shownApp?: ShownApp | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
   brief?: TaskBrief | null | undefined
+  briefError?: string | undefined
+  onRetryBrief?: (() => void) | undefined
   briefOpen?: boolean
   onOpenBrief?: (() => void) | undefined
 }) {
@@ -1090,6 +1127,8 @@ export function TaskDetails({
       <TaskBriefSection
         task={task}
         brief={brief}
+        error={briefError}
+        retry={onRetryBrief}
         open={briefOpen}
         onOpenBrief={() => onOpenBrief?.()}
       />
@@ -1133,11 +1172,15 @@ function FieldSelect({
 function TaskBriefSection({
   task,
   brief,
+  error,
+  retry,
   open,
   onOpenBrief,
 }: {
   task: Task
   brief: TaskBrief | null | undefined
+  error: string | undefined
+  retry: (() => void) | undefined
   open: boolean
   onOpenBrief: () => void
 }) {
@@ -1150,6 +1193,8 @@ function TaskBriefSection({
       title="Task brief"
       collapsedSummary={brief === undefined ? undefined : briefSummary(brief, now)}
     >
+      {error && retry && <LoadingError error={error} retry={retry} />}
+      {brief === undefined && !error && <Skeleton rows={1} label="Loading Task brief…" />}
       {brief === null && (
         <p className={styles.briefEmpty}>The Task Lead hasn’t written a Task brief yet.</p>
       )}
@@ -1170,7 +1215,8 @@ function TaskBriefSection({
 function OriginalRequest({ task }: { task: Task }) {
   const [open, setOpen] = useState(false)
   const [history, setHistory] = useState(false)
-  const versions = useDescriptions(task.id)
+  const descriptions = useDescriptionsState(task.id)
+  const versions = descriptions.value
   const original = versions?.[0]
   const edits = (versions?.length ?? 1) - 1
   return (
@@ -1190,19 +1236,28 @@ function OriginalRequest({ task }: { task: Task }) {
         </button>
       </div>
       {open && (
-        <p className={styles.originalText}>
-          {original === undefined
-            ? 'Loading…'
-            : original.text.trim() !== ''
+        <div className={styles.originalText}>
+          {descriptions.error && (
+            <LoadingError error={descriptions.error} retry={descriptions.retry} />
+          )}
+          {versions === undefined
+            ? !descriptions.error && <Skeleton label="Loading original request…" />
+            : original?.text.trim()
               ? original.text
               : task.source
                 ? `Created from ${task.source.linear?.identifier ?? task.source.url} with no description.`
                 : 'No description.'}
-        </p>
+        </div>
       )}
       {open && task.attachments.length > 0 && <CommentFiles files={task.attachments} />}
-      {history && versions !== undefined && (
-        <DescriptionHistory task={task} versions={versions} onClose={() => setHistory(false)} />
+      {history && (
+        <DescriptionHistory
+          task={task}
+          versions={versions}
+          error={descriptions.error}
+          retry={descriptions.retry}
+          onClose={() => setHistory(false)}
+        />
       )}
     </>
   )
@@ -1211,10 +1266,14 @@ function OriginalRequest({ task }: { task: Task }) {
 function DescriptionHistory({
   task,
   versions,
+  error,
+  retry,
   onClose,
 }: {
   task: Task
-  versions: readonly DescriptionVersion[]
+  versions: readonly DescriptionVersion[] | undefined
+  error: string | undefined
+  retry: () => void
   onClose: () => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -1240,14 +1299,24 @@ function DescriptionHistory({
           <CloseIcon />
         </button>
       </header>
-      <ol className={styles.historyList}>
-        {[...versions].reverse().map((v) => (
+      <ol className={styles.historyList} aria-busy={versions === undefined && error === undefined}>
+        {error ? (
+          <li>
+            <LoadingError error={error} retry={retry} />
+          </li>
+        ) : versions === undefined ? (
+          <li>
+            <Skeleton shape="history" label="Loading description history…" />
+          </li>
+        ) : null}
+        {versions?.length === 0 && <li>No description history.</li>}
+        {[...(versions ?? [])].reverse().map((v) => (
           <li key={v.version} className={styles.historyItem}>
             <p className={styles.historyMeta}>
               {v.version === 1
                 ? `Original request · ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                 : `Version ${v.version} · edited by you ${formatDate(v.at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
-              {v.version === versions.length && versions.length > 1 ? ' · current' : ''}
+              {v.version === versions?.length && versions.length > 1 ? ' · current' : ''}
             </p>
             <p className={styles.historyText}>
               {v.text.trim() === '' ? 'No description.' : v.text}
