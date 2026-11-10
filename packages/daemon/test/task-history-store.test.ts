@@ -168,3 +168,32 @@ test('nudge history is isolated by Run and Task', async () => {
   expect(store.latestNudge(id, 'one')).toBe(first)
   expect(store.latestNudge(id, 'two')).toBe(new Date().toISOString())
 })
+
+test('Gate approval bindings select their commit and Task', async () => {
+  const other = (await store.createTask({ title: 'Other' })).id
+  expect(store.approvalsBoundToCommit(id, 'signed')).toEqual([])
+  store.gateApprovalBound(other, 'other-task', 'widgets', 'signed')
+  store.gateApprovalBound(id, 'review', 'widgets', 'signed')
+  store.gateApprovalBound(id, 'merge', 'widgets', 'signed')
+  store.gateApprovalBound(id, 'old', 'widgets', 'old-commit')
+  expect(store.approvalsBoundToCommit(id, 'signed')).toEqual(['review', 'merge'])
+})
+
+test('Gate request commit selects the first record for the requested Comment', () => {
+  expect(store.gateRequestCommit(id, 'review')).toBeUndefined()
+  store.gateRequestedFor(id, 'other', 'widgets', 'other-commit')
+  store.gateRequestedFor(id, 'review', 'widgets', 'first')
+  store.gateRequestedFor(id, 'review', 'widgets', 'second')
+  expect(store.gateRequestCommit(id, 'review')).toBe('first')
+})
+
+test('Overnight Gate history respects Stage and inclusive visit boundaries', () => {
+  const at = new Date().toISOString()
+  expect(store.overnightGateHistory(id, 'merge', at)).toEqual({ kept: false, skipped: false })
+  store.gateKeptOvernight(id, 'review', 'settings')
+  store.gateSkippedOvernight(id, 'merge')
+  expect(store.overnightGateHistory(id, 'merge', at)).toEqual({ kept: false, skipped: true })
+  store.gateKeptOvernight(id, 'merge', 'unreadable')
+  expect(store.overnightGateHistory(id, 'merge', at)).toEqual({ kept: true, skipped: true })
+  expect(store.overnightGateHistory(id, 'merge', '2099')).toEqual({ kept: false, skipped: false })
+})

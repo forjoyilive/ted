@@ -36,7 +36,14 @@ import type { DraftLineCommentRequest, FileDiff, LineComment, TaskChanges } from
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type { CheckOutput, CheckRun, CheckRunReport, RunChecksRequest, SendBack } from './checks.ts'
 import type { CommandLineStatus } from './command-line.ts'
-import type { Coordinator, CoordinatorAction, CoordinatorMessage } from './coordinator.ts'
+import type {
+  Coordinator,
+  CoordinatorAction,
+  CoordinatorMessage,
+  CoordinatorOperation,
+  CoordinatorReceipt,
+  CoordinatorStatus,
+} from './coordinator.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
 import type {
   BackupsSummary,
@@ -47,6 +54,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -291,6 +299,14 @@ export class DaemonClient {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
   }
 
+  coordinatorChat(factoryId: string): Promise<RunChat | null> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  }
+
+  coordinatorStatuses(): Promise<CoordinatorStatus[]> {
+    return this.#request('GET', '/coordinators')
+  }
+
   messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
     return this.#request(
       'POST',
@@ -317,9 +333,9 @@ export class DaemonClient {
 
   coordinatorAct(
     id: string,
-    action: 'start' | 'move',
+    action: CoordinatorOperation,
     input: CoordinatorAction,
-  ): Promise<import('./coordinator.ts').CoordinatorReceipt> {
+  ): Promise<CoordinatorReceipt> {
     return this.#request('POST', `/coordinator/tasks/${encodeURIComponent(id)}/${action}`, input)
   }
 
@@ -648,6 +664,10 @@ export class DaemonClient {
 
   reportOutcome(ref: string, outcome: ReportOutcomeRequest): Promise<OutcomeResult> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
+  }
+
+  exportFactory(id: string): Promise<FactoryExport> {
+    return this.#request('GET', `/factories/${encodeURIComponent(id)}/export`)
   }
 
   listFactories(): Promise<Factory[]> {

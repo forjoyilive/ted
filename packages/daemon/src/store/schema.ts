@@ -261,6 +261,7 @@ export const runMessages = State.SQLite.table({
     text: State.SQLite.text(),
     at: State.SQLite.text(),
     queued: State.SQLite.boolean({ default: false }),
+    fromTed: State.SQLite.boolean({ default: false }),
     deletedAt: State.SQLite.text({ nullable: true }),
   },
 })
@@ -1590,6 +1591,39 @@ export const events = {
     name: 'v1.MergeStarted',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
+  gateRequestedFor: Events.synced({
+    name: 'v1.GateRequestedFor',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      commentId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  gateApprovalBound: Events.synced({
+    name: 'v1.GateApprovalBound',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      commentId: Schema.String,
+      name: Schema.String,
+      commit: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  gateKeptOvernight: Events.synced({
+    name: 'v1.GateKeptOvernight',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      stage: Schema.String,
+      reason: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  gateSkippedOvernight: Events.synced({
+    name: 'v1.GateSkippedOvernight',
+    schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
+  }),
   mergeCanceled: Events.synced({
     name: 'v1.MergeCanceled',
     schema: Schema.Struct({ taskId: Schema.String, commentId: Schema.String, at: Schema.String }),
@@ -2014,6 +2048,17 @@ export const events = {
       taskId: Schema.NullOr(Schema.String),
       text: Schema.String,
       at: Schema.String,
+    }),
+  }),
+  runMessageQueuedV2: Events.synced({
+    name: 'v2.RunMessageQueued',
+    schema: Schema.Struct({
+      id: Schema.String,
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      text: Schema.String,
+      at: Schema.String,
+      from: Schema.String,
     }),
   }),
   runMessageDelivered: Events.synced({
@@ -2573,6 +2618,12 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.GitHubActivityQueued': (args) => task(args, { notices: args.notices }),
   'v1.GitHubActivityHeld': (args) => task(args, { notices: args.notices }),
   'v1.MergeStarted': (args) => task(args),
+  'v1.GateSkippedOvernight': (args) => task(args, { stage: args.stage }),
+  'v1.GateKeptOvernight': (args) => task(args, { stage: args.stage, reason: args.reason }),
+  'v1.GateRequestedFor': (args) =>
+    task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
+  'v1.GateApprovalBound': (args) =>
+    task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskWorktreeSetupFinished': (args) =>
     task(args, { name: args.name, outcome: args.outcome, exitCode: args.exitCode }),
@@ -2757,6 +2808,14 @@ const materializers = counted(
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.GateRequestedFor': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.GateApprovalBound': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.GateKeptOvernight': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.GateSkippedOvernight': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeCanceled': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskAttachmentAdded': ({ taskId, hash, name, ...rest }) =>
         taskAttachments
@@ -3057,6 +3116,8 @@ const materializers = counted(
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
       'v1.RunMessageQueued': ({ id, runId, text, at }) =>
         runMessages.insert({ id, runId, text, at, queued: true }),
+      'v2.RunMessageQueued': ({ id, runId, text, at, from }) =>
+        runMessages.insert({ id, runId, text, at, queued: true, fromTed: from === 'ted' }),
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),

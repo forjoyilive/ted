@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ListFilters } from '@ted/protocol'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
@@ -229,3 +229,65 @@ test('Clear filters empties the typed Board search and restores its cards', asyn
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
   expect(screen.queryByText('No Tasks match these filters')).toBeNull()
 })
+
+test.each([
+  { grabY: 12, x: 500, y: 400 },
+  { grabY: 90, x: 1018, y: 20 },
+  { grabY: 50, x: 500, y: 760 },
+])(
+  'refused drop feedback clears the preview and viewport edges at $x,$y (grab $grabY)',
+  async ({ grabY, x, y }) => {
+    const a = api()
+    render(<Board {...props()} tasks={[task()]} />)
+    const backlog = await screen.findByRole('region', { name: 'Backlog' })
+    const card = within(backlog).getByRole('article')
+    const bounds = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        return DOMRect.fromRect(
+          this === card ? { x: 100, y: 200, width: 224, height: 110 } : { width: 140, height: 26 },
+        )
+      })
+    try {
+      const dataTransfer = {
+        setData: vi.fn(),
+        setDragImage: vi.fn(),
+        effectAllowed: '',
+        dropEffect: '',
+      }
+      // jsdom has no DragEvent; MouseEvent supplies the pointer coordinates React reads.
+      const drag = (element: HTMLElement, type: string, clientX: number, clientY: number) => {
+        const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY })
+        Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+        fireEvent(element, event)
+      }
+      drag(card, 'dragstart', 180, 200 + grabY)
+      const work = screen.getByRole('region', { name: 'Work' })
+      drag(work, 'dragover', x, y)
+      const hint = screen.getByText('Can’t drop here')
+      const left = Number.parseFloat(hint.style.left)
+      const top = Number.parseFloat(hint.style.top)
+      const previewTop = y - grabY
+      const previewBottom = previewTop + 110
+      expect(top + 26 <= previewTop - 12 || top >= previewBottom + 12).toBe(true)
+      expect(left).toBeGreaterThanOrEqual(8)
+      expect(left + 140).toBeLessThanOrEqual(window.innerWidth - 8)
+      expect(top).toBeGreaterThanOrEqual(8)
+      expect(top + 26).toBeLessThanOrEqual(window.innerHeight - 8)
+      expect(dataTransfer.dropEffect).toBe('none')
+      drag(work, 'drop', x, y)
+      expect(a.request).not.toHaveBeenCalledWith('moveTask', expect.anything(), expect.anything())
+      expect(screen.queryByText('Can’t drop here')).toBeNull()
+      drag(card, 'dragstart', 180, 200 + grabY)
+      drag(work, 'dragover', x, y)
+      expect(screen.getByText('Can’t drop here')).toBeTruthy()
+      drag(screen.getByRole('region', { name: 'Intake' }), 'dragover', x, y)
+      expect(screen.queryByText('Can’t drop here')).toBeNull()
+      drag(work, 'dragover', x, y)
+      drag(card, 'dragend', x, y)
+      expect(screen.queryByText('Can’t drop here')).toBeNull()
+    } finally {
+      bounds.mockRestore()
+    }
+  },
+)

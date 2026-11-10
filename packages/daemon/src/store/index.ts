@@ -538,6 +538,10 @@ export interface TedStore extends TaskHistory {
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
+  gateSkippedOvernight(taskId: string, stage: AgentStageId): void
+  gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
+  gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
+  gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
   mergeCanceled(taskId: string, commentId: string): void
   mergePending(taskId: string): boolean
   isMerged(taskId: string): boolean
@@ -660,6 +664,7 @@ export interface TedStore extends TaskHistory {
   listOpenRequests(): Comment[]
   listAnsweredRequests(): Comment[]
   writeBrief(input: { taskId: string; text: string; runId?: string }): TaskBrief
+  listBriefs(taskId: string): TaskBrief[]
   latestBrief(taskId: string): TaskBrief | undefined
   recordSendBack(input: {
     taskId: string
@@ -737,7 +742,7 @@ export interface TedStore extends TaskHistory {
   runReadOffset(id: string): number
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
-  queueRunMessage(input: { runId: string; text: string }): RunMessage
+  queueRunMessage(input: { runId: string; text: string; from?: 'ted' }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
@@ -765,7 +770,9 @@ export interface TedStore extends TaskHistory {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  holdForLoad(held: boolean): void
   setTaskChecking(taskId: string, on: boolean): void
+  setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
   automations: AutomationStore
@@ -827,8 +834,10 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
+  let heldForLoad = false
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
+  let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
@@ -1281,6 +1290,7 @@ export async function openStore({
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...(place > 0 && heldForLoad && { heldForLoad }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
       ...permissionWait(row.id, lead?.id),
@@ -1295,6 +1305,9 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      ...(checksWaiting.has(row.id) && {
+        checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
+      }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
@@ -1713,6 +1726,7 @@ export async function openStore({
     startedAt: row.startedAt,
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
     ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+    ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
   })
   const checkProgress = (checkRunId: string) => {
     const rows = checkResultRows(checkRunId)
@@ -2013,10 +2027,13 @@ export async function openStore({
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning: new Set([
-        ...checkingTasks,
-        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-      ]).size,
+      checksRunning: [
+        ...new Set([
+          ...checkingTasks,
+          ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+        ]),
+      ].filter((taskId) => !checksWaiting.has(taskId)).length,
+      checksWaiting: checksWaiting.size,
       shellsRunning,
     }
   }
@@ -3039,6 +3056,36 @@ export async function openStore({
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    gateKeptOvernight(taskId, stage, reason) {
+      commit(events.gateKeptOvernight({ taskId, stage, reason, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    gateRequestedFor(taskId, commentId, name, requested) {
+      commit(
+        events.gateRequestedFor({
+          taskId,
+          commentId,
+          name,
+          commit: requested,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    gateApprovalBound(taskId, commentId, name, approved) {
+      commit(
+        events.gateApprovalBound({
+          taskId,
+          commentId,
+          name,
+          commit: approved,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    gateSkippedOvernight(taskId, stage) {
+      commit(events.gateSkippedOvernight({ taskId, stage, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     mergeCanceled(taskId, commentId) {
       commit(events.mergeCanceled({ taskId, commentId, at: new Date().toISOString() }))
       updatedTask(taskId)
@@ -3370,6 +3417,7 @@ export async function openStore({
       updatedTask(taskId)
       return toBrief(brief)
     },
+    listBriefs: (taskId) => briefRows(taskId).map(toBrief),
     latestBrief(taskId) {
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
@@ -3821,12 +3869,16 @@ export async function openStore({
       if (taskId !== null && lead) updatedTask(taskId)
       return message
     },
-    queueRunMessage({ runId, text }) {
+    queueRunMessage({ runId, text, from }) {
       const taskId = taskIdOfRun(runId) ?? null
       const message = { id: randomUUID(), runId, text, at: new Date().toISOString() }
-      commit(events.runMessageQueued({ ...message, taskId }))
+      commit(
+        from === 'ted'
+          ? events.runMessageQueuedV2({ ...message, taskId, from })
+          : events.runMessageQueued({ ...message, taskId }),
+      )
       emit({ type: 'run-output', runId })
-      return { ...message, queued: true }
+      return { ...message, queued: true, ...(from && { from }) }
     },
     deliverRunMessages(runId, ids, lead) {
       if (ids.length === 0) return
@@ -3857,7 +3909,14 @@ export async function openStore({
     runMessages: (runId) =>
       store
         .query(queryDb(runMessages.where({ runId, deletedAt: null }).orderBy('at', 'asc')))
-        .map(({ id, text, at, queued }) => ({ id, runId, text, at, ...(queued && { queued }) })),
+        .map(({ id, text, at, queued, fromTed }) => ({
+          id,
+          runId,
+          text,
+          at,
+          ...(queued && { queued }),
+          ...(fromTed && { from: 'ted' as const }),
+        })),
     runInterrupts: (runId) =>
       store
         .query(queryDb(runInterrupts.where({ runId }).orderBy('at', 'asc')))
@@ -4005,6 +4064,11 @@ export async function openStore({
       updatedQueue()
     },
     newWorkHold: () => newWorkHeld,
+    holdForLoad(held) {
+      if (held === heldForLoad) return
+      heldForLoad = held
+      updatedQueue()
+    },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
       if (on) {
@@ -4012,6 +4076,17 @@ export async function openStore({
         checkingTasks.add(taskId)
       } else checkingTasks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
+      noteActivity()
+    },
+    setChecksWaiting(places) {
+      const before = checksWaiting
+      checksWaiting = new Map([...places].filter(([taskId]) => taskRow(taskId)))
+      for (const taskId of new Set([...before.keys(), ...checksWaiting.keys()])) {
+        if (before.get(taskId) === checksWaiting.get(taskId) || !taskRow(taskId)) continue
+        const unfinished = checkRunRows(taskId).find((r) => r.finishedAt === null)
+        if (unfinished) updatedCheckRun(unfinished.id)
+        else updatedTask(taskId)
+      }
       noteActivity()
     },
     onWriteResult(listener) {

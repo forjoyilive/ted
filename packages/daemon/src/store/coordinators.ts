@@ -2,6 +2,14 @@ import { queryDb, type Store } from '@livestore/livestore'
 import type { CoordinatorReceipt, RunMessage, TaskLead } from '@ted/protocol'
 import { coordinators, events, type schema } from './schema.ts'
 
+export interface PromptPart {
+  id: string
+  at: string
+  start: number
+  end: number
+  from?: 'ted'
+}
+
 export interface StoredCoordinator {
   factoryId: string
   runId: string
@@ -13,7 +21,10 @@ export interface StoredCoordinator {
   receipts: CoordinatorReceipt[]
   taskIds: string[]
   unsentMessages?: RunMessage[]
-  launch?: { prompt: string; sourceRunId: string; messages: RunMessage[] } | undefined
+  launch?:
+    | { prompt: string; sourceRunId: string; messages: RunMessage[]; parts?: PromptPart[] }
+    | undefined
+  prompts?: Record<string, PromptPart[]>
 }
 
 export interface CoordinatorStore {

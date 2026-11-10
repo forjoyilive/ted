@@ -49,6 +49,7 @@ import {
   useAutomations,
   useBanners,
   useConnection,
+  useCoordinatorStatuses,
   useDrift,
   useFactoryList,
   useInbox,
@@ -82,6 +83,7 @@ import {
   startHistory,
   withHistory,
 } from './navigation.ts'
+import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
@@ -283,6 +285,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const inboxScreen = navigation.screen.kind === 'inbox' ? navigation.screen : undefined
   const answered = useAnswered(inboxScreen?.answered === true)
   const allPlans = useAllPlans()
+  const coordinatorStatuses = useCoordinatorStatuses()
   const waiting: Record<string, FactoryBadges> = {}
   for (const [factoryId, count] of Object.entries(waitingByFactory(inbox, questions, planInbox))) {
     waiting[factoryId] = { waiting: count }
@@ -294,6 +297,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const failedTasks = tasks.filter((task) => task.status?.kind === 'failed' && !task.archived)
   for (const task of failedTasks) {
     waiting[task.factoryId] = { ...waiting[task.factoryId], failed: true }
+  }
+  for (const { factoryId, status } of coordinatorStatuses) {
+    if (status !== 'ready') waiting[factoryId] = { ...waiting[factoryId], coordinator: status }
   }
   for (const factoryId of plansFailedByFactory(allPlans)) {
     waiting[factoryId] = { ...waiting[factoryId], plansFailed: true }
@@ -992,13 +998,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     </>
   )
 
+  const overnight = {
+    on: settings?.overnightMode === true,
+    openGeneral: () => dispatch({ type: 'open-settings', section: 'general' }),
+  }
   const frame = (content: ReactNode) => (
-    <div className={styles.window}>
+    <div className={styles.window} data-loaded={factoriesLoaded}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
-        <ArmedContext value={armed}>
-          <div className={styles.app}>{content}</div>
-        </ArmedContext>
+        <OvernightContext value={overnight}>
+          <ArmedContext value={armed}>
+            <div className={styles.app}>{content}</div>
+          </ArmedContext>
+        </OvernightContext>
       </ProfileProvider>
     </div>
   )
@@ -1038,7 +1050,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
-          {...(settings && { overnightMode: settings.overnightMode })}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}
@@ -1047,6 +1058,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
+            ...(settings?.overnightMode && { overnight: 'Overnight mode is on' }),
             ...planFooter(agentHealth),
             ...(chip !== undefined && { update: chip }),
           }}

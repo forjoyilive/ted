@@ -1,4 +1,4 @@
-import type { ClarifyDepth } from '@ted/protocol'
+import type { ClarifyDepth, StageId } from '@ted/protocol'
 import type { GitHubNotice } from '../tasks/github-activity.ts'
 import type { LoggedEvent } from './index.ts'
 
@@ -64,6 +64,27 @@ export function createTaskHistory(
         started: actions.some((e) => e.name === 'v1.MergeStarted'),
         ...(canceledAt !== undefined && { canceledAt }),
         ...(last && { latest: last.name === 'v1.MergeStarted' ? 'started' : 'canceled' }),
+      }
+    },
+    approvalsBoundToCommit(taskId: string, commit: string): string[] {
+      return read(taskId)
+        .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === commit)
+        .map((e) => String(e.data.commentId))
+    },
+    gateRequestCommit(taskId: string, commentId: string): string | undefined {
+      return read(taskId).find(
+        (e) => e.name === 'v1.GateRequestedFor' && e.data.commentId === commentId,
+      )?.data.commit as string | undefined
+    },
+    overnightGateHistory(
+      taskId: string,
+      stage: StageId,
+      since: string,
+    ): { kept: boolean; skipped: boolean } {
+      const entries = read(taskId).filter((e) => e.data.stage === stage && e.at >= since)
+      return {
+        kept: entries.some((e) => e.name === 'v1.GateKeptOvernight'),
+        skipped: entries.some((e) => e.name === 'v1.GateSkippedOvernight'),
       }
     },
     latestRebase(taskId: string, since: string): string | undefined {

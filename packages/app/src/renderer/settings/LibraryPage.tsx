@@ -18,6 +18,7 @@ import {
   unsavedLibrary,
   unsavedLibraryLine,
 } from '../library.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { readableError, ted } from '../ted.ts'
 import base from '../views/FactorySettings.module.css'
 import sections from '../views/FactorySettingsSections.module.css'
@@ -123,6 +124,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
       help={`Your own Workflow settings and Stage files, kept in ${view?.path ?? '~/.ted/library'}. Every Factory inherits them unless it overrides them in .ted/.`}
       subtitle={libraryLine}
     >
+      <OvernightNotice />
       {view?.invalid && (
         <InvalidNotice invalid={{ ...view.invalid, file: `Library ${view.invalid.file}` }} />
       )}
