@@ -178,6 +178,39 @@ test('pending messages follow replacement Leads, and Task deletion removes peer 
   expect(store.peerMessages()).toEqual([])
 })
 
+test('outgoing notes survive sender deletion and restart until the recipient is deleted', async () => {
+  const old = lead(recipient)
+  const sent = await peers.send(caller, recipient, {
+    operation: 'deleted-sender',
+    text: 'Coordinate when you resume.',
+  })
+  store.recordRunOutput(old.id, { toOffset: 1, entries: [], state: 'finished' })
+  store.deleteTask(sender)
+  expect(store.getComment(sent.id)?.body).toContain('Peer message from DEV-1')
+  expect(store.peerMessages()).toEqual([sent])
+  await store.close()
+  store = await openStore({ directory: dir })
+  peers = services()
+  const replacement = lead(recipient)
+  const receiver: Caller = { kind: 'run', runId: replacement.id }
+  expect(peers.isMessage(sent.id)).toBe(true)
+  expect(peers.inbox(receiver).messages).toEqual([sent])
+  store.commentsDelivered([sent.id], replacement.id)
+  expect(peers.inbox(receiver).messages[0]?.delivered).toMatchObject({ runId: replacement.id })
+  store.deleteTask(recipient)
+  expect(store.peerMessages()).toEqual([])
+})
+
+test('Factory deletion removes peer records whose sender was already deleted', async () => {
+  const task = store.getTask(sender)
+  if (!task) throw new Error('sender missing')
+  await peers.send(caller, recipient, { operation: 'removed-factory', text: 'Coordinate' })
+  store.deleteTask(sender)
+  expect(store.peerMessages()).toHaveLength(1)
+  store.removeFactory(task.factoryId)
+  expect(store.peerMessages()).toEqual([])
+})
+
 test('size, backlog and lifecycle limits prevent unbounded or obsolete coordination', async () => {
   await expect(peers.send(caller, recipient, { operation: 'empty', text: '' })).rejects.toThrow(
     '8192',

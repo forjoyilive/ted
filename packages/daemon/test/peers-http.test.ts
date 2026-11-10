@@ -124,7 +124,7 @@ test('Run routes and CLI expose peers; explicit messages deliver only at a worki
   expect((await app.call('GET', '/peers')).status).toBe(403)
 })
 
-test('messages to stopped Tasks remain pending and resume through the normal Task start path', async () => {
+test('messages to stopped Tasks survive sender deletion and deliver once on normal resume', async () => {
   const { ok, sender, recipient } = await setup()
   await ok('POST', `/tasks/${recipient.task.id}/stop`)
   const before = await ok<unknown[]>('GET', `/tasks/${recipient.task.id}/runs`)
@@ -142,6 +142,7 @@ test('messages to stopped Tasks remain pending and resume through the normal Tas
   expect((await ok<unknown[]>('GET', `/tasks/${recipient.task.id}/runs`)).length).toBe(
     before.length,
   )
+  await ok('POST', `/tasks/${sender.task.id}/delete`, {})
   await writeFile(path.join(scratch, 'recipient'), '')
   await ok('POST', `/tasks/${recipient.task.id}/resume`, {})
   await waitUntil(
@@ -153,6 +154,13 @@ test('messages to stopped Tasks remain pending and resume through the normal Tas
   )
   const notes = await ok<Comment[]>('GET', `/tasks/${recipient.task.id}/comments`)
   expect(notes.filter((c) => c.id === sent.id)).toHaveLength(1)
+  const resumed = (await ok<Task[]>('GET', '/tasks')).find((t) => t.id === recipient.task.id)
+  if (!resumed?.leadRunId) throw new Error('resumed Lead missing')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const resumedClient = api(daemon?.port ?? 0, tokens.issue(resumed.leadRunId))
+  expect((await resumedClient.call('POST', `/runs/${resumed.leadRunId}/boundary`)).body).toEqual({
+    delivered: 0,
+  })
 })
 
 test('peer notes leave human requests unanswered and do not wake an idle Lead', async () => {

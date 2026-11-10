@@ -2893,7 +2893,6 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         taskLog.delete().where({ taskId }),
         taskBriefs.delete().where({ taskId }),
-        peerMessages.delete().where({ senderTaskId: taskId }),
         peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
