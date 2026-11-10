@@ -74,6 +74,14 @@ export {
   type RaiseBanner,
 } from './banner.ts'
 export {
+  type BrowserAction,
+  type BrowserCommand,
+  type BrowserReply,
+  type BrowserRequest,
+  type BrowserResult,
+  browserActions,
+} from './browser.ts'
+export {
   type ChangeFile,
   changeKey,
   type DiffHunk,

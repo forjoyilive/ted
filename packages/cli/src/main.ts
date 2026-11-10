@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { parseArgs, stripVTControlCharacters } from 'node:util'
@@ -11,6 +12,8 @@ import {
   type AgentStageId,
   agentKinds,
   type Banner,
+  type BrowserRequest,
+  browserActions,
   type ClarifyDepth,
   DaemonClient,
   DaemonUnreachableError,
@@ -82,6 +85,13 @@ const usage = `Usage:
              [--reason <text>]               one, and wait until it answers; prints its URL.
                                              An iOS simulator App waits for a free simulator;
                                              --reason tells the human why you need one
+  ted browser open <App> [--repo <name>]    Open a running web App in this Task’s browser
+  ted browser snapshot                      Read the page and element references
+  ted browser click <ref>                    Click an element from the latest snapshot
+  ted browser fill <ref> <text>              Fill a field (text may be supplied on stdin)
+  ted browser press <key>                    Press Enter, Tab, Escape or an arrow key
+  ted browser navigate <path>                Navigate within the selected App
+  ted browser back|forward|reload|screenshot Control or capture the same page
   ted app screenshot <App> [--repo <name>]   Save a screenshot of an iOS simulator App to the Task
   ted app record <App> --start|--stop        Record an iOS simulator App’s screen; --stop saves
                                              the video to the Task
@@ -512,6 +522,34 @@ try {
   } else if (group === 'run' && command === 'stop' && rest.length === 1) {
     const sub = await withDaemon(home, (client) => client.stopSubAgent(rest[0] ?? ''))
     console.log(`Stopped sub-agent “${printable(sub.name)}”`)
+  } else if (group === 'browser') {
+    if (!browserActions.includes(command as BrowserRequest['action']))
+      throw new UsageError('Name a browser action; see ted help')
+    const action = command as BrowserRequest['action']
+    const expected = ['open', 'click', 'press', 'navigate'].includes(action)
+      ? 1
+      : action === 'fill'
+        ? 2
+        : 0
+    if (rest.length !== expected && !(action === 'fill' && rest.length === 1))
+      throw new UsageError('Wrong browser arguments; see ted help')
+    const request: BrowserRequest = { action }
+    if (action === 'open')
+      request.app = { name: rest[0] ?? '', ...(options.repo && { repo: options.repo }) }
+    if (action === 'click' || action === 'fill') request.ref = rest[0] ?? ''
+    if (action === 'fill') request.value = rest[1] ?? (await readStdin())
+    if (action === 'press' || action === 'navigate') request.value = rest[0] ?? ''
+    const result = await withDaemon(home, (client) => client.browserCommand(taskRef(), request))
+    console.log(printable(result.text ?? result.url ?? 'Done'))
+    if (result.attachment) {
+      const attachment = result.attachment
+      const bytes = await withDaemon(home, (client) =>
+        client.readBrowserCapture(taskRef(), attachment.hash),
+      )
+      const file = path.resolve(`ted-browser-${randomUUID()}.png`)
+      await writeFile(file, Buffer.from(bytes.data, 'base64'), { flag: 'wx', mode: 0o600 })
+      console.log(`Saved ${printable(file)}. Attach with ted comment --attach <path>.`)
+    }
   } else if (group === 'run-app' && rest.length === 0) {
     await runApp(command)
   } else if (group === 'app' && command === 'screenshot' && rest.length === 1) {

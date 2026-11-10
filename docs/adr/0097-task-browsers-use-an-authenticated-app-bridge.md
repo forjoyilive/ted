@@ -1,0 +1,9 @@
+# Task browsers use an authenticated app bridge
+
+A Task’s browser is an isolated Electron WebContentsView owned by the app, showing the same page to the human and the Task’s agents. The daemon authorizes each command against the Task and its running web App, and relays it over an app-authenticated poll and reply channel. A debugging port would expose browser control outside TED’s Run-token boundary; putting Electron in the daemon would couple background work to a desktop window.
+
+Each Task has one page and an in-memory session, retained while switching views and reset when TED quits. The browser replaces the middle pane while open. Preview opens local web Apps there; hosted previews and the explicit Open ↗ action use the default browser. Agent commands do not select a different Task or bring the window forward.
+
+The guest has no preload, Node integration, TED credentials or IPC access. Its network requests, frames and redirects stay on the selected App’s exact origin, including equivalent WebSocket URLs. Popups, file choosers, downloads and permissions are blocked. This deliberately leaves external authentication and CDN dependencies to the default browser. Snapshot references belong to one page revision; navigation and agent mutations invalidate them. Commands expire and are never replayed after a bridge restart, because repeating a click can repeat a side effect.
+
+Browser commands and page contents remain transient. Screenshots use the existing attachment store and ownership rules; capturing alone does not post a Comment. Task teardown and App stop/restart cancel pending commands; deleting a Factory removes its Tasks and their browser state through the same path.

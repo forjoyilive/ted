@@ -15,6 +15,11 @@ import type {
   AssessFailureRequest,
   Attachment,
   BlockedChoice,
+  AppRef as BrowserAppRef,
+  BrowserCommand,
+  BrowserReply,
+  BrowserRequest,
+  BrowserResult,
   CheckRun,
   CheckRunReport,
   CheckRunTrigger,
@@ -149,6 +154,7 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import { createBrowserBroker } from './browser.ts'
 import { fileDiffs, taskChanges } from './changes.ts'
 import {
   type CheckRunnerResult,
@@ -431,6 +437,12 @@ export interface Tasks {
   stopSubAgent(runId: string, caller: Caller): Promise<SubAgent>
   addQueueSource(source: QueueSource): () => void
   mergesInFlight(): number
+  browserApp(ref: string, caller: Caller, app: AppRef): Promise<TaskApp>
+  browserCommand(ref: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
+  browserCaptureAccess(ref: string, caller: Caller, hash: string): Attachment
+  browserPoll(session: string): Promise<BrowserCommand | null>
+  browserReply(session: string, id: string, reply: BrowserReply): void
+  browserCapture(session: string, id: string, save: () => Promise<Attachment>): Promise<Attachment>
   listApps(ref: string, caller: Caller): Promise<TaskApp[]>
   startApp(ref: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
   stopApp(ref: string, app: AppRef): Promise<TaskApp>
@@ -655,6 +667,26 @@ export function createTasks(options: {
         }
       }),
     }
+  }
+
+  const browser = createBrowserBroker()
+  const browserCaptures = new Map<string, Map<string, Attachment>>()
+  const browserApps = new Map<string, BrowserAppRef>()
+
+  async function browserApp(ref: string, caller: Caller, app?: BrowserAppRef) {
+    const { task } = runnableApps(ref, caller)
+    if (caller.kind === 'run' && store.getRun(caller.runId)?.state === 'finished')
+      throw new RequestError(403, 'This Run has ended')
+    const selected = app ?? browserApps.get(task.id)
+    if (!selected) throw new RequestError(409, 'Open a web App with ted browser open first')
+    const matches = (await apps.list(task.id)).filter(
+      (a) => a.name === selected.name && (selected.repo === undefined || a.repo === selected.repo),
+    )
+    const shown = matches.length === 1 ? matches[0] : undefined
+    if (shown?.kind !== 'web' || shown.state !== 'running' || !shown.url || shown.removed) {
+      throw new RequestError(409, 'Choose a running web App and its repo')
+    }
+    return { task, app: shown }
   }
 
   function appCaller(
@@ -3097,6 +3129,9 @@ export function createTasks(options: {
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
     await pullRequestQueue.get(task.id)
     subAgents.dropFor(task.id)
+    browser.cancel(task.id)
+    browserApps.delete(task.id)
+    browserCaptures.delete(task.id)
     await apps.stopTask(task.id).catch((error: unknown) => {
       console.error(`couldn’t stop ${task.displayId}’s Apps:`, error)
     })
@@ -4925,6 +4960,9 @@ export function createTasks(options: {
   }
 
   function archiveNow(task: StoredTask, closePullRequests: boolean, why?: string): Task {
+    browser.cancel(task.id)
+    browserApps.delete(task.id)
+    browserCaptures.delete(task.id)
     const closing = closePullRequests
       ? task.repos.flatMap((r) =>
           r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
@@ -7633,6 +7671,9 @@ export function createTasks(options: {
 
     async close() {
       closed = true
+      browser.close()
+      browserApps.clear()
+      browserCaptures.clear()
       subAgents.close()
       clearInterval(silenceTimer)
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
@@ -7645,6 +7686,70 @@ export function createTasks(options: {
       stopping.abort()
       await Promise.all(background)
       await apps.close()
+    },
+    async browserApp(ref, caller, app) {
+      return (await browserApp(ref, caller, app)).app
+    },
+    async browserCommand(ref, caller, request) {
+      const { task, app } = await browserApp(ref, caller, request.app)
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      const result = await browser.request({
+        taskId: task.id,
+        app,
+        request,
+        ...(caller.kind === 'run' && { runId: caller.runId }),
+      })
+      const current = await browserApp(task.id, caller, app)
+      if (current.app.startedAt !== app.startedAt || current.app.url !== app.url) {
+        throw new RequestError(409, 'The App changed while the browser command ran')
+      }
+      if (result.attachment) {
+        const captures = browserCaptures.get(task.id) ?? new Map<string, Attachment>()
+        captures.set(result.attachment.hash, result.attachment)
+        browserCaptures.set(task.id, captures)
+      }
+      browserApps.set(task.id, { name: app.name, repo: app.repo })
+      if (result.attachment && caller.kind === 'run')
+        runUploads.add(`${task.id}:${result.attachment.hash}`)
+      return result
+    },
+    browserCaptureAccess(ref, caller, hash) {
+      const { task } = appCaller(ref, caller)
+      const capture = browserCaptures.get(task.id)?.get(hash)
+      if (!capture) throw new RequestError(404, 'No browser capture on this Task')
+      return capture
+    },
+    async browserPoll(session) {
+      const command = await browser.poll(session)
+      if (command) {
+        try {
+          const current = await browserApp(
+            command.taskId,
+            command.runId ? { kind: 'run', runId: command.runId } : { kind: 'app' },
+            command.app,
+          )
+          if (
+            current.app.startedAt !== command.app.startedAt ||
+            current.app.url !== command.app.url
+          ) {
+            throw new RequestError(409, 'The App restarted')
+          }
+        } catch {
+          browser.cancel(command.taskId)
+          return null
+        }
+      }
+      return command
+    },
+    browserReply: (session, id, reply) => browser.reply(session, id, reply),
+    async browserCapture(session, id, save) {
+      const command = browser.command(session, id)
+      if (command.request.action !== 'screenshot')
+        throw new RequestError(400, 'Not a screenshot command')
+      await browserApp(command.taskId, { kind: 'app' }, command.app)
+      const attachment = await save()
+      browser.reply(session, id, { result: { attachment } })
+      return attachment
     },
     listApps(ref, caller) {
       return apps.list(appCaller(ref, caller).task.id)
@@ -7689,10 +7794,12 @@ export function createTasks(options: {
     },
     simulators: () => apps.simulators(),
     stopApp(ref, app) {
+      browser.cancel(find(ref).id)
       return apps.stop(find(ref).id, app)
     },
     restartApp(ref, app) {
       const { task, by } = runnableApps(ref, { kind: 'app' })
+      browser.cancel(task.id)
       return apps.restart(task.id, app, by)
     },
     appLog(ref, app) {

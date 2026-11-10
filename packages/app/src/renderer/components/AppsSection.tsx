@@ -20,6 +20,7 @@ import { useOutsideSandbox } from './OutsideSandboxDialog.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
 export interface ShownApp {
+  browser?: boolean
   repo: string
   name: string
 }

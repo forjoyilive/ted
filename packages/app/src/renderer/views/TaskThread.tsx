@@ -54,6 +54,7 @@ import { ScrollMemory } from '../components/ScrollMemory.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
+import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
@@ -314,6 +315,16 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [state, setState] = useState<MiddlePaneState>({})
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'browser-open' && event.taskId === task.id) {
+          setState((s) => middlePaneStep(s, task.id, { kind: 'app', app: event.app }))
+        }
+      }),
+    [task.id],
+  )
+
   const go = (action: MiddlePaneAction) => setState((s) => middlePaneStep(s, task.id, action))
   useEffect(() => {
     if (answeredId !== undefined) setState((s) => middlePaneStep(s, '', { kind: 'answered' }))
@@ -656,7 +667,14 @@ export function TaskThread({
         {task.description !== '' && <p className={styles.description}>{task.description}</p>}
       </header>
       <ConversationTabs tabs={task.tabs} shown={shownRun} onShow={onShowRun} onClose={onCloseRun} />
-      {shownApp !== undefined ? (
+      {shownApp?.browser ? (
+        <TaskBrowserView
+          task={task}
+          shown={shownApp}
+          onBack={() => onCloseApp?.()}
+          onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
+        />
+      ) : shownApp !== undefined ? (
         <AppLogView
           key={`${shownApp.repo}/${shownApp.name}`}
           task={task}

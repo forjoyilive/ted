@@ -4,6 +4,13 @@ import http from 'node:http'
 const port = Number(process.env.PORT)
 const crashAfter = Number(process.env.STUB_APP_CRASH_AFTER_MS ?? '0')
 const server = http.createServer((_, res) => {
+  if (process.env.STUB_APP_BROWSER === '1') {
+    res.setHeader('content-type', 'text/html')
+    res.end(
+      `<!doctype html><title>Browser fixture</title><h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file"><script>document.cookie='taskSession=yes';</script>`,
+    )
+    return
+  }
   res.setHeader('content-type', 'application/json')
   res.end(
     JSON.stringify({
