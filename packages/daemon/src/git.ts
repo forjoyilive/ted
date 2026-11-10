@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { DiffHunk } from '@ted/protocol'
+import { type DiffHunk, fileListLimit } from '@ted/protocol'
 import { gitEnv, worktreeCommandEnv } from './command-env.ts'
 import { redactSecrets } from './redact.ts'
 
@@ -761,6 +761,62 @@ export async function commitAndPush(
       .slice(-3)
       .join('\n')
     throw new GitError(redactSecrets(`saving TED settings failed${reason ? `: ${reason}` : ''}`))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+export async function worktreeFiles(
+  worktree: string,
+): Promise<{ paths: string[]; partial: boolean }> {
+  const head = await headCommit(worktree)
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-files-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  const fileEnv = worktreeCommandEnv(
+    {},
+    {
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_OPTIONAL_LOCKS: '0',
+      GIT_DIR: gitDir,
+      GIT_INDEX_FILE: path.join(scratch, 'index'),
+    },
+  )
+  const run = async (args: string[], work?: string) => {
+    const { stdout } = await execFileAsync('git', [...readOnly, ...args], {
+      cwd: scratch,
+      env: work === undefined ? fileEnv : { ...fileEnv, GIT_WORK_TREE: work },
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: 30_000,
+    })
+    return stdout
+  }
+  try {
+    await run(['init', '--bare', '--quiet', gitDir])
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    await run(['read-tree', head])
+    const paths = [
+      ...new Set(
+        (
+          await run(
+            [
+              '-c',
+              'core.bare=false',
+              'ls-files',
+              '--cached',
+              '--others',
+              '--exclude-standard',
+              '-z',
+            ],
+            worktree,
+          )
+        )
+          .split('\0')
+          .filter(Boolean),
+      ),
+    ].sort()
+    return { paths: paths.slice(0, fileListLimit), partial: paths.length > fileListLimit }
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }

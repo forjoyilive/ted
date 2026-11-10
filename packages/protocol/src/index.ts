@@ -535,6 +535,14 @@ export {
   type WorktreeCommandOutcome,
   type WriteBriefRequest,
 } from './task.ts'
+export {
+  fileListLimit,
+  filePreviewLimit,
+  type RepoFiles,
+  type TaskFileContent,
+  type TaskFileRef,
+  type TaskFiles,
+} from './task-files.ts'
 export type {
   SetTaskGatesRequest,
   TaskGateOverrides,

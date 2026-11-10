@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { stageName } from './list-view.ts'
 import { ago, briefSections } from './requests.ts'
 
-export type DetailsSectionId = 'code' | 'changes' | 'runs' | 'apps' | 'brief'
+export type DetailsSectionId = 'code' | 'files' | 'changes' | 'runs' | 'apps' | 'brief'
 
 const collapsedKey = 'ted.taskDetails.collapsed'
 

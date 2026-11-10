@@ -72,6 +72,8 @@ import type {
   TaskBrief,
   TaskChanges,
   TaskDefaults,
+  TaskFileContent,
+  TaskFiles,
   TaskGateOverrides,
   TaskGates,
   TaskLead,
@@ -179,6 +181,7 @@ import {
   revivedMessage,
   silentReason,
 } from './failures.ts'
+import { listTaskFiles, readTaskFile } from './files.ts'
 import {
   activityMessage,
   checkList,
@@ -414,6 +417,8 @@ export interface Tasks {
   setupLog(ref: string, repo: string): Promise<string>
   worktreeAccess(ref: string, repo: string): Promise<WorktreeAccess>
   changes(ref: string): Promise<TaskChanges>
+  files(ref: string): Promise<TaskFiles>
+  file(ref: string, repo: string, path: string): Promise<TaskFileContent>
   fileDiffs(ref: string, repo: string, path?: string): Promise<FileDiff[]>
   lineComments(ref: string): Promise<LineComment[]>
   draftLineComment(ref: string, request: DraftLineCommentRequest): Promise<LineComment>
@@ -7490,6 +7495,30 @@ export function createTasks(options: {
     async changes(ref) {
       const task = find(ref)
       return taskChanges(task.id, await pullRequestTargets(task))
+    },
+
+    async files(ref) {
+      const task = find(ref)
+      const repos = []
+      for (const repo of task.repos.filter((r) => !r.removed)) {
+        try {
+          const { worktree } = await this.worktreeAccess(ref, repo.name)
+          repos.push(await listTaskFiles(worktree, repo.name))
+        } catch {
+          repos.push({
+            repo: repo.name,
+            paths: [],
+            partial: false,
+            unavailable: 'Worktree files are unavailable. Refresh to try again.',
+          })
+        }
+      }
+      return { taskId: task.id, repos }
+    },
+
+    async file(ref, name, relative) {
+      const { worktree } = await this.worktreeAccess(ref, name)
+      return readTaskFile(worktree, relative)
     },
 
     async fileDiffs(ref, name, file) {

@@ -72,6 +72,7 @@ const sections: readonly SheetSection[] = [
       { id: 'move-up', label: 'Move up in rank (Manual order)', keys: ['⌥↑'] },
       { id: 'move-down', label: 'Move down in rank (Manual order)', keys: ['⌥↓'] },
       { id: 'archive', label: 'Archive', keys: ['⌘⌫'] },
+      { id: 'quick-open', label: 'Open a file', keys: ['⌘P'] },
       { id: 'shell', label: 'Open the Task’s shell', keys: ['⌃`'] },
     ],
   },

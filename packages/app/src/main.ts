@@ -318,6 +318,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
+  taskFile: (client, taskId, repo, file) =>
+    client.taskFile(String(taskId), String(repo), String(file)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
