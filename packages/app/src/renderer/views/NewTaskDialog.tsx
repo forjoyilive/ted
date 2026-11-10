@@ -226,11 +226,19 @@ function NewTaskForm({
   useEffect(() => {
     if (factory === undefined || !ready) return
     let current = true
-    Promise.all([ted.taskDefaults(factory), ted.agentHealth()]).then(
+    Promise.all([ted.taskDefaults(factory), ted.checkAgentHealth()]).then(
       ([defaults, health]) => {
         if (!current) return
         setHealth(health)
-        setDefaultLead(defaults.lead)
+        const fallback = health.find((entry) => entry.state !== 'not-installed')
+        const availableDefault = health.some(
+          (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
+        )
+          ? defaults.lead
+          : fallback
+            ? { agent: fallback.agent }
+            : defaults.lead
+        setDefaultLead(availableDefault)
         setDefaultDepth(defaults.clarifyDepth)
         const restored = session.get()
         let restoredLead = restored.lead
@@ -240,16 +248,14 @@ function NewTaskForm({
             (entry) => entry.agent === restoredLead?.agent && entry.state === 'not-installed',
           )
         ) {
-          const available =
-            health.find(
-              (entry) => entry.agent === defaults.lead.agent && entry.state !== 'not-installed',
-            ) ?? health.find((entry) => entry.state !== 'not-installed')
+          const available = health.find(
+            (entry) => entry.agent === availableDefault.agent && entry.state !== 'not-installed',
+          )
           if (available) {
             setLeadNotice(
               `${agentLabels[restoredLead.agent]} isn’t installed. Task Lead changed to ${agentLabels[available.agent]}.`,
             )
-            restoredLead =
-              available.agent === defaults.lead.agent ? defaults.lead : { agent: available.agent }
+            restoredLead = availableDefault
           }
         }
         if (
@@ -258,7 +264,7 @@ function NewTaskForm({
           restored.clarifyDepth === undefined
         ) {
           session.update({
-            lead: restoredLead ?? defaults.lead,
+            lead: restoredLead ?? availableDefault,
             clarifyDepth: restored.clarifyDepth ?? defaults.clarifyDepth,
           })
         }
@@ -287,6 +293,7 @@ function NewTaskForm({
     ready &&
     defaultsReady &&
     health !== undefined &&
+    agentKinds.every((agent) => health.some((entry) => entry.agent === agent)) &&
     !health.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed') &&
     chosenFactory !== undefined &&
     description.trim() !== '' &&

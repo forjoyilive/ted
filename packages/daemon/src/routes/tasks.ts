@@ -59,7 +59,9 @@ export const taskRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories\/([^/]+)\/task-draft$/,
-    handle: async ({ params: [factoryId = ''] }, { store }) => {
+    handle: async ({ params: [factoryId = ''], caller }, { store }) => {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'only the TED app can read New Task drafts')
       if (!store.getFactory(factoryId)) throw new HttpError(404, 'no such Factory')
       return [200, store.taskDraft(factoryId)]
     },

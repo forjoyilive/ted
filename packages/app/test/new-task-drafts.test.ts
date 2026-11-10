@@ -1,9 +1,17 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { Page } from 'playwright'
 import { describe, expect, test } from 'vitest'
-import { stopDaemonIn, waitUntil } from '../../daemon/test/helpers.ts'
 import {
+  commitToOrigin,
+  makeOriginRepo,
+  stopDaemonIn,
+  stubCodexPath,
+  waitUntil,
+} from '../../daemon/test/helpers.ts'
+import {
+  addFactory,
   ctx,
   daemonClient,
   launchApp,
@@ -132,8 +140,14 @@ describe('New Task drafts', () => {
     expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
   })
 
-  test('replaces a restored Task Lead that is no longer installed and preserves valid choices', async () => {
-    let window = await setup()
+  test('waits for incomplete startup health and keeps an available lead after Create more', async () => {
+    const parent = path.join(ctx.home, 'origin')
+    const origin = await makeOriginRepo(parent)
+    await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\nlead: { agent: claude }\n' })
+    await addFactory(origin, 'NB')
+    let window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
+    await open(window)
     await form(window)
       .getByLabel('Description', { exact: true })
       .fill('Keep my Task when the installed agents change')
@@ -146,9 +160,35 @@ describe('New Task drafts', () => {
     ctx.app = undefined
     await stopDaemonIn(ctx.home)
     ctx.extraEnv.TED_CLAUDE_BIN = path.join(ctx.home, 'uninstalled-claude')
+    const release = path.join(ctx.home, 'release-codex-health')
+    const delayedCodex = path.join(ctx.home, 'delayed-codex.mjs')
+    await writeFile(
+      delayedCodex,
+      `#!/usr/bin/env node
+import { existsSync } from 'node:fs'
+import { setTimeout as sleep } from 'node:timers/promises'
+if (process.argv[2] === '--version') while (!existsSync(${JSON.stringify(release)})) await sleep(25)
+await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
+`,
+      { mode: 0o755 },
+    )
+    ctx.extraEnv.TED_CODEX_BIN = delayedCodex
     window = await launchApp()
-    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
-    await open(window)
+    await sidebar(window).getByRole('button', { name: 'widgets', exact: true }).click()
+    const restarted = await daemonClient()
+    await waitUntil(async () => {
+      const health = await restarted.agentHealth()
+      return (
+        health.some((entry) => entry.agent === 'claude' && entry.state === 'not-installed') &&
+        !health.some((entry) => entry.agent === 'codex')
+      )
+    }, 'partial startup health')
+    await window.keyboard.press('Meta+N')
+    await form(window).waitFor()
+    expect(
+      await form(window).getByRole('button', { name: 'Create', exact: true }).isDisabled(),
+    ).toBe(true)
+    await writeFile(release, 'ready')
     await form(window)
       .getByRole('status')
       .filter({ hasText: 'Task Lead changed to Codex' })
@@ -159,12 +199,31 @@ describe('New Task drafts', () => {
     await open(window)
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByRole('status').count()).toBe(0)
+    await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
+    await waitFor(
+      async () =>
+        (await form(window).getByLabel('Description', { exact: true }).inputValue()) === '',
+    )
+    await form(window)
+      .getByLabel('Description', { exact: true })
+      .fill('Another Task after Create more')
+    await form(window).getByLabel('Start now', { exact: true }).uncheck()
+    await form(window).getByRole('button', { name: /^More/ }).click()
+    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(
+      await form(window).getByRole('button', { name: 'Create', exact: true }).isEnabled(),
+    ).toBe(true)
     await form(window).getByRole('button', { name: 'Create', exact: true }).click()
     await form(window).waitFor({ state: 'detached' })
     const task = (await (await daemonClient()).listTasks()).find(
       (task) => task.description === 'Keep my Task when the installed agents change',
     )
     expect(task?.lead?.agent).toBe('codex')
+    expect(
+      (await restarted.listTasks()).find(
+        (task) => task.description === 'Another Task after Create more',
+      )?.lead?.agent,
+    ).toBe('codex')
   })
 
   test('a removed Linear source stays dismissed on reopening', async () => {

@@ -496,6 +496,10 @@ describe('durable New Task drafts', () => {
     const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('draft-run')
     for (const token of [info.token, runToken]) {
       expect(
+        (await rawRequest(info.port, { path, headers: { authorization: `Bearer ${token}` } }))
+          .status,
+      ).toBe(403)
+      expect(
         (
           await rawRequest(info.port, {
             method: 'PUT',
