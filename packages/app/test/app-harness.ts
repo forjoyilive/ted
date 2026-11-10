@@ -22,6 +22,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 export const appDir = fileURLToPath(new URL('..', import.meta.url))
 export const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -72,7 +73,7 @@ export async function launchApp(more: Record<string, string> = {}): Promise<Page
     args: [appDir],
     env: { ...env(), ...more },
   })
-  const window = await ctx.app.firstWindow()
+  const window = await firstWindow(ctx.app)
   await window.emulateMedia({ colorScheme: null })
   await sidebar(window).waitFor()
   return window

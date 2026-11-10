@@ -148,6 +148,7 @@ describe('machine settings in the store', () => {
             defaultBranch: 'main',
             repos: [{ repo: 'kriya/notebook', name: 'notebook' }],
             showTutorial: false,
+            autoStartBacklog: false,
             cloned: true,
             position: 0,
             createdAt: factory.createdAt,

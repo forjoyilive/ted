@@ -15,6 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -94,7 +95,7 @@ describe('Planning chats', () => {
     })
     const go = path.join(home, 'go')
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await app.firstWindow()
+    const window = await firstWindow(app)
     await sidebar(window).waitFor()
     await openFirstFactory(window)
     await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
@@ -177,7 +178,7 @@ describe('Planning chats', () => {
     await client.stopPlan(quick.id)
 
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await app.firstWindow()
+    const window = await firstWindow(app)
     await sidebar(window).waitFor()
     await openFirstFactory(window)
     await sidebar(window)

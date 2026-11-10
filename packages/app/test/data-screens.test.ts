@@ -16,6 +16,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -44,7 +45,7 @@ async function launchApp(): Promise<Page> {
     args: [appDir],
     env: { ...process.env, TED_HOME: home, TED_IDLE_EXIT_MS: '30000', TED_HIDDEN_WINDOW: '1' },
   })
-  const window = await app.firstWindow()
+  const window = await firstWindow(app)
   await window.emulateMedia({ colorScheme: null })
   return window
 }

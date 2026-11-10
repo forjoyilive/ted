@@ -11,6 +11,7 @@ import { daemonAsApp, makeOriginRepo, removeHome, stopDaemonIn } from '../../dae
 import { inboxNotice } from '../src/background.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -71,7 +72,7 @@ const lastBadge = async () => (await logged()).filter((l) => l.kind === 'badge')
 
 async function launchApp(extra: Record<string, string> = {}): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env(extra) })
-  const window = await app.firstWindow()
+  const window = await firstWindow(app)
   await sidebar(window).waitFor()
   return window
 }

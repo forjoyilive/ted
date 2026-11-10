@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { type DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { readStubKeyring, stubKeyringFile } from '../../daemon/test/fixtures/stub-keyring.ts'
 import { type StubLinear, startStubLinear } from '../../daemon/test/fixtures/stub-linear.ts'
 import {
@@ -20,6 +20,9 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
+
+vi.setConfig({ testTimeout: 90_000 })
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const _cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
@@ -74,7 +77,7 @@ const env = () => ({
 
 async function launchApp(): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await app.firstWindow()
+  const window = await firstWindow(app)
   await window.emulateMedia({ colorScheme: null })
   await sidebar(window).waitFor()
   return window

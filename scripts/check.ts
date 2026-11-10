@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import {
-  acquireSuiteLock,
+  acquireFullRun,
   heldLockEnv,
   waitingMessage,
 } from '../packages/daemon/test/support/suite-lock.ts'
@@ -271,7 +271,7 @@ export async function runChecks(): Promise<boolean> {
     return false
   }
   mkdirSync(cacheDir, { recursive: true })
-  const unlock = await acquireSuiteLock({ onWait: (pid) => console.log(waitingMessage(pid)) })
+  const unlock = await acquireFullRun({ onWait: (pid) => console.log(waitingMessage(pid)) })
   try {
     return await checkInParallel()
   } finally {

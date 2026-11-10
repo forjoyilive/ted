@@ -23,6 +23,7 @@ import {
 } from '../src/renderer/details.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const now = Date.parse('2026-11-09T12:00:00Z')
 const minutesAgo = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
@@ -173,7 +174,7 @@ describe('Task details in the app', () => {
 
   async function launch(): Promise<Page> {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await app.firstWindow()
+    const window = await firstWindow(app)
     await window.emulateMedia({ colorScheme: null })
     const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
     await sidebar.waitFor()
