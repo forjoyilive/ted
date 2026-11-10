@@ -139,11 +139,10 @@ export function RoundQuestions({
       {!readOnly && (
         <div className={styles.buttons}>
           {onTalk && (
-            <Button disabled={sending} onClick={onTalk}>
+            <Button className={styles.talk} disabled={sending} onClick={onTalk}>
               {talking ? 'Open chat' : 'Talk it through'}
             </Button>
           )}
-          <span className={styles.spacer} />
           <Button
             arm="accept-recommended"
             disabled={sending}

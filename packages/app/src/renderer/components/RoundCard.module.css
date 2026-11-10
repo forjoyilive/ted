@@ -154,12 +154,20 @@
 
 .buttons {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
-.spacer {
-  flex: 1;
+.buttons > button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.talk {
+  margin-right: auto;
 }
 
 .answers {
