@@ -534,6 +534,12 @@ export function codexAgent(binary: string): Agent {
       }
       return stateByMethod[message.method]
     },
+    turnFrom(line) {
+      const message = parse(line)
+      if (message?.method === 'turn/started') return 'started'
+      if (message?.method === 'turn/completed') return 'completed'
+      return undefined
+    },
     acceptedTextFrom(line) {
       const message = parse(line)
       if (message?.method !== 'item/started' && message?.method !== 'item/completed') {

@@ -24,6 +24,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
   const stopping = new Map<string, Promise<void>>()
   const deadlines = new Map<string, number>()
   const limited = new Set<string>()
+  const outputAfter = new Map<string, number>()
   const removedFactories = new Set<string>()
   let closed = false
   let releaseIdle: (() => void) | undefined
@@ -81,6 +82,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     saved.change(id, state, result)
     deadlines.delete(id)
     limited.delete(id)
+    outputAfter.delete(id)
     if (!starting.has(id)) void stopAndClean(id)
     changed()
   }
@@ -99,10 +101,22 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         error: 'The agent asked to use a tool. Try drafting again with a clearer request.',
       })
     } else if (run.state === 'idle') {
-      const last = agents
-        .get(run.agent)
-        .chat(store.conversation(id), run.cwd)
-        .findLast((e) => e.kind === 'agent')
+      const agent = agents.get(run.agent)
+      const entries = store
+        .conversation(id)
+        .filter((entry) => entry.offset > (outputAfter.get(id) ?? -1))
+      const started = entries.findLastIndex((entry) => agent.turnFrom(entry.line) === 'started')
+      if (started < 0) return
+      const turn = entries.slice(started)
+      const lastSignal = turn.findLast((entry) => agent.turnFrom(entry.line) !== undefined)
+      if (!lastSignal || agent.turnFrom(lastSignal.line) !== 'completed') return
+      const interrupted = turn.findLastIndex(
+        (entry) => agent.usageFrom(entry.line)?.limited || agent.authErrorFrom(entry.line),
+      )
+      const output = turn.slice(interrupted + 1)
+      if (interrupted >= 0 && !output.some((entry) => agent.agentTextFrom(entry.line)?.trim()))
+        return
+      const last = agent.chat(output, run.cwd).findLast((e) => e.kind === 'agent')
       const prompt = last?.kind === 'agent' && last.done ? last.text.trim() : ''
       if (!prompt || Buffer.byteLength(prompt) > draftPromptMaxBytes) {
         end(id, 'failed', {
@@ -135,6 +149,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       }
       const { model, effort } = draft.input
       deadlines.set(id, Date.now() + (options.draftTimeoutMs ?? 5 * 60_000))
+      outputAfter.set(id, store.conversation(id).at(-1)?.offset ?? -1)
       const previous = store.getRun(id)
       if (previous) {
         limited.delete(id)
@@ -261,8 +276,18 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         })
     },
   })
-  options.health.onReady(() => {
-    if (!closed) changed()
+  options.health.onReady((agent) => {
+    if (closed) return
+    for (const id of [...limited]) {
+      const run = store.getRun(id)
+      if (!run || (run.agent === agent && store.agentPauses()[agent] === undefined))
+        limited.delete(id)
+    }
+    for (const draft of saved.list()) {
+      if (draft.state === 'working' && draft.input.agent === agent)
+        setImmediate(() => settle(draft.id))
+    }
+    changed()
   })
   for (const draft of saved.list()) {
     if (active(draft))

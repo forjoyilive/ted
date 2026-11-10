@@ -66,6 +66,35 @@ describe('agent kinds', () => {
     },
   )
 
+  test('turn signals distinguish completed work from an idle thread', () => {
+    const claude = agents.get('claude')
+    const codex = agents.get('codex')
+    expect(
+      codex.turnFrom(
+        JSON.stringify({ method: 'thread/status/changed', params: { status: { type: 'idle' } } }),
+      ),
+    ).toBeUndefined()
+    expect(codex.turnFrom(JSON.stringify({ method: 'turn/started' }))).toBe('started')
+    expect(codex.turnFrom(JSON.stringify({ method: 'turn/completed' }))).toBe('completed')
+    expect(
+      claude.turnFrom(
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{ type: 'text', text: 'Continue' }] },
+        }),
+      ),
+    ).toBe('started')
+    expect(
+      claude.turnFrom(
+        JSON.stringify({
+          type: 'user',
+          message: { content: [{ type: 'tool_result', content: 'Done' }] },
+        }),
+      ),
+    ).toBeUndefined()
+    expect(claude.turnFrom(JSON.stringify({ type: 'result' }))).toBe('completed')
+  })
+
   test('bypass: Claude Code bypassPermissions; Codex danger-full-access with no approvals', () => {
     const claude = agents.get('claude').launch({ ...run, permissions: 'bypass' }).args
     const codex = agents.get('codex').launch({ ...run, permissions: 'bypass' }).args

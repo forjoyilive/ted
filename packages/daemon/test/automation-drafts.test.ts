@@ -176,6 +176,37 @@ describe('Automation Prompt drafting', () => {
     },
   )
 
+  test('waits for a Codex turn to complete after its initial idle event', async () => {
+    await writeFile(path.join(home, 'stub-codex.json'), JSON.stringify({ turnStartDelayMs: 700 }))
+    const client = await start()
+    const draft = await request(client, { agent: 'codex' })
+    expect((await until(client, draft.id, 'ready')).prompt).toBe(
+      'Check bugs and create Tasks in Backlog.',
+    )
+  })
+
+  test('accepts a recovered live Claude turn after a usage pause without hooks', async () => {
+    const client = await start(true, 3000, 150)
+    const release = path.join(scratch, 'recovered')
+    const draft = await request(client, {
+      request: script(
+        {
+          everyMessage: [
+            { waitFor: release },
+            { say: 'Recovered valid Prompt' },
+            { endTurn: true },
+          ],
+        },
+        { emit: { type: 'rate_limit_event', rate_limit_info: { status: 'rejected' } } },
+        { endTurn: true },
+      ),
+    })
+    await waitUntil(async () => (await read(client, draft.id)).paused, 'live draft paused')
+    expect((await read(client, draft.id)).state).toBe('working')
+    await writeFile(release, '')
+    expect((await until(client, draft.id, 'ready')).prompt).toBe('Recovered valid Prompt')
+  })
+
   test('validates input and refuses file and Run tokens', async () => {
     const client = await start()
     for (const fields of [
@@ -317,7 +348,7 @@ describe('Automation Prompt drafting', () => {
   ] as const)(
     'resumes a working %s draft after a %s pause and process exit',
     async (agent, cause) => {
-      const client = await start(true, 1200, 2500)
+      const client = await start(true, 2500, 2500)
       const release = path.join(scratch, 'pause')
       const resumeRelease = path.join(scratch, 'resume')
       const healthFile = path.join(home, `stub-${agent}.json`)
@@ -326,7 +357,7 @@ describe('Automation Prompt drafting', () => {
         { say: 'Recovered Prompt' },
         { endTurn: true },
       ]
-      await writeFile(healthFile, JSON.stringify({ resumeSteps }))
+      await writeFile(healthFile, JSON.stringify({ resumeSteps, turnStartDelayMs: 700 }))
       const draft = await request(client, {
         agent,
         request: script(
@@ -365,7 +396,7 @@ describe('Automation Prompt drafting', () => {
         run: { state: 'finished' },
       })
       if (cause === 'auth') {
-        await writeFile(healthFile, JSON.stringify({ resumeSteps }))
+        await writeFile(healthFile, JSON.stringify({ resumeSteps, turnStartDelayMs: 700 }))
         await client.call('POST', '/agents/health/check')
       }
       await waitUntil(

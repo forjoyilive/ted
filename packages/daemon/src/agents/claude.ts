@@ -309,6 +309,13 @@ export function claudeAgent(binary: string): Agent {
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
     },
+    turnFrom(line) {
+      const message = parse(line)
+      if (message?.type === 'result') return 'completed'
+      if (message?.type === 'user' && textParts(message.message?.content) !== undefined)
+        return 'started'
+      return undefined
+    },
     acceptedTextFrom(line) {
       const message = parse(line)
       if (message?.type !== 'user') return undefined
