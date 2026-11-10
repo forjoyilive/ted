@@ -210,6 +210,16 @@ export function api(port: number, auth: string | { appKey: string }) {
     return { status: res.status, body: JSON.parse(res.body) }
   }
   return {
+    async subscribe(changed: () => void): Promise<() => void> {
+      const client =
+        typeof auth === 'string'
+          ? new DaemonClient({ port, token: auth, pid: 0, version: 'test' })
+          : new DaemonClient({ port, token: '', pid: 0, version: 'test' }, '', {
+              appKey: auth.appKey,
+            })
+      const subscription = await client.subscribe(changed)
+      return () => subscription.close()
+    },
     call,
     async startRun(steps: unknown[], cwd: string, agent?: string): Promise<Run> {
       const res = await call('POST', '/dev/runs', {

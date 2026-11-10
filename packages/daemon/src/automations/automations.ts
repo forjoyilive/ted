@@ -26,6 +26,7 @@ import {
 } from '@ted/protocol'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
+import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
@@ -58,6 +59,7 @@ export interface AutomationsOptions {
   queue: AutomationQueue
   idle?: IdleTimer
   systemTimeZone?: () => string
+  clock?: Clock
   now?: () => number
   checkEveryMs?: number
   draftTimeoutMs?: number
@@ -110,14 +112,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const { store, runs, agents, health, banners, workflows } = options
   const drafts = createAutomationDrafts(options)
   const saved = store.automations
-  const now = options.now ?? Date.now
+  const clock = options.clock ?? systemClock
+  const now = options.now ?? (() => clock.now())
   const checkEveryMs = options.checkEveryMs ?? 60_000
   const graceMs = options.graceMs ?? 2 * 60_000
   const iso = (ms: number) => new Date(ms).toISOString()
   const starting = new Set<string>()
   const limited = new Set<string>()
   const unread = new Map<string, string[]>()
-  let timer: NodeJS.Timeout | undefined
+  let timer: Timer | undefined
   let releaseIdle: (() => void) | undefined
   let closed = false
 
@@ -605,7 +608,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   function arm(): void {
-    clearTimeout(timer)
+    timer?.cancel()
     timer = undefined
     if (closed) return
     const at = now()
@@ -616,7 +619,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       )
     if (next.length === 0) return
     const delay = Math.min(Math.max(Math.min(...next) - at, 0), checkEveryMs)
-    timer = setTimeout(check, delay)
+    timer = clock.timeout(check, delay)
     timer.unref()
   }
 
@@ -1021,7 +1024,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     async close() {
       await drafts.close()
       closed = true
-      clearTimeout(timer)
+      timer?.cancel()
       unsubscribe()
       releaseIdle?.()
       releaseIdle = undefined
