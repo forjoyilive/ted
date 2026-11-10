@@ -118,7 +118,7 @@ export function createValidation(options: ValidationOptions) {
     const order = resolution.workflow.order
     const tracking =
       validating ||
-      (existing !== undefined &&
+      (visitStart(task) !== '' &&
         only === undefined &&
         order.indexOf(task.stage as AgentStageId) > order.indexOf('validate'))
     let plan = await options.plan(task, resolution, only)
@@ -333,7 +333,7 @@ export function createValidation(options: ValidationOptions) {
       })
       return
     }
-    if (!progress) {
+    if (!progress || progress.visit !== visitStart(task)) {
       await validateChecks(taskId)
       return
     }
@@ -467,6 +467,11 @@ export function createValidation(options: ValidationOptions) {
         409,
         'use Retry, Fix in this Task or Accept this failure for a Validate case',
       )
+    if (input.resolution === 'fix' && options.isChecking(task.id))
+      throw new RequestError(
+        409,
+        'Checks are still running; wait for their results before choosing Fix in this Task',
+      )
     failures.pendingDecision(task, id, input.requestId)
     const resolution = await options.workflow(find(task.id))
     if (input.resolution === 'fix') options.checkFix(resolution)
@@ -501,7 +506,8 @@ export function createValidation(options: ValidationOptions) {
 
   async function currentCoverage(task: StoredTask): Promise<boolean> {
     const progress = store.failures.progress(task.id)
-    if (!progress || task.stage === 'done') return true
+    if (task.stage === 'done') return true
+    if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
     if (progress.pending || progress.next < progress.checks.length) return false
     const resolution = await options.workflow(task)
     const plan = await options.plan(task, resolution)
@@ -618,7 +624,11 @@ export function createValidation(options: ValidationOptions) {
         task.stage === 'validate' &&
         !task.archived &&
         !find(task.id).stopped &&
-        (progress?.pending || decided || validationFixes(task).length > 0) &&
+        (!progress ||
+          progress.visit !== visitStart(task) ||
+          progress.pending ||
+          decided ||
+          validationFixes(task).length > 0) &&
         !options.isChecking(task.id)
       ) {
         options.setChecking(task.id, true)

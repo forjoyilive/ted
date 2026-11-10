@@ -4,8 +4,11 @@ import type {
   CheckRun,
   Comment,
   FailureCase,
+  RunSummary,
   SendBack,
+  SubAgent,
   Task,
+  ThreadEvent,
   ValidationObligations,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
@@ -13,7 +16,7 @@ import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
-import { api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
+import { api, commitToOrigin, stubClaudePath, stubCodexPath, waitUntil } from './helpers.ts'
 import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
@@ -27,6 +30,7 @@ async function setup(
 ) {
   const client = await start({
     order,
+    daemon: { codexBin: stubCodexPath },
     workflow: ['stages:', '  validate:', '    max_back: 1', '    checks:', ...checks],
   })
   const task = await client.ok<Task>('POST', '/tasks', {
@@ -754,4 +758,167 @@ test('sanitized Check metadata retains retry identity and manual evidence remain
   )
   expect((await s.cases())[0]?.verifications).toHaveLength(1)
   expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
+})
+
+test.each(['omitted', 'explicit failure', 'explicit pass'])(
+  'accepted reviewer failure keeps its failed judgment: %s',
+  async (judgment) => {
+    const s = await setup()
+    await s.answer(await s.ask(s.one), 'Accept this failure')
+    await waitUntil(async () => (await s.obligations()).satisfied, 'initial Checks resolved')
+    const repo = (await getTask(s.client, s.task.id)).repos[0]
+    if (!repo) throw Error('Missing worktree')
+    const doneFile = path.join(repo.worktree, 'stub-review-done')
+    const reviewer = await s.post<SubAgent>('/sub-agents', {
+      reviewer: true,
+      prompt: JSON.stringify({
+        steps: [
+          { waitFor: doneFile },
+          {
+            say: 'Blocking Finding: protected action rejects requests due to unavailable fixture service.',
+          },
+          { endTurn: true },
+        ],
+      }),
+    })
+    await waitUntil(async () => {
+      const runs = await s.client.ok<RunSummary[]>('GET', `${s.root}/runs`)
+      return runs.find((r) => r.id === reviewer.id)?.state === 'working'
+    }, 'reviewer is live')
+    const context = await s.post<{ id: string }>('/failure-contexts')
+    await writeFile(doneFile, 'continue')
+    await waitUntil(async () => {
+      const r = await s.lead.call('GET', `/sub-agents/${reviewer.id}/wait?timeoutMs=100`)
+      return r.body.done ? r.body : undefined
+    }, 'reviewer returns')
+    const finding = await s.post<FailureCase>('/failures', {
+      source: {
+        kind: 'finding',
+        runId: reviewer.id,
+        finding: 'Protected action verification failed during independent review',
+      },
+      evidence: 'The unavailable fixture service rejects the protected action.',
+      contextId: context.id,
+    })
+    await s.answer(await s.ask(finding, 'unrelated'), 'Accept this failure')
+    expect((await s.obligations()).satisfied).toBe(true)
+    if (judgment === 'explicit pass') {
+      const denied = await s.lead.call('POST', `${s.root}/outcome`, {
+        outcome: 'advance',
+        judged: { review: { passed: true } },
+      })
+      expect(denied.status).toBe(409)
+      expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
+    }
+    await s.post('/outcome', {
+      outcome: 'advance',
+      ...(judgment !== 'omitted' && { judged: { review: { passed: false } } }),
+    })
+    const events = await s.client.ok<ThreadEvent[]>('GET', `${s.root}/events`)
+    const passed = events.findLast((e) => e.validate === 'passed')
+    expect(passed?.judgments, JSON.stringify(passed)).toContainEqual({
+      name: 'Review',
+      passed: false,
+    })
+    expect((await getTask(s.client, s.task.id)).stage).toBe('review')
+    expect((await s.cases()).find((c) => c.id === finding.id)?.resolutions.at(-1)?.resolution).toBe(
+      'accepted',
+    )
+  },
+)
+
+test.each(['answer', 'resolve'])(
+  'busy Fix through %s keeps its request open across restart and sends back only after Checks finish',
+  async (route) => {
+    const s = await setup([
+      '      - { name: Tests, run: "exit 1" }',
+      '      - { name: Later, run: "while [ ! -f stub-release ]; do sleep 0.05; done; echo finished" }',
+    ])
+    const current = await getTask(s.client, s.task.id)
+    const repo = current.repos[0]
+    if (!repo) throw new Error('missing worktree')
+    const context = await s.post<{ id: string }>('/failure-contexts')
+    const finding = await s.post<FailureCase>('/failures', {
+      source: { kind: 'finding', runId: current.leadRunId, finding: 'Extra verification failed' },
+      contextId: context.id,
+      evidence: 'The fixture service is unavailable.',
+    })
+    const decision = await s.ask(finding, 'uncertain')
+    const requestId = decision.decisions.at(-1)?.commentId
+    const endpoint =
+      route === 'answer'
+        ? `/comments/${requestId}/answer`
+        : `${s.root}/failures/${finding.id}/resolve`
+    const body =
+      route === 'answer'
+        ? { action: 'answer', choice: 'Fix in this Task' }
+        : { requestId, resolution: 'fix' }
+    await s.answer(await s.ask(s.one), 'Accept this failure')
+    await waitUntil(
+      async () => (await s.runs()).at(-1)?.checks.some((c) => c.state === 'running'),
+      'remaining Check running',
+    )
+    try {
+      expect((await s.client.call('POST', endpoint, body)).status).toBe(409)
+      expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
+      expect(await s.backs()).toEqual([])
+      expect((await s.cases()).find((c) => c.id === finding.id)?.resolutions).toEqual([])
+      const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
+      expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
+    } finally {
+      await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
+    }
+    const client = await restart()
+    await waitUntil(async () => {
+      const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+      const task = (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
+      return runs.at(-1)?.outcome === 'passed' && !task?.activity?.startsWith('Running Checks')
+    }, 'remaining verification completes after restart')
+    expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
+      'validate',
+    )
+    expect(
+      (await client.read<FailureCase[]>(`${s.root}/failures`)).find((c) => c.id === finding.id)
+        ?.resolutions,
+    ).toEqual([])
+    expect((await client.call('POST', endpoint, body)).status).toBe(200)
+    expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
+      'work',
+    )
+    expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toMatchObject([
+      { counted: true, round: 1 },
+    ])
+  },
+)
+
+test('restart starts a fresh Validate visit rather than reusing the previous failed visit', async () => {
+  const s = await setup()
+  const before = await s.runs()
+  await s.assess(s.one, 'regression')
+  await s.post('/outcome', { outcome: 'back', to: 'work', findings: 'Repair the failed Check.' })
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  store.changeStage(s.task.id, 'validate', {
+    layers: [],
+    order: [
+      { stage: 'work', enabled: true },
+      { stage: 'validate', enabled: true },
+      { stage: 'review', enabled: true },
+    ],
+  })
+  const visit = store.listStageEntries(s.task.id).at(-1)?.at
+  await store.persisted()
+  await store.close()
+  const client = await restart()
+  await waitUntil(async () => {
+    const progress = (await client.read<ValidationObligations>(`${s.root}/validation-obligations`))
+      .progress
+    return progress && progress.visit === visit && !progress.pending
+  }, 'new visit checked')
+  const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
+  expect(runs).toHaveLength(2)
+  expect(runs[0]).toEqual(before[0])
+  expect(runs[1]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
+  expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
 })

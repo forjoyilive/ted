@@ -76,3 +76,8 @@ Passing positions reconcile eligible older factory-Check obligations as they fin
 
 
 Automatically collected Check evidence is sanitized before recording: unsafe or invalid links are replaced by an explicit omission marker, with the full log reference retained. Stored Check metadata uses the same safe display text; matching executions uses the authoritative Check run source, so redaction cannot change verification identity. User and Task Lead evidence still reject unsafe links. Completed Tasks retain saved coverage and execution links when cleaned-up worktrees can no longer be read.
+
+
+An active Validate entry without saved progress is unverified, including after restart. Reconstruct its current Check plan; a later forward boundary also holds missing coverage until a full current rerun. Recovery starts a new visit instead of resuming the previous visit’s failed execution. Legitimate empty plans and no-change skips remain explicit.
+
+Fix in this Task is refused while Checks are running, before its request is answered. The human can choose it again after execution finishes; refusal does not create a send-back or a deferred Fix. Starting agent-requested Checks is also refused during a Task transition. Accepted reviewer Findings retain a failing Review judgment in history and the Review confirmation; omitting judgment flags cannot infer a pass, and an explicit passing judgment is refused while that accepted reviewer failure remains. Clean reviews keep the existing default inference.

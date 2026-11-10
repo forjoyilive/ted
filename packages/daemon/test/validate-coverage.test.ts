@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { CheckRun, FailureCase, Task, ValidationObligations } from '@ted/protocol'
+import type { CheckRun, FailureCase, SendBack, Task, ValidationObligations } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
@@ -23,7 +23,12 @@ const workflow = (plan = checks, extra: string[] = []) =>
     '',
   ].join('\n')
 
-async function passing({ changed = true, plan = checks, pullRequest = false } = {}) {
+async function passing({
+  changed = true,
+  plan = checks,
+  pullRequest = false,
+  enterValidate = true,
+} = {}) {
   const client = await start({
     order: 'intake, work, validate, review',
     workflow: ['stages:', '  validate:', `    checks: ${JSON.stringify(plan)}`],
@@ -80,7 +85,7 @@ async function passing({ changed = true, plan = checks, pullRequest = false } = 
   }
   if (changed) await writeFile(path.join(repo.worktree, 'feature.txt'), 'implemented\n')
   expect((await advance()).status).toBe(200)
-  expect((await advance()).status).toBe(200)
+  if (enterValidate) expect((await advance()).status).toBe(200)
   const settled = async () => {
     await waitUntil(async () => {
       const value = (await runs()).at(-1)
@@ -95,7 +100,7 @@ async function passing({ changed = true, plan = checks, pullRequest = false } = 
       return value && !value.activity?.startsWith('Running Checks') ? value : undefined
     }, 'Check delivery finished')
   }
-  await settled()
+  if (enterValidate) await settled()
   return { task, root, repo, read, call, advance, runs, obligations, settled }
 }
 
@@ -291,4 +296,146 @@ test('reading a completed Task preserves its historical validation summary', asy
   const after = await s.obligations()
   expect(after.progress).toEqual(before.progress)
   expect(after.satisfied).toBe(true)
+})
+
+test.each(['failure', 'empty', 'skip'])(
+  'restart reconstructs a Validate entry before progress creation: %s',
+  async (mode) => {
+    const s = await passing({
+      enterValidate: false,
+      changed: mode !== 'skip',
+      plan: mode === 'empty' ? [] : [{ name: 'Tests', run: 'exit 1' }],
+    })
+    await ctx.daemon?.stop()
+    ctx.daemon = undefined
+    const store = await openStore({ directory: tedPaths(ctx.home).store })
+    expect(store.failures.progress(s.task.id)).toBeUndefined()
+    store.changeStage(s.task.id, 'validate', {
+      layers: [],
+      order: [
+        { stage: 'intake', enabled: true },
+        { stage: 'work', enabled: true },
+        { stage: 'validate', enabled: true },
+        { stage: 'review', enabled: true },
+      ],
+    })
+    await store.persisted()
+    await store.close()
+    ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+    if (mode === 'failure') expect((await s.advance()).status).toBe(409)
+    const result = await waitUntil(async () => {
+      const value = await s.obligations()
+      return value.progress && !value.progress.pending ? value : undefined
+    }, 'reconstructed validation completes')
+    expect(result.progress?.checks.map((c) => c.state)).toEqual(
+      mode === 'empty' ? [] : [mode === 'skip' ? 'skipped' : 'failed'],
+    )
+    if (mode === 'failure') {
+      expect(result.satisfied).toBe(false)
+      expect((await s.runs()).at(-1)?.outcome).toBe('failed')
+      expect((await s.advance()).status).toBe(409)
+    } else {
+      await waitUntil(async () => (await s.obligations()).satisfied, 'legitimate coverage settled')
+      expect((await s.advance()).status).toBe(200)
+    }
+  },
+)
+
+test('later forward movement holds missing Validate coverage and a full rerun can repair it', async () => {
+  const s = await passing({ enterValidate: false })
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  store.changeStage(s.task.id, 'validate', {
+    layers: [],
+    order: [
+      { stage: 'validate', enabled: true },
+      { stage: 'review', enabled: true },
+    ],
+  })
+  store.changeStage(s.task.id, 'review')
+  await store.persisted()
+  await store.close()
+  ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+  const held = await s.advance()
+  expect(held.status).toBe(409)
+  expect(JSON.stringify(held.body)).toContain('coverage')
+  expect(await s.runs()).toEqual([])
+  expect((await s.call('/checks')).status).toBe(201)
+  await s.settled()
+  expect((await s.obligations()).satisfied).toBe(true)
+  expect((await s.runs()).at(-1)?.outcome).toBe('passed')
+})
+
+test('restart preserves an already persisted Finding Fix even without Check progress', async () => {
+  const s = await passing({ enterValidate: false })
+  await ctx.daemon?.stop()
+  ctx.daemon = undefined
+  const store = await openStore({ directory: tedPaths(ctx.home).store })
+  store.changeStage(s.task.id, 'validate', {
+    layers: [],
+    order: [
+      { stage: 'work', enabled: true },
+      { stage: 'validate', enabled: true },
+      { stage: 'review', enabled: true },
+    ],
+  })
+  const at = new Date().toISOString()
+  const runId = store.getTask(s.task.id)?.leadRunId ?? ''
+  let value = store.failures.save(
+    {
+      id: 'persisted-fix',
+      taskId: s.task.id,
+      validation: true,
+      source: { kind: 'finding', runId, finding: 'Extra verification failed' },
+      recordedBy: runId,
+      provenance: 'task-lead-reported',
+      evidence: 'The fixture service failed.',
+      createdAt: at,
+      assessments: [],
+      additions: [],
+      decisions: [],
+      resolutions: [],
+      invalidations: [],
+    },
+    'recorded',
+  )
+  value = store.failures.save(
+    {
+      ...value,
+      assessments: [
+        {
+          id: 'fix-assessment',
+          assessment: 'uncertain',
+          recommendation: 'Fix in this Task.',
+          runId,
+          at,
+        },
+      ],
+    },
+    'assessed',
+  )
+  value = store.postFailureDecision(value, 'Fix this failure?')
+  const requestId = value.decisions.at(-1)?.commentId
+  if (!requestId) throw new Error('missing request')
+  store.resolveFailure(
+    {
+      ...value,
+      resolutions: [{ requestId, assessmentId: 'fix-assessment', resolution: 'fix', at }],
+    },
+    requestId,
+    { kind: 'answered', choice: 'Fix in this Task', at },
+    [],
+  )
+  await store.persisted()
+  await store.close()
+  ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
+  await waitUntil(
+    async () => (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage === 'work',
+    'persisted Fix completed',
+  )
+  expect(await s.runs()).toEqual([])
+  expect(await s.read<SendBack[]>(`${s.root}/send-backs`)).toMatchObject([
+    { counted: true, round: 1 },
+  ])
 })

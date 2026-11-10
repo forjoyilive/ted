@@ -55,7 +55,9 @@ export function FailureDetails({
         : failure.verifications?.at(-1)?.replacedBy
           ? 'retry failed again; see the new failure'
           : failure.verifications?.length
-            ? 'verified by a later execution'
+            ? failure.verifications.at(-1)?.checkRunId
+              ? 'verified by a later execution'
+              : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
   return (
     <section className={styles.content} aria-label="Failure assessment and decision">

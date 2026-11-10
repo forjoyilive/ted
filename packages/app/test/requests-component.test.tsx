@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import type { Round } from '@ted/protocol'
+import type { FailureCase, Round } from '@ted/protocol'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
@@ -445,4 +446,110 @@ test('a Review confirmation shows completed Checks once when progress is availab
   )
   await screen.findByRole('button', { name: '✓Typecheck' })
   expect(screen.getAllByRole('button', { name: '✓Typecheck' })).toHaveLength(1)
+})
+
+test('an obsolete Check repair does not claim a later execution', () => {
+  const value: FailureCase = {
+    id: 'obsolete',
+    taskId: 'fixture',
+    source: { kind: 'factory-check', checkRunId: 'failed-run', position: 0 },
+    recordedBy: 'lead',
+    provenance: 'stored-check',
+    evidence: 'The original Check failed.',
+    createdAt: '2026-01-01T00:00:00Z',
+    validation: true,
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [],
+    invalidations: [],
+    verifications: [
+      {
+        at: '2026-01-02T00:00:00Z',
+        evidence:
+          'Task Lead reported repair against a fresh Validate visit. Current Checks: (empty plan). Original execution remains failed.',
+      },
+    ],
+  }
+  render(<FailureDetails failure={value} />)
+  expect(screen.queryByText(/verified by a later execution/)).toBeNull()
+  expect(screen.getByText(/verified with recorded evidence/)).toBeTruthy()
+})
+
+test('Review confirmation keeps a failed reviewer judgment beside its accepted Finding', async () => {
+  const failure: FailureCase = {
+    id: 'review-failure',
+    taskId: 'NB-1',
+    validation: true,
+    source: {
+      kind: 'finding',
+      runId: 'reviewer-1',
+      finding: 'Protected action verification failed',
+    },
+    recordedBy: 'lead-1',
+    provenance: 'task-lead-reported',
+    evidence: 'The fixture service rejected the action.',
+    createdAt,
+    assessments: [
+      {
+        id: 'assessment-1',
+        assessment: 'unrelated',
+        recommendation: 'Accept this fixture failure.',
+        runId: 'lead-1',
+        at: createdAt,
+      },
+    ],
+    additions: [],
+    decisions: [{ commentId: 'decision-1', assessmentId: 'assessment-1' }],
+    resolutions: [
+      {
+        requestId: 'decision-1',
+        assessmentId: 'assessment-1',
+        resolution: 'accepted',
+        at: createdAt,
+      },
+    ],
+    invalidations: [],
+  }
+  bridge({
+    simulators: () => ({ supported: false }),
+    listApps: () => [],
+    listFailures: () => [failure],
+    listCheckRuns: () => [],
+    listThreadEvents: () => [
+      {
+        id: 'validated-1',
+        taskId: 'NB-1',
+        at: createdAt,
+        tone: 'done',
+        text: 'Validate passed',
+        validate: 'passed',
+        judgments: [{ name: 'Review', passed: false }],
+      },
+    ],
+    validationObligations: () => ({
+      satisfied: true,
+      blockers: [],
+      cases: [{ id: failure.id, disposition: 'accepted', context: 'current' }],
+      checkRuns: [],
+      progress: {
+        taskId: 'NB-1',
+        visit: createdAt,
+        checks: [],
+        next: 0,
+        pending: false,
+        executions: [],
+      },
+    }),
+  })
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } })}
+    />,
+  )
+  const judgment = await screen.findByText('Review', { exact: true })
+  expect(judgment.textContent).toBe('✗Review')
+  expect(await screen.findByText('Protected action verification failed')).toBeTruthy()
+  expect(screen.getByText(/failed, accepted by you/)).toBeTruthy()
 })

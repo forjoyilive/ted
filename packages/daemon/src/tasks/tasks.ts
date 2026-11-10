@@ -4577,13 +4577,34 @@ export function createTasks(options: {
       .listCheckRuns(task.id)
       .filter((r) => r.trigger === 'validate' && r.startedAt >= since)
       .at(-1)
-    const reviewer = store
+    const reviewers = store
       .reviewers(task.id)
       .filter((r) => r.purpose === 'review' && r.at >= since)
-      .at(-1)
+    const reviewer = reviewers.at(-1)
+    const acceptedReviewFailure = store.failures.list(task.id).some((value) => {
+      const decision = value.resolutions.at(-1)
+      const source = value.source
+      return (
+        value.validation &&
+        source.kind === 'finding' &&
+        reviewers.some((r) => r.runId === source.runId) &&
+        !value.verifications?.length &&
+        decision?.resolution === 'accepted' &&
+        !value.invalidations.some((i) => i.requestId === decision.requestId)
+      )
+    })
     const review =
       judged?.review ??
-      (reviewer !== undefined && outcome === 'passed' ? { passed: true } : undefined)
+      (acceptedReviewFailure
+        ? { passed: false }
+        : reviewer !== undefined && outcome === 'passed'
+          ? { passed: true }
+          : undefined)
+    if (acceptedReviewFailure && review?.passed)
+      throw new RequestError(
+        409,
+        'Review has an accepted failure; report --review fail to keep its result factual',
+      )
     store.judgeValidate({
       taskId: task.id,
       outcome,
@@ -7601,6 +7622,11 @@ export function createTasks(options: {
 
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs Checks')
+      if (advancing.has(task.id))
+        throw new RequestError(
+          409,
+          `${task.displayId} is already moving; try Checks again when it finishes`,
+        )
       if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
         throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
       }
