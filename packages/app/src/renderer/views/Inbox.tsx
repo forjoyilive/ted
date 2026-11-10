@@ -22,6 +22,7 @@ export function Inbox({
   anyTasks,
   selected,
   onOpen,
+  onClear,
   questions = [],
   onOpenQuestion,
   onOpenPlan,
@@ -39,6 +40,7 @@ export function Inbox({
   anyTasks: boolean
   selected: string | undefined
   onOpen: (item: InboxItem) => void
+  onClear: () => void
   questions?: readonly AutomationRequest[]
   onOpenQuestion?: (question: AutomationRequest) => void
   onOpenPlan?: (item: PlanInboxItem) => void
@@ -58,14 +60,19 @@ export function Inbox({
     ? []
     : plans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
 
-  const before = useRef(waiting)
-  const open = useRef(onOpen)
-  open.current = onOpen
+  const rows = [
+    ...planRows.map((item) => ({ request: item.request, open: () => onOpenPlan?.(item) })),
+    ...waiting.map((item) => ({ request: item.request, open: () => onOpen(item) })),
+    ...asked.map((question) => ({ request: question, open: () => onOpenQuestion?.(question) })),
+  ]
+  const before = useRef(rows)
   useEffect(() => {
-    const next = showAnswered ? undefined : nextSelection(before.current, waiting, selected)
-    if (!showAnswered) before.current = waiting
-    if (next) open.current(next)
-  }, [waiting, selected, showAnswered])
+    if (showAnswered) return
+    const next = nextSelection(before.current, rows, selected)
+    before.current = rows
+    if (next === null) onClear()
+    else next?.open()
+  })
 
   return (
     <>

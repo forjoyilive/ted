@@ -44,7 +44,20 @@ describe('after answering', () => {
 
   test('the last row moves the selection up; an empty Inbox selects nothing', () => {
     expect(nextSelection(before, [item('a'), item('b')], 'c')?.request.id).toBe('b')
-    expect(nextSelection(before, [], 'c')).toBeUndefined()
+    expect(nextSelection(before, [], 'c')).toBeNull()
+  })
+
+  test('a newly waiting request is selected when none of the old neighbors remains', () => {
+    expect(nextSelection(before, [item('new')], 'b')?.request.id).toBe('new')
+  })
+
+  test('selection includes Automation questions and planning requests in row order', () => {
+    const plan = { request: { id: 'plan' } }
+    const task = { request: { id: 'task' } }
+    const question = { request: { id: 'automation' } }
+    expect(nextSelection([plan, task, question], [plan, question], 'task')).toBe(question)
+    expect(nextSelection([plan, question], [plan], 'automation')).toBe(plan)
+    expect(nextSelection([question], [], 'automation')).toBeNull()
   })
 
   test('nothing moves while the selected request is still waiting, or when nothing was selected', () => {

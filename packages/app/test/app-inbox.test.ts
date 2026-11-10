@@ -8,13 +8,20 @@ import {
   ctx,
   daemonClient,
   launchApp,
+  openAllTasks,
   setUpAppTests,
   sidebar,
+  taskRow,
   ted,
   twoFactories,
 } from './app-harness.ts'
 
 setUpAppTests()
+
+async function openTaskOutsideInbox(window: Page) {
+  await openAllTasks(window)
+  await taskRow(window, 'NB-1').click()
+}
 
 async function expectActionsInsideCard(window: Page, card: Locator, names: string[]) {
   for (const width of [1440, 1280, 1000]) {
@@ -74,6 +81,7 @@ describe('Inbox and Gates', () => {
       .waitFor()
     await row.click()
 
+    await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Design review', exact: true })
     await card.getByText('Let notes be edited offline.', { exact: true }).waitFor()
@@ -90,6 +98,9 @@ describe('Inbox and Gates', () => {
 
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details.getByText('Review', { exact: true }).waitFor()
+    await sidebar(window)
+      .getByRole('button', { name: /^Inbox/ })
+      .click()
     const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
     await signoff.waitFor()
     await signoff.click()
@@ -143,6 +154,7 @@ describe('Inbox and Gates', () => {
     await row.waitFor()
     await row.click()
 
+    await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
     await card.getByText('Conflicts and sync · 2 questions').waitFor()
@@ -215,6 +227,7 @@ describe('Inbox and Gates', () => {
 
     const inbox = window.getByRole('region', { name: 'Inbox' })
     await inbox.getByRole('button').filter({ hasText: 'Clarify round' }).click()
+    await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
     await card.getByRole('button', { name: 'Talk it through' }).click()
@@ -340,6 +353,7 @@ describe('Inbox and Gates', () => {
     const row = inbox.getByRole('button').filter({ hasText: 'Offline editing for notes' })
     await row.waitFor({ timeout: 20_000 })
     await row.click()
+    await openTaskOutsideInbox(window)
     const card = thread.getByRole('region', { name: 'Proposal', exact: true })
     await card.getByText('NB-1').waitFor()
     await card.getByText('(row 5 would start)').waitFor()
@@ -500,6 +514,7 @@ describe('Inbox and Gates', () => {
     expect(await inbox.getByRole('listitem').count()).toBe(1)
     await row.click()
 
+    await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const superseded = thread.getByRole('region', { name: 'Question, superseded' })
     await superseded.getByText('Superseded by a newer question from the Task Lead').waitFor()
@@ -622,6 +637,7 @@ describe('Permission requests', () => {
     await row.waitFor()
     await row.click()
 
+    await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Permission', exact: true })
     await card.getByText('Run a command', { exact: true }).waitFor()
