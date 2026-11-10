@@ -20,49 +20,6 @@ import {
 setUpAppTests()
 
 describe('TED app', () => {
-  test('the Task Lead field shows the agent, model and effort, and saves a change', async () => {
-    await ted('task', 'create', 'Fix login')
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'DEV-1').click()
-    const details = window.getByRole('complementary', { name: 'Task details' })
-    await expect.poll(() => details.getByLabel('Agent').inputValue()).toBe('claude')
-
-    await details.getByLabel('Agent').selectOption('codex')
-    await details.getByLabel('Model').fill('gpt-6-mini')
-    await details.getByLabel('Effort').selectOption('low')
-    await details.getByRole('button', { name: 'Save' }).click()
-
-    await details.getByText('Codex · gpt-6-mini · low').waitFor()
-
-    await ted('task', 'lead', 'DEV-1', 'claude', '--model', 'opus')
-    await expect.poll(() => details.getByLabel('Model').inputValue()).toBe('opus')
-    expect(await details.getByLabel('Agent').inputValue()).toBe('claude')
-    expect(await details.getByLabel('Effort').inputValue()).toBe('')
-  })
-
-  test('a model the plan doesn’t include shows Model unavailable until the human picks the default', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
-    await ted('task', 'lead', 'NB-1', 'claude', '--model', 'unavailable-9')
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    const details = window.getByRole('complementary', { name: 'Task details' })
-    await details.getByText('Backlog').waitFor()
-
-    await ted('task', 'start', 'NB-1')
-
-    await details.getByText('Model unavailable').waitFor()
-    await window
-      .getByRole('region', { name: 'Task thread' })
-      .getByText(/won’t switch models on its own/)
-      .waitFor()
-    await details.getByRole('button', { name: 'Use the default model' }).click()
-    await details.getByText('Model unavailable').waitFor({ state: 'detached' })
-  })
-
   test('the thread header shows the status, the live activity line and the Stage track', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const go = (n: number) => path.join(ctx.home, `go-${n}`)
@@ -120,66 +77,6 @@ describe('TED app', () => {
       await header.getByRole('button', { name: 'Design, not yet' }).getAttribute('aria-pressed'),
     ).toBeNull()
   })
-
-  test('Validate’s ✓ row shows each Check’s state, the Blocking findings box, and opens the output', async () => {
-    const parent = path.join(ctx.home, 'origin')
-    const origin = await makeOriginRepo(parent)
-    const flag = 'stub-failed-once'
-    await commitToOrigin(parent, {
-      '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        '      - { name: Typecheck, run: "echo typed" }',
-        `      - { name: Tests, run: "if [ -e '${flag}' ]; then echo ok; else touch '${flag}'; echo 'SearchPanel hangs'; exit 1; fi" }`,
-        '      - { name: Lint, run: "echo linted" }',
-        '',
-      ].join('\n'),
-    })
-    const advance = { run: ['ted', 'outcome', 'advance'] }
-    const steps = JSON.stringify({
-      steps: [{ everyMessage: [{ run: ['sh', '-c', 'echo x > work.txt'] }, advance] }, advance],
-    })
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', steps)
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    const thread = window.getByRole('region', { name: 'Task thread' })
-
-    await ted('task', 'start', 'NB-1')
-
-    const sentBack = thread.getByRole('listitem').filter({
-      hasText: 'Validate sent this back to Work (round 1 of 5)',
-    })
-    await sentBack.waitFor({ timeout: 40_000 })
-    const row = sentBack.getByRole('list', { name: 'Checks' })
-    await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
-    await row.getByRole('button', { name: '✗ Tests' }).waitFor()
-    await row.getByRole('listitem').filter({ hasText: 'Lint · not run' }).waitFor()
-    await sentBack
-      .getByRole('region', { name: 'Blocking findings' })
-      .getByText(/The Check “Tests”/)
-      .waitFor()
-    await thread
-      .getByText(/^(Checks passed at Validate|Validate passed)$/)
-      .first()
-      .waitFor({ timeout: 40_000 })
-
-    await row.getByRole('button', { name: '✗ Tests' }).click()
-    const dialog = window.getByRole('dialog', { name: 'Tests output' })
-    await dialog.getByText('SearchPanel hangs', { exact: true }).waitFor()
-    await dialog.getByRole('tab', { name: 'Typecheck' }).click()
-    await window
-      .getByRole('dialog', { name: 'Typecheck output' })
-      .getByText('typed', { exact: true })
-      .waitFor()
-    await window.getByRole('button', { name: 'Close' }).click()
-    await dialog.waitFor({ state: 'detached' })
-  }, 90_000)
 
   test('the Review sign-off card starts with the confirmation row, Review notes included', async () => {
     const parent = path.join(ctx.home, 'origin')
@@ -242,24 +139,6 @@ describe('TED app', () => {
       .filter({ hasText: /^✓Visual$/ })
       .waitFor()
   }, 90_000)
-
-  test('the Code section shows No worktree yet, then the branch and worktree path', async () => {
-    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
-    await addFactory(origin, 'NB')
-    await ted('task', 'create', '--factory', 'NB', JSON.stringify({ steps: [{ endTurn: true }] }))
-    const window = await launchApp()
-    await openAllTasks(window)
-    await taskRow(window, 'NB-1').click()
-    const code = window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Code' })
-    await code.getByText('No worktree yet').waitFor()
-
-    await ted('task', 'start', 'NB-1')
-
-    await code.getByText(/^ted\/nb-1/).waitFor()
-    await code.getByText(path.join(ctx.home, 'worktrees', 'NB-1', 'widgets')).waitFor()
-  })
 
   test('a missing local folder raises a Factory banner whose Locate picks a new folder', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))

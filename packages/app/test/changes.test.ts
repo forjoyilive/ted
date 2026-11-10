@@ -166,27 +166,26 @@ describe('Changes in Task details', () => {
     await thread.waitFor()
     await diff.waitFor({ state: 'detached' })
     expect(await thread.getByRole('textbox').first().inputValue()).toBe('Half-written note')
-  })
 
-  test('Expand all shows every diff in one column with the file list as an index', async () => {
-    const window = await openTaskWithChanges()
-    const changes = window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Changes' })
-    await changes.getByRole('button', { name: 'Expand all' }).click()
+    {
+      const changes = window
+        .getByRole('complementary', { name: 'Task details' })
+        .getByRole('region', { name: 'Changes' })
+      await changes.getByRole('button', { name: 'Expand all' }).click()
 
-    const all = window.getByRole('region', { name: 'All changes' })
-    await all.getByRole('navigation', { name: 'Changed files' }).waitFor()
-    await expect
-      .poll(() => all.getByRole('heading', { level: 3 }).allTextContents())
-      .toEqual(['README.md', 'src/search/SearchPanel.tsx', 'src/search/useSearch.ts'])
-    await all.getByRole('row', { name: /THREE/ }).waitFor()
-    const index = all.getByRole('navigation', { name: 'Changed files' })
-    expect(await index.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
+      const all = window.getByRole('region', { name: 'All changes' })
+      await all.getByRole('navigation', { name: 'Changed files' }).waitFor()
+      await expect
+        .poll(() => all.getByRole('heading', { level: 3 }).allTextContents())
+        .toEqual(['README.md', 'src/search/SearchPanel.tsx', 'src/search/useSearch.ts'])
+      await all.getByRole('row', { name: /THREE/ }).waitFor()
+      const index = all.getByRole('navigation', { name: 'Changed files' })
+      expect(await index.evaluate((el) => getComputedStyle(el).position)).toBe('sticky')
 
-    await all.getByRole('button', { name: 'Collapse' }).click()
-    await window.getByRole('region', { name: 'Task thread' }).waitFor()
-    await window.getByRole('complementary', { name: 'Task details' }).waitFor()
+      await all.getByRole('button', { name: 'Collapse' }).click()
+      await window.getByRole('region', { name: 'Task thread' }).waitFor()
+      await window.getByRole('complementary', { name: 'Task details' }).waitFor()
+    }
   })
 
   test('new uncommitted work shows up when the window is focused again', async () => {

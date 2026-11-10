@@ -5,14 +5,14 @@ import { defineConfig } from 'vitest/config'
 
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url))
 
-const testFiles = ['packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts']
+const testFiles = ['packages/*/test/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts']
 
 export function launchesElectron(file: string, seen = new Set<string>()): boolean {
   if (seen.has(file)) return false
   seen.add(file)
   const source = readFileSync(file, 'utf8')
   if (/\b_electron\b/.test(source)) return true
-  return [...source.matchAll(/from '(\.\.?\/[^']+\.ts)'/g)].some((match) =>
+  return [...source.matchAll(/from '(\.\.?\/[^']+\.tsx?)'/g)].some((match) =>
     launchesElectron(path.resolve(path.dirname(file), match[1] ?? ''), seen),
   )
 }
@@ -25,7 +25,10 @@ const testOptions = {
   testTimeout: 30_000,
   maxWorkers: 6,
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
-  setupFiles: [here('./packages/daemon/test/support/setup.ts')],
+  setupFiles: [
+    here('./packages/daemon/test/support/setup.ts'),
+    here('./packages/app/test/support/dom-setup.ts'),
+  ],
   env: {
     TED_GH_BIN: here('./packages/daemon/test/fixtures/stub-gh.ts'),
     TED_XCRUN_BIN: here('./packages/daemon/test/fixtures/stub-xcrun.ts'),
@@ -54,16 +57,23 @@ export function tedTestConfig(include: string[]) {
   const exclude = codexSandbox
     ? globSync(include).filter((file) => launchesElectron(path.resolve(file)))
     : []
-  return defineConfig({ test: { ...testOptions, include, exclude } })
+  return defineConfig({
+    oxc: { jsx: { runtime: 'automatic' } },
+    test: { ...testOptions, include, exclude },
+  })
 }
 
 const electron = electronTestFiles()
 
 export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic' } },
   test: {
     ...testOptions,
     projects: [
-      { extends: true, test: { name: 'electron', include: codexSandbox ? [] : electron } },
+      {
+        extends: true,
+        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3 },
+      },
       { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
     ],
   },
