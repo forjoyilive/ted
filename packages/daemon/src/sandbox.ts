@@ -47,7 +47,7 @@ export function createSandbox(options: {
     }
     const found = await program()
     if (found === undefined) {
-      return 'bwrap (bubblewrap) isn’t installed, so TED can’t sandbox Checks and Apps. Install the bubblewrap package.'
+      return 'bwrap (bubblewrap) isn’t installed, so TED can’t sandbox Checks and Apps or worktree setup and teardown. Install the bubblewrap package.'
     }
     const args =
       platform === 'darwin'
@@ -63,7 +63,7 @@ export function createSandbox(options: {
       return undefined
     }
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap'
-    return `${name} doesn’t work on this machine, so TED can’t sandbox Checks and Apps${result.output === '' ? '' : `: ${result.output}`}`
+    return `${name} doesn’t work on this machine, so TED can’t sandbox Checks and Apps or worktree setup and teardown${result.output === '' ? '' : `: ${result.output}`}`
   }
 
   return {

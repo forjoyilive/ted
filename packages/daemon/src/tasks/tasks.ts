@@ -156,6 +156,7 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
+import { type CommandSandbox, runTaskCommand } from './command.ts'
 import {
   ciFailureKey,
   createFailureCases,
@@ -250,7 +251,7 @@ import {
 } from './split.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, threadEvents } from './thread.ts'
-import { type CommandResult, copyFiles, outputTail, runWorktreeCommand } from './worktree.ts'
+import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
@@ -592,12 +593,28 @@ export function createTasks(options: {
     return problem
   }
 
-  function sandboxScope(task: StoredTask): Omit<SandboxScope, 'tmp'> {
-    const live = task.repos.filter((r) => !r.removed)
+  function sandboxScope(
+    task: StoredTask,
+    repos: readonly TaskRepo[] = task.repos,
+  ): Omit<SandboxScope, 'tmp'> {
+    const live = repos.filter((r) => !r.removed)
     return {
       writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
       cache: path.join(sandboxDir, task.displayId, 'cache'),
+    }
+  }
+
+  async function lifecycleSandbox(
+    task: StoredTask,
+    repos: readonly TaskRepo[] = task.repos,
+  ): Promise<CommandSandbox | undefined> {
+    if (runsInBypass(await taskWorkflow(task, { fetch: false }))) return undefined
+    await sandboxProblem(task.factoryId)
+    return {
+      sandbox: options.sandbox,
+      scope: sandboxScope(task, repos),
+      tmpRoot: path.join(sandboxDir, task.displayId),
     }
   }
 
@@ -3045,8 +3062,8 @@ export function createTasks(options: {
     }
     const entries = factoryRepos(resolution.workflow, factory)
     const removed: { name: string; teardown?: TeardownRecord }[] = []
-    for (const repo of live) {
-      const teardown = await tearDown(task, repo, repoEntry(entries, repo))
+    for (const [index, repo] of live.entries()) {
+      const teardown = await tearDown(task, repo, repoEntry(entries, repo), live.slice(index))
       await git.removeWorktree(clonePath(reposDir, repo), repo.worktree)
       removed.push({ name: repo.name, ...(teardown && { teardown }) })
     }
@@ -3075,10 +3092,15 @@ export function createTasks(options: {
     task: StoredTask,
     repo: TaskRepo,
     entry: FactoryRepoEntry | undefined,
+    remainingRepos?: readonly TaskRepo[],
   ): Promise<TeardownRecord | undefined> {
     const teardown = entry?.teardown
     if (!teardown) return undefined
-    const result: CommandResult = await runWorktreeCommand({
+    const current = find(task.id)
+    const sandbox = await lifecycleSandbox(current, remainingRepos ?? current.repos)
+    const result: CommandResult = await runTaskCommand({
+      label: 'teardown',
+      ...(sandbox !== undefined && { sandbox }),
       command: teardown,
       cwd: repo.worktree,
       env: commandEnv(task, entry.env),
@@ -3903,7 +3925,10 @@ export function createTasks(options: {
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     store.worktreeSetupStarted(task.id, repo.name, setup)
     const log = commandLog(task, 'setup', repo.name)
-    const result = await runWorktreeCommand({
+    const sandbox = await lifecycleSandbox(find(task.id))
+    const result = await runTaskCommand({
+      label: 'setup',
+      ...(sandbox !== undefined && { sandbox }),
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),
