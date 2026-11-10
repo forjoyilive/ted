@@ -408,6 +408,11 @@ export {
   shellSizeLimits,
   type TaskShell,
 } from './shell.ts'
+export {
+  parseSideChatMessageRequest,
+  type SideChat,
+  type SideChatMessageRequest,
+} from './side-chat.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export { busyHold } from './slots.ts'
 export {

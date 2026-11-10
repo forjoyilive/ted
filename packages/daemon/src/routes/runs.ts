@@ -6,6 +6,7 @@ import {
   type Effort,
   efforts,
   isModelName,
+  parseSideChatMessageRequest,
   type SendRunMessageRequest,
   type SendSubAgentRequest,
   type StartDevRunRequest,
@@ -19,6 +20,41 @@ const maxWaitMs = 60_000
 const defaultWaitMs = 25_000
 
 export const runRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.get(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [201, await sideChats.open(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/messages$/,
+    async handle({ req, params: [id = ''] }, { sideChats }) {
+      const body = await readJson(req)
+      let text: string
+      try {
+        text = parseSideChatMessageRequest(body).text
+      } catch (error) {
+        throw new HttpError(400, String(error))
+      }
+      return [201, await sideChats.send(id, text)]
+    },
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/stop$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.stop(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/retry$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.retry(id)],
+  },
+
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/sub-agents$/,

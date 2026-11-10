@@ -37,6 +37,7 @@ import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
+import { createSideChats } from './side-chats/side-chats.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -354,8 +355,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
         deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
         canDeliver: (runId, admitted) =>
-          !store.coordinators.forRun(runId) ||
-          coordinators?.deliveryAllowed(runId, admitted) === true,
+          !store.sideChats.forRun(runId) &&
+          (!store.coordinators.forRun(runId) ||
+            coordinators?.deliveryAllowed(runId, admitted) === true),
       })
       let plans: Plans | undefined
       const tasks = createTasks({
@@ -498,7 +500,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         volumeName: diskOptions.volumeName ?? (() => volumeName(paths.home)),
       })
       started = tasks
+      const sideChats = createSideChats({
+        home: paths.home,
+        store,
+        runs,
+        agents,
+        health,
+        tasks,
+        ...(idle && { idle }),
+      })
       const factoryRemovals = createFactoryRemovals({
+        sideChats,
         coordinators,
         store,
         banners,
@@ -530,6 +542,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
       return {
+        sideChats,
         coordinators,
         automations,
         plans,
@@ -550,6 +563,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         async close() {
+          await sideChats.close()
           shells.close()
           await coordinators.close()
           await automations.close()

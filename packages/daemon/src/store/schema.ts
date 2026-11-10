@@ -689,6 +689,11 @@ export const automationComments = State.SQLite.table({
   },
 })
 
+export const sideChats = State.SQLite.table({
+  name: 'sideChats',
+  columns: { sourceRunId: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
+})
+
 export const coordinators = State.SQLite.table({
   name: 'coordinators',
   columns: {
@@ -780,6 +785,14 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  sideChatChanged: Events.synced({
+    name: 'v1.SideChatChanged',
+    schema: Schema.Struct({ sourceRunId: Schema.String, data: Schema.String }),
+  }),
+  sideChatRemoved: Events.synced({
+    name: 'v1.SideChatRemoved',
+    schema: Schema.Struct({ sourceRunId: Schema.String, runId: Schema.String }),
+  }),
   coordinatorChanged: Events.synced({
     name: 'v1.CoordinatorChanged',
     schema: Schema.Struct({ factoryId: Schema.String, data: Schema.String }),
@@ -3414,6 +3427,13 @@ const materializers = counted(
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
       ],
+      'v1.SideChatChanged': (row) => sideChats.insert(row).onConflict('sourceRunId', 'replace'),
+      'v1.SideChatRemoved': ({ sourceRunId, runId }) => [
+        sideChats.delete().where({ sourceRunId }),
+        runs.delete().where({ id: runId }),
+        runMessages.delete().where({ runId }),
+        runInterrupts.delete().where({ runId }),
+      ],
       'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
@@ -3527,6 +3547,7 @@ const state = State.SQLite.makeState({
     planRequests,
     planTasks,
     coordinators,
+    sideChats,
   },
   materializers,
 })

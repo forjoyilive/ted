@@ -183,6 +183,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   talkThrough: (client, commentId) => client.talkThrough(String(commentId)),
   doneTalking: (client, commentId) => client.doneTalking(String(commentId)),
   getRun: async (client, runId) => (await client.getRun(String(runId))).run,
+  getSideChat: (client, id) => client.getSideChat(String(id)),
+  openSideChat: (client, id) => client.openSideChat(String(id)),
+  sendSideChat: (client, id, text) => client.sendSideChat(String(id), String(text)),
+  stopSideChat: (client, id) => client.stopSideChat(String(id)),
+  retrySideChat: (client, id) => client.retrySideChat(String(id)),
   getRunChat: (client, runId) => client.getRunChat(String(runId)),
   sendRunMessage: (client, runId, text, interrupt) =>
     client.sendRunMessage(String(runId), String(text), { interrupt: interrupt === true }),

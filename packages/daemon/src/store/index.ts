@@ -132,6 +132,7 @@ import {
   sendBackAsks,
   sendBackResets,
   sendBacks,
+  sideChats,
   stageEntries,
   stageFileTexts,
   subAgentRequests,
@@ -148,6 +149,7 @@ import {
   tasks,
   workflowLayers,
 } from './schema.ts'
+import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -780,6 +782,7 @@ export interface TedStore {
     input: Omit<PeerMessage, 'id' | 'createdAt' | 'delivered'>,
     body: string,
   ): PeerMessage
+  sideChats: SideChatStore
   coordinators: CoordinatorStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
@@ -2026,10 +2029,13 @@ export async function openStore({
       runs: {
         working: active.filter((run) => run.state === 'working').length,
         active: active.length + held,
-        queued: store.query(queryDb(coordinators)).filter((row) => {
-          const value = JSON.parse(row.data) as { phase: string }
-          return value.phase === 'queued'
-        }).length,
+        queued:
+          store.query(queryDb(sideChats)).filter((row) => JSON.parse(row.data).state === 'queued')
+            .length +
+          store.query(queryDb(coordinators)).filter((row) => {
+            const value = JSON.parse(row.data) as { phase: string }
+            return value.phase === 'queued'
+          }).length,
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
@@ -2200,6 +2206,14 @@ export async function openStore({
   })
 
   return {
+    sideChats: createSideChatStore({
+      store,
+      commit,
+      changed(sourceRunId) {
+        emit({ type: 'side-chat-changed', sourceRunId })
+        noteActivity()
+      },
+    }),
     automationDrafts: createAutomationDraftStore({ store, commit }),
     isPeerMessage: (id) => store.query(queryDb(peerMessages.where({ id }))).length > 0,
     peerMessages() {
