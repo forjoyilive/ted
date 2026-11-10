@@ -349,7 +349,6 @@ export const keyCommands: readonly Command[] = [
   keyCommand('column-right', 'Column to the right', (k) => k.move('right')),
   keyCommand('reply', 'Reply', (k) => k.reply()),
   keyCommand('approve', 'Approve', (k) => k.arm('approve')),
-  keyCommand('accept-recommended', 'Accept all recommended', (k) => k.arm('accept-recommended')),
   keyCommand('request-changes', 'Request changes', (k) => k.requestChanges()),
   keyCommand('send', 'Send', (k) => k.pressDialogPrimary(), { inDialogs: true }),
   keyCommand('move-up', 'Move up in rank', (k) => k.moveInRank('up')),

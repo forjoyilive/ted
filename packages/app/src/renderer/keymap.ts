@@ -44,11 +44,6 @@ const sections: readonly SheetSection[] = [
     rows: [
       { id: 'reply', label: 'Reply', keys: ['R'] },
       { id: 'approve', label: 'Approve, then ↵ to confirm', keys: ['A'] },
-      {
-        id: 'accept-recommended',
-        label: 'Accept all recommended, then ↵ to confirm',
-        keys: ['⇧A'],
-      },
       { id: 'request-changes', label: 'Request changes', keys: ['⇧R'] },
       {
         id: 'send-message',
