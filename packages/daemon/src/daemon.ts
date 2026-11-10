@@ -59,6 +59,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   linear?: { apiUrl?: string; keyring?: Keyring }
+  snoozes?: { now?: () => Date; checkEveryMs?: number }
   linearSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
@@ -371,6 +372,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         attachmentFile: (attachment) => attachments.file(attachment),
         linear,
+        ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,

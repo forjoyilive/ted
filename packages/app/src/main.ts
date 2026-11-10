@@ -224,6 +224,8 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.saveTaskDraft(String(factoryId), draft as NewTaskDraft),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
+  setTaskSnooze: (client, taskId, until) =>
+    client.setTaskSnooze(String(taskId), until === null ? null : String(until)),
   startTask: (client, taskId) => client.startTask(String(taskId)),
   moveToBacklog: (client, taskId) => client.moveToBacklog(String(taskId)),
   stopTask: (client, taskId) => client.stopTask(String(taskId)),

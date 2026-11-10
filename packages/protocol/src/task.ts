@@ -118,6 +118,7 @@ export type BlockerEnded = 'archived' | 'deleted'
 
 export type TaskMarker =
   | { kind: 'blocked-by'; by: string; ended?: BlockerEnded }
+  | { kind: 'snoozed'; until: string }
   | { kind: 'needs-planning' }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
@@ -158,7 +159,29 @@ export interface TaskSource {
   sentry?: { shortId: string }
 }
 
+export interface SetTaskSnoozeRequest {
+  snoozedUntil: string | null
+}
+
+export function parseSetTaskSnoozeRequest(value: unknown): SetTaskSnoozeRequest {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new TypeError('body must be a JSON object')
+  }
+  const until = (value as Record<string, unknown>).snoozedUntil
+  if (until === null) return { snoozedUntil: null }
+  if (
+    typeof until !== 'string' ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+    !Number.isFinite(Date.parse(until)) ||
+    new Date(until).toISOString() !== until
+  ) {
+    throw new TypeError('snoozedUntil must be an ISO instant or null')
+  }
+  return { snoozedUntil: until }
+}
+
 export interface Task {
+  snoozedUntil?: string
   gateOverrides?: import('./task-gates.ts').TaskGateOverrides
   id: string
   factoryId: string

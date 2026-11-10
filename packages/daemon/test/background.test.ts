@@ -54,6 +54,7 @@ async function start() {
 
 const idle = {
   runs: { working: 0, active: 0, queued: 0 },
+  scheduledTasks: 0,
   automationsOn: 0,
   factoriesSettingUp: 0,
   checksRunning: 0,

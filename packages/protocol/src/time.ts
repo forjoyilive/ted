@@ -28,3 +28,46 @@ export function formatClockTime(at: string, format: MachineSettings['timeFormat'
   const twelve = uses12HourTime({ timeFormat: format, timeZone: 'UTC' })
   return `${twelve ? hour % 12 || 12 : String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}${twelve ? (hour < 12 ? ' AM' : ' PM') : ''}`
 }
+
+export function dateTimeFields(at: Date, timeZone: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).formatToParts(at)
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? ''
+  return {
+    date: `${part('year')}-${part('month')}-${part('day')}`,
+    time: `${part('hour')}:${part('minute')}`,
+  }
+}
+
+export function dateTimeInZone(date: string, time: string, timeZone: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(time)) {
+    throw new Error('Choose a valid date and time')
+  }
+  const wall = Date.parse(`${date}T${time}:00.000Z`)
+  if (!Number.isFinite(wall) || new Date(wall).toISOString() !== `${date}T${time}:00.000Z`) {
+    throw new Error('Choose a valid date and time')
+  }
+  const offsets = new Set<number>()
+  for (let hours = -36; hours <= 36; hours += 6) {
+    const sample = wall + hours * 3_600_000
+    const fields = dateTimeFields(new Date(sample), timeZone)
+    offsets.add(Date.parse(`${fields.date}T${fields.time}:00.000Z`) - sample)
+  }
+  const matches = [...offsets]
+    .map((offset) => wall - offset)
+    .filter((at) => {
+      const fields = dateTimeFields(new Date(at), timeZone)
+      return fields.date === date && fields.time === time
+    })
+  if (matches.length === 0)
+    throw new Error('That time does not exist in this time zone. Choose another time.')
+  return new Date(Math.min(...matches)).toISOString()
+}

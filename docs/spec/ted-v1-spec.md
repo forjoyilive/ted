@@ -556,7 +556,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 - **Start** (leaves Backlog): the play button on a Backlog card, dragging a card to Intake (or into the Queued group in a Manual-sorted List), `S`, `ted task start <id>`, or an Automation. A blocked Backlog card has no Start button. (KRI-15, KRI-56, KRI-62)
 - **Un-start:** dragging a Queued card back to Backlog, or **Move to Backlog** in the Task actions menu. A Task that has had a Run can’t go back to Backlog. (KRI-15, KRI-63)
 - **Blocked Tasks and Start now.** A Task with a blocker starts as soon as its last blocker merges only if it was meant to start: created with Start now checked (or `--start`), or already started. Created with Start now unchecked, it stays in Backlog after the blocker merges. The human can start it by hand at any time. Removing the last blocker by hand never starts a Task. (KRI-55 change from Nabha’s review, KRI-15)
-- No snooze-until-a-date in v1 (KRI-42).
+- **Snooze:** an existing Backlog Task can be scheduled for a date and time in TED’s app-wide timezone, saved as a fixed instant. It stays in Backlog until due, including with automatic Backlog starts or Overnight mode on. When due it starts through the normal queue even if Factory automatic starts are off; blockers, capacity and safety holds still apply. Snoozes survive restart, and overdue Tasks are handled when TED next runs. The Task actions menu offers Snooze…, Change snooze… and Cancel snooze. Start clears the snooze and starts early; archiving cancels it. Cancel restores ordinary Backlog behavior, so automatic starts may start it immediately. Pending snoozes keep TED running in the background; Quit is still available. (KRI-42)
 
 **Queue and limits**
 
@@ -1383,7 +1383,6 @@ From the map (KRI-8) and every issue labelled `later`:
 - Built-in browser that agents drive: [KRI-34](https://linear.app/kriyadesign/issue/KRI-34)
 - Rebinding shortcuts and searching file contents: [KRI-35](https://linear.app/kriyadesign/issue/KRI-35)
 - S3-compatible attachment storage: [KRI-37](https://linear.app/kriyadesign/issue/KRI-37)
-- Snoozing a Task until a date: [KRI-42](https://linear.app/kriyadesign/issue/KRI-42)
 - Revisiting the one-long-Run design: [KRI-43](https://linear.app/kriyadesign/issue/KRI-43)
 - Reading OpenAI’s Terms of Use by hand: [KRI-44](https://linear.app/kriyadesign/issue/KRI-44)
 - Watching for `--bare` becoming the default: [KRI-45](https://linear.app/kriyadesign/issue/KRI-45)

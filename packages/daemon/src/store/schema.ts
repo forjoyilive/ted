@@ -69,6 +69,7 @@ export const tasks = State.SQLite.table({
     leadAgent: State.SQLite.text({ nullable: true }),
     leadModel: State.SQLite.text({ nullable: true }),
     leadEffort: State.SQLite.text({ nullable: true }),
+    snoozedUntil: State.SQLite.text({ nullable: true }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
@@ -930,6 +931,14 @@ export const events = {
       runId: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
+  }),
+  taskSnoozed: Events.synced({
+    name: 'v1.TaskSnoozed',
+    schema: Schema.Struct({ taskId: Schema.String, until: Schema.String, at: Schema.String }),
+  }),
+  taskSnoozeCleared: Events.synced({
+    name: 'v1.TaskSnoozeCleared',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   taskStartRequestChanged: Events.synced({
     name: 'v1.TaskStartRequestChanged',
@@ -2523,6 +2532,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     at: String(args.createdAt),
     data: { clarifyDepth: args.clarifyDepth },
   }),
+  'v1.TaskSnoozed': (args) => task(args, { until: args.until }),
+  'v1.TaskSnoozeCleared': (args) => task(args),
   'v1.TaskGatesChanged': (args) => task(args, { overrides: args.overrides }),
   'v1.TaskEdited': (args) => task(args, { title: args.title, version: args.version }),
   'v1.TaskBlockerAdded': (args) => task(args, { blockerId: args.blockerId, runId: null }),
@@ -2755,6 +2766,10 @@ const materializers = counted(
           .onConflict('id', 'replace'),
       'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
         taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+      'v1.TaskSnoozed': ({ taskId, until }) =>
+        tasks.update({ snoozedUntil: until, startRequested: false }).where({ id: taskId }),
+      'v1.TaskSnoozeCleared': ({ taskId }) =>
+        tasks.update({ snoozedUntil: null }).where({ id: taskId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [

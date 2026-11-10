@@ -19,6 +19,7 @@ import {
   type ProposalChoice,
   type ProposalInput,
   type ProposalRowInput,
+  parseSetTaskSnoozeRequest,
   priorities,
   proposalCycle,
   type ResumeTaskRequest,
@@ -304,6 +305,21 @@ export const taskRoutes: Route[] = [
     runToken: true,
     async handle({ req, params: [ref = ''], caller }, { tasks, attachments }) {
       return [201, await tasks.upload(ref, caller, () => attachments.save(req))]
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/snooze$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const value = await readJson(req)
+      let body: ReturnType<typeof parseSetTaskSnoozeRequest>
+      try {
+        body = parseSetTaskSnoozeRequest(value)
+      } catch (error) {
+        if (error instanceof TypeError) throw new HttpError(400, error.message)
+        throw error
+      }
+      return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
     },
   },
   {

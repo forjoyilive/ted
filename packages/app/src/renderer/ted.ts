@@ -222,6 +222,8 @@ export const ted = {
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,
+  setTaskSnooze: (taskId: string, until: string | null) =>
+    window.ted.request('setTaskSnooze', taskId, until) as Promise<Task>,
   startTask: (taskId: string) => window.ted.request('startTask', taskId) as Promise<Task>,
   moveToBacklog: (taskId: string) => window.ted.request('moveToBacklog', taskId) as Promise<Task>,
   stopTask: (taskId: string) => window.ted.request('stopTask', taskId) as Promise<Task>,
