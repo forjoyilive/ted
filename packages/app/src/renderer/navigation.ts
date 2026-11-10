@@ -33,6 +33,7 @@ export interface Navigation {
 
 export type NavigationAction =
   | { type: 'open'; screen: Screen }
+  | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
   | { type: 'open-plan'; factoryId: string; planId?: string; from?: string }
@@ -95,6 +96,13 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         ...(action.planId === undefined && action.from !== undefined && { planFrom: action.from }),
       }
     }
+    case 'open-inbox-request':
+      return navigate(navigate(state, { type: 'open', screen: { kind: 'inbox' } }), {
+        type: 'open-task',
+        taskId: action.taskId,
+        factoryId: action.factoryId,
+        requestId: action.requestId,
+      })
     case 'open-task': {
       const { requestId: _, automation: __, ...rest } = state
       return {

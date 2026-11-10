@@ -10,7 +10,7 @@ import {
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
-import type { CoordinatorMessage } from '@ted/protocol'
+import type { CoordinatorMessage, NewTaskDraft } from '@ted/protocol'
 import {
   type Activity,
   type AgentKind,
@@ -212,6 +212,9 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
     client.checkOutput(String(checkRunId), Number(position)),
   listFactories: (client) => client.listFactories(),
   createTask: (client, input) => client.createTask(input as CreateTaskRequest),
+  taskDraft: (client, factoryId) => client.taskDraft(String(factoryId)),
+  saveTaskDraft: (client, factoryId, draft) =>
+    client.saveTaskDraft(String(factoryId), draft as NewTaskDraft),
   taskDefaults: (client, factoryId) => client.taskDefaults(String(factoryId)),
   factoryBoard: (client, factoryId) => client.factoryBoard(String(factoryId)),
   startTask: (client, taskId) => client.startTask(String(taskId)),

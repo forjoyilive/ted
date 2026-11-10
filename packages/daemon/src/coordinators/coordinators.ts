@@ -146,11 +146,20 @@ export function createCoordinators(options: {
   }
   function reconcileInput(c: StoredCoordinator): number {
     const accepted = new Set(runs.acceptedInputs(c.runId))
-    const ids = pending(c.runId)
-      .filter((message) => accepted.has(message.id))
-      .map((message) => message.id)
-    store.deliverRunMessages(c.runId, ids, false)
-    return ids.length
+    const initial = new Set(runs.initialInputIds(c.runId))
+    const messages = [...pending(c.runId), ...(c.launch?.messages ?? [])].filter((message) =>
+      accepted.has(message.id),
+    )
+    for (const message of messages) {
+      if ((message.runId === c.runId && initial.has(message.id)) || !store.getRun(message.runId))
+        store.deleteRunMessage(message.runId, message.id)
+      else store.deliverRunMessages(message.runId, [message.id], false)
+    }
+    if (c.launch?.messages.every((message) => accepted.has(message.id))) {
+      c.launch = undefined
+      save(c)
+    }
+    return messages.length
   }
   const source: QueueSource = {
     queued: () =>
@@ -253,11 +262,11 @@ export function createCoordinators(options: {
     })
     for (const message of messages) store.deleteRunMessage(c.runId, message.id)
     if (c.launch) {
-      store.deliverRunMessages(
-        c.launch.sourceRunId,
-        c.launch.messages.map((m) => m.id),
-        false,
-      )
+      for (const message of c.launch.messages) {
+        if (store.getRun(message.runId))
+          store.deliverRunMessages(message.runId, [message.id], false)
+        else store.deleteRunMessage(message.runId, message.id)
+      }
       const latest = saved.get(id)
       if (latest?.runId === c.runId) save({ ...latest, launch: undefined })
     }
@@ -280,6 +289,27 @@ export function createCoordinators(options: {
     if (stopping.has(id) || removing.has(id) || closed) return
     const run = store.getRun(c.runId)
     if (!run) {
+      const prepared = await lstat(path.join(home, 'runs', c.runId)).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        return undefined
+      })
+      if (prepared) {
+        const messages = pending(c.runId)
+        const nextId = randomUUID()
+        c = {
+          ...c,
+          runId: nextId,
+          runIds: [...c.runIds, nextId],
+          launch: {
+            sourceRunId: c.launch?.sourceRunId ?? c.runId,
+            messages: [...(c.launch?.messages ?? []), ...messages],
+            prompt: `${c.launch?.prompt ?? instructions}\n\n${messages.map((m) => m.text).join('\n\n')}`,
+          },
+        }
+        save(c)
+        await store.persisted()
+        if (stopping.has(id) || removing.has(id) || closed) return
+      }
       await startNew(c)
     } else if (run.state === 'finished') {
       if (run.sessionId && !run.ended?.resumeFailed && run.ended?.how !== 'stopped') {
@@ -401,17 +431,8 @@ export function createCoordinators(options: {
     )
       pump()
   })
-  for (let c of saved.list()) {
+  for (const c of saved.list()) {
     const run = store.getRun(c.runId)
-    if (run && c.launch) {
-      store.deliverRunMessages(
-        c.launch.sourceRunId,
-        c.launch.messages.map((m) => m.id),
-        false,
-      )
-      c = { ...c, launch: undefined }
-      save(c)
-    }
     if (c.phase === 'working' && run?.state !== 'working')
       save({
         ...c,
@@ -697,7 +718,11 @@ export function createCoordinators(options: {
             for (const ref of [input.after, input.before]) {
               if (ref === undefined) continue
               const neighbour = target(current, ref)
-              if (neighbour.id === task.id || !waiting(neighbour) || neighbour.stage !== task.stage)
+              if (
+                neighbour.id === task.id ||
+                !waiting(neighbour) ||
+                (neighbour.stage === 'backlog') !== (task.stage === 'backlog')
+              )
                 throw new RequestError(
                   409,
                   'Neighbours must be other Tasks in the same waiting group',

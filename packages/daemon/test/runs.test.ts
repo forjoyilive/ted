@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { once } from 'node:events'
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -359,5 +359,44 @@ describe('Runs across daemon restarts', () => {
     }, 'the replaced agent to answer')
     expect(done.run.state).not.toBe('finished')
     expect(assistantTexts(done.conversation)).toEqual(['before the update', 'got it'])
+  })
+
+  test('replacing an old host whose pid now belongs to another process leaves that process alone', async () => {
+    const before = await startDaemonProcess()
+    const run = await before.startRun([{ say: 'before the restart' }, { endTurn: true }], cwd)
+    await waitUntil(
+      async () => ((await before.getRun(run.id)).run.state === 'idle' ? true : undefined),
+      'the Run to go idle',
+    )
+    const killed = child
+    killed?.kill('SIGKILL')
+    if (killed) await once(killed, 'exit')
+    child = undefined
+    const start = (await hostRecords(home, run.id)).find((r) => r.t === 'start')
+    for (const pid of [start?.agentPid, start?.hostPid]) {
+      if (typeof pid === 'number') process.kill(pid, 'SIGKILL')
+    }
+    await waitUntil(() => !isAlive(Number(start?.hostPid)) || undefined, 'the old host to exit')
+    const unrelated = spawn('sleep', ['60'], { env: { ...process.env }, stdio: 'ignore' })
+    const unrelatedPid = Number(unrelated.pid)
+    await writeFile(path.join(home, 'runs', run.id, 'host.pid'), String(unrelatedPid))
+
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      oldestHost: 2,
+    })
+    const client = api(daemon.port, { appKey: daemon.appToken })
+    const settled = await waitUntil(async () => {
+      const { run: now } = await client.getRun(run.id)
+      return now.state !== 'idle' ? now.state : undefined
+    }, 'TED to notice the old host is gone')
+    await sleep(500)
+
+    expect(settled).toBe('finished')
+    expect(unrelated.exitCode).toBeNull()
+    expect(unrelated.signalCode).toBeNull()
+    unrelated.kill('SIGKILL')
   })
 })

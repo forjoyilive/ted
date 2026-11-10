@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, rename, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,6 +16,7 @@ import {
   makeOriginRepo,
   removeHome,
   stopDaemonIn,
+  waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
@@ -112,6 +113,7 @@ async function openNewTask(): Promise<Page> {
 }
 
 async function paste(field: ReturnType<Page['getByLabel']>, text: string): Promise<void> {
+  await waitUntil(() => field.isEnabled(), 'the loaded draft')
   await field.focus()
   await field.page().keyboard.insertText(text)
 }
@@ -285,6 +287,83 @@ describe('New Task dialog with a Linear URL', () => {
     expect(await open.getByLabel('Title').inputValue()).toBe('Search ignores accents')
     expect((await readStubKeyring(stubKeyringFile(home))).secret).toBe(key)
   })
+
+  test.each(['switching Factories', 'dismissing the source'])(
+    'a late inline key save preserves newer draft edits after %s',
+    async (change) => {
+      const window = await openNewTask()
+      const daemon = await client()
+      const first = (await daemon.listFactories()).find((factory) => factory.key === 'NB')
+      if (!first) throw new Error('missing Factory')
+      const made = await makeOriginRepo(path.join(home, 'other-origin'))
+      const otherRepo = path.join(path.dirname(made), 'other.git')
+      await rename(made, otherRepo)
+      const other = await daemon.addFactory({ repo: otherRepo, key: 'OTHER' })
+      const open = dialog(window)
+      await paste(open.getByLabel('Description'), `${issueUrl}\nOriginal draft`)
+      await open.getByText(/^Add a Linear API key/).waitFor()
+      await open.getByLabel('Start now').uncheck()
+      const account = linear.accounts.get(key)
+      if (!account) throw new Error('missing stub account')
+      let release!: () => void
+      account.viewerReady = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      try {
+        await open.getByLabel('Linear API key').fill(key)
+        await open.getByRole('button', { name: 'Save', exact: true }).click()
+        await waitUntil(
+          () => linear.requests.some((request) => request.query.includes('TedViewer')),
+          'the pending key check',
+        )
+        const newer = `${issueUrl}\nKeep this newer description`
+        if (change === 'switching Factories') {
+          await open.getByLabel('Factory', { exact: true }).selectOption(other.id)
+          await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the other draft')
+          await open.getByLabel('Factory', { exact: true }).selectOption(first.id)
+          await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the restored draft')
+          await open.getByLabel('Description').fill(newer)
+          await open.getByLabel('Factory', { exact: true }).selectOption(other.id)
+          await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the other draft again')
+        } else {
+          await open.getByRole('button', { name: 'Remove source' }).click()
+          await open.getByLabel('Description').fill(newer)
+        }
+        release()
+        await waitUntil(
+          async () => (await readStubKeyring(stubKeyringFile(home))).secret === key,
+          'the completed key save',
+        )
+        await window.evaluate(async () => {
+          await globalThis.window.ted.request('getLinear')
+          await new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+          )
+        })
+        if (change === 'switching Factories') {
+          await open.getByLabel('Factory', { exact: true }).selectOption(first.id)
+          await waitUntil(
+            () => open.getByLabel('Description').isEnabled(),
+            'the final restored draft',
+          )
+        } else {
+          expect(await open.getByRole('button', { name: 'Remove source' }).count()).toBe(0)
+        }
+        expect(await open.getByLabel('Description').inputValue()).toBe(newer)
+        await open.getByRole('button', { name: 'Close', exact: true }).click()
+        await open.waitFor({ state: 'detached' })
+        const saved = (await daemon.taskDraft(first.id)).draft
+        expect(saved?.description).toBe(newer)
+        if (change === 'dismissing the source') {
+          expect(saved?.source).toBeUndefined()
+          expect(saved?.dismissed).toContain(issueUrl)
+        }
+      } finally {
+        release()
+      }
+    },
+    90_000,
+  )
 
   test('without a key, Create still works with the link only', async () => {
     const window = await openNewTask()

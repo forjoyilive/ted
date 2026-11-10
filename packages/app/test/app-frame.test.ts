@@ -256,6 +256,18 @@ describe('New Task dialog', () => {
     await window.keyboard.press('c')
     await open.waitFor()
     expect(await open.getByLabel('Description').inputValue()).toBe('')
+
+    await open.getByLabel('Description').fill('Keep editing')
+    const bounds = await open.boundingBox()
+    if (!bounds) throw new Error('New Task dialog has no bounds')
+    await window.mouse.click(bounds.x + 2, bounds.y + 2)
+    expect(await open.isVisible()).toBe(true)
+    await open.getByRole('heading', { name: 'New Task' }).click()
+    expect(await open.getByLabel('Description').inputValue()).toBe('Keep editing')
+
+    await window.mouse.click(bounds.x - 10, bounds.y + bounds.height / 2)
+    await open.waitFor({ state: 'detached' })
+    await expect.poll(async () => (await tasks()).filter((task) => !task.setup)).toEqual([])
   })
 
   test('the sidebar + and the View header open it too', async () => {

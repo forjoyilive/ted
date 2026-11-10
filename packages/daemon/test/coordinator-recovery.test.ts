@@ -26,6 +26,8 @@ import {
 } from './helpers.ts'
 
 const pauses = vi.hoisted(() => ({
+  closing: undefined as (() => void) | undefined,
+  runFolder: undefined as (() => Promise<void>) | undefined,
   folder: undefined as (() => Promise<void>) | undefined,
   defaults: undefined as (() => Promise<void>) | undefined,
   removal: undefined as (() => Promise<void>) | undefined,
@@ -43,7 +45,26 @@ vi.mock('node:fs/promises', async (original) => {
     ...fs,
     mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
       if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
-      return fs.mkdir(...args)
+      const result = await fs.mkdir(...args)
+      if (/\/runs\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.runFolder?.()
+      return result
+    },
+  }
+})
+vi.mock('../src/coordinators/coordinators.ts', async (original) => {
+  const module = await original<typeof import('../src/coordinators/coordinators.ts')>()
+  return {
+    ...module,
+    createCoordinators: (...args: Parameters<typeof module.createCoordinators>) => {
+      const coordinators = module.createCoordinators(...args)
+      return {
+        ...coordinators,
+        close: () => {
+          const result = coordinators.close()
+          pauses.closing?.()
+          return result
+        },
+      }
     },
   }
 })
@@ -136,6 +157,8 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   for (const release of releases.splice(0)) release()
+  pauses.closing = undefined
+  pauses.runFolder = undefined
   pauses.folder = undefined
   pauses.defaults = undefined
   pauses.removal = undefined
@@ -302,7 +325,10 @@ test('replacement checkpoint survives shutdown before host creation and keeps in
   const checkpoint = await s.chat()
   expect(checkpoint.runId).not.toBe(c.runId)
   expect(checkpoint.started).toBe(false)
+  const closed = Promise.withResolvers<void>()
+  pauses.closing = () => closed.resolve()
   const closing = daemon?.stop()
+  await closed.promise
   gate.release()
   await closing
   daemon = undefined
@@ -788,6 +814,11 @@ test('initial prompt checkpoint does not replay an accepted request after interr
   expect(
     after.items.filter((i) => i.kind === 'agent' && i.text === 'One requested answer'),
   ).toHaveLength(1)
+  const humans = after.items.filter(
+    (i) => i.kind === 'human' && i.text.includes('One requested answer'),
+  )
+  expect(humans).toHaveLength(1)
+  expect(humans.every((i) => i.kind === 'human' && i.sent === true)).toBe(true)
 })
 
 test('revival prompt checkpoint does not replay accepted input after interrupted cleanup', async () => {
@@ -851,4 +882,92 @@ test('cancellation before input write prevents dispatch of a previously selected
   expect(input).not.toContain('Canceled before write')
   await writeFile(path.join(scratch, 'original-end'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'original response finished')
+})
+
+test('Retry recovers a prepared Run directory without a RunStarted row', async () => {
+  const s = await setup()
+  pauses.runFolder = async () => {
+    throw Error('simulated interruption after Run directory creation')
+  }
+  const c = await s.message([{ say: 'Preserved request' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'interrupted initial launch')
+  expect((await s.chat()).started).toBe(false)
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(
+    async () => (await s.chat()).status === 'failed',
+    'second interrupted preparation',
+  )
+  expect((await s.chat()).error).not.toContain('EEXIST')
+  pauses.runFolder = undefined
+  await s.restart()
+  pauses.started = async () => {
+    const current = await s.chat()
+    await waitUntil(
+      async () =>
+        (await s.call<RunChat>('GET', `/runs/${current.runId}/chat`)).items.some(
+          (i) => i.kind === 'agent' && i.text === 'Preserved request',
+        ),
+      'replacement answer',
+    )
+    await waitUntil(async () => (await s.chat()).status === 'ready', 'replacement settlement')
+    throw new Error('interrupted replacement checkpoint')
+  }
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'failed', 'replacement checkpoint')
+  pauses.started = undefined
+  await s.restart()
+  await s.call('POST', `${s.base}/retry`)
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'recovered request')
+  const after = await s.chat()
+  expect(after.runId).not.toBe(c.runId)
+  expect(after.started).toBe(true)
+  const chat = await s.call<RunChat>('GET', `/runs/${after.runId}/chat`)
+  expect(
+    chat.items.filter((i) => i.kind === 'agent' && i.text === 'Preserved request'),
+  ).toHaveLength(1)
+  expect(
+    chat.items.filter((i) => i.kind === 'human' && i.text.includes('Preserved request')),
+  ).toHaveLength(1)
+})
+
+test('Queued Work and Intake Tasks share the same Coordinator waiting group', async () => {
+  const s = await setup()
+  const a = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'Queued Work' })
+  const b = await s.call<Task>('POST', '/tasks', { factory: 'NB', title: 'Queued Intake' })
+  await daemon?.stop()
+  daemon = undefined
+  const store = await openStore({ directory: path.join(home, 'store') })
+  store.queueTask(a.id, 'work')
+  store.queueTask(b.id, 'intake')
+  store.pauseAgent('claude', 'paused for queued reorder fixture')
+  await store.persisted()
+  await store.close()
+  await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+  const restarted = await s.restart()
+  const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+    agent: 'codex',
+    text: JSON.stringify({
+      steps: [{ waitFor: path.join(scratch, 'coordinator-end') }, { endTurn: true }],
+    }),
+  })
+  await waitUntil(async () => (await s.chat()).started, 'Coordinator Run')
+  const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+  const run = api(restarted.port, tokens.issue(c.runId))
+  const read = async (id: string) => {
+    const result = await run.call('GET', `/coordinator/tasks/${id}`)
+    return JSON.parse(
+      (result.body as { context: string }).context.split('\n').slice(1, -1).join('\n'),
+    ) as CoordinatorTask
+  }
+  const av = await read(a.id),
+    bv = await read(b.id)
+  expect(av.task.stage).toBe('work')
+  expect(bv.task.stage).toBe('intake')
+  const result = await run.call('POST', `/coordinator/tasks/${a.id}/move`, {
+    operation: 'queued-cross-stage',
+    version: av.version,
+    after: b.id,
+    neighbours: { [b.id]: bv.version },
+  })
+  expect(result.status).toBe(200)
 })

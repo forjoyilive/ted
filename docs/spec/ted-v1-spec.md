@@ -201,7 +201,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
   - **Play a sound** (off).
 - More than 3 notifications within a minute fold into one: “5 new items in your Inbox”. Clicking opens the Task, or the Settings section for a problem. (KRI-59)
 - No notifications for warnings, updates, failed Automation Runs or Tasks starting. No per-Factory mute or quiet hours; the OS’s Focus covers it. No Dock bounce, no separate feed. (KRI-59, KRI-20)
-- **Badges:** the sidebar Inbox count, the Dock badge and the menu-bar count all show the number of waiting requests, read or not. (KRI-56)
+- **Badges:** the sidebar Inbox count, the Dock badge and the menu-bar count all show the number of open Inbox requests, read or not, across Tasks, Automations and planning chats. Two open requests on one Task count as two; a waiting Run without an Inbox request adds nothing. Notes and answered requests don’t count, and archived Tasks’ requests are excluded. (KRI-56, KRI-168; ADR 0088)
 
 ### 3.9 Menu-bar menu, and Linux without a tray
 
@@ -665,7 +665,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 6.16 Blockers
 
 - A **Blocked by** field in Task details and the New Task dialog searches every Factory on this machine, so cross-Factory blockers are allowed. Agents use `ted task block <id> --by <id>` and `ted task unblock`. (KRI-55)
-- **Adding a blocker:** a Backlog Task stays in Backlog; a Queued Task goes back to Backlog; a running Task’s Task Lead is told and either stops (Blocked) or replies why it can carry on. (KRI-55)
+- **Adding a blocker:** a Backlog Task stays in Backlog; a Queued Task goes back to Backlog. A running Task’s Task Lead is told, explains whether it can still make useful progress, recommends waiting or continuing, and asks the human before doing more work. The Task shows Waiting on you while the question is open. **Wait for blocker** saves the brief and stops the Task Lead (Blocked), keeping the worktree and Stage for a fresh Run when its blockers merge. **Continue independent work** keeps the blocker link and lets the Task Lead work on independent parts; it must save the brief and block itself when it reaches dependent work. (KRI-55, KRI-175)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
 - A Task counts as merged only when every pull request has merged. (KRI-52)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)

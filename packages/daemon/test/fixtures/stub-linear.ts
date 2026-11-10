@@ -1,5 +1,6 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { LinearComment } from '../../src/linear/discussion.ts'
 
 export interface StubLinearState {
   id: string
@@ -17,9 +18,14 @@ export interface StubLinearIssue {
   state?: string
   teamName?: string
   teamKey?: string
+  comments?: LinearComment[]
+  commentsFailAfter?: number
+  commentsGraphqlError?: boolean
+  commentsMissingCursor?: boolean
 }
 
 export interface StubLinearAccount {
+  viewerReady?: Promise<void>
   name: string
   workspace: { name: string; urlKey: string }
   issues?: StubLinearIssue[]
@@ -91,7 +97,7 @@ export async function startStubLinear(
     req.on('data', (chunk) => {
       body += chunk
     })
-    req.on('end', () => {
+    req.on('end', async () => {
       const { query = '', variables } = JSON.parse(body || '{}') as {
         query?: string
         variables?: Record<string, string>
@@ -166,12 +172,37 @@ export async function startStubLinear(
         })
         return reply(200, { data: { attachmentCreate: { success: true } } })
       }
+      if (query.includes('TedIssueComments')) {
+        const issue = byId(variables?.id)
+        if (!issue) return reply(200, { data: null, errors: [notFound(['comments'])] })
+        const offset = Number(variables?.after ?? 0)
+        if (issue.commentsFailAfter !== undefined && offset >= issue.commentsFailAfter) {
+          return reply(503, { errors: [{ message: 'Comments unavailable' }] })
+        }
+        const comments = [...(issue.comments ?? [])].sort(
+          (a, b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
+        )
+        const end = offset + 50
+        return reply(200, {
+          data: {
+            comments: {
+              nodes: comments.slice(offset, end),
+              pageInfo: {
+                hasNextPage: end < comments.length,
+                endCursor: issue.commentsMissingCursor ? null : String(end),
+              },
+            },
+          },
+          ...(issue.commentsGraphqlError && { errors: [{ message: 'Partial comment data' }] }),
+        })
+      }
       if (query.includes('issue(')) {
         const issue = account.issues?.find((i) => i.identifier === variables?.id)
         if (!issue) return reply(200, { data: null, errors: [notFound(['issue'])] })
         return reply(200, {
           data: {
             issue: {
+              id: stubLinearIssueId(issue.identifier),
               attachments: {
                 nodes: (account.attachments ?? [])
                   .filter((a) => a.issue === issue.identifier)
@@ -191,6 +222,7 @@ export async function startStubLinear(
           },
         })
       }
+      await account.viewerReady
       return reply(200, {
         data: { viewer: { name: account.name, displayName: account.name }, organization },
       })

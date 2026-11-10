@@ -16,6 +16,7 @@ import {
   readDaemonInfo,
   signRequest,
 } from '@ted/protocol'
+import { signalGroup, signalProcess } from '../src/signal.ts'
 import { killMarked } from './support/processes.ts'
 
 const execFileAsync = promisify(execFile)
@@ -117,7 +118,7 @@ export async function killRunHosts(home: string): Promise<void> {
     const starts = (await hostRecords(home, runId)).filter((r) => r.t === 'start')
     for (const pid of starts.flatMap((start) => [start.agentPid, start.hostPid])) {
       try {
-        if (typeof pid === 'number') process.kill(pid, 'SIGKILL')
+        signalProcess(pid, 'SIGKILL')
       } catch {}
     }
   }
@@ -133,11 +134,12 @@ export async function killAppHosts(home: string): Promise<void> {
         )
         for (const line of text.split('\n').filter((l) => l.startsWith('{"t":"start"'))) {
           const start = JSON.parse(line) as { hostPid: number; pid: number | null }
-          for (const pid of [start.pid === null ? undefined : -start.pid, start.hostPid]) {
-            try {
-              if (pid !== undefined) process.kill(pid, 'SIGKILL')
-            } catch {}
-          }
+          try {
+            signalGroup(start.pid, 'SIGKILL')
+          } catch {}
+          try {
+            signalProcess(start.hostPid, 'SIGKILL')
+          } catch {}
         }
       }
     }

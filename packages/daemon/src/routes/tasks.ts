@@ -13,6 +13,7 @@ import {
   clarifyDepths,
   type EditTaskRequest,
   type FollowUpRequest,
+  type NewTaskDraft,
   type PostCommentRequest,
   type ProposalChoice,
   type ProposalInput,
@@ -55,6 +56,27 @@ function blockedChoice(body: Record<string, unknown> | null): BlockedChoice {
 }
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/task-draft$/,
+    handle: async ({ params: [factoryId = ''], caller }, { store }) => {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'only the TED app can read New Task drafts')
+      if (!store.getFactory(factoryId)) throw new HttpError(404, 'no such Factory')
+      return [200, store.taskDraft(factoryId)]
+    },
+  },
+  {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/task-draft$/,
+    handle: async ({ req, params: [factoryId = ''] }, { store, attachments }) => {
+      if (!store.getFactory(factoryId)) throw new HttpError(404, 'no such Factory')
+      return [
+        200,
+        store.saveTaskDraft(factoryId, await taskDraftInput(await readJson(req), attachments)),
+      ]
+    },
+  },
   {
     method: 'GET',
     path: /^\/tasks$/,
@@ -655,7 +677,9 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'a Task must be an object')
   }
   const request = body as Record<keyof CreateTaskRequest, unknown>
-  const text = (name: 'title' | 'description' | 'factory' | 'source' | 'followUp') => {
+  const text = (
+    name: 'title' | 'description' | 'factory' | 'source' | 'followUp' | 'draftRevision',
+  ) => {
     const value = request[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') throw new HttpError(400, `${name} must be text`)
@@ -673,6 +697,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     return value as unknown[]
   }
 
+  const draftRevision = text('draftRevision')
   const title = text('title')
   const description = text('description')
   const factory = text('factory')
@@ -691,6 +716,7 @@ async function createTaskInput(body: unknown, attachments: Attachments): Promise
     throw new HttpError(400, 'start must be true or false')
   }
   return {
+    ...(draftRevision !== undefined && { draftRevision }),
     ...(title !== undefined && { title }),
     ...(description !== undefined && { description }),
     ...(factory !== undefined && { factory }),
@@ -1293,4 +1319,61 @@ async function attachmentList(value: unknown, attachments: Attachments): Promise
       })
     }),
   )
+}
+
+async function taskDraftInput(body: unknown, attachments: Attachments): Promise<NewTaskDraft> {
+  if (!body || typeof body !== 'object' || Array.isArray(body))
+    throw new HttpError(400, 'a draft must be an object')
+  const value = body as Record<string, unknown>
+  const text = (key: string): string => {
+    if (typeof value[key] !== 'string') throw new HttpError(400, `${key} must be text`)
+    return value[key]
+  }
+  const boolean = (key: string): boolean => {
+    if (typeof value[key] !== 'boolean') throw new HttpError(400, `${key} must be true or false`)
+    return value[key]
+  }
+  const list = (key: string): string[] => {
+    const given = value[key]
+    if (!Array.isArray(given) || given.some((v) => typeof v !== 'string'))
+      throw new HttpError(400, `${key} must list text`)
+    return given
+  }
+  const priority = priorities.find((p) => p === value.priority)
+  if (!priority) throw new HttpError(400, 'invalid draft priority')
+  const clarifyDepth = clarifyDepths.find((d) => d === value.clarifyDepth)
+  if (value.clarifyDepth !== undefined && !clarifyDepth)
+    throw new HttpError(400, 'invalid draft Clarify depth')
+  const filled = value.filled as Record<string, unknown> | undefined
+  if (
+    !filled ||
+    typeof filled !== 'object' ||
+    Array.isArray(filled) ||
+    (filled.title !== undefined && typeof filled.title !== 'string') ||
+    (filled.priority !== undefined && !priorities.some((p) => p === filled.priority))
+  ) {
+    throw new HttpError(400, 'invalid draft source fields')
+  }
+  const revision = text('revision')
+  if (!revision || revision.length > 100) throw new HttpError(400, 'invalid draft revision')
+  return {
+    revision,
+    title: text('title'),
+    description: text('description'),
+    priority,
+    blockedBy: list('blockedBy'),
+    attachments: await attachmentList(value.attachments, attachments),
+    start: boolean('start'),
+    moreOpen: boolean('moreOpen'),
+    dismissed: list('dismissed'),
+    filled: {
+      ...(typeof filled.title === 'string' && { title: filled.title }),
+      ...(filled.priority !== undefined && {
+        priority: filled.priority as NewTaskDraft['priority'],
+      }),
+    },
+    ...(clarifyDepth && { clarifyDepth }),
+    ...(value.lead !== undefined && { lead: taskLead(value.lead, 'lead') }),
+    ...(value.source !== undefined && { source: sourceUrl(text('source')) }),
+  }
 }

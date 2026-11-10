@@ -90,6 +90,7 @@ export function createFactoryRemovals(options: {
         await options.checkTries.forget(factory.id)
         banners.clearFactory(factory.id)
         const repos = factory.repos.map((r) => r.repo)
+        store.removeTaskDraft(factory.id)
         store.removeFactory(factory.id)
         const settings = store.settings()
         const { [factory.id]: _, ...teams } = settings.linearSyncTeams
