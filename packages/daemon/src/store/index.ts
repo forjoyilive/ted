@@ -432,6 +432,12 @@ export interface LoggedEvent {
   at: string
 }
 
+export interface RunSteeringRelease {
+  messageIds: string[]
+  first?: string
+  holdId?: string
+}
+
 export interface RunInterrupt {
   id: string
   runId: string
@@ -748,6 +754,8 @@ export interface TedStore {
   queueRunMessage(input: { runId: string; text: string }): RunMessage
   deliverRunMessages(runId: string, ids: readonly string[], lead: boolean): void
   deleteRunMessage(runId: string, id: string): RunMessage | undefined
+  releaseRunSteering(runId: string, release: RunSteeringRelease): void
+  runSteeringRelease(runId: string): RunSteeringRelease | undefined
   recordTurnInterrupted(runId: string, hold: boolean): RunInterrupt
   runMessages(runId: string): RunMessage[]
   runInterrupts(runId: string): RunInterrupt[]
@@ -1519,6 +1527,7 @@ export async function openStore({
     revivedAt,
     ended,
     retrying: _retrying,
+    steeringRelease: _steeringRelease,
     ...row
   }: typeof runs.Type): Run => ({
     ...row,
@@ -3565,6 +3574,7 @@ export async function openStore({
       const run = toRun({
         ...row,
         retrying: false,
+        steeringRelease: null,
         usesDefaultModel: false,
         problem: null,
         failure: null,
@@ -3936,6 +3946,13 @@ export async function openStore({
       commit(events.runMessageDeleted({ id, runId, at: new Date().toISOString() }))
       emit({ type: 'run-output', runId })
       return { id, runId, text: row.text, at: row.at }
+    },
+    releaseRunSteering(runId, release) {
+      commit(events.runSteeringReleased({ runId, release: JSON.stringify(release) }))
+    },
+    runSteeringRelease(runId) {
+      const release = runRow(runId)?.steeringRelease
+      return release ? (JSON.parse(release) as RunSteeringRelease) : undefined
     },
     recordTurnInterrupted(runId, hold) {
       const taskId = taskIdOfRun(runId) ?? null

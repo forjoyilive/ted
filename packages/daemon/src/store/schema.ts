@@ -196,6 +196,7 @@ export const runs = State.SQLite.table({
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
     retrying: State.SQLite.boolean({ default: false }),
+    steeringRelease: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -2069,6 +2070,10 @@ export const events = {
     name: 'v1.RunMessageDeleted',
     schema: Schema.Struct({ id: Schema.String, runId: Schema.String, at: Schema.String }),
   }),
+  runSteeringReleased: Events.synced({
+    name: 'v1.RunSteeringReleased',
+    schema: Schema.Struct({ runId: Schema.String, release: Schema.String }),
+  }),
   runTurnInterrupted: Events.synced({
     name: 'v1.RunTurnInterrupted',
     schema: Schema.Struct({
@@ -3101,6 +3106,8 @@ const materializers = counted(
       'v1.RunMessageDelivered': ({ id }) => runMessages.update({ queued: false }).where({ id }),
       'v1.RunMessageDeleted': ({ id, at }) =>
         runMessages.update({ deletedAt: at, queued: false }).where({ id }),
+      'v1.RunSteeringReleased': ({ runId, release }) =>
+        runs.update({ steeringRelease: release }).where({ id: runId }),
       'v1.RunTurnInterrupted': ({ id, runId, hold, at }) =>
         runInterrupts.insert({ id, runId, hold, at }),
       'v1.ConversationTabOpened': ({ taskId, runId, at }) =>
