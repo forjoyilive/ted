@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { type IntegrationsHealth, readDaemonInfo } from '@ted/protocol'
+import { type IntegrationsHealth, integrationInstallPages, readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createBanners } from '../src/banners.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -63,12 +63,15 @@ async function ghCalls(): Promise<{ args: string[]; env: Record<string, string> 
     .map((line) => JSON.parse(line))
 }
 
-function start(options: { ghBin?: string; platform?: NodeJS.Platform; now?: () => Date } = {}) {
+function start(
+  options: { ghBin?: string; gitBin?: string; platform?: NodeJS.Platform; now?: () => Date } = {},
+) {
   const banners = createBanners({ store })
   integrations = createIntegrations({
     store,
     banners,
     ghBin: options.ghBin ?? stubGh,
+    ...(options.gitBin && { gitBin: options.gitBin }),
     openTerminal: async (command) => {
       opened.push(command)
     },
@@ -460,4 +463,75 @@ describe('no code path reads a gh token', () => {
     }
     expect(offenders).toEqual([])
   })
+})
+
+describe('Linux installation instructions', () => {
+  test('missing tools return official pages and never open a terminal', async () => {
+    const { integrations } = start({
+      platform: 'linux',
+      ghBin: path.join(dir, 'missing-gh'),
+      gitBin: path.join(dir, 'missing-git'),
+    })
+    const health = await integrations.check()
+    expect(store.listBanners()[0]?.action).toEqual({
+      label: 'Fix',
+      opens: { kind: 'settings', section: 'integrations' },
+    })
+    expect(health.github.cli.fix).toEqual({
+      label: 'Installation instructions ↗',
+      url: integrationInstallPages.gh,
+    })
+    expect(health.git.fix).toEqual({
+      label: 'Installation instructions ↗',
+      url: integrationInstallPages.git,
+    })
+    expect(await integrations.fix({ fix: 'gh-install' })).toEqual({
+      url: integrationInstallPages.gh,
+    })
+    expect(await integrations.fix({ fix: 'git-install' })).toEqual({
+      url: integrationInstallPages.git,
+    })
+    expect(opened).toEqual([])
+  })
+
+  test('outdated gh uses the official upgrade instructions', async () => {
+    await setGh({ version: '2.40.1' })
+    const { integrations } = start({ platform: 'linux' })
+    const health = await integrations.check()
+    expect(store.listBanners()[0]?.action).toEqual({
+      label: 'Fix',
+      opens: { kind: 'settings', section: 'integrations' },
+    })
+    expect(health.github.cli.fix).toEqual({
+      label: 'Update instructions ↗',
+      url: integrationInstallPages.gh,
+    })
+    expect(await integrations.fix({ fix: 'gh-update' })).toEqual({
+      url: integrationInstallPages.gh,
+    })
+    expect(opened).toEqual([])
+  })
+
+  test('macOS still installs Git through the command line tools', async () => {
+    const { integrations } = start({ gitBin: path.join(dir, 'missing-git') })
+    expect((await integrations.check()).git.fix).toEqual({
+      label: 'Install',
+      command: 'xcode-select --install',
+    })
+    expect(await integrations.fix({ fix: 'git-install' })).toEqual({
+      command: 'xcode-select --install',
+    })
+    expect(opened).toEqual(['xcode-select --install'])
+  })
+})
+
+test('Linux signed-out banner still opens the sign-in command', async () => {
+  await setGh({ hosts: {} })
+  const { integrations, banners } = start({ platform: 'linux' })
+  await integrations.check()
+  const banner = store.listBanners()[0]
+  expect(banner?.action).toEqual({ label: 'Fix', section: 'integrations' })
+  if (!banner) throw new Error('Expected sign-in banner')
+  await banners.act(banner.id)
+  expect(opened).toEqual(['gh auth login --web --hostname github.com -s workflow'])
 })

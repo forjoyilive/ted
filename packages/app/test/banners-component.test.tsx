@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { Banner } from '@ted/protocol'
+import { type Banner, integrationInstallPages } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { BannerStack } from '../src/renderer/components/BannerStack.tsx'
@@ -214,3 +214,50 @@ test('App shows a global agent Fix banner, the paused Board status and clears th
   await act(async () => a.emit({ type: 'banner-cleared', id: 'agent' }))
   expect(screen.queryByText('Claude Code is signed out')).toBeNull()
 })
+
+test.each(['not-installed', 'too-old'] as const)(
+  'Linux %s banner Fix opens Integrations and its instructions',
+  async (state) => {
+    const a = appState()
+    const health = {
+      github: {
+        cli: {
+          state,
+          version: '2.40.1',
+          fix: {
+            label: state === 'too-old' ? 'Update instructions ↗' : 'Installation instructions ↗',
+            url: integrationInstallPages.gh,
+          },
+        },
+        hosts: [],
+      },
+      git: { state: 'ready', version: '2.50.0' },
+      checkedAt: createdAt,
+    }
+    a.handle('listBanners', () => [
+      {
+        id: 'github-cli:app',
+        problem: 'github-cli',
+        severity: 'stops-work',
+        text: state === 'too-old' ? 'GitHub CLI 2.40.1 is too old' : 'GitHub CLI isn’t installed',
+        action: { label: 'Fix', opens: { kind: 'settings', section: 'integrations' } },
+        raisedAt: createdAt,
+      },
+    ])
+    a.handle('getIntegrations', () => health)
+    a.handle('getLinear', () => ({ state: 'no-key', keyring: 'macos-keychain' }))
+    a.handle('tedFolder', () => ({ path: '/test/' }))
+    a.handle('runFix', () => ({ url: integrationInstallPages.gh }))
+    a.mount()
+    const problems = await screen.findByRole('region', { name: 'Problems' })
+    await user().click(within(problems).getByRole('button', { name: 'Fix' }))
+    await screen.findByRole('heading', { name: /^Integrations$/ })
+    const github = within(screen.getByRole('group', { name: 'GitHub' }))
+    await user().click(await github.findByRole('button', { name: /instructions ↗/ }))
+    expect(a.request).toHaveBeenCalledWith('runFix', {
+      fix: state === 'too-old' ? 'gh-update' : 'gh-install',
+    })
+    expect(github.getByText(/Opened instructions in your browser/)).toBeTruthy()
+    expect(a.request.mock.calls.some(([name]) => name === 'actOnBanner')).toBe(false)
+  },
+)

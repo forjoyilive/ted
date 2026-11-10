@@ -5,6 +5,13 @@ export interface FixCommand {
   command: string
 }
 
+export const integrationInstallPages = {
+  git: 'https://git-scm.com/install/linux',
+  gh: 'https://github.com/cli/cli/blob/trunk/docs/install_linux.md',
+} as const
+
+export type IntegrationRemedy = FixCommand | { label: string; url: string }
+
 export type GitHubCliState = 'ready' | 'not-installed' | 'too-old' | 'failed'
 
 export interface GitHubCli {
@@ -12,7 +19,7 @@ export interface GitHubCli {
   version?: string
   path?: string
   error?: string
-  fix?: FixCommand
+  fix?: IntegrationRemedy
 }
 
 export type GitHubHostState = 'ready' | 'signed-out' | 'missing-workflow-scope' | 'failed'
@@ -37,7 +44,7 @@ export interface GitHealth {
   path?: string
   name?: string
   email?: string
-  fix?: FixCommand
+  fix?: IntegrationRemedy
   copy?: string[]
 }
 
@@ -63,6 +70,4 @@ export interface RunFixRequest {
   host?: string
 }
 
-export interface RunFixResult {
-  command: string
-}
+export type RunFixResult = { command: string } | { url: string }
