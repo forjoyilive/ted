@@ -244,23 +244,59 @@ describe('the queue', () => {
     await waitForLead(client, b)
   })
 
-  test('a Task running worktree setup holds its slot', async () => {
-    const go = path.join(scratch, 'go')
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': `version: 1\nrepos:\n  - name: widgets\n    worktree:\n      setup: "while [ ! -e '${go}' ]; do sleep 0.05; done"\n`,
-    })
+  test.each(['machine', 'Factory'] as const)(
+    'a Task running worktree setup holds its slot under the %s limit',
+    async (limit) => {
+      const go = path.join(scratch, 'go')
+      await commitToOrigin(scratch, {
+        '.ted/workflow.yaml': `version: 1\n${limit === 'Factory' ? 'max_working_runs: 1\n' : ''}repos:\n  - name: widgets\n    worktree:\n      setup: "while [ ! -e '${go}' ]; do sleep 0.05; done"\n`,
+      })
+      const client = await startWithStub()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: limit === 'machine' ? 1 : 6 })
+      const a = await startTask(client, `${steps({ endTurn: true })}`)
+      const b = await startTask(client, 'B')
+
+      expect(a.leadRunId).toBeUndefined()
+      expect(b.status).toEqual({ kind: 'queued', place: 1 })
+      const slots = await client.ok<RunSlots>('GET', '/slots')
+      expect(slots).toMatchObject({ working: 1, queued: 1 })
+      if (limit === 'Factory') {
+        expect(slots.factories).toEqual([expect.objectContaining({ cap: 1, working: 1 })])
+      }
+      expect(slots.holders).toEqual([
+        expect.objectContaining({ displayId: 'NB-1', settingUp: true }),
+      ])
+
+      await writeFile(go, '')
+      await waitForLead(client, b)
+    },
+  )
+
+  test('standalone development Runs neither hold a slot nor wait for one', async () => {
     const client = await startWithStub()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const a = await startTask(client, `${steps({ endTurn: true })}`)
-    const b = await startTask(client, 'B')
+    const never = path.join(scratch, 'never')
+    const first = await client.startRun([{ waitFor: never }], scratch)
+    await waitUntil(
+      async () => (await client.getRun(first.id)).run.state === 'working',
+      'the first development Run to work',
+    )
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 0, queued: 0 })
 
-    expect(a.leadRunId).toBeUndefined()
-    expect(b.status).toEqual({ kind: 'queued', place: 1 })
+    const task = await startTask(client, workingUntil(never))
+    expect(task.leadRunId).toBeDefined()
+    const queued = await startTask(client, 'Queued')
+    expect(queued.status).toEqual({ kind: 'queued', place: 1 })
+
+    const second = await client.startRun([{ waitFor: never }], scratch)
+    await waitUntil(
+      async () => (await client.getRun(second.id)).run.state === 'working',
+      'the second development Run to work while the limit is full',
+    )
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots.holders).toEqual([expect.objectContaining({ displayId: 'NB-1', settingUp: true })])
-
-    await writeFile(go, '')
-    await waitForLead(client, b)
+    expect(slots).toMatchObject({ limit: 1, working: 1, queued: 1 })
+    expect(slots.holders).toEqual([expect.objectContaining({ taskId: task.id })])
+    expect((await getTask(client, queued.id)).status).toEqual({ kind: 'queued', place: 1 })
   })
 
   test('a queued Task survives a daemon restart and starts when a slot frees', async () => {
