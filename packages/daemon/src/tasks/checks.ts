@@ -100,6 +100,7 @@ export async function runChecks(input: {
   logFor: (position: number) => string
   sandbox?: CommandSandbox
   signal?: AbortSignal
+  lowPriority: boolean
   onStart: (position: number) => void
   onFinish: (
     position: number,
@@ -123,6 +124,7 @@ export async function runChecks(input: {
             env: checkEnv(input.taskDisplayId, env ?? {}, input.env),
             log,
             shell: [loginShell(input.env), '-lc'],
+            lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
             ...(input.sandbox !== undefined && { sandbox: input.sandbox }),
           })

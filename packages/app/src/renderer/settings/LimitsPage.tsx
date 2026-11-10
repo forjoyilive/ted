@@ -54,6 +54,17 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title="Run agents and Checks at low priority"
+          help="Agents, Checks, worktree setup and teardown, and Apps an agent starts run at niceness 10. On Linux that lowers their share of the processor; on macOS it doesn’t. Apps you start with ▶ and Task shells keep normal priority."
+          detail="Applies to work started after you change it. A Run that is already going keeps its priority."
+        >
+          <Switch
+            label="Run agents and Checks at low priority"
+            checked={settings.lowPriorityWork}
+            onChange={(lowPriorityWork) => void ted.updateSettings({ lowPriorityWork })}
+          />
+        </SettingRow>
       </SettingsGroup>
       {slots && <p className={styles.nowLine}>{nowLine(slots, simulators)}</p>}
     </SettingsPage>

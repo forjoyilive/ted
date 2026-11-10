@@ -51,6 +51,7 @@ export interface MachineSettings {
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
+  lowPriorityWork: boolean
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -83,6 +84,7 @@ export const defaultMachineSettings: MachineSettings = {
   linearSyncTeams: {},
   linearSyncDeclined: {},
   appsOutsideSandbox: {},
+  lowPriorityWork: true,
 }
 
 export interface Profile {

@@ -193,6 +193,7 @@ export function createCheckTries(options: {
         env: worktreeCommandEnv(entry.env, {}, options.env?.() ?? process.env),
         log,
         signal,
+        lowPriority: store.settings().lowPriorityWork,
       })
       if (result.outcome !== 'passed') {
         await removeWorktree(factory.id, entry.name, entry.repo)
@@ -237,6 +238,7 @@ export function createCheckTries(options: {
           log,
           shell: [loginShell(options.env?.() ?? process.env), '-lc'],
           signal: abort.signal,
+          lowPriority: store.settings().lowPriorityWork,
         })
         finished = {
           ...started,

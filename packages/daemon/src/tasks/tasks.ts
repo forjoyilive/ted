@@ -1579,6 +1579,7 @@ export function createTasks(options: {
         logFor: (position) => checkLog(task, checkRun.id, position),
         ...(sandbox !== undefined && { sandbox }),
         signal: stopping.signal,
+        lowPriority: store.settings().lowPriorityWork,
         onStart: (position) => store.checkStarted(checkRun.id, position),
         onFinish: (position, finished) => store.checkFinished(checkRun.id, position, finished),
       }).catch((error: unknown) => {
@@ -3455,6 +3456,7 @@ export function createTasks(options: {
       env: commandEnv(task, entry.env),
       log: commandLog(task, 'teardown', repo.name),
       signal: stopping.signal,
+      lowPriority: store.settings().lowPriorityWork,
     }).catch((error: unknown) => {
       console.error(`couldn’t run teardown for ${task.displayId}:`, error)
       return { outcome: 'failed' as const }
@@ -4519,6 +4521,7 @@ export function createTasks(options: {
       env: commandEnv(task, setup.env),
       log,
       signal,
+      lowPriority: store.settings().lowPriorityWork,
     })
     const now = find(task.id)
     if (result.outcome === 'interrupted' || now.archived || (untilStopped && now.stopped)) {

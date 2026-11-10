@@ -37,6 +37,7 @@ import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
+import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunTokens } from '../run-token.ts'
 import { signalProcess } from '../signal.ts'
@@ -453,7 +454,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   for (const run of store.listRuns()) if (run.state !== 'finished') follow(run.id)
 
   function spawnHost(runDir: string, env: NodeJS.ProcessEnv): void {
-    const host = nodeEntry(hostMain, [runDir])
+    const entry = nodeEntry(hostMain, [runDir])
+    const host = workCommand(entry.command, entry.args, store.settings().lowPriorityWork)
     spawn(host.command, host.args, {
       detached: true,
       stdio: 'ignore',

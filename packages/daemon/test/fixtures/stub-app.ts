@@ -1,5 +1,6 @@
 import { writeFileSync } from 'node:fs'
 import http from 'node:http'
+import { getPriority } from 'node:os'
 
 const port = Number(process.env.PORT)
 const crashAfter = Number(process.env.STUB_APP_CRASH_AFTER_MS ?? '0')
@@ -15,6 +16,7 @@ const server = http.createServer((_, res) => {
       task: process.env.TED_TASK,
       run: process.env.TED_RUN ?? null,
       home: process.env.TED_HOME ?? null,
+      nice: getPriority(),
     }),
   )
 })

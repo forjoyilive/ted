@@ -257,6 +257,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   notifySound: onOff('notifySound'),
   firstLaunchDone: onOff('firstLaunchDone'),
   linearSync: onOff('linearSync'),
+  lowPriorityWork: onOff('lowPriorityWork'),
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   appsOutsideSandbox(value) {
