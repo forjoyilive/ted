@@ -87,9 +87,15 @@ export function createFactoryRemovals(options: {
         banners.clearFactory(factory.id)
         const repos = factory.repos.map((r) => r.repo)
         store.removeFactory(factory.id)
-        const { [factory.id]: _, ...teams } = store.settings().linearSyncTeams
-        const { [factory.id]: __, ...declined } = store.settings().linearSyncDeclined
-        store.updateSettings({ linearSyncTeams: teams, linearSyncDeclined: declined })
+        const settings = store.settings()
+        const { [factory.id]: _, ...teams } = settings.linearSyncTeams
+        const { [factory.id]: __, ...declined } = settings.linearSyncDeclined
+        const { [factory.id]: ___, ...outside } = settings.appsOutsideSandbox
+        store.updateSettings({
+          linearSyncTeams: teams,
+          linearSyncDeclined: declined,
+          appsOutsideSandbox: outside,
+        })
         await store.persisted()
         for (const repo of repos) {
           if (store.listFactories().some((f) => f.repos.some((r) => same(r.repo, repo)))) continue

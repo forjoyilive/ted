@@ -48,8 +48,13 @@ describe('the sign-off Preview row', () => {
     expect(previewChoice(task(), [crashed])).toMatchObject({ kind: 'run', again: true })
   })
 
-  test('nothing when the Task has no web App and no hosted preview', () => {
-    expect(previewChoice(task(), [app({ kind: 'command' })])).toBeUndefined()
+  test('without a web App, a command App opens its own window', () => {
+    const desk = app({ name: 'TED Dev', kind: 'command' })
+    expect(previewChoice(task(), [desk])).toEqual({ kind: 'window', app: desk })
+  })
+
+  test('nothing when the Task has no web or command App and no hosted preview', () => {
+    expect(previewChoice(task(), [app({ kind: 'ios-simulator' })])).toBeUndefined()
   })
 })
 

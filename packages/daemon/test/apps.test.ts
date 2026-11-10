@@ -470,16 +470,51 @@ describe('the Apps’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'an App the human starts runs sandboxed too, since it runs the code the agent wrote',
+    'the human’s ▶ restarts an App a Run started sandboxed, outside the sandbox',
     async () => {
-      const planted = path.join(home, 'planted')
-      await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(planted)) })
+      const outside = path.join(scratch, 'outside')
+      await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(outside)) })
       const client = await start()
-      const task = await taskWithWorktree(client)
-      await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Toucher' })
-      expect(await logOf(client, task, planted)).toContain(`refused ${planted}`)
+      const task = await taskWithWorktree(
+        client,
+        JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'Toucher'] }, { endTurn: true }] }),
+      )
+      expect(await logOf(client, task, outside)).toContain(`refused ${outside}`)
+      await expect(stat(outside)).rejects.toThrow()
+      const restarted = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+        name: 'Toucher',
+      })
+      expect(restarted.startedBy).toBe('human')
+      await waitUntil(
+        () =>
+          stat(outside).then(
+            () => true,
+            () => undefined,
+          ),
+        'the App to write outside',
+      )
     },
   )
+
+  test('the human’s ▶ asks first until they choose Always for that App in this Factory, and a Run can’t choose it', async () => {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
+    const client = await start()
+    const task = await taskWithWorktree(client)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
+    const lead = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.leadRunId
+    const asRun = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(lead ?? ''),
+    )
+    const refused = await asRun.call('PATCH', '/settings', {
+      appsOutsideSandbox: { [task.factoryId]: ['API'] },
+    })
+    expect(refused.status).toBe(403)
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBe(true)
+    await client.ok('PATCH', '/settings', { appsOutsideSandbox: { [task.factoryId]: ['API'] } })
+    expect((await appNamed(client, task, 'API'))?.confirmOutsideSandbox).toBeUndefined()
+    expect((await appNamed(client, task, 'Web'))?.confirmOutsideSandbox).toBe(true)
+  })
 
   test('in a Bypass Factory an App runs as before', async () => {
     const outside = path.join(scratch, 'outside')
@@ -492,17 +527,23 @@ describe('the Apps’ sandbox', () => {
     expect(await logOf(client, task, outside)).toContain(`wrote ${outside}`)
   })
 
-  test('without a working sandbox an App doesn’t start, and says why', async () => {
+  test('without a working sandbox a Run’s App doesn’t start and says why, but the human’s does', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml() })
     const before = process.env.TED_SANDBOX_BIN
     process.env.TED_SANDBOX_BIN = path.join(scratch, 'no-such-sandbox')
     try {
       const client = await start()
-      const task = await taskWithWorktree(client)
-      const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'API' })
-      expect(res.status).toBe(409)
-      expect(JSON.stringify(res.body)).toContain('can’t sandbox Checks and Apps')
-      expect((await appNamed(client, task, 'API'))?.state).toBe('failed')
+      const task = await taskWithWorktree(
+        client,
+        JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'API'] }, { endTurn: true }] }),
+      )
+      const failed = await waitForState(client, task, 'API', 'failed')
+      expect(failed.problem).toContain('can’t sandbox Checks and Apps')
+      const started = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
+        name: 'API',
+      })
+      expect(started.startedBy).toBe('human')
+      await waitForState(client, task, 'API', 'running')
     } finally {
       if (before === undefined) delete process.env.TED_SANDBOX_BIN
       else process.env.TED_SANDBOX_BIN = before

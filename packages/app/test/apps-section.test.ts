@@ -98,6 +98,9 @@ test('the Apps section runs a Web App, shows its log in the middle pane, and sto
   await section.getByText('Not running').first().waitFor()
 
   await section.getByRole('button', { name: 'Run Web' }).click()
+  const confirm = window.getByRole('dialog', { name: 'Run Web outside the sandbox?' })
+  await confirm.getByText(/runs code from the Task’s branch on your Mac/).waitFor()
+  await confirm.getByRole('button', { name: 'Run' }).click()
 
   const status = section.getByText(/^localhost:\d+$/)
   await status.waitFor()
@@ -116,3 +119,81 @@ test('the Apps section runs a Web App, shows its log in the middle pane, and sto
   expect(await section.getByText(/^Stopped/).count()).toBe(1)
   await writeFile(marker, '')
 }, 90_000)
+
+test('the sign-off’s Preview row opens a command App after one confirmation, then remembers it', async () => {
+  const scratch = path.join(home, 'origin')
+  const origin = await makeOriginRepo(scratch)
+  await commitToOrigin(scratch, {
+    '.gitignore': 'stub-*\nn\nbrief.md\n',
+    '.ted/workflow.yaml': [
+      'version: 1',
+      'order: [intake, work, review]',
+      'repos:',
+      '  - name: widgets',
+      '    apps:',
+      '      - name: Desk',
+      '        kind: command',
+      `        run: "'${process.execPath}' '${stubApp}'"`,
+      '',
+    ].join('\n'),
+  })
+  const brief = [
+    '## Goal',
+    'Export works.',
+    '## Decisions so far',
+    'None.',
+    '## Current state',
+    'Done.',
+    '## Open questions',
+    'None.',
+    '## Next step',
+    'Merge.',
+  ].join('\n\n')
+  const script = [
+    'n=$(cat n 2>/dev/null || echo 0); n=$((n+1)); echo $n > n;',
+    'case $n in',
+    '2) echo x > work.txt; ted outcome advance;;',
+    `3) printf '%s' '${brief}' > brief.md; ted brief write --file brief.md; ted outcome advance;;`,
+    '[4-9]) :;;',
+    '*) ted outcome advance;;',
+    'esac',
+  ].join(' ')
+  const step = { run: ['sh', '-c', script] }
+  const client = await daemonAsApp(home, env())
+  const factory = await client.addFactory({ repo: origin, key: 'NB' })
+  await ted(
+    'task',
+    'create',
+    '--factory',
+    'NB',
+    JSON.stringify({ steps: [{ everyMessage: [step, { endTurn: true }] }, step] }),
+  )
+  await ted('task', 'start', 'NB-1')
+  const window = await launchApp()
+  await window
+    .getByRole('navigation', { name: 'Sidebar' })
+    .getByRole('button', { name: 'All Tasks' })
+    .click()
+  await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
+  const card = window.getByRole('region', { name: 'Task thread' }).getByRole('region', {
+    name: 'Sign-off',
+  })
+  await card.waitFor({ timeout: 60_000 })
+  await card.getByText('Desk isn’t running').waitFor()
+
+  await card.getByRole('button', { name: 'Open Desk' }).click()
+  const confirm = window.getByRole('dialog', { name: 'Run Desk outside the sandbox?' })
+  await confirm.getByRole('checkbox', { name: 'Always for Desk in this Factory' }).check()
+  await confirm.getByRole('button', { name: 'Run' }).click()
+
+  await card.getByRole('button', { name: 'Running' }).waitFor()
+  expect((await client.getSettings()).appsOutsideSandbox[factory.id]).toEqual(['Desk'])
+  const section = window
+    .getByRole('complementary', { name: 'Task details' })
+    .getByRole('region', { name: 'Apps' })
+  await section.getByRole('button', { name: 'Stop Desk' }).click()
+  await card.getByRole('button', { name: 'Open Desk' }).waitFor()
+  await section.getByRole('button', { name: 'Run Desk' }).click()
+  await card.getByRole('button', { name: 'Running' }).waitFor()
+  expect(await window.getByRole('dialog').count()).toBe(0)
+}, 120_000)
