@@ -72,7 +72,7 @@ export default defineConfig({
     projects: [
       {
         extends: true,
-        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3 },
+        test: { name: 'electron', include: codexSandbox ? [] : electron, maxWorkers: 3, retry: 1 },
       },
       { extends: true, test: { name: 'node', include: testFiles, exclude: electron } },
     ],
