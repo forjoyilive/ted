@@ -243,15 +243,7 @@ function AgentMessage({
       <div className={styles.messageBody}>
         <div className={styles.messageHead}>
           <span className={styles.author}>{run.name}</span>
-          {item.at !== undefined && (
-            <span className={item.writing ? styles.writing : styles.when}>
-              {ago(item.at, now)}
-              {item.writing && ' · writing…'}
-            </span>
-          )}
-          {item.at === undefined && item.writing && (
-            <span className={styles.writing}>writing…</span>
-          )}
+          {item.at !== undefined && <span className={styles.when}>{ago(item.at, now)}</span>}
         </div>
         <p className={styles.text}>{item.text}</p>
       </div>
