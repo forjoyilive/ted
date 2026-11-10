@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { daemonAsApp, makeOriginRepo, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import { inboxNotice } from '../src/background.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 
@@ -127,6 +128,27 @@ describe('notifications and badges', () => {
     expect(shown.at(-1)).toBe('5 new items in your Inbox')
     const closed = (await logged()).flatMap((l) => (l.kind === 'closed' ? [l.body] : []))
     expect(closed).toEqual(expect.arrayContaining(['Question: Q1', 'Question: Q2', 'Question: Q3']))
+  })
+
+  test('a Task notification opens its selected request in the Inbox from All Tasks', async () => {
+    await askingTask()
+    const window = await launchApp()
+    await sidebar(window).getByRole('button', { name: 'All Tasks', exact: true }).click()
+    await ted('task', 'start', 'NB-1')
+    await expect.poll(bodies, { timeout: 30_000 }).toEqual(['Question: Q1'])
+    const client = await daemonAsApp(home, env())
+    const request = (await client.listWaiting())[0]
+    if (!request) throw new Error('Expected a waiting request')
+    const command = inboxNotice(request).opens
+    await app?.evaluate(({ BrowserWindow }, command) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send('ted:event', {
+        type: 'menu-command',
+        command,
+      })
+    }, command)
+    await window.getByRole('region', { name: 'Inbox', exact: true }).waitFor()
+    await window.locator('[aria-current="true"]').filter({ hasText: 'Q1' }).waitFor()
+    expect(await window.getByRole('button', { name: '← All Tasks', exact: true }).count()).toBe(0)
   })
 
   test('Settings → Notifications has the four switches, and the red row when the OS has them off', async () => {

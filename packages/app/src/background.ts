@@ -17,6 +17,7 @@ export const appName = identity().name
 
 export type MenuCommand =
   | { kind: 'open-inbox' }
+  | { kind: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { kind: 'open-ted' }
   | { kind: 'new-task' }
   | { kind: 'settings'; section?: string }
@@ -302,7 +303,12 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
     return {
       title: `${request.displayId} ${request.taskTitle}`,
       body: `${label}: ${request.headline}`,
-      opens: { kind: 'open-task', taskId: request.taskId, factoryId: request.factoryId },
+      opens: {
+        kind: 'open-inbox-request',
+        taskId: request.taskId,
+        factoryId: request.factoryId,
+        requestId: request.id,
+      },
     }
   }
   if (request.source === 'automation') {

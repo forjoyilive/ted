@@ -8,6 +8,7 @@ import {
 import { describe, expect, test } from 'vitest'
 import type { MenuCommand } from '../src/background.ts'
 import { createNotifications, foldWindowMs, type NoticeToShow } from '../src/notifications.ts'
+import { initialNavigation, navigate } from '../src/renderer/navigation.ts'
 
 const request = (id: string, extra: Partial<WaitingRequest> = {}): WaitingRequest =>
   ({
@@ -77,7 +78,7 @@ function harness(
 }
 
 describe('Inbox item notifications', () => {
-  test('a new Inbox item sends one notification that opens its Task; items already there don’t', () => {
+  test('a new Inbox item sends one notification that opens its request in the Inbox; items already there don’t', () => {
     const { notifications, shown, opened } = harness()
     notifications.waiting([request('old')])
     expect(shown).toEqual([])
@@ -89,8 +90,35 @@ describe('Inbox item notifications', () => {
       { title: 'NB-3 Add dark mode', body: 'Sign-off: Ready', silent: true },
     ])
     shown[0]?.open()
-    expect(opened).toEqual([{ kind: 'open-task', taskId: 'task-new', factoryId: 'nb' }])
+    expect(opened).toEqual([
+      { kind: 'open-inbox-request', taskId: 'task-new', factoryId: 'nb', requestId: 'new' },
+    ])
   })
+
+  test.each(['all-tasks', 'inbox'] as const)(
+    'clicking a Task notification leaves %s for its request in the unanswered Inbox',
+    (kind) => {
+      const { notifications, shown, opened } = harness()
+      notifications.waiting([])
+      notifications.waiting([request('new')])
+      shown[0]?.open()
+      const command = opened[0]
+      if (command?.kind !== 'open-inbox-request') throw new Error('Expected an Inbox destination')
+      const before = navigate(initialNavigation, {
+        type: 'open',
+        screen: kind === 'inbox' ? { kind, factoryId: 'other', answered: true } : { kind },
+      })
+      const after = navigate(
+        navigate(before, { type: 'open-settings', section: 'notifications' }),
+        { ...command, type: 'open-inbox-request' },
+      )
+      expect(after.screen).toEqual({ kind: 'inbox' })
+      expect(after.taskId).toBe('task-new')
+      expect(after.requestId).toBe('new')
+      expect(after.lastFactoryId).toBe('nb')
+      expect(after.settings).toBeUndefined()
+    },
+  )
 
   test('FAILED asks, Automation questions and planning chat rounds notify too', () => {
     const { notifications, shown, opened } = harness()
