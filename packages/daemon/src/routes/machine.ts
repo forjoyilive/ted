@@ -23,6 +23,7 @@ import {
   simulatorSlotLimits,
   taskStatusKinds,
   terminalFontSizes,
+  textSizeLimits,
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
@@ -201,6 +202,19 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const appearance = appearances.find((a) => a === value)
     if (!appearance) throw new HttpError(400, `appearance must be ${appearances.join(', ')}`)
     return appearance
+  },
+  textSize(value) {
+    const { min, max, step } = textSizeLimits
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < min ||
+      value > max ||
+      value % step !== 0
+    ) {
+      throw new HttpError(400, `textSize must be from ${min} to ${max} in steps of ${step}`)
+    }
+    return value
   },
   terminalFontSize(value) {
     const { min, max } = terminalFontSizes

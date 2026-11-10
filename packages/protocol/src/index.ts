@@ -390,6 +390,7 @@ export {
   runOutputDayLimits,
   type TimeFormat,
   terminalFontSizes,
+  textSizeLimits,
   timeFormats,
   workingRunLimits,
 } from './settings.ts'

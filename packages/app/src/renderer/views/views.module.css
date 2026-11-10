@@ -14,6 +14,7 @@
 }
 
 .detailsPane {
+  container: task-details / inline-size;
   flex: 0 0 var(--details-pane-width);
   box-sizing: border-box;
   padding: 18px 16px;
@@ -219,7 +220,7 @@
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 19px;
+  font-size: var(--text-19);
   font-weight: var(--weight-semibold);
   line-height: 1.45;
 }
@@ -754,4 +755,21 @@
 
 .details .gatesValue:has(section) {
   grid-column: 1 / -1;
+}
+
+@container task-details (width < 14em) {
+  .details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .details dd {
+    min-width: 0;
+    margin-bottom: 8px;
+  }
+
+  .details button {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }

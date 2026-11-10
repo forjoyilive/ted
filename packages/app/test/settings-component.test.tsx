@@ -21,6 +21,30 @@ test('terminal font size saves and immediately applies the CSS variable', async 
   expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('16px')
 })
 
+test('text size steps by 5%, resets, and leaves terminal sizing independent', async () => {
+  const a = appState()
+  a.mount()
+  await a.settings()
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+  await user().click(screen.getByRole('button', { name: 'Increase text size' }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 105 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1.05')
+  expect(screen.getByText('105%')).toBeTruthy()
+  expect(document.documentElement.style.getPropertyValue('--terminal-font-size')).toBe('13px')
+  await user().click(screen.getByRole('button', { name: /^Default$/ }))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { textSize: 100 })
+  expect(document.documentElement.style.getPropertyValue('--text-scale')).toBe('1')
+})
+
+test.each([80, 200])('text size disables the button at %s%%', async (textSize) => {
+  const a = appState()
+  a.state.settings.textSize = textSize
+  a.mount()
+  await a.settings()
+  const name = textSize === 80 ? 'Decrease text size' : 'Increase text size'
+  expect(screen.getByRole<HTMLButtonElement>('button', { name }).disabled).toBe(true)
+})
+
 test('source command row explains that installation requires an installed copy', async () => {
   bridge({ getCommandLine: () => ({ state: 'unavailable' }) })
   render(<CommandLineGroup />)

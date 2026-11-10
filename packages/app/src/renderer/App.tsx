@@ -307,6 +307,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
 
   useEffect(() => {
     if (settings === undefined) return
+    document.documentElement.style.setProperty('--text-scale', String(settings.textSize / 100))
     document.documentElement.style.setProperty(
       '--terminal-font-size',
       `${settings.terminalFontSize}px`,
