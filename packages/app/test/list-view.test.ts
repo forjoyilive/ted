@@ -16,6 +16,7 @@ import {
   shownColumns,
   sortTasks,
   summaryLine,
+  viewFor,
 } from '../src/renderer/list-view.ts'
 
 let made = 0
@@ -71,7 +72,7 @@ const factories: Factory[] = [
 const ids = (tasks: readonly Task[]) => tasks.map((t) => t.displayId)
 
 describe('defaults', () => {
-  test('one Factory groups by Stage; All Tasks groups by Factory and shows the Factory column', () => {
+  test('Lists group by Stage; All Tasks also shows the Factory column', () => {
     expect(defaultView('nb')).toMatchObject({ sort: 'manual', group: 'stage' })
     expect(shownColumns(defaultView('nb'))).toEqual([
       'priority',
@@ -81,8 +82,15 @@ describe('defaults', () => {
       'status',
       'updated',
     ])
-    expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'factory' })
+    expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'stage' })
     expect(shownColumns(defaultView('all'))).toContain('factory')
+  })
+
+  test('All Tasks defaults to Stage grouping unless a saved view exists', () => {
+    expect(viewFor(undefined, 'all').group).toBe('stage')
+    expect(viewFor({}, 'all').group).toBe('stage')
+    const saved = { ...defaultView('all'), group: 'factory' as const }
+    expect(viewFor({ all: saved }, 'all')).toBe(saved)
   })
 
   test('Title always shows', () => {
@@ -182,7 +190,7 @@ describe('sort and group', () => {
   })
 
   test('grouping by Stage follows the Stage order and starts with Done collapsed', () => {
-    const groups = groupTasks(all, defaultView('nb'), factories)
+    const groups = groupTasks(all, defaultView('all'), factories)
     expect(groups.map((g) => [g.label, ids(g.tasks), g.collapsed])).toEqual([
       ['Backlog', ['NB-12'], false],
       ['Intake', ['MS-10'], false],
@@ -193,7 +201,7 @@ describe('sort and group', () => {
 
   test('grouping by Factory, Status, Priority or None', () => {
     const view = defaultView('all')
-    expect(groupTasks(all, view, factories).map((g) => g.label)).toEqual([
+    expect(groupTasks(all, { ...view, group: 'factory' }, factories).map((g) => g.label)).toEqual([
       'Notebook',
       'Marketing site',
     ])
