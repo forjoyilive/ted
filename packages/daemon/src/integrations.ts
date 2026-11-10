@@ -6,8 +6,10 @@ import {
   type GitHubCli,
   type GitHubHost,
   type IntegrationFix,
+  type IntegrationRemedy,
   type IntegrationsHealth,
   integrationFixes,
+  integrationInstallPages,
   minGhVersion,
   type RunFixRequest,
   type RunFixResult,
@@ -231,24 +233,30 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
     return { ...known, state: 'ready' }
   }
 
-  function commandFor(fix: IntegrationFix, host: string = defaultHost): FixCommand {
-    const linux = (apt: string, dnf: string) => (platform === 'linux' && hasDnf ? dnf : apt)
+  function commandFor(fix: 'gh-login' | 'gh-refresh' | 'gh-setup-git', host?: string): FixCommand
+  function commandFor(fix: IntegrationFix, host?: string): IntegrationRemedy
+  function commandFor(fix: IntegrationFix, host: string = defaultHost): IntegrationRemedy {
+    if (platform === 'linux') {
+      if (fix === 'git-install') {
+        return { label: 'Installation instructions ↗', url: integrationInstallPages.git }
+      }
+      if (fix === 'gh-install' || fix === 'gh-update') {
+        return {
+          label: fix === 'gh-update' ? 'Update instructions ↗' : 'Installation instructions ↗',
+          url: integrationInstallPages.gh,
+        }
+      }
+    }
     switch (fix) {
       case 'gh-install':
         return {
           label: 'Install',
-          command:
-            platform === 'darwin'
-              ? 'brew install gh'
-              : linux('sudo apt install gh', 'sudo dnf install gh'),
+          command: platform === 'darwin' ? 'brew install gh' : 'sudo apt install gh',
         }
       case 'gh-update':
         return {
           label: 'Update',
-          command:
-            platform === 'darwin'
-              ? 'brew upgrade gh'
-              : linux('sudo apt install --only-upgrade gh', 'sudo dnf upgrade gh'),
+          command: platform === 'darwin' ? 'brew upgrade gh' : 'sudo apt install --only-upgrade gh',
         }
       case 'gh-login':
         return { label: 'Sign in', command: `gh auth login --web --hostname ${host} -s workflow` }
@@ -262,15 +270,10 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
       case 'git-install':
         return {
           label: 'Install',
-          command:
-            platform === 'darwin'
-              ? 'xcode-select --install'
-              : linux('sudo apt install git', 'sudo dnf install git'),
+          command: platform === 'darwin' ? 'xcode-select --install' : 'sudo apt install git',
         }
     }
   }
-
-  let hasDnf = false
 
   function updateBanner(health: IntegrationsHealth): void {
     const problem = githubBanner(health)
@@ -294,9 +297,6 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
   function check({ fresh = false }: { fresh?: boolean } = {}): Promise<IntegrationsHealth> {
     if (running && !fresh) return running
     const next = (async () => {
-      if (platform === 'linux') {
-        hasDnf = (await findBin('dnf', await loadEnv(fresh))) !== undefined
-      }
       const health = await measure(fresh)
       if (closed) return health
       last = health
@@ -317,7 +317,12 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
     if (host !== undefined && !validHost.test(host)) {
       throw new RequestError(400, 'host must be a hostname like github.com')
     }
-    const { command } = commandFor(kind, host)
+    const remedy = commandFor(kind, host)
+    if ('url' in remedy) {
+      watch(kind, host ?? defaultHost)
+      return { url: remedy.url }
+    }
+    const { command } = remedy
     await loaded
     await options.openTerminal(command, environment.current())
     watch(kind, host ?? defaultHost)

@@ -93,6 +93,7 @@ import {
   trayWarning,
   windowTitle,
 } from './background.ts'
+import { openIntegrationInstructions } from './integration-instructions.ts'
 import {
   createLoginItem,
   type LoginItem,
@@ -489,7 +490,11 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   },
   getIntegrations: (client) => client.getIntegrations(),
   checkIntegrations: (client) => client.checkIntegrations(),
-  runFix: (client, request) => client.runFix(request as RunFixRequest),
+  runFix: async (client, request) => {
+    const result = await client.runFix(request as RunFixRequest)
+    if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
+    return result
+  },
   getLinear: (client) => client.getLinear(),
   saveLinearKey: (client, key, inFile) =>
     client.saveLinearKey({ key: String(key), inFile: inFile === true }),
