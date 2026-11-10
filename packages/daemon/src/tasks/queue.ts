@@ -25,6 +25,7 @@ export interface SlotUse {
   working: number
   byFactory: Readonly<Record<string, number>>
   caps: Readonly<Record<string, number | undefined>>
+  handoffs?: ReadonlySet<string>
 }
 
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
@@ -45,10 +46,12 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
   const byFactory = { ...use.byFactory }
   const started: T[] = []
   for (const entry of ordered) {
-    if (working >= use.limit) break
     const factory = entry.factoryId
-    const cap = factory === undefined ? undefined : use.caps[factory]
-    if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
+    if (!use.handoffs?.has(entry.id)) {
+      if (working >= use.limit) continue
+      const cap = factory === undefined ? undefined : use.caps[factory]
+      if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
+    }
     started.push(entry)
     working++
     if (factory !== undefined) byFactory[factory] = (byFactory[factory] ?? 0) + 1

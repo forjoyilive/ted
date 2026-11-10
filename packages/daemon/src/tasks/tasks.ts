@@ -885,8 +885,27 @@ export function createTasks(options: {
         holders.reduce((sum, h) => sum + h.slots, 0) + others.reduce((sum, h) => sum + h.runs, 0),
       byFactory,
       caps: capsNow,
+      handoffs: slotHandoffs(
+        all,
+        holders.map((h) => h.task.id),
+      ),
     }
     return { use, holders, others, all }
+  }
+
+  function slotHandoffs(all: readonly Task[], holding: readonly string[]): Set<string> {
+    const taken = new Set(holding)
+    const handoffs = new Set<string>()
+    for (const request of store.subAgentRequests()) {
+      if (taken.has(request.taskId) || !subAgentRunnable(request.id)) continue
+      const lead = all
+        .find((task) => task.id === request.taskId)
+        ?.runs.find((r) => r.id === request.parentRunId)
+      if (lead?.state !== 'working' || lead.paused !== undefined || !lead.onSubAgents) continue
+      taken.add(request.taskId)
+      handoffs.add(request.id)
+    }
+    return handoffs
   }
 
   const cloned = (factoryId: string) => options.isCloned?.(factoryId) ?? true
