@@ -15,6 +15,8 @@ export const workingRunLimits = { min: 1, max: 99 } as const
 
 export const terminalFontSizes = { min: 10, max: 20 } as const
 
+export const runOutputDayLimits = { min: 1, max: 365 } as const
+
 export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
 export type QuitChoice = (typeof quitChoices)[number]
@@ -29,6 +31,7 @@ export interface MachineSettings {
   overnightMode: boolean
   maxWorkingRuns: number
   maxBootedSimulators: number
+  runOutputDays: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
   startAtLogin: boolean
@@ -59,6 +62,7 @@ export const defaultMachineSettings: MachineSettings = {
   overnightMode: false,
   maxWorkingRuns: 6,
   maxBootedSimulators: 3,
+  runOutputDays: 7,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
   startAtLogin: true,

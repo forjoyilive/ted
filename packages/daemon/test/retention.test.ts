@@ -1,105 +1,336 @@
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  utimes,
-  writeFile,
-} from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { pruneRunOutput } from '../src/retention.ts'
+import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
+import { openStore, type TedStore } from '../src/store/index.ts'
+import {
+  api,
+  commitToOrigin,
+  killRunHosts,
+  makeOriginRepo,
+  makeTempHome,
+  stubClaudePath,
+  waitUntil,
+} from './helpers.ts'
 
-let root: string
-let runsDir: string
-const now = new Date('2026-11-08T12:00:00Z')
 const day = 24 * 60 * 60 * 1000
+const line = (n: number) => `${JSON.stringify({ t: 'out', line: `line ${n}` })}\n`
 
-beforeEach(async () => {
-  root = await mkdtemp(path.join(tmpdir(), 'ted-retention-'))
-  runsDir = path.join(root, 'runs')
-  await mkdir(runsDir)
-})
+describe('pruning Run output', () => {
+  let root: string
+  let runsDir: string
+  let store: TedStore
 
-afterEach(async () => {
-  await rm(root, { recursive: true, force: true })
-})
-
-async function makeRun(id: string, log: string, stoppedDaysAgo: number): Promise<string> {
-  const dir = path.join(runsDir, id)
-  await mkdir(dir)
-  await writeFile(path.join(dir, 'launch.json'), '{}')
-  const file = path.join(dir, 'host.log')
-  await writeFile(file, log)
-  const at = new Date(now.getTime() - stoppedDaysAgo * day)
-  await utimes(file, at, at)
-  return dir
-}
-
-const line = (n: number) => `${JSON.stringify({ t: 'out', line: `line ${n}`.padEnd(90, '.') })}\n`
-
-describe('pruning raw Run output', () => {
-  test('removes a stopped Run’s output 14 days after it stopped, and keeps newer output', async () => {
-    await makeRun('a1b2c3d4-0000-4000-8000-000000000001', line(1), 15)
-    await makeRun('a1b2c3d4-0000-4000-8000-000000000002', line(1), 13)
-
-    const result = await pruneRunOutput({ runsDir, isLive: () => false, now })
-
-    expect(result.removed).toEqual(['a1b2c3d4-0000-4000-8000-000000000001'])
-    expect(await readdir(runsDir)).toEqual(['a1b2c3d4-0000-4000-8000-000000000002'])
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'ted-retention-'))
+    runsDir = path.join(root, 'runs')
+    await mkdir(runsDir)
+    store = await openStore({ directory: path.join(root, 'store') })
   })
 
-  test('keeps only the newest whole lines when a stopped Run’s output is over the limit', async () => {
-    const id = 'a1b2c3d4-0000-4000-8000-000000000003'
-    const lines = Array.from({ length: 50 }, (_, i) => line(i))
-    await makeRun(id, lines.join(''), 1)
-
-    const result = await pruneRunOutput({ runsDir, isLive: () => false, now, maxBytes: 1000 })
-
-    expect(result.trimmed).toEqual([id])
-    const stopped = new Date(now.getTime() - day).getTime()
-    expect((await stat(path.join(runsDir, id, 'host.log'))).mtimeMs).toBe(stopped)
-    const kept = await readFile(path.join(runsDir, id, 'host.log'), 'utf8')
-    expect(kept.length).toBeLessThanOrEqual(1000)
-    expect(kept.endsWith(lines.at(-1) as string)).toBe(true)
-    for (const row of kept.trimEnd().split('\n')) expect(() => JSON.parse(row)).not.toThrow()
+  afterEach(async () => {
+    await store.close()
+    await rm(root, { recursive: true, force: true })
   })
 
-  test('leaves a live Run’s output alone, however old or large', async () => {
-    const id = 'a1b2c3d4-0000-4000-8000-000000000004'
-    await makeRun(id, line(1).repeat(40), 30)
+  const entry = { layers: [], order: [] }
 
-    const result = await pruneRunOutput({
+  async function makeFolder(id: string, writtenDaysAgo = 0): Promise<void> {
+    const dir = path.join(runsDir, id)
+    await mkdir(dir)
+    await writeFile(path.join(dir, 'launch.json'), '{}')
+    const file = path.join(dir, 'host.log')
+    await writeFile(file, line(1))
+    const at = new Date(Date.now() - writtenDaysAgo * day)
+    await utimes(file, at, at)
+  }
+
+  async function makeRun(taskId?: string, state: 'finished' | 'working' = 'finished') {
+    const id = randomUUID()
+    store.startRun({
+      id,
+      agent: 'claude',
+      prompt: 'Hi',
+      cwd: '/tmp',
+      ...(taskId !== undefined && { taskId }),
+    })
+    if (state === 'finished') {
+      store.recordRunOutput(id, {
+        toOffset: line(1).length,
+        state: 'finished',
+        ending: { how: 'exited', code: 0, errorLines: [], at: new Date().toISOString() },
+      })
+    }
+    await makeFolder(id)
+    return id
+  }
+
+  const prune = (daysFromNow: number) =>
+    pruneRunOutput({
       runsDir,
-      isLive: (runId) => runId === id,
-      now,
-      maxBytes: 100,
+      keepDays: store.settings().runOutputDays,
+      endOf: (runId) => runOutputEnd(store, runId),
+      now: new Date(Date.now() + daysFromNow * day),
     })
 
-    expect(result).toEqual({ removed: [], trimmed: [] })
-    expect((await stat(path.join(runsDir, id, 'host.log'))).size).toBe(line(1).length * 40)
+  const kept = async () => (await readdir(runsDir)).sort()
+
+  test('keeps the output of an open Task’s Runs, however old', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const run = await makeRun(task.id)
+
+    expect(await prune(400)).toEqual({ removed: [] })
+    expect(await kept()).toEqual([run])
+  })
+
+  test('removes a Done Task’s Run output 7 days after it became Done, and not before', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const run = await makeRun(task.id)
+    const sub = await makeRun(task.id)
+    store.changeStage(task.id, 'done', entry)
+
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect(await kept()).toEqual([run, sub].sort())
+
+    expect((await prune(8)).removed.sort()).toEqual([run, sub].sort())
+    expect(await kept()).toEqual([])
+  })
+
+  test('an archived Task follows the same rule, and unarchiving it keeps its output again', async () => {
+    const archived = await store.createTask({ title: 'Fix login' })
+    const back = await store.createTask({ title: 'Add dark mode' })
+    const gone = await makeRun(archived.id)
+    const stays = await makeRun(back.id)
+    store.archiveTask(archived.id)
+    store.archiveTask(back.id)
+
+    expect(await prune(6)).toEqual({ removed: [] })
+
+    store.unarchiveTask(back.id, { queue: false, waitForBlockers: false })
+    expect(await prune(8)).toEqual({ removed: [gone] })
+    expect(await kept()).toEqual([stays])
+  })
+
+  test('never touches a live Run, even one of a Task that was Done long ago', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const live = await makeRun(task.id, 'working')
+    const devRun = await makeRun(undefined, 'working')
+    store.changeStage(task.id, 'done', entry)
+
+    expect(await prune(400)).toEqual({ removed: [] })
+    expect(await kept()).toEqual([live, devRun].sort())
+  })
+
+  test('the number of days comes from the runOutputDays setting', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    const run = await makeRun(task.id)
+    store.changeStage(task.id, 'done', entry)
+
+    store.updateSettings({ runOutputDays: 30 })
+    expect(await prune(8)).toEqual({ removed: [] })
+
+    store.updateSettings({ runOutputDays: 2 })
+    expect(await prune(3)).toEqual({ removed: [run] })
+  })
+
+  test('a Run without a Task is removed 7 days after it finished', async () => {
+    const run = await makeRun()
+
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect(await prune(8)).toEqual({ removed: [run] })
+  })
+
+  test('keeps every Run of a Coordinator while the Coordinator exists', async () => {
+    const first = await makeRun()
+    const second = await makeRun()
+    store.coordinators.save({
+      factoryId: 'factory-1',
+      runId: second,
+      runIds: [first, second],
+      lead: { agent: 'claude' },
+      phase: 'ready',
+      opening: '',
+      receipts: [],
+      taskIds: [],
+    })
+
+    expect(await prune(400)).toEqual({ removed: [] })
+
+    store.coordinators.remove('factory-1')
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect((await prune(8)).removed.sort()).toEqual([first, second].sort())
+  })
+
+  test('keeps a plan’s output until it is Finished or Stopped, then for 7 days; a Failed plan keeps it', async () => {
+    const plan = (title: string) =>
+      store.plans.start({ factoryId: 'factory-1', title, message: 'Plan it', agent: 'claude' })
+    const finishRun = async (id: string) => {
+      store.startRun({ id, agent: 'claude', prompt: 'Plan', cwd: '/tmp' })
+      store.recordRunOutput(id, { toOffset: 1, state: 'finished' })
+      await makeFolder(id)
+    }
+    const open = plan('Open')
+    const failed = plan('Failed')
+    const finished = plan('Finished')
+    for (const { id } of [open, failed, finished]) {
+      store.plans.began(id, [])
+      await finishRun(id)
+    }
+    store.plans.ended(failed.id, { outcome: 'failed', error: 'no' })
+    store.plans.ended(finished.id, { outcome: 'finished' })
+
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect(await prune(400)).toEqual({ removed: [finished.id] })
+    expect(await kept()).toEqual([open.id, failed.id].sort())
+  })
+
+  test('an Automation Run is removed 7 days after its firing ended', async () => {
+    const at = new Date().toISOString()
+    const running = store.automations.fire({ automationId: 'a-1', trigger: 'run-now', at })
+    const ended = store.automations.fire({ automationId: 'a-1', trigger: 'run-now', at })
+    for (const { id } of [running, ended]) {
+      store.automations.began(id)
+      store.startRun({ id, agent: 'claude', prompt: 'Go', cwd: '/tmp' })
+      store.recordRunOutput(id, { toOffset: 1, state: 'finished' })
+      await makeFolder(id)
+    }
+    store.automations.ended(ended.id, { outcome: 'finished' })
+
+    expect(await prune(6)).toEqual({ removed: [] })
+    expect(await prune(400)).toEqual({ removed: [ended.id] })
+    expect(await kept()).toEqual([running.id])
+  })
+
+  test('a Run folder the store doesn’t know is removed 7 days after it was last written', async () => {
+    const old = randomUUID()
+    const recent = randomUUID()
+    await makeFolder(old, 8)
+    await makeFolder(recent, 6)
+
+    expect(await prune(0)).toEqual({ removed: [old] })
+    expect(await kept()).toEqual([recent])
   })
 
   test('never follows a link or touches anything that isn’t a Run folder', async () => {
     const outside = path.join(root, 'outside')
     await mkdir(outside)
     await writeFile(path.join(outside, 'host.log'), line(1))
-    const old = new Date(now.getTime() - 30 * day)
+    const old = new Date(Date.now() - 30 * day)
     await utimes(path.join(outside, 'host.log'), old, old)
-    await symlink(outside, path.join(runsDir, 'a1b2c3d4-0000-4000-8000-000000000005'))
+    const linked = randomUUID()
+    await symlink(outside, path.join(runsDir, linked))
     await writeFile(path.join(runsDir, 'notes.txt'), 'keep me')
     await mkdir(path.join(runsDir, '..weird'))
+    await mkdir(path.join(runsDir, 'not-a-run-id'))
+    await utimes(path.join(runsDir, 'not-a-run-id'), old, old)
+    await writeFile(path.join(runsDir, randomUUID()), 'a file, not a folder')
 
-    const result = await pruneRunOutput({ runsDir, isLive: () => false, now })
-
-    expect(result).toEqual({ removed: [], trimmed: [] })
+    expect(await prune(400)).toEqual({ removed: [] })
     expect(await readdir(outside)).toEqual(['host.log'])
-    expect((await readdir(runsDir)).sort()).toEqual(
-      ['..weird', 'a1b2c3d4-0000-4000-8000-000000000005', 'notes.txt'].sort(),
+    expect(await readdir(runsDir)).toHaveLength(5)
+  })
+})
+
+describe('Run output retention in the daemon', () => {
+  let home: string
+  let cleanup: () => Promise<void>
+  let scratch: string
+  let origin: string
+  let daemon: RunningDaemon | undefined
+
+  beforeEach(async () => {
+    ;({ home, cleanup } = await makeTempHome())
+    scratch = await mkdtemp(path.join(tmpdir(), 'ted-origin-'))
+    origin = await makeOriginRepo(scratch)
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
+  })
+
+  afterEach(async () => {
+    await daemon?.stop()
+    daemon = undefined
+    await killRunHosts(home)
+    await cleanup()
+    await rm(scratch, { recursive: true, force: true })
+  })
+
+  async function start(daysFromNow = 0) {
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      retention: { now: () => new Date(Date.now() + daysFromNow * day), checkEveryMs: 200 },
+    })
+    return api(daemon.port, { appKey: daemon.appToken })
+  }
+
+  const runFolders = () => readdir(path.join(home, 'runs'))
+
+  test('a Done Task’s Run chat stays for 7 days, then shows “Output no longer kept”; a shorter setting removes it sooner', async () => {
+    let client = await start()
+    const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+      const res = await client.call(method, route, body)
+      if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+      return res.body as T
+    }
+    await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    const advance = ['ted', 'outcome', 'advance']
+    const title = JSON.stringify({
+      steps: [{ say: 'working on it' }, { everyMessage: [{ run: advance }] }, { run: advance }],
+    })
+    const done = await ok<Task>('POST', '/tasks', { title, factory: 'NB', start: true })
+    const open = await ok<Task>('POST', '/tasks', {
+      title: JSON.stringify({ steps: [{ say: 'still here' }, { endTurn: true }] }),
+      factory: 'NB',
+      start: true,
+    })
+    const task = (id: string) =>
+      waitUntil(
+        async () => (await ok<Task[]>('GET', '/tasks')).find((t) => t.id === id),
+        'the Task',
+      )
+    await waitUntil(async () => ((await task(done.id)).stage === 'done' ? true : undefined), 'Done')
+    const openRun = await waitUntil(async () => (await task(open.id)).leadRunId, 'a Task Lead')
+    await waitUntil(
+      async () => (await client.getRun(openRun)).run.state === 'idle' || undefined,
+      'the open Task’s Run to go idle',
     )
+    await ok('POST', `/tasks/${open.id}/stop`)
+    await waitUntil(
+      async () => (await client.getRun(openRun)).run.state === 'finished' || undefined,
+      'the open Task’s Run to stop',
+    )
+    const doneRun = (await runFolders()).find((id) => id !== openRun) as string
+    expect((await client.getRun(doneRun)).run).toMatchObject({ taskId: done.id, state: 'finished' })
+    const before = await client.call('GET', `/runs/${doneRun}/chat`)
+    expect(JSON.stringify(before.body.items)).toContain('working on it')
+    await daemon?.stop()
+
+    client = await start(6)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    expect((await runFolders()).sort()).toEqual([doneRun, openRun].sort())
+
+    await ok('PATCH', '/settings', { runOutputDays: 5 })
+    await waitUntil(
+      async () => !(await runFolders()).includes(doneRun) || undefined,
+      'the Done Task’s Run output to be removed',
+    )
+    expect(await runFolders()).toEqual([openRun])
+    const chat = await client.call('GET', `/runs/${doneRun}/chat`)
+    expect(chat.status).toBe(200)
+    expect(chat.body.items).toContainEqual({
+      kind: 'ted',
+      id: 'output-not-kept',
+      title: 'Output no longer kept',
+      text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+    })
+    expect((await task(done.id)).stage).toBe('done')
+    const kept = await client.call('GET', `/runs/${openRun}/chat`)
+    expect(JSON.stringify(kept.body.items)).toContain('still here')
   })
 })

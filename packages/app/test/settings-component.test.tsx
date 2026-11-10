@@ -5,6 +5,7 @@ import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
 import { GeneralPage } from '../src/renderer/settings/GeneralPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
+import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 
@@ -71,6 +72,44 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
     [{ startAtLogin: false }],
     [{ stayAwake: false }],
   ])
+})
+
+test('Storage sets how long Run output is kept after a Task is done', async () => {
+  const update = vi.fn()
+  bridge({
+    getStorage: () => ({
+      home: '~/.ted/',
+      usedBytes: 2e9,
+      freeBytes: 80e9,
+      volume: 'Macintosh HD',
+      categories: [{ id: 'conversations-and-logs', label: 'Conversations and logs', bytes: 1e9 }],
+      largestWorktrees: [],
+      removableClones: { count: 0, bytes: 0 },
+      simulators: { count: 0, bytes: 0 },
+      backups: [],
+      backupsDir: '~/.ted/backups/',
+    }),
+    updateSettings: update,
+  })
+  const { rerender } = render(<StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  const group = await screen.findByRole('group', { name: 'Run output' })
+  const days = within(group).getByRole<HTMLSelectElement>('combobox', {
+    name: 'Keep Run output after a Task is done',
+  })
+  expect(days.value).toBe('7')
+  expect(
+    within(days)
+      .getAllByRole('option')
+      .map((o) => o.textContent),
+  ).toEqual(['1 day', '3 days', '7 days', '14 days', '30 days', '90 days', '365 days'])
+  await user().selectOptions(days, '30')
+  expect(update.mock.calls).toEqual([[{ runOutputDays: 30 }]])
+
+  rerender(
+    <StoragePage settings={{ ...defaultMachineSettings, runOutputDays: 45 }} dispatch={vi.fn()} />,
+  )
+  expect(days.value).toBe('45')
+  expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
 })
 
 test('login approval opens the fixed system-settings bridge action', async () => {

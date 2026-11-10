@@ -81,6 +81,30 @@ test('Run chat queues ordinary messages, deletes a queued message and interrupts
   expect(screen.getByText(/Interrupted by you/)).toBeTruthy()
 })
 
+test('Run chat of a finished Run whose output was deleted shows the “Output no longer kept” note', async () => {
+  bridge({
+    getRunChat: (): RunChat => ({
+      run: { ...lead, state: 'finished', current: false },
+      items: [
+        {
+          kind: 'ted',
+          id: 'output-not-kept',
+          title: 'Output no longer kept',
+          text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+        },
+      ],
+    }),
+  })
+  render(<Conversation runId="r1" />)
+  await user().click(await screen.findByText('Output no longer kept'))
+  expect(
+    await screen.findByText(
+      'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+    ),
+  ).toBeTruthy()
+  expect(screen.getByText('From TED')).toBeTruthy()
+})
+
 test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses to its summary', async () => {
   const open = vi.fn()
   const api = bridge({ stopRun: vi.fn() })

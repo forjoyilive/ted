@@ -17,6 +17,7 @@ import {
   type MachineSettings,
   priorities,
   quitChoices,
+  runOutputDayLimits,
   type StatusFilter,
   simulatorSlotLimits,
   taskStatusKinds,
@@ -229,6 +230,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const { min, max } = simulatorSlotLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
       throw new HttpError(400, `maxBootedSimulators must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  runOutputDays(value) {
+    const { min, max } = runOutputDayLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `runOutputDays must be a whole number from ${min} to ${max}`)
     }
     return value
   },
