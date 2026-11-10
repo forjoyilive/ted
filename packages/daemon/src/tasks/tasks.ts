@@ -208,6 +208,7 @@ import {
   reviewMissing,
 } from './merge.ts'
 import { placeBetween } from './order.ts'
+import { overnightGuidance } from './overnight.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import {
   createPullRequests,
@@ -537,6 +538,8 @@ export function createTasks(options: {
   const silent = new Map<string, string>()
   const pausedAt = new Map<string, number>()
   const recovering = new Set<string>()
+  const overnightSeen = new Map<string, boolean>()
+  let overnightChangedAt = new Date().toISOString()
   const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
@@ -866,7 +869,8 @@ export function createTasks(options: {
       !deleting.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
-      store.getFactory(task.factoryId)?.autoStartBacklog === true &&
+      (store.settings().overnightMode ||
+        store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
   }
@@ -3214,7 +3218,9 @@ export function createTasks(options: {
     const entries = factoryRepos(resolution.workflow, factoryOf(current))
     const cwd = runFolderOf(current, entries)
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
+    const overnightMode = store.settings().overnightMode
     const prompt = [
+      overnightGuidance(overnightMode),
       ...(resumeSession === undefined
         ? [
             await taskLeadPrompt(
@@ -3251,6 +3257,7 @@ export function createTasks(options: {
       ...(lead.model !== undefined && { model: lead.model }),
       ...(lead.effort !== undefined && { effort: lead.effort }),
     })
+    overnightSeen.set(run.id, overnightMode)
     store.commentsDelivered(
       waiting.comments.map((c) => c.id),
       run.id,
@@ -4005,7 +4012,9 @@ export function createTasks(options: {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
-    await runs.send(run.id, text)
+    const mode = store.settings().overnightMode
+    await runs.send(run.id, `${text}\n\n${overnightGuidance(mode)}`)
+    overnightSeen.set(run.id, mode)
     return true
   }
 
@@ -5620,7 +5629,11 @@ export function createTasks(options: {
       const repo = task.repos.find((r) => !r.removed)
       const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
       await runs.revive(run.id, {
-        prompt: [revivedMessage(reason), ...editedSince(task)].join('\n\n'),
+        prompt: [
+          overnightGuidance(store.settings().overnightMode),
+          revivedMessage(reason),
+          ...editedSince(task),
+        ].join('\n\n'),
         env: { ...env, TED_TASK: task.displayId },
       })
       await sendWaiting(task.id)
@@ -5825,6 +5838,25 @@ export function createTasks(options: {
 
   options.steering.addSource({
     pending(run) {
+      if (run.state !== 'working' || run.taskId === undefined) return []
+      const task = store.getTask(run.taskId)
+      const mode = store.settings().overnightMode
+      if (task?.leadRunId !== run.id || overnightSeen.get(run.id) === mode) return []
+      return [
+        {
+          id: `overnight:${mode}`,
+          text: overnightGuidance(mode),
+          at: overnightChangedAt,
+        },
+      ]
+    },
+    delivered(run, ids) {
+      overnightSeen.set(run.id, ids.includes('overnight:true'))
+    },
+  })
+
+  options.steering.addSource({
+    pending(run) {
       const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
       if (!task || liveLead(task)?.id !== run.id) return []
       return waitingForRun(task.id).comments.map((comment) => ({
@@ -6009,6 +6041,17 @@ export function createTasks(options: {
   }
 
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'settings-changed') {
+      overnightChangedAt = new Date().toISOString()
+      for (const run of store.listRuns()) {
+        if (run.state === 'working') options.steering.syncQueuedFlag(run.id)
+      }
+    }
+    if (event.type === 'run-updated') {
+      if (event.run.state === 'finished') overnightSeen.delete(event.run.id)
+      else if (event.run.state === 'working') options.steering.syncQueuedFlag(event.run.id)
+    }
+
     if (
       event.type === 'task-created' ||
       event.type === 'task-updated' ||

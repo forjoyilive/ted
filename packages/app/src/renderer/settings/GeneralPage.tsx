@@ -3,6 +3,7 @@ import { systemTimeZone } from '@ted/protocol/time'
 import { useEffect, useState } from 'react'
 import type { LoginItemState } from '../../login-item.ts'
 import { PersonAvatar } from '../components/Avatar.tsx'
+import { useOvernightChange } from '../overnight.ts'
 import { useProfile } from '../profile.tsx'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
@@ -67,6 +68,7 @@ function loginItemNote(state: LoginItemState | undefined): string | undefined {
 }
 
 export function GeneralPage({ settings }: SettingsPageProps) {
+  const overnight = useOvernightChange()
   const now = useNow()
   const systemZone = systemTimeZone()
   const zones = [...new Set([systemZone, 'UTC', ...(Intl.supportedValuesOf?.('timeZone') ?? [])])]
@@ -172,6 +174,24 @@ export function GeneralPage({ settings }: SettingsPageProps) {
           Automations keep their scheduled clock times when the zone changes. Choose a fixed zone to
           keep schedules in that zone when you travel.
         </p>
+      </SettingsGroup>
+
+      <SettingsGroup label="Overnight mode">
+        <SettingRow
+          title="Overnight mode across all Factories"
+          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Task Leads finish independent work and leave blocking questions and approvals in the Inbox."
+          detail={
+            overnight.problem ??
+            'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'
+          }
+        >
+          <Switch
+            label="Overnight mode across all Factories"
+            checked={settings.overnightMode}
+            disabled={overnight.saving}
+            onChange={(enabled) => void overnight.change(enabled)}
+          />
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup label="Startup and quitting">

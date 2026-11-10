@@ -1038,6 +1038,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           navigation={navigation}
           factories={factories}
           currentFactoryId={currentFactoryId(navigation, tasks)}
+          {...(settings && { overnightMode: settings.overnightMode })}
           inboxCount={inboxCount}
           badges={factoryBadges(waiting, factoriesStoppingWork(banners), drift)}
           settingsProblem={settingsStopsWork(banners)}

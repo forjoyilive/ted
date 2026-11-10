@@ -26,6 +26,7 @@ export interface MachineSettings {
   terminalFontSize: number
   profilePicture: string | null
   developerMode: boolean
+  overnightMode: boolean
   maxWorkingRuns: number
   maxBootedSimulators: number
   quitWithWorkRunning: QuitChoice
@@ -55,6 +56,7 @@ export const defaultMachineSettings: MachineSettings = {
   terminalFontSize: 13,
   profilePicture: null,
   developerMode: false,
+  overnightMode: false,
   maxWorkingRuns: 6,
   maxBootedSimulators: 3,
   quitWithWorkRunning: 'ask',

@@ -174,10 +174,12 @@ export function Stepper({
 export function Switch({
   label,
   checked,
+  disabled = false,
   onChange,
 }: {
   label: string
   checked: boolean
+  disabled?: boolean
   onChange: (checked: boolean) => void
 }) {
   return (
@@ -186,6 +188,7 @@ export function Switch({
       role="switch"
       aria-label={label}
       aria-checked={checked}
+      disabled={disabled}
       className={styles.switch}
       onClick={() => onChange(!checked)}
     >

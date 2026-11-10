@@ -1,6 +1,7 @@
 import type { Factory } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
+import { useOvernightChange } from '../overnight.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
 import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
@@ -28,6 +29,7 @@ interface SidebarProps {
   navigation: Navigation
   factories: readonly Factory[]
   currentFactoryId: string | undefined
+  overnightMode?: boolean
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
@@ -161,6 +163,7 @@ export function Sidebar({
   factories,
   currentFactoryId,
   inboxCount,
+  overnightMode,
   badges = {},
   settingsProblem = false,
   footer = {},
@@ -175,6 +178,7 @@ export function Sidebar({
   onAddFactory,
   onRemoveFactory,
 }: SidebarProps) {
+  const overnight = useOvernightChange()
   const [menu, setMenu] = useState<{ factoryId: string; x: number; y: number }>()
   const [renaming, setRenaming] = useState<string>()
   const [dragging, setDragging] = useState<number>()
@@ -413,6 +417,25 @@ export function Sidebar({
       </button>
 
       <div className={styles.spacer} />
+
+      <button
+        type="button"
+        className={`${styles.row} ${overnightMode ? styles.overnightActive : ''}`}
+        disabled={overnight.saving || overnightMode === undefined}
+        aria-pressed={overnightMode ?? false}
+        title="Start eligible Backlog Tasks across all Factories; save questions in the Inbox."
+        onClick={() => void overnight.change(!overnightMode)}
+      >
+        <span className={styles.label}>
+          {overnightMode ? 'Turn off overnight mode' : 'Turn on overnight mode'}
+        </span>
+      </button>
+      {overnightMode && <p className={styles.overnightNote}>On · all Factories</p>}
+      {overnight.problem && (
+        <p className={styles.orderError} role="alert">
+          {overnight.problem}
+        </p>
+      )}
 
       <button
         type="button"
