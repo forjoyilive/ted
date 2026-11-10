@@ -237,6 +237,13 @@ describe('Inbox and Gates', () => {
       }),
     )
     await addFactory(origin, 'NB')
+    // The stub’s first message after its prompt is TED’s Clarify brief; the next is the
+    // human’s answer, and only then may it propose, as a real Task Lead would.
+    const proposeOnce = [
+      { everyMessage: [] },
+      { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+      { endTurn: true },
+    ]
     await ted(
       'task',
       'create',
@@ -255,8 +262,7 @@ describe('Inbox and Gates', () => {
               'Offline editing spans storage, sync and the editor.',
             ],
           },
-          { endTurn: true },
-          { run: ['ted', 'task', 'propose', '--file', proposalFile] },
+          { everyMessage: [{ everyMessage: proposeOnce }, { endTurn: true }] },
           { endTurn: true },
         ],
       }),
@@ -347,8 +353,14 @@ describe('Full Inbox', () => {
     await chip('All 3').click()
     await expect.poll(headlines).toHaveLength(3)
 
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
     await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     expect(await chip('notebook 2').getAttribute('aria-pressed')).toBe('true')
+    await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await window.getByRole('heading', { name: /notebook.*Board/ }).waitFor()
+    await sidebar(window).getByRole('button', { name: '2 waiting in notebook' }).click()
     await expect.poll(headlines).toEqual(['Urgent question?', 'Low question?'])
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })

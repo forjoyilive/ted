@@ -28,7 +28,16 @@ import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { Shells } from './shells.ts'
 import type { Storage } from './storage.ts'
-import { checkStore, readStoreMeta, removeStaleStateFiles, writeStoreMeta } from './store/files.ts'
+import { type CompactOptions, compactOutputEvents, hasOutputToCompact } from './store/compact.ts'
+import {
+  checkStore,
+  eventCount,
+  markOutputCompaction,
+  readOutputCompaction,
+  readStoreMeta,
+  removeStaleStateFiles,
+  writeStoreMeta,
+} from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
 import { plural } from './text.ts'
@@ -69,6 +78,7 @@ export interface DataOptions {
   now?: () => Date
   dailyCheckMs?: number
   progressEveryMs?: number
+  compaction?: Pick<CompactOptions, 'beforeVerify'>
 }
 
 export interface Data {
@@ -163,11 +173,12 @@ export function createData(options: DataOptions): Data {
 
     const rebuilding = check.kind === 'rebuild'
     let progress = { done: 0, total: rebuilding ? check.events : 0 }
-    const startedAt = Date.now()
+    let backedUp = false
     if (rebuilding) {
       if (backUp && !(await alreadyBackedUp(meta?.lastOpenedBy))) {
         try {
           await backups.takePreUpdate(meta?.lastOpenedBy)
+          backedUp = true
         } catch (error) {
           setStatus(
             await failedStatus(
@@ -177,8 +188,14 @@ export function createData(options: DataOptions): Data {
           return
         }
       }
-      setStatus(updating(progress, startedAt))
     }
+    if (backUp && check.kind !== 'empty') {
+      await compactOutput(meta?.lastOpenedBy, backedUp).catch((error: unknown) => {
+        console.error(redactSecrets(`checking the event log for old Run output failed: ${error}`))
+      })
+    }
+    const startedAt = Date.now()
+    if (rebuilding) setStatus(updating(progress, startedAt))
 
     let store: TedStore
     try {
@@ -204,7 +221,13 @@ export function createData(options: DataOptions): Data {
       return
     }
 
-    await writeStoreMeta(paths.store, { lastOpenedBy: version, lastOpenedAt: now().toISOString() })
+    await writeStoreMeta(paths.store, {
+      lastOpenedBy: version,
+      lastOpenedAt: now().toISOString(),
+      ...(check.kind === 'empty' && {
+        outputCompaction: { state: 'done', by: version, at: now().toISOString(), rewritten: 0 },
+      }),
+    })
     if (rebuilding) await removeStaleStateFiles(paths.store)
     const started = await options.startServices(store, emit)
     const unsubscribeStore = store.subscribe(emit)
@@ -219,6 +242,62 @@ export function createData(options: DataOptions): Data {
     }
     setStatus({ state: 'ready' })
     await takeDaily()
+  }
+
+  async function compactOutput(dataFrom: string | undefined, backedUp: boolean): Promise<void> {
+    const marker = await readOutputCompaction(paths.store)
+    if (marker && (marker.state === 'done' || marker.by === version)) return
+    const at = () => now().toISOString()
+    if (!(await hasOutputToCompact(paths.store))) {
+      await markOutputCompaction(paths.store, {
+        state: 'done',
+        by: version,
+        at: at(),
+        rewritten: 0,
+      })
+      return
+    }
+    const startedAt = Date.now()
+    setStatus(updating({ done: 0, total: await eventCount(paths.store) }, startedAt))
+    if (!backedUp) {
+      try {
+        await backups.takePreUpdate(dataFrom)
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error)
+        console.error(
+          redactSecrets(`couldn’t copy the data, so the event log stays as it is: ${reason}`),
+        )
+        return
+      }
+    }
+    const result = await compactOutputEvents(paths.store, {
+      ...options.compaction,
+      onProgress: (next) => {
+        const at = Date.now()
+        if (next.done === next.total || at - lastProgressAt >= (options.progressEveryMs ?? 100)) {
+          lastProgressAt = at
+          setStatus(updating(next, startedAt))
+        }
+      },
+    })
+    if (result.kind === 'failed') {
+      const reason = redactSecrets(result.reason)
+      console.error(`compacting the event log failed, so it stays as it is: ${reason}`)
+      await markOutputCompaction(paths.store, { state: 'failed', by: version, at: at(), reason })
+      return
+    }
+    const { rewritten, bytesBefore, bytesAfter } = result
+    console.log(
+      `compacted the event log: ${plural(rewritten, 'old Run output event')} rewritten, ${bytesBefore} bytes before, ${bytesAfter} after`,
+    )
+    await markOutputCompaction(paths.store, {
+      state: 'done',
+      by: version,
+      at: at(),
+      rewritten,
+      bytesBefore,
+      bytesAfter,
+    })
   }
 
   async function alreadyBackedUp(dataFrom: string | undefined): Promise<boolean> {

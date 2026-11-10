@@ -184,10 +184,10 @@ export const runRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/runs\/([^/]+)$/,
-    async handle({ params: [id = ''] }, { store }) {
+    async handle({ params: [id = ''] }, { store, runs }) {
       const run = store.getRun(id)
       if (!run) throw new HttpError(404, 'no such Run')
-      return [200, { run, conversation: store.conversation(id) }]
+      return [200, { run, conversation: runs.output.entries(run.id) }]
     },
   },
 ]

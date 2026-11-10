@@ -189,6 +189,47 @@ test.each([
   expect(api.answer).not.toHaveBeenCalled()
 })
 
+test.each([
+  [
+    'Finish the current Stage and move the Task on.',
+    'Finish the current Stage and move the Task on.',
+  ],
+  ['', 'The agent didn’t provide an explanation for this request.'],
+  [' \n\t ', 'The agent didn’t provide an explanation for this request.'],
+])('permission card explains a request with body %j', (body, explanation) => {
+  requestApi()
+  const view = render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'permission',
+        title: 'Run a command',
+        body,
+        permission: { command: '/tmp/ted-run-c58cea04.sh outcome advance', repo: 'ted' },
+      })}
+    />,
+  )
+  expect(screen.getByText(explanation)).toBeTruthy()
+  expect(screen.getByText(/\/tmp\/ted-run-c58cea04.sh outcome advance/).textContent).toBe(
+    'ted $ /tmp/ted-run-c58cea04.sh outcome advance',
+  )
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Deny' })).toBeTruthy()
+  view.rerender(
+    <AnsweredCard
+      task={task()}
+      request={comment({
+        kind: 'permission',
+        title: 'Run a command',
+        body,
+        permission: { command: '/tmp/ted-run-c58cea04.sh outcome advance', repo: 'ted' },
+        answer: { kind: 'approved', at: createdAt },
+      })}
+    />,
+  )
+  expect(screen.getByText(explanation)).toBeTruthy()
+})
+
 test.each(['approve', 'deny'] as const)(
   'permission card sends %s with command and optional comment',
   async (action) => {

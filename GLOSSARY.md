@@ -37,8 +37,12 @@ The holding Stage at the end of a Workflow where a Task sits once all of its pul
 _Avoid_: Closed, complete, shipped
 
 **Gate**:
-A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task.
+A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its Gate. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. Overnight mode turns these Gates off while it is on; Gates TED forces stay.
 _Avoid_: Approval step, checkpoint
+
+**Overnight mode**:
+A machine setting, off by default, for running Tasks without the human. While on, TED starts eligible Backlog Tasks in every Factory, and Gates set in the Workflow or on one Task count as off, the Merge Gate included. Gates TED forces (a setup Task, Clarify at grilling depth), Gate requests already open, questions and permission prompts still wait for the human. A Task whose changes touch `.ted/` keeps every Gate it has with the mode off, and its Review Gate is on, so Workflow changes never merge unseen.
+_Avoid_: Night mode, autopilot
 
 **Stage file**:
 The Markdown instructions an agent follows while a Task is in that Stage.
@@ -49,7 +53,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work.
+A command a Factory lists for Validate, which TED runs itself; it passes when the command exits cleanly, and a failure sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
@@ -109,7 +113,7 @@ How urgent a Task is (Urgent, High, Medium, Low, or None); together with the Tas
 _Avoid_: Severity, importance
 
 **Queued**:
-The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs; a queued Task waits at the start of Intake. A status, not a Stage.
+The status of a started Task, or of a new Automation or Planning Run, waiting for a free slot under the machine’s or Factory’s limit on working Runs, or for this computer to be less busy when **Start fewer Runs when this computer is busy** is on; a queued Task waits at the start of Intake. A status, not a Stage.
 _Avoid_: Pending, ready
 
 **Paused**:
@@ -129,7 +133,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s explicit requests to start Backlog Tasks or reorder waiting Tasks. It works only when messaged; each Task keeps its own Task Lead.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s explicit requests to start Backlog Tasks, reorder waiting Tasks, send a Task Lead a message, or answer a question a Run asked or a question with choices that TED asked. It works only when messaged; each Task keeps its own Task Lead.
 _Avoid_: Foreman, manager, supervisor
 
 **Sub-agent**:

@@ -17,7 +17,7 @@
 }
 
 .workflowRow {
-  grid-template-columns: 92px 36px 36px 60px 104px 68px minmax(0, 1fr);
+  grid-template-columns: 92px 36px 56px 60px 104px 68px minmax(0, 1fr);
 }
 
 .checkRow {
@@ -48,6 +48,12 @@
   border-top: none;
   color: var(--text-caption);
   font-size: var(--text-12);
+}
+
+.gateHeading {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .stageBlock,

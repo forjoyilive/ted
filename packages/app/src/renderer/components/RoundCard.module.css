@@ -139,7 +139,7 @@
 }
 
 .written .text {
-  min-height: 56px;
+  min-height: 128px;
   border: none;
   background: transparent;
   line-height: var(--leading-body);

@@ -144,8 +144,10 @@ describe('New Task drafts', () => {
     if (!first || !second) throw new Error('missing Factory')
     await form(window).getByLabel('Description', { exact: true }).fill('Notebook draft')
     await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
+    await expect
+      .poll(() => form(window).getByLabel('Description', { exact: true }).inputValue())
+      .toBe('')
     await waitFor(() => form(window).getByLabel('Description', { exact: true }).isEnabled())
-    expect(await form(window).getByLabel('Description', { exact: true }).inputValue()).toBe('')
     await form(window).getByLabel('Description', { exact: true }).fill('Site draft')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByLabel('Factory', { exact: true }).selectOption(first.id)
