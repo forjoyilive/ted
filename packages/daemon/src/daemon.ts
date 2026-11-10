@@ -328,6 +328,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       }
       await workflows.inherited().catch(() => undefined)
       let coordinators: Coordinators | undefined
+      let taskDeliveryAllowed = (_runId: string) => true
       const steering = createSteering({
         home: paths.home,
         store,
@@ -336,8 +337,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           run.taskId !== undefined && store.getTask(run.taskId)?.leadRunId === run.id,
         deliveryFinished: (runId, error) => coordinators?.deliveryFinished(runId, error),
         canDeliver: (runId, admitted) =>
-          !store.coordinators.forRun(runId) ||
-          coordinators?.deliveryAllowed(runId, admitted) === true,
+          taskDeliveryAllowed(runId) &&
+          (!store.coordinators.forRun(runId) ||
+            coordinators?.deliveryAllowed(runId, admitted) === true),
       })
       let plans: Plans | undefined
       const tasks = createTasks({
@@ -380,6 +382,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...(process.env.TED_SANDBOX_BIN && { program: process.env.TED_SANDBOX_BIN }),
         }),
       })
+      taskDeliveryAllowed = (runId) => tasks.deliveryAllowed(runId)
       const shells = createShells({
         async target(ref, repo) {
           const access = await tasks.worktreeAccess(ref, repo)

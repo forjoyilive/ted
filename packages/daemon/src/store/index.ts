@@ -255,6 +255,8 @@ export interface NewFactory {
 }
 
 export interface StoredTask extends Task {
+  pendingLeadMessage?: string
+  leadRestartPending: boolean
   forcedGates: AgentStageId[]
   changesSettings: boolean
   worktree?: string
@@ -313,6 +315,7 @@ export interface PlannedStage {
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
   order: PlannedStage[]
+  effort?: Effort
 }
 
 export interface NewWorktree {
@@ -628,6 +631,9 @@ export interface TedStore {
   rememberStageFileText(seen: SeenStageFile): void
   seenStageFileText(hash: string): SeenStageFile | undefined
   setTaskLead(taskId: string, lead: TaskLead): Task
+  setLeadRestartPending(taskId: string, pending: boolean): void
+  holdLeadMessage(taskId: string, text: string): void
+  deliveredLeadMessage(taskId: string, text: string): void
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
   setClarifyDepth(
     taskId: string,
@@ -1195,6 +1201,9 @@ export async function openStore({
     leadAgent,
     leadModel,
     leadEffort,
+    leadEffortMode,
+    stageEffort,
+    pendingLeadMessage,
     rank,
     changedAt,
     archivedAt,
@@ -1392,10 +1401,13 @@ export async function openStore({
       ...(leadAgent !== null && {
         lead: {
           agent: leadAgent as AgentKind,
+          ...(leadEffortMode === 'stage' && { effortMode: 'stage' as const }),
           ...(leadModel !== null && { model: leadModel }),
           ...(leadEffort !== null && { effort: leadEffort as Effort }),
         },
       }),
+      ...(stageEffort !== null && { stageEffort: stageEffort as Effort }),
+      ...(pendingLeadMessage !== null && { pendingLeadMessage }),
       blockedBy,
       waitsForBlockers,
       stopped: stoppedAt !== null,
@@ -1474,6 +1486,8 @@ export async function openStore({
   }
 
   const toPublicTask = ({
+    pendingLeadMessage: _______,
+    leadRestartPending: ________,
     forcedGates: _____,
     changesSettings: ______,
     worktree: _,
@@ -1670,10 +1684,11 @@ export async function openStore({
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEnteredV2({
+    events.taskStageEnteredV3({
       id: randomUUID(),
       taskId,
       stage,
+      effort: entry.effort ?? null,
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
@@ -2350,6 +2365,9 @@ export async function openStore({
           startRequested,
           createdAt: at,
         }),
+        ...(lead?.effortMode === 'stage'
+          ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
+          : []),
         events.taskRanked({ taskId: id, rank: nextRank(), at }),
         ...blockedBy.map((blockerId) =>
           events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
@@ -3164,8 +3182,13 @@ export async function openStore({
         }
       )
     },
-    setTaskLead(taskId, { agent, model, effort }) {
+    setTaskLead(taskId, { agent, model, effort, effortMode }) {
       commit(
+        events.taskLeadEffortModeSet({
+          taskId,
+          mode: effortMode ?? null,
+          at: new Date().toISOString(),
+        }),
         events.taskLeadSet({
           taskId,
           agent,
@@ -3175,6 +3198,30 @@ export async function openStore({
         }),
       )
       return updatedTask(taskId)
+    },
+    setLeadRestartPending(taskId, pending) {
+      commit(events.taskLeadRestartPendingSet({ taskId, pending, at: new Date().toISOString() }))
+    },
+    holdLeadMessage(taskId, text) {
+      const previous = requireTaskRow(taskId).pendingLeadMessage
+      commit(
+        events.taskLeadMessageHeld({
+          taskId,
+          text: previous === null ? text : `${previous}\n\n${text}`,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    deliveredLeadMessage(taskId, text) {
+      const pending = requireTaskRow(taskId).pendingLeadMessage
+      if (pending === null || !pending.startsWith(text)) return
+      commit(
+        events.taskLeadMessageHeld({
+          taskId,
+          text: pending === text ? null : pending.slice(text.length + 2),
+          at: new Date().toISOString(),
+        }),
+      )
     },
     setTaskGates(taskId, overrides) {
       commit(

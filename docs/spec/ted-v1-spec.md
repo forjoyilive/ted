@@ -283,6 +283,7 @@ Rules:
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. | KRI-12 |
+| `stages.<id>.effort` | any layer | Task Lead effort for this working Stage: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. Optional; Backlog and Done take no effort. | KRI-67 |
 | `stages.<id>.gate` | any layer | `true` puts a Gate at the end of the Stage. | KRI-12 |
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage (6.7). UI label: **Send-backs**. | KRI-12, KRI-58, KRI-65 |
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
@@ -292,8 +293,10 @@ Rules:
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
 
 - **Defaults:** Gates on Design and Review; Merge on with no Gate; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
-- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. Effort per Stage is not in v1 (KRI-67). (KRI-15, KRI-53, KRI-54, KRI-57)
+- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
 - An unknown key is a warning, not an error, so a newer file still loads. (KRI-58)
+
+A new Task follows Stage effort settings unless the human explicitly chooses its effort. Precedence is a fixed per-Task effort (including CLI default), then the effective Stage effort, then the Task’s saved lead effort, then the CLI default. Existing Tasks keep their saved effort fixed until the human selects **Follow Stage settings**. Stage effort is resolved at Stage entry; later Workflow edits apply at the next Stage. The Run and conversation stay the same: TED resumes with the new effort at idle, before delivering the new Stage’s instructions. Returning to an unconfigured Stage restores the saved lead effort. Library and Factory Workflow tables expose **Task Lead effort** with an **Inherit** option; removing a local override restores inheritance. `ted task lead <id> claude|codex --stage-effort` follows Stage settings; existing lead commands without this option keep fixed effort semantics. Reviewer, sub-agent, Planning and Automation settings are unchanged. (KRI-67)
 
 ### 4.6 `repos`
 
@@ -1388,7 +1391,6 @@ From the map (KRI-8) and every issue labelled `later`:
 - Watching for `--bare` becoming the default: [KRI-45](https://linear.app/kriyadesign/issue/KRI-45)
 - Inbox ideas from the rejected layouts, including number keys for choices: [KRI-46](https://linear.app/kriyadesign/issue/KRI-46)
 - Android emulator Apps: [KRI-47](https://linear.app/kriyadesign/issue/KRI-47)
-- Effort per Stage: [KRI-67](https://linear.app/kriyadesign/issue/KRI-67)
 - Saved List views: [KRI-68](https://linear.app/kriyadesign/issue/KRI-68)
 - Searching Run Conversations: [KRI-69](https://linear.app/kriyadesign/issue/KRI-69)
 - Sharing Automations through the repo: [KRI-70](https://linear.app/kriyadesign/issue/KRI-70)

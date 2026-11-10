@@ -291,7 +291,7 @@ export function createSteering(options: {
       }
       return serially(runId, async () => {
         const live = requireLive(runId)
-        if (live.state === 'working') {
+        if (live.state === 'working' || !options.canDeliver(runId, false)) {
           const message = store.queueRunMessage({ runId, text })
           syncFlag(runId)
           return message

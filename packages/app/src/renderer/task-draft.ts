@@ -174,6 +174,7 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
     (!record(lead) ||
       !agentKinds.some((a) => a === lead.agent) ||
       (lead.model !== undefined && typeof lead.model !== 'string') ||
+      (lead.effortMode !== undefined && lead.effortMode !== 'stage') ||
       (lead.effort !== undefined && !efforts.some((e) => e === lead.effort)))
   )
     return undefined

@@ -550,3 +550,32 @@ describe('Factory settings: an invalid file', () => {
     )
   })
 })
+
+test('Stage effort overrides Library effort and Inherit removes only the Factory value', async () => {
+  const client = await start()
+  await mkdir(path.join(home, 'library'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'workflow.yaml'),
+    'version: 1\nstages:\n  work: { effort: medium }\n',
+  )
+  const before = await client.settings()
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: null,
+    inheritedEffort: 'medium',
+    inheritedEffortFrom: 'library',
+  })
+  const changes = { ...unchanged(before), stages: { work: { effort: 'high' as const } } }
+  await client.save(changes, before.version)
+  expect(await originFile('.ted/workflow.yaml')).toContain('effort: high')
+  const after = await client.settings()
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({
+    effort: 'high',
+    inheritedEffort: 'medium',
+  })
+  const preview = await client.preview({ ...unchanged(after), stages: { work: { effort: null } } })
+  expect(preview.valid).toBe(true)
+  expect(preview.files.find((f) => f.path === '.ted/workflow.yaml')?.lines).toContainEqual({
+    kind: 'removed',
+    text: '    effort: high',
+  })
+})

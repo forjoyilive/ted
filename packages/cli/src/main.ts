@@ -132,7 +132,7 @@ const usage = `Usage:
   ted task repos remove <name> [--yes]       Remove a repo (--yes: even if it has commits)
   ted backup list                            List backups of TED’s data, newest first
   ted backup restore <name> [--yes]          Restore a backup (asks before stopping Runs)
-  ted task lead <id> claude|codex [--model <name>] [--effort <level>]
+  ted task lead <id> claude|codex [--model <name>] [--effort <level> | --stage-effort]
                                              Set the Task Lead’s agent, model and effort
   ted task lead <id> --default-model         Run this Task Lead on the CLI’s default model
                                              when its model isn’t available
@@ -166,6 +166,7 @@ function parse() {
         design: { type: 'string' },
         tutorial: { type: 'boolean' },
         effort: { type: 'string' },
+        'stage-effort': { type: 'boolean' },
         model: { type: 'string' },
         name: { type: 'string' },
         description: { type: 'string' },
@@ -684,6 +685,8 @@ try {
   } else if (group === 'task' && command === 'lead' && rest.length === 2) {
     const [ref = '', agent = ''] = rest
     const { model, effort } = options
+    if (options['stage-effort'] && effort !== undefined)
+      throw new UsageError('choose --stage-effort or --effort')
     if (!agentKinds.includes(agent as AgentKind))
       throw new UsageError('agent must be claude or codex')
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
@@ -691,6 +694,7 @@ try {
     }
     const lead: TaskLead = {
       agent: agent as AgentKind,
+      ...(options['stage-effort'] && { effortMode: 'stage' as const }),
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort: effort as Effort }),
     }
@@ -1030,8 +1034,12 @@ async function workflowCheck(target: string): Promise<void> {
   if (errors > 0) process.exitCode = 1
 }
 
-function describeLead({ agent, model, effort }: TaskLead): string {
-  return [agent, model ?? 'default model', effort ?? 'default effort'].join(' · ')
+function describeLead({ agent, model, effort, effortMode }: TaskLead): string {
+  return [
+    agent,
+    model ?? 'default model',
+    effortMode === 'stage' ? 'Follow Stage settings' : (effort ?? 'default effort'),
+  ].join(' · ')
 }
 
 function formatRun({ run, conversation }: RunWithConversation): string {

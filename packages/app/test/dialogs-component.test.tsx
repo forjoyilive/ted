@@ -195,3 +195,32 @@ test('Model unavailable offers the default model and sends the human’s choice'
   await act(async () => api.emit({ type: 'run-updated', run }))
   expect(screen.queryByText('Model unavailable')).toBeNull()
 })
+
+test('following Stage effort survives a model edit and can be replaced with explicit CLI default', async () => {
+  const api = bridge({ setTaskLead: () => task() })
+  render(
+    <TaskLeadField
+      task={task({
+        lead: { agent: 'claude', model: 'opus', effort: 'medium', effortMode: 'stage' },
+        stageEffort: 'high',
+      })}
+    />,
+  )
+  expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
+  const u = user()
+  await u.clear(screen.getByLabelText('Model'))
+  await u.type(screen.getByLabelText('Model'), 'sonnet')
+  await u.click(screen.getByRole('button', { name: 'Save' }))
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
+    agent: 'claude',
+    model: 'sonnet',
+    effort: 'medium',
+    effortMode: 'stage',
+  })
+  await u.selectOptions(screen.getByLabelText('Effort'), '')
+  await u.click(screen.getByRole('button', { name: 'Save' }))
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
+    agent: 'claude',
+    model: 'sonnet',
+  })
+})

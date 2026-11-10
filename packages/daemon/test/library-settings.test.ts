@@ -360,3 +360,19 @@ describe('restart idle Runs onto new agent versions', () => {
     expect(await starts()).toHaveLength(1)
   })
 })
+
+test('Stage effort saves and removing it restores inheritance without losing other Stage settings', async () => {
+  const client = await start()
+  const before = await client.view()
+  const after = await client.save(
+    { stages: { work: { effort: 'high', maxBack: 2 } } },
+    before.version,
+  )
+  expect(after.stages.find((s) => s.id === 'work')).toMatchObject({ effort: 'high', maxBack: 2 })
+  const reset = await client.save({ stages: { work: { effort: null } } }, after.version)
+  expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ effort: null, maxBack: 2 })
+  expect(await libraryFile('workflow.yaml')).not.toContain('effort:')
+  for (const stages of [{ work: { effort: 'huge' } }, { done: { effort: 'high' } }]) {
+    expect((await client.call('POST', '/library/preview', { stages })).status).toBe(400)
+  }
+})

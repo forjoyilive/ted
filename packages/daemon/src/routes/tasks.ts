@@ -860,7 +860,9 @@ function taskLead(body: unknown, name?: string): TaskLead {
   if (agent === undefined) {
     throw new HttpError(400, `${name === undefined ? '' : `${name}.`}agent must be claude or codex`)
   }
-  return { agent, ...rest }
+  const mode = (body as Record<string, unknown>).effortMode
+  if (mode !== undefined && mode !== 'stage') throw new HttpError(400, 'effortMode must be stage')
+  return { agent, ...rest, ...(mode === 'stage' && { effortMode: mode }) }
 }
 
 async function createTaskInput(body: unknown, attachments: Attachments): Promise<CreateTaskInput> {

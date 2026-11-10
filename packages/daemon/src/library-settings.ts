@@ -152,6 +152,13 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
         inOrder,
         enabled: inOrder && (id === 'done' || stage?.enabled !== false),
         gate: stage?.gate === true,
+        ...(agent && {
+          effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
+          ...(defaults.settings.stages[id]?.effort !== undefined && {
+            inheritedEffort: defaults.settings.stages[id]?.effort as Effort,
+          }),
+          inheritedEffortFrom: 'ted' as const,
+        }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
         from: libraryFile !== undefined ? 'library' : 'ted',
