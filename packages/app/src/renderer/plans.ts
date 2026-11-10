@@ -1,6 +1,7 @@
 import type { ChatItem, Plan, PlanRequest, PlanStatus } from '@ted/protocol'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
 import { clockTime } from './requests.ts'
+import { formatDate } from './time.ts'
 
 function ordinal(n: number): string {
   const tens = n % 100
@@ -8,11 +9,9 @@ function ordinal(n: number): string {
   return `${n}${suffix}`
 }
 
-const day = new Intl.DateTimeFormat('en-GB', {
-  weekday: 'short',
-  day: 'numeric',
-  month: 'short',
-})
+const day = {
+  format: (at: Date) => formatDate(at, { weekday: 'short', day: 'numeric', month: 'short' }),
+}
 export function when(iso: string): string {
   return `${day.format(new Date(iso)).replace(',', '')} ${clockTime(iso)}`
 }

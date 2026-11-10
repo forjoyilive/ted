@@ -41,15 +41,15 @@ export function inFactory(
   return factoryId === undefined ? items : items.filter((i) => i.task.factoryId === factoryId)
 }
 
-export function nextSelection(
-  before: readonly InboxItem[],
-  now: readonly InboxItem[],
+export function nextSelection<T extends { request: { id: string } }>(
+  before: readonly T[],
+  now: readonly T[],
   selected: string | undefined,
-): InboxItem | undefined {
+): T | null | undefined {
   if (selected === undefined || now.some((i) => i.request.id === selected)) return undefined
   const at = before.findIndex((i) => i.request.id === selected)
   if (at === -1) return undefined
-  const still = (item: InboxItem) => now.find((i) => i.request.id === item.request.id)
+  const still = (item: T) => now.find((i) => i.request.id === item.request.id)
   const after = before
     .slice(at + 1)
     .map(still)
@@ -60,6 +60,8 @@ export function nextSelection(
       .slice(0, at)
       .reverse()
       .map(still)
-      .find((i) => i !== undefined)
+      .find((i) => i !== undefined) ??
+    now[0] ??
+    null
   )
 }

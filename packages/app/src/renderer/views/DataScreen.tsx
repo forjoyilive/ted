@@ -2,6 +2,7 @@ import type { Backup, DataStatus } from '@ted/protocol'
 import { useState } from 'react'
 import { Help } from '../components/Help.tsx'
 import { ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import styles from './DataScreen.module.css'
 
 type ProblemStatus = Exclude<DataStatus, { state: 'ready' } | { state: 'opening' }>
@@ -11,7 +12,7 @@ const count = (n: number) => n.toLocaleString('en-US')
 export const majorMinor = (version: string) => version.split('.').slice(0, 2).join('.')
 
 export function formatBackupDate(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', {
+  return formatDate(iso, {
     day: 'numeric',
     month: 'short',
     year: 'numeric',

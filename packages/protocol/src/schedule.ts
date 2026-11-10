@@ -1,3 +1,6 @@
+import type { TimeFormat } from './settings.ts'
+import { formatClockTime } from './time.ts'
+
 export const weekdays = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 
 export type Weekday = (typeof weekdays)[number]
@@ -532,7 +535,7 @@ export function scheduleFromExpression(text: string): AutomationSchedule {
   return { kind: 'custom', expression }
 }
 
-function timesInWords(times: readonly number[]): string | undefined {
+function timesInWords(times: readonly number[], format: TimeFormat): string | undefined {
   if (times.length > 4) {
     const step = (times[1] ?? 0) - (times[0] ?? 0)
     const regular =
@@ -543,10 +546,14 @@ function timesInWords(times: readonly number[]): string | undefined {
     }
     return undefined
   }
-  return and(times.map(clock))
+  return and(times.map((minutes) => formatClockTime(clock(minutes), format)))
 }
 
-export function describeSchedule(schedule: AutomationSchedule, timeZone: string): string {
+export function describeSchedule(
+  schedule: AutomationSchedule,
+  timeZone: string,
+  format: TimeFormat = '24-hour',
+): string {
   const zone = ` · ${timeZone}`
   switch (schedule.kind) {
     case 'every':
@@ -555,31 +562,31 @@ export function describeSchedule(schedule: AutomationSchedule, timeZone: string)
       }
       return `Every ${schedule.every} minutes`
     case 'daily':
-      return `Daily at ${schedule.at}${zone}`
+      return `Daily at ${formatClockTime(schedule.at, format)}${zone}`
     case 'weekdays':
-      return `Weekdays at ${schedule.at}${zone}`
+      return `Weekdays at ${formatClockTime(schedule.at, format)}${zone}`
     case 'weekly': {
       const days = weekdays.filter((d) => schedule.days.includes(d)).map((d) => weekdayLabels[d])
-      return `${and(days)} at ${schedule.at}${zone}`
+      return `${and(days)} at ${formatClockTime(schedule.at, format)}${zone}`
     }
     case 'custom': {
       const simple = scheduleFromExpression(schedule.expression)
-      if (simple.kind !== 'custom') return describeSchedule(simple, timeZone)
+      if (simple.kind !== 'custom') return describeSchedule(simple, timeZone, format)
       let rule: Rule
       try {
         rule = expressionRule(schedule.expression)
       } catch {
         return `Custom: ${schedule.expression}`
       }
-      return describeRule(rule, timeZone) ?? `Custom: ${schedule.expression}${zone}`
+      return describeRule(rule, timeZone, format) ?? `Custom: ${schedule.expression}${zone}`
     }
   }
 }
 
-function describeRule(rule: Rule, timeZone: string): string | undefined {
+function describeRule(rule: Rule, timeZone: string, format: TimeFormat): string | undefined {
   const times = rule.step
     ? `Every ${rule.step.every} ${rule.step.unitMinutes === 60 ? 'hours' : 'minutes'}`
-    : timesInWords(rule.times)
+    : timesInWords(rule.times, format)
   if (times === undefined) return undefined
   const repeating = times.startsWith('Every')
   const days: string[] = []

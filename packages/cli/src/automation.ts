@@ -23,7 +23,6 @@ export interface AutomationOptions {
   factory?: string
   name?: string
   schedule?: string
-  tz?: string
   'prompt-file'?: string
   template?: string
   agent?: string
@@ -36,7 +35,7 @@ export const automationUsage = `  ted automation list                        Lis
   ted automation show <id>                   Show an Automation: schedule, next firings, prompt
   ted automation history <id>                Show an Automation’s Runs, newest first
   ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>
-                [--tz <zone>] [--template linear|sentry|github] [--agent claude|codex]
+                [--template linear|sentry|github] [--agent claude|codex]
                 [--model <name>] [--effort <level>] [--off]
                                              Create an Automation (a template fills in what you
                                              leave out)
@@ -162,7 +161,6 @@ async function createInput(
     name,
     prompt,
     schedule,
-    timeZone: fields.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     ...(template && { template: template.id }),
     ...(options.factory !== undefined && { factory: options.factory }),
   }
@@ -174,7 +172,6 @@ async function editInput(
   const input: Partial<Omit<AutomationInput, 'template'>> = {}
   if (options.name !== undefined) input.name = options.name
   if (options.schedule !== undefined) input.schedule = scheduleFromExpression(options.schedule)
-  if (options.tz !== undefined) input.timeZone = options.tz
   if (options['prompt-file'] !== undefined) {
     input.prompt = await readFile(path.resolve(options['prompt-file']), 'utf8')
   }

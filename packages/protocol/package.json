@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./time": "./src/time.ts",
     "./task": "./src/task.ts",
     "./app": "./src/app.ts",
     "./run": "./src/run.ts",

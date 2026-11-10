@@ -36,6 +36,12 @@
   font-size: var(--text-13);
 }
 
+.resumeNote {
+  margin: 0;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
 .buttons {
   display: flex;
   align-items: center;

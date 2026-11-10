@@ -1187,6 +1187,7 @@ Figma: KRI-64 First launch and Settings.
 
 1. **General** (KRI-57, KRI-64, KRI-59, KRI-8 consistency pass)
    - **Appearance:** System (default), Light, Dark. **Terminal font size** (10–20). **Profile picture:** avatar, **Change…**, **Remove**; initials if none.
+   - **Date and time:** **Time format:** System (default), 12-hour, 24-hour. **Time zone:** System (default, follows changes on this computer) or a fixed named zone. A current-time row shows the effective zone and format. These preferences apply to TED’s timestamps and calendar dates, human-readable schedules and Automation time entry. Existing Automations adopt the app-wide zone and keep their scheduled clock times. Zone changes recalculate future firings without making up slots merely because the zone changed; queued and working Runs keep going. (KRI-222)
    - **Startup and quitting:** **Start TED in the background when you log in** (on); Linux only, **Show tray icon** (on); **When you quit with work running** (3.1); **Stay Awake while Runs are working** (on).
    - **Editor** (9.8). **Command line:** **Install the `ted` command**. On macOS a symlink at `/usr/local/bin/ted` into the app bundle, asking for the admin password only if that folder isn’t writable. For AppImage a small `~/.local/bin/ted` script, rewritten after each update; if `~/.local/bin` isn’t on the login shell’s `PATH`, the row shows the line to add. deb and rpm show “Installed by your package”.
    - **About and updates:** version, “Update ready: TED 1.4.0. Restarting doesn’t stop Runs.”, **Check for updates**, **Restart to update**, Third-party licenses (including agent-orchestrator’s NOTICE).
@@ -1232,11 +1233,11 @@ Figma: KRI-66 Automations and Plans.
   - **Template** (create only): Blank and the three templates as radio cards with their default schedules; picking one fills name, prompt and schedule.
   - **Name** (required). **Prompt** (required, Markdown, monospace), with “Whether new Tasks start is up to the prompt (--start).”
   - **Schedule:** Every N minutes or hours, Daily at, Weekdays at, Weekly on (day chips) at, or Custom (a 5-field cron or an RRULE, repeated in words). The next three firings show under it. Shortest interval 15 minutes. Errors show inline (“The shortest interval is 15 minutes.”; “Not a valid cron or RRULE: …”).
-  - **Timezone:** the system zone at creation, stored explicitly.
+  - **Time zone:** read-only app-wide zone from Settings → General. The schedule uses the app-wide 12-hour or 24-hour format, with AM/PM when needed; canonical clock values remain `HH:mm`. (KRI-222)
   - **Agent · model · effort**, filled from `lead`.
   - **On:** checked, “Fires on schedule once saved”.
   - **Cancel**, **Save and run now**, **Save ⌘↵**.
-- **`ted automation`:** `list`, `show <id>`, `history <id>`, `create --name <n> --schedule "<cron|RRULE>" [--tz <zone>] --prompt-file <file> [--template <name>] [--agent] [--model] [--effort] [--off]`, `edit <id>` (same flags), `enable <id>`, `disable <id>`, `run <id>`, `delete <id>`. Every subcommand takes `--factory`, defaulting to the current Run’s Factory. Inside a Run only `list`, `show` and `history` work; the rest are refused with “Ask the human to change Automations”. (KRI-60)
+- **`ted automation`:** `list`, `show <id>`, `history <id>`, `create --name <n> --schedule "<cron|RRULE>" --prompt-file <file> [--template <name>] [--agent] [--model] [--effort] [--off]`, `edit <id>` (same flags), `enable <id>`, `disable <id>`, `run <id>`, `delete <id>`. Every subcommand takes `--factory`, defaulting to the current Run’s Factory. Inside a Run only `list`, `show` and `history` work; the rest are refused with “Ask the human to change Automations”. (KRI-60)
 
 ### 12.4 Firing, overlap and duplicates
 

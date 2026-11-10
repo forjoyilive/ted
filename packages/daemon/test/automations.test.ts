@@ -17,6 +17,7 @@ import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import { openStore } from '../src/store/index.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
 import {
@@ -57,14 +58,23 @@ afterEach(async () => {
 let free = 500e9
 
 async function startTed(
-  options: { addFactory?: boolean; linear?: Parameters<typeof startDaemon>[0]['linear'] } = {},
+  options: {
+    addFactory?: boolean
+    resetSettings?: boolean
+    systemTimeZone?: () => string
+    linear?: Parameters<typeof startDaemon>[0]['linear']
+  } = {},
 ) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
-    automations: { now: () => clock, checkEveryMs: 50 },
+    automations: {
+      now: () => clock,
+      checkEveryMs: 50,
+      ...(options.systemTimeZone && { systemTimeZone: options.systemTimeZone }),
+    },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
     ...(options.linear && { linear: options.linear }),
   })
@@ -74,6 +84,8 @@ async function startTed(
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T
   }
+  if (options.resetSettings !== false)
+    await ok('PATCH', '/settings', { timeFormat: '24-hour', timeZone: 'Europe/London' })
   if (options.addFactory !== false) {
     await ok<Factory>('POST', '/dev/factories', {
       repo: path.join(scratch, 'acme', 'widgets.git'),
@@ -93,7 +105,6 @@ const create = (client: Client, body: Record<string, unknown>) =>
   client.ok<Automation>('POST', '/automations', {
     name: 'Sentry crash intake',
     factory: 'NB',
-    timeZone: 'Europe/London',
     schedule: { kind: 'daily', at: '09:00' },
     prompt: steps({ say: 'Nothing new' }, { endTurn: true }),
     ...body,
@@ -122,8 +133,125 @@ const waitForHistory = (
 const said = async (client: Client, runId: string) =>
   assistantTexts((await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).conversation)
 
+describe('app-wide Automation time zone', () => {
+  test('a zone change preserves clock times and queued Runs, without catch-up after restart', async () => {
+    const client = await startTed()
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const working = await create(client, {
+      name: 'Held Run',
+      schedule: { kind: 'every', every: 15, unit: 'minutes' },
+      prompt: steps(hold()),
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    const [held] = await waitForHistory(
+      client,
+      working.id,
+      (rows) => rows.some((r) => r.result.kind === 'running'),
+      'the held Run',
+    )
+    const queued = await create(client, {
+      name: 'Queued daily',
+      schedule: { kind: 'daily', at: '09:15' },
+    })
+    clock = Date.parse('2026-11-09T09:15:05Z')
+    const [waiting] = await waitForHistory(
+      client,
+      queued.id,
+      (rows) => rows.some((r) => r.result.kind === 'queued'),
+      'the queued daily firing',
+    )
+    await client.ok('PATCH', '/settings', { timeZone: 'America/New_York' })
+    const changed = await detail(client, queued.id)
+    expect(changed.automation.schedule).toEqual({ kind: 'daily', at: '09:15' })
+    expect(changed.automation.nextFirings[0]).toBe('2026-11-09T14:15:00.000Z')
+    expect(changed.history).toHaveLength(1)
+    expect(changed.history[0]).toMatchObject({
+      id: waiting?.id,
+      slotAt: '2026-11-09T09:15:00.000Z',
+      result: { kind: 'queued' },
+    })
+    expect((await history(client, working.id)).find((r) => r.id === held?.id)?.result.kind).toBe(
+      'running',
+    )
+    await daemon?.stop()
+    const reopened = await startTed({ addFactory: false, resetSettings: false })
+    expect((await detail(reopened, queued.id)).automation.nextFirings[0]).toBe(
+      '2026-11-09T14:15:00.000Z',
+    )
+    expect(await history(reopened, queued.id)).toHaveLength(1)
+  })
+
+  test('preview and creation ignore stale per-Automation overrides and use app settings', async () => {
+    const client = await startTed()
+    await client.ok('PATCH', '/settings', { timeZone: 'Asia/Tokyo', timeFormat: '12-hour' })
+    const automation = await create(client, { timeZone: 'Europe/London' })
+    const preview = await client.ok<{ text: string; nextFirings: string[] }>(
+      'POST',
+      '/automations/schedule-preview',
+      { schedule: automation.schedule, timeZone: 'UTC' },
+    )
+    expect(automation.timeZone).toBe('Asia/Tokyo')
+    expect(preview.text).toBe('Daily at 9:00 AM · Asia/Tokyo')
+    expect(preview.nextFirings).toEqual(automation.nextFirings)
+    await client.ok('PATCH', `/automations/${automation.id}`, {
+      timeZone: 'Europe/London',
+      name: 'Renamed',
+    })
+    expect((await detail(client, automation.id)).automation.timeZone).toBe('Asia/Tokyo')
+  })
+
+  test('legacy zones are adopted before scheduling and format-only changes retain missed firings', async () => {
+    const client = await startTed()
+    const automation = await create(client, {})
+    await daemon?.stop()
+    const store = await openStore({ directory: tedPaths(home).store })
+    const legacy = store.automations.get(automation.id)
+    if (!legacy) throw new Error('missing Automation')
+    store.automations.edit(
+      legacy.id,
+      { ...legacy, timeZone: 'America/New_York' },
+      new Date(clock).toISOString(),
+    )
+    await store.close()
+    clock = Date.parse('2026-11-09T10:00:00Z')
+    const reopened = await startTed({ addFactory: false, resetSettings: false })
+    const adopted = await detail(reopened, automation.id)
+    expect(adopted.automation.timeZone).toBe('Europe/London')
+    expect(adopted.automation.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
+    expect(adopted.history).toHaveLength(0)
+    clock = Date.parse('2026-11-10T08:55:00Z')
+    await reopened.ok('PATCH', '/settings', { timeFormat: '12-hour' })
+    await daemon?.stop()
+    clock = Date.parse('2026-11-10T10:00:00Z')
+    const third = await startTed({ addFactory: false, resetSettings: false })
+    const [missed] = await waitForHistory(
+      third,
+      automation.id,
+      (rows) => rows.length > 0,
+      'the ordinary missed firing',
+    )
+    expect(missed).toMatchObject({ trigger: 'made-up', slotAt: '2026-11-10T09:00:00.000Z' })
+  })
+
+  test('system-zone changes recalculate future firings without catch-up', async () => {
+    let zone = 'Europe/London'
+    const client = await startTed({ systemTimeZone: () => zone })
+    await client.ok('PATCH', '/settings', { timeZone: 'system' })
+    const automation = await create(client, {})
+    zone = 'Asia/Tokyo'
+    const changed = await detail(client, automation.id)
+    expect(changed.automation.nextFirings[0]).toBe('2026-11-10T00:00:00.000Z')
+    expect(changed.history).toHaveLength(0)
+    await client.ok('PATCH', '/settings', { timeZone: 'UTC' })
+    zone = 'America/New_York'
+    expect((await detail(client, automation.id)).automation.nextFirings[0]).toBe(
+      '2026-11-09T09:00:00.000Z',
+    )
+  })
+})
+
 describe('Automations', () => {
-  test('an Automation fires at its clock time in its own time zone and the Run finishes', async () => {
+  test('an Automation fires at its clock time in the app-wide time zone and the Run finishes', async () => {
     const client = await startTed()
     const automation = await create(client, {})
     expect(automation).toMatchObject({

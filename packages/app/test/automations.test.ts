@@ -1,5 +1,9 @@
+import { setTimePreferences } from '../src/renderer/time.ts'
+
+beforeEach(() => setTimePreferences({ timeFormat: '24-hour', timeZone: 'Europe/London' }))
+
 import type { Automation, AutomationRun, AutomationSchedule } from '@ted/protocol'
-import { describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test } from 'vitest'
 import {
   draftOf,
   duplicateOf,
@@ -78,15 +82,14 @@ describe('the schedule field', () => {
 
 describe('the Automations page', () => {
   test('next firing reads as a countdown today and a date later; off reads Off', () => {
-    const zone = 'Europe/London'
     expect(nextFiring(automation({ nextFirings: [minutes(12)] }), now)).toBe('in 12m')
     expect(nextFiring(automation({ nextFirings: [minutes(80)] }), now)).toBe('in 1h 20m')
     expect(nextFiring(automation({ nextFirings: [minutes(360)] }), now)).toBe('in 6h')
     expect(nextFiring(automation({ nextFirings: [minutes(60 * 24 * 7)] }), now)).toBe(
-      firingDate(minutes(60 * 24 * 7), zone),
+      firingDate(minutes(60 * 24 * 7)),
     )
     expect(nextFiring(automation({ on: false }), now)).toBe('Off')
-    expect(firingDate('2026-11-11T09:00:00Z', zone)).toBe('Wed 11 Nov 09:00')
+    expect(firingDate('2026-11-11T09:00:00Z')).toBe('Wed 11 Nov 09:00')
   })
 
   test('the last result names created Tasks, failures and skips with their age', () => {
@@ -126,24 +129,22 @@ describe('the Automations page', () => {
 })
 
 describe('the Automation view', () => {
-  const zone = 'Europe/London'
-
   test('triggers say why the Run started', () => {
     const history = [
       run({ id: 'retry', trigger: 'retry', retryOf: 'failed' }),
       run({ id: 'failed', at: '2026-10-31T09:00:00Z', retriedAt: '2026-10-31T09:21:00Z' }),
       run({ id: 'made', trigger: 'made-up', slotAt: '2026-11-05T09:00:00Z' }),
     ]
-    expect(trigger(history[0] as AutomationRun, history, zone)).toEqual({
+    expect(trigger(history[0] as AutomationRun, history)).toEqual({
       text: 'Retry',
       under: 'of 09:00',
     })
-    expect(trigger(history[2] as AutomationRun, history, zone)).toEqual({
+    expect(trigger(history[2] as AutomationRun, history)).toEqual({
       text: 'Made up',
       under: 'for Thu 5 Nov 09:00',
     })
-    expect(trigger(run({ trigger: 'run-now' }), history, zone)).toEqual({ text: 'Run now' })
-    expect(trigger(run({}), history, zone)).toEqual({ text: 'Scheduled' })
+    expect(trigger(run({ trigger: 'run-now' }), history)).toEqual({ text: 'Run now' })
+    expect(trigger(run({}), history)).toEqual({ text: 'Scheduled' })
   })
 
   test('Retry shows only on the newest failed row, and only until it is retried', () => {
@@ -160,22 +161,21 @@ describe('the Automation view', () => {
   })
 
   test('results read as sentences, and a retried row says when', () => {
-    expect(historyResult(run({ result: { kind: 'failed', error: 'gh: auth' } }), zone)).toEqual({
+    expect(historyResult(run({ result: { kind: 'failed', error: 'gh: auth' } }))).toEqual({
       text: 'Failed: gh: auth',
       failed: true,
     })
-    expect(historyResult(run({ result: { kind: 'skipped' } }), zone).text).toBe(
+    expect(historyResult(run({ result: { kind: 'skipped' } })).text).toBe(
       'Skipped: previous Run still open',
     )
-    expect(historyResult(run({ result: { kind: 'stopped' } }), zone).text).toBe('Stopped by you')
-    expect(historyResult(run({ message: 'Two new issues.' }), zone)).toEqual({
+    expect(historyResult(run({ result: { kind: 'stopped' } })).text).toBe('Stopped by you')
+    expect(historyResult(run({ message: 'Two new issues.' }))).toEqual({
       text: 'No new Tasks',
       under: 'Two new issues.',
     })
     expect(
       historyResult(
         run({ result: { kind: 'failed', error: 'x' }, retriedAt: '2026-10-31T09:21:00Z' }),
-        zone,
       ).under,
     ).toBe('Retried at 09:21')
   })
@@ -193,7 +193,6 @@ describe('the Automation view', () => {
       name: 'Daily triage copy',
       prompt: 'Triage',
       schedule: { kind: 'weekdays', at: '09:00' },
-      timeZone: 'Europe/London',
       agent: 'claude',
       model: 'sonnet',
       effort: 'medium',

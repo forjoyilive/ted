@@ -144,7 +144,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
             : limit
               ? 'usage-limit'
               : 'ready'
-    const reason = pausedReason(kind, state, limit?.resetsAt)
+    const reason = pausedReason(kind, state, limit?.resetsAt, store.settings())
     const fix = fixFor(kind, state)
     const keySource = wrongKeys.get(kind)
     const plan = usage.get(kind)
@@ -172,7 +172,9 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
     const count = health.pausedRuns > 0 ? ` · ${runsPaused(health.pausedRuns)}` : ''
     if (health.state === 'usage-limit') {
       const resets =
-        health.limitResetsAt !== undefined ? ` · resets ${resetTime(health.limitResetsAt)}` : ''
+        health.limitResetsAt !== undefined
+          ? ` · resets ${resetTime(health.limitResetsAt, undefined, store.settings())}`
+          : ''
       banners.raise({
         ...limitRef,
         severity: 'stops-work',
@@ -337,9 +339,15 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
   }, options.intervalMs ?? healthIntervalMs)
   interval.unref()
 
+  let displayedAs = JSON.stringify([store.settings().timeFormat, store.settings().timeZone])
   let billedAs = JSON.stringify(store.settings().billing)
   const unsubscribe = store.subscribe((event) => {
     if (event.type === 'settings-changed') {
+      const display = JSON.stringify([event.settings.timeFormat, event.settings.timeZone])
+      if (display !== displayedAs) {
+        displayedAs = display
+        for (const kind of agentKinds) publish(kind)
+      }
       const now = JSON.stringify(event.settings.billing)
       if (now === billedAs) return
       billedAs = now

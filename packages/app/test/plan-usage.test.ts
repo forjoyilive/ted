@@ -58,3 +58,25 @@ describe('reset times', () => {
     expect(usageLimitText('claude', undefined, now)).toBe('Claude usage limit')
   })
 })
+
+test('usage resets follow the app clock format and calendar day in the selected zone', () => {
+  const now = new Date('2026-11-09T10:00:00Z')
+  const at = '2026-11-10T00:15:00Z'
+  const preferences = { timeFormat: '12-hour', timeZone: 'America/Los_Angeles' } as const
+  expect(resetTime(at, now, preferences)).toBe('04:15 pm')
+  expect(resetTime(at, now, { timeFormat: '24-hour', timeZone: 'Asia/Tokyo' })).toBe('Tue 09:15')
+  expect(usageLimitText('codex', at, now, preferences)).toBe('Codex usage limit, resets 04:15 pm')
+  expect(
+    planChip(
+      health({
+        planUsage: {
+          at: now.toISOString(),
+          from: 'run',
+          windows: [{ window: 'weekly', percent: 90, resetsAt: at }],
+        },
+      }),
+      now,
+      preferences,
+    ),
+  ).toBe('Claude 90% · resets 04:15 pm')
+})

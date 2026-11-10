@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react'
 import { App } from './App.tsx'
 import { ConnectionNotice } from './ConnectionNotice.tsx'
 import { useDataStatus, useSettings } from './data.ts'
+import { useTimeSettings } from './TimeSettings.ts'
 import { DataScreen } from './views/DataScreen.tsx'
 import { FirstLaunch } from './views/FirstLaunch.tsx'
 
 function Opened() {
   const settings = useSettings()
+  useTimeSettings(settings)
   const [addFactoryFirst, setAddFactoryFirst] = useState(false)
   if (!settings) return null
   if (!settings.firstLaunchDone) {

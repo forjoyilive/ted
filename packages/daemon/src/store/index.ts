@@ -81,6 +81,7 @@ import {
   commentBox,
   type TaskFacts,
   taskActivity,
+  taskCanResume,
   taskMarkers,
   taskStatus,
   taskStatuses,
@@ -742,6 +743,7 @@ export interface TedStore {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  setTaskChecking(taskId: string, on: boolean): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automations: AutomationStore
   plans: PlanStore
@@ -787,6 +789,7 @@ export async function openStore({
   let writeFailing = false
   let newWorkHeld: string | undefined
   const waitingOnSubAgents = new Set<string>()
+  const checkingTasks = new Set<string>()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
@@ -1192,6 +1195,22 @@ export async function openStore({
       (place > 0 && leadAgent !== null ? paused[leadAgent as AgentKind] : undefined)
     const leadLive =
       lead !== undefined && lead.state !== 'finished' && stage !== 'backlog' && stage !== 'done'
+    const leadStopped =
+      lead?.state === 'finished' &&
+      lead.ended !== null &&
+      (JSON.parse(lead.ended) as RunEnding).how === 'stopped'
+    const lastFailure = leadStopped
+      ? store
+          .query(queryDb(taskLog.where({ taskId: row.id, name: 'v1.TaskLeadFailed' })))
+          .toSorted((a, b) => sequence(a.id) - sequence(b.id))
+          .at(-1)
+      : undefined
+    const failure = lastFailure && (JSON.parse(lastFailure.data) as Record<string, unknown>)
+    const recovering =
+      lastFailure !== undefined &&
+      failure?.runId === lead?.id &&
+      failure?.recovery === 'resume' &&
+      (lead?.revivedAt === null || (lead?.revivedAt ?? '') < lastFailure.at)
     const opened = repos.filter((r) => !r.removed && r.pullRequest !== undefined)
     const mergedRepos = opened.filter((r) => r.pullRequest?.state === 'merged')
     const openRepos = opened.filter((r) => r.pullRequest?.state !== 'merged')
@@ -1212,6 +1231,11 @@ export async function openStore({
       }),
       stage,
       ...(leadLive && { leadLive }),
+      ...(leadStopped &&
+        !held &&
+        !recovering &&
+        !waitsForBlockers &&
+        repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).length,
@@ -1225,7 +1249,7 @@ export async function openStore({
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
-      ...(checking && { tedWorking: true }),
+      ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
@@ -1344,6 +1368,7 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      ...(taskCanResume(facts) && { canResume: true }),
       tabs,
       runs: live
         .sort(
@@ -1930,7 +1955,10 @@ export async function openStore({
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning: store.query(queryDb(checkRuns.where({ finishedAt: null }))).length,
+      checksRunning: new Set([
+        ...checkingTasks,
+        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+      ]).size,
       shellsRunning,
     }
   }
@@ -2336,6 +2364,7 @@ export async function openStore({
     deleteTask(taskId) {
       const row = taskRow(taskId)
       if (!row) return
+      checkingTasks.delete(taskId)
       const at = new Date().toISOString()
       commit(
         events.taskDeleted({
@@ -3743,6 +3772,15 @@ export async function openStore({
       updatedQueue()
     },
     newWorkHold: () => newWorkHeld,
+    setTaskChecking(taskId, on) {
+      if (checkingTasks.has(taskId) === on) return
+      if (on) {
+        if (!taskRow(taskId)) return
+        checkingTasks.add(taskId)
+      } else checkingTasks.delete(taskId)
+      if (taskRow(taskId)) updatedTask(taskId)
+      noteActivity()
+    },
     onWriteResult(listener) {
       writeListeners.add(listener)
       return () => writeListeners.delete(listener)

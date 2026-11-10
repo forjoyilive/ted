@@ -82,7 +82,9 @@ describe('data screens', () => {
       })
       .waitFor()
     await window.getByRole('button', { name: 'Download TED 9.0' }).waitFor()
-    await window.getByText(/^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}\.$/).waitFor()
+    await window
+      .getByText(/^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}(?: [ap]m)?\.$/)
+      .waitFor()
     expect(await sidebar(window).count()).toBe(0)
 
     await window.getByRole('button', { name: 'Copy report' }).click()
@@ -114,7 +116,7 @@ describe('data screens', () => {
     await window.getByText(/^Rebuild stopped at event (\d+) of \1$/).waitFor()
     await window
       .getByText(
-        /^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}, when TED 0\.0\.1 last ran\.$/,
+        /^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}(?: [ap]m)?, when TED 0\.0\.1 last ran\.$/,
       )
       .waitFor()
     await window.getByText('Runs keep going in the background.', { exact: false }).waitFor()
