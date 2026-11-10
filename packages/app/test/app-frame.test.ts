@@ -21,6 +21,7 @@ import {
   twoFactories,
 } from './app-harness.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 setUpAppTests()
 
@@ -204,7 +205,7 @@ describe('TED app frame', () => {
   test('fonts and styles load under the renderer’s content security policy', async () => {
     const violations: string[] = []
     ctx.app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await ctx.app.firstWindow()
+    const window = await firstWindow(ctx.app)
     window.on('console', (message) => {
       if (/Content Security Policy/i.test(message.text())) violations.push(message.text())
     })

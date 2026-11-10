@@ -15,6 +15,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
+import { firstWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -96,7 +97,7 @@ describe('Plan in chat from a Task', () => {
     await client.startTask(task.id)
 
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-    const window = await app.firstWindow()
+    const window = await firstWindow(app)
     const inbox = window.getByRole('region', { name: 'Inbox' })
     const question = inbox.getByRole('button').filter({ hasText: 'Too big for one pull request' })
     await question.waitFor({ timeout: 30_000 })

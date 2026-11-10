@@ -328,7 +328,7 @@ describe('check runner integration with stub processes', () => {
         import { writeFileSync } from 'node:fs'
         export const heldLockEnv = 'TED_STUB_CHECK_LOCK'
         export const waitingMessage = () => ''
-        export async function acquireSuiteLock() {
+        export async function acquireFullRun() {
           return async () => writeFileSync(${JSON.stringify(path.join(root, 'unlocked'))}, 'yes')
         }
       `,

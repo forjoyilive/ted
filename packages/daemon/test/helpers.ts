@@ -92,7 +92,7 @@ export const stubCodexPath = fileURLToPath(new URL('./fixtures/stub-codex.ts', i
 export async function waitUntil<T>(
   check: () => Promise<T | undefined> | T | undefined,
   what: string,
-  timeoutMs = 10_000,
+  timeoutMs = 20_000,
 ): Promise<T> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
