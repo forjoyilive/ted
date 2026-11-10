@@ -10,7 +10,7 @@ import { createCheckTries } from './check-tries.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
-import { createData } from './data.ts'
+import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
 import { RequestError } from './errors.ts'
@@ -78,6 +78,7 @@ export interface DaemonOptions {
   retention?: DaemonRetentionOptions
   oldestHost?: number
   editors?: DaemonEditorsOptions
+  compaction?: DataOptions['compaction']
 }
 
 export interface DaemonEditorsOptions {
@@ -165,6 +166,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     home: paths.home,
     version: options.version,
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
+    ...(options.compaction && { compaction: options.compaction }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
