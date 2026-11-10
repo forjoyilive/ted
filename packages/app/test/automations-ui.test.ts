@@ -204,8 +204,14 @@ describe('Automations in the app', () => {
     await card.getByRole('button', { name: 'Skip it' }).click()
     await card.waitFor({ state: 'detached' })
     await inbox.getByRole('button', { name: /Is it real\?/ }).waitFor({ state: 'detached' })
+    await runView.waitFor({ state: 'detached' })
 
-    await runView.getByRole('button', { name: '← Sentry crash intake' }).click()
+    await openAutomations(window)
+    await window
+      .getByRole('row')
+      .filter({ hasText: 'Sentry crash intake' })
+      .getByRole('button', { name: 'Sentry crash intake' })
+      .click()
     const view = window.getByRole('region', { name: 'Automation' })
     await view.getByRole('heading', { name: 'Sentry crash intake' }).waitFor()
     const row = view.getByRole('row').filter({ hasText: 'Run now' })
