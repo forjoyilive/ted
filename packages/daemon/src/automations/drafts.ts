@@ -102,8 +102,8 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       })
     } else if (run.state === 'idle') {
       const agent = agents.get(run.agent)
-      const entries = store
-        .conversation(id)
+      const entries = runs.output
+        .entries(id)
         .filter((entry) => entry.offset > (outputAfter.get(id) ?? -1))
       const started = entries.findLastIndex((entry) => agent.turnFrom(entry.line) === 'started')
       if (started < 0) return
@@ -149,7 +149,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       }
       const { model, effort } = draft.input
       deadlines.set(id, Date.now() + (options.draftTimeoutMs ?? 5 * 60_000))
-      outputAfter.set(id, store.conversation(id).at(-1)?.offset ?? -1)
+      outputAfter.set(id, runs.output.last(id, 1)[0]?.offset ?? -1)
       const previous = store.getRun(id)
       if (previous) {
         limited.delete(id)

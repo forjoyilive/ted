@@ -132,7 +132,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const since = awaitingTurn.get(run.id) ?? 0
     const agent = agents.get(run.agent)
     let started = false
-    const ended = store.conversation(run.id).some((e) => {
+    const ended = runs.output.entries(run.id).some((e) => {
       if (e.offset < since) return false
       const state = agent.stateFrom(e.line)
       if (state === 'working' || state === 'waiting' || agent.acceptedTextFrom(e.line)) {
@@ -149,7 +149,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   }
 
   function finalMessage(run: Run): string | undefined {
-    const entries = agents.get(run.agent).chat(store.conversation(run.id), run.cwd)
+    const entries = agents.get(run.agent).chat(runs.output.entries(run.id), run.cwd)
     return entries.findLast((e) => e.kind === 'agent')?.text
   }
 

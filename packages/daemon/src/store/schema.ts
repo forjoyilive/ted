@@ -187,6 +187,7 @@ export const runs = State.SQLite.table({
     failure: State.SQLite.text({ nullable: true }),
     state: State.SQLite.text(),
     readOffset: State.SQLite.integer(),
+    lastOutputAt: State.SQLite.text({ nullable: true }),
     startedAt: State.SQLite.text(),
     revivedAt: State.SQLite.text({ nullable: true }),
     ended: State.SQLite.text({ nullable: true }),
@@ -249,17 +250,6 @@ export const sendBackAsks = State.SQLite.table({
     checkRunId: State.SQLite.text({ nullable: true }),
     loop: State.SQLite.boolean(),
     at: State.SQLite.text(),
-  },
-})
-
-export const conversationEntries = State.SQLite.table({
-  name: 'conversationEntries',
-  columns: {
-    id: State.SQLite.text({ primaryKey: true }),
-    runId: State.SQLite.text(),
-    offset: State.SQLite.integer(),
-    line: State.SQLite.text(),
-    at: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1997,6 +1987,14 @@ export const events = {
       ),
     }),
   }),
+  runOutputReadV3: Events.synced({
+    name: 'v3.RunOutputRead',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      toOffset: Schema.Number,
+      lastOutputAt: Schema.NullOr(Schema.String),
+    }),
+  }),
   runMessageSent: Events.synced({
     name: 'v1.RunMessageSent',
     schema: Schema.Struct({
@@ -2908,7 +2906,6 @@ const materializers = counted(
           ? []
           : [
               runs.delete().where({ id: { op: 'IN', value: runIds } }),
-              conversationEntries.delete().where({ runId: { op: 'IN', value: runIds } }),
               runMessages.delete().where({ runId: { op: 'IN', value: runIds } }),
               runInterrupts.delete().where({ runId: { op: 'IN', value: runIds } }),
             ]),
@@ -3045,18 +3042,18 @@ const materializers = counted(
       ],
       'v1.TedCommentPosted': (comment) =>
         comments.insert({ ...comment, authorKind: 'ted', authorRunId: null }),
-      'v1.RunOutputRead': ({ runId, toOffset, entries }) => [
+      'v1.RunOutputRead': ({ runId, toOffset }) =>
         runs.update({ readOffset: toOffset }).where({ id: runId }),
-        ...entries.map(({ offset, line }) =>
-          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line }),
-        ),
-      ],
-      'v2.RunOutputRead': ({ runId, toOffset, entries }) => [
-        runs.update({ readOffset: toOffset }).where({ id: runId }),
-        ...entries.map(({ offset, line, at }) =>
-          conversationEntries.insert({ id: `${runId}:${offset}`, runId, offset, line, at }),
-        ),
-      ],
+      'v2.RunOutputRead': ({ runId, toOffset, entries }) => {
+        const last = entries.at(-1)
+        return runs
+          .update({ readOffset: toOffset, ...(last && { lastOutputAt: last.at }) })
+          .where({ id: runId })
+      },
+      'v3.RunOutputRead': ({ runId, toOffset, lastOutputAt }) =>
+        runs
+          .update({ readOffset: toOffset, ...(lastOutputAt !== null && { lastOutputAt }) })
+          .where({ id: runId }),
       'v1.RunMessageSent': ({ id, runId, text, at }) => runMessages.insert({ id, runId, text, at }),
       'v1.RunMessageQueued': ({ id, runId, text, at }) =>
         runMessages.insert({ id, runId, text, at, queued: true }),
@@ -3353,7 +3350,6 @@ const materializers = counted(
       'v1.AutomationPromptDraftRemoved': ({ id }) => [
         automationPromptDrafts.delete().where({ id }),
         runs.delete().where({ id }),
-        conversationEntries.delete().where({ runId: id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
       ],
@@ -3362,7 +3358,6 @@ const materializers = counted(
         coordinators.delete().where({ factoryId }),
         ...runIds.flatMap((id) => [
           runs.delete().where({ id }),
-          conversationEntries.delete().where({ runId: id }),
           runMessages.delete().where({ runId: id }),
           runInterrupts.delete().where({ runId: id }),
         ]),
@@ -3374,7 +3369,6 @@ const materializers = counted(
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
         runs.delete().where({ id }),
-        conversationEntries.delete().where({ runId: id }),
         runMessages.delete().where({ runId: id }),
         runInterrupts.delete().where({ runId: id }),
       ],
@@ -3437,7 +3431,6 @@ const state = State.SQLite.makeState({
     reviewers,
     loopChecks,
     sendBackAsks,
-    conversationEntries,
     runMessages,
     runInterrupts,
     conversationTabs,

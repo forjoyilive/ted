@@ -16,7 +16,6 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type {
   AgentKind,
-  ConversationEntry,
   PermissionMode,
   PlanWindow,
   Run,
@@ -51,6 +50,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { createRunOutput, type RunOutputReader } from './run-output.ts'
 
 const hostMain = fileURLToPath(new URL('./host/main.ts', import.meta.url))
 const defaultCli = fileURLToPath(new URL('../../../cli/src/main.ts', import.meta.url))
@@ -102,6 +102,7 @@ export interface ReviveRunInput {
 }
 
 export interface RunManager {
+  output: RunOutputReader
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
@@ -147,6 +148,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
   await writeTedShim(binDir, options.cliPath ?? defaultCli)
 
+  const output = createRunOutput({ home, store })
   const following = new Map<string, Promise<void>>()
   const stopRequested = new Set<string>()
   const heard = new Map<string, number>()
@@ -266,7 +268,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     generation: Generation,
   ): boolean {
     const agent = agents.get(store.getRun(runId)?.agent ?? 'claude')
-    const entries: ConversationEntry[] = []
+    const lines: string[] = []
+    let lastAt: string | undefined
     let state: RunState | undefined
     let sessionId: string | undefined
     let authFailed = false
@@ -285,13 +288,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
       heard.set(runId, Date.now())
     }
-    for (const { offset, record } of batch.records) {
+    for (const { record } of batch.records) {
       if (record.t === 'out') {
-        entries.push({
-          offset,
-          line: record.line,
-          ...(record.at !== undefined && { at: record.at }),
-        })
+        lines.push(record.line)
+        lastAt = record.at
         const text = agent.acceptedTextFrom(record.line)
         if (text !== undefined) accepted.push(text)
         state = agent.stateFrom(record.line) ?? state
@@ -306,11 +306,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         for (const window of agent.planUsageFrom(record.line) ?? [])
           windows.set(window.window, window)
         const prompt = agent.permissionPromptFrom(record.line, (matches) => {
-          for (let i = entries.length - 2; i >= 0; i--) {
-            const line = entries[i]?.line
+          for (let i = lines.length - 2; i >= 0; i--) {
+            const line = lines[i]
             if (line !== undefined && matches(line)) return line
           }
-          return store.conversation(runId).findLast((entry) => matches(entry.line))?.line
+          return output.findLast(runId, (entry) => matches(entry.line))?.line
         })
         if (prompt) {
           prompts.push({
@@ -360,7 +360,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(agentRestarted && { agentRestarted }),
       ...(autoMode === 'unavailable' && { autoModeUnavailable: true }),
       toOffset: batch.toOffset,
-      entries,
+      ...(lines.length > 0 && { output: { ...(lastAt !== undefined && { lastAt }) } }),
       ...(state && { state }),
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
@@ -549,7 +549,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       (r) => r.text === record.text && r.outputFrom === record.outputFrom,
     )
     const required = siblings.indexOf(record) + 1
-    const entries = store.conversation(runId)
+    const entries = output.entries(runId)
     const earlier = new Set(
       agent
         .chat(
@@ -587,6 +587,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   const manager: RunManager = {
+    output,
     async start({
       agent: kind,
       prompt,
