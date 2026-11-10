@@ -72,18 +72,20 @@ test('Settings shortcut and Back restore the previous screen', async () => {
   expect(screen.getByRole('heading', { name: 'All Tasks' })).toBeTruthy()
 })
 
-test('sidebar and view header open New Task', async () => {
+test('view headers open New Task without a duplicate sidebar button', async () => {
   const a = appState()
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  await u.click(within(nav()).getByRole('button', { name: 'New Task' }))
-  await screen.findByRole('dialog', { name: 'New Task' })
-  await u.click(screen.getByRole('button', { name: 'Close' }))
-  await u.click(
-    required(within(screen.getByRole('main')).getAllByRole('button', { name: 'New Task' })[0]),
-  )
-  expect(screen.getByRole('dialog', { name: 'New Task' })).toBeTruthy()
+  expect(within(nav()).queryByRole('button', { name: 'New Task' })).toBeNull()
+  for (const view of ['Board', 'List']) {
+    await u.click(within(nav()).getByRole('button', { name: view }))
+    const header = required(screen.getByRole('main').querySelector('header'))
+    await u.click(within(header).getByRole('button', { name: 'New Task' }))
+    const dialog = await screen.findByRole('dialog', { name: 'New Task' })
+    expect((within(dialog).getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
+    await u.click(within(dialog).getByRole('button', { name: 'Close' }))
+  }
 })
 
 test('G navigation and history shortcuts use the App keymap', async () => {
