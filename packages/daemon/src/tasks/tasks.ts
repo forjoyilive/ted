@@ -174,12 +174,9 @@ import {
   failureText,
 } from './failure-cases.ts'
 import {
-  alreadyFailed,
-  asksForFreshRun,
   endingReason,
   failedAsk,
   freshAfterFailure,
-  recentFailures,
   retryChoice,
   revivedMessage,
   silentReason,
@@ -268,7 +265,7 @@ import {
   splitChosenMessage,
 } from './split.ts'
 import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
-import { nudgeMessage, threadEvents } from './thread.ts'
+import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
@@ -928,12 +925,7 @@ export function createTasks(options: {
     const since =
       store.listStageEntries(task.id).findLast((e) => e.stage !== 'review' && e.stage !== 'merge')
         ?.at ?? ''
-    const bound = new Set(
-      store
-        .taskLog(task.id)
-        .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === signed)
-        .map((e) => e.data.commentId),
-    )
+    const bound = new Set(store.approvalsBoundToCommit(task.id, signed))
     const approved = store
       .listComments(task.id)
       .filter(
@@ -969,10 +961,7 @@ export function createTasks(options: {
     if (!repo) return
     let commit = repo.pullRequest?.signedOff
     if (comment.stage === 'review') {
-      const requested = store
-        .taskLog(task.id)
-        .find((e) => e.name === 'v1.GateRequestedFor' && e.data.commentId === comment.id)
-        ?.data.commit
+      const requested = store.gateRequestCommit(task.id, comment.id)
       commit = await (async () => {
         const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
         const changes = await git.workingChanges(repo.worktree, base)
@@ -984,12 +973,7 @@ export function createTasks(options: {
   }
 
   function gateKept(task: Task): boolean {
-    const since = visitStart(task)
-    return store
-      .taskLog(task.id)
-      .some(
-        (e) => e.name === 'v1.GateKeptOvernight' && e.data.stage === task.stage && e.at >= since,
-      )
+    return store.overnightGateHistory(task.id, task.stage, visitStart(task)).kept
   }
 
   function gateRequested(task: Task): boolean {
@@ -1010,12 +994,7 @@ export function createTasks(options: {
   }
 
   function gateSkipped(task: Task): boolean {
-    const since = visitStart(task)
-    return store
-      .taskLog(task.id)
-      .some(
-        (e) => e.name === 'v1.GateSkippedOvernight' && e.data.stage === task.stage && e.at >= since,
-      )
+    return store.overnightGateHistory(task.id, task.stage, visitStart(task)).skipped
   }
 
   async function gatesFor(taskId: string): Promise<TaskGates> {
@@ -1824,11 +1803,7 @@ export function createTasks(options: {
   }
 
   function startMerging(task: Task, workflow: ResolvedWorkflow): void {
-    const since = visitStart(task)
-    const started = store
-      .taskLog(task.id)
-      .some((e) => e.name === 'v1.MergeStarted' && e.at >= since)
-    if (started) return
+    if (store.mergeHistory(task.id).started) return
     if (workflow.overnightGates?.includes('merge') && !gateRequested(task)) {
       store.gateSkippedOvernight(task.id, 'merge')
     }
@@ -2138,9 +2113,7 @@ export function createTasks(options: {
 
   function mergeChecksPending(task: StoredTask): boolean {
     const since = visitStart(task)
-    const rebasedAt = store
-      .taskLog(task.id)
-      .findLast((e) => e.name === 'v1.TaskBranchRebased' && e.at >= since)?.at
+    const rebasedAt = store.latestRebase(task.id, since)
     if (rebasedAt === undefined) return false
     return !store
       .listCheckRuns()
@@ -2459,19 +2432,12 @@ export function createTasks(options: {
     const approvedAt = approval.answer.at
     await pullRequestQueue.get(task.id)
     const current = find(task.id)
-    const log = store.taskLog(task.id)
     const targets = await pullRequestTargets(current)
     const repos: SignOffChanges['repos'] = []
     for (const target of targets) {
       const repo = current.repos.find((r) => r.name === target.name)
       const to = repo?.pullRequest?.signedOff ?? repo?.pushed?.commit
-      const approved = log.find(
-        (e) =>
-          e.name === 'v1.PullRequestSignedOff' &&
-          e.at >= approvedAt &&
-          e.data.name === target.name &&
-          typeof e.data.commit === 'string',
-      )?.data.commit as string | undefined
+      const approved = store.signedOffCommit(task.id, target.name, approvedAt)
       if (approved === undefined || to === undefined) continue
       const base = repo?.pullRequest?.base ?? target.base
       const baseTip = await git
@@ -3680,9 +3646,7 @@ export function createTasks(options: {
   function editedSince(task: StoredTask): string[] {
     const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
     if (!run) return []
-    const edited = store
-      .taskLog(task.id)
-      .some((e) => e.name === 'v1.TaskEdited' && e.at >= run.startedAt)
+    const edited = store.editedSince(task.id, run.startedAt)
     if (!edited) return []
     const current = find(task.id)
     return [
@@ -3787,14 +3751,7 @@ export function createTasks(options: {
   }
 
   function humanDepth(taskId: string): ClarifyDepth | undefined {
-    const set = store
-      .taskLog(taskId)
-      .findLast(
-        (e) =>
-          (e.name === 'v1.ClarifyDepthSet' && e.data.by === 'human') || e.name === 'v2.TaskCreated',
-      )
-    const depth = (set?.data.depth ?? set?.data.clarifyDepth) as ClarifyDepth | undefined
-    return depth === 'auto' ? undefined : depth
+    return store.humanClarifyDepth(taskId)
   }
 
   async function postRound(
@@ -4904,13 +4861,7 @@ export function createTasks(options: {
 
   function lastChangesRequested(task: Task): string {
     const since = visitStart(task)
-    const canceled =
-      task.stage === 'merge'
-        ? store
-            .taskLog(task.id)
-            .filter((e) => e.name === 'v1.MergeCanceled')
-            .map((e) => e.at)
-        : []
+    const canceled = task.stage === 'merge' ? store.mergeHistory(task.id).canceledAt : undefined
     return store
       .listComments(task.id)
       .flatMap((c) =>
@@ -4918,7 +4869,7 @@ export function createTasks(options: {
           ? [c.answer.at]
           : [],
       )
-      .concat(canceled)
+      .concat(canceled === undefined ? [] : [canceled])
       .filter((at) => at >= since)
       .reduce(latest, '')
   }
@@ -5794,7 +5745,7 @@ export function createTasks(options: {
         await launch(find(task.id), resolution, env, undefined, { pickUp })
       }
       store.dequeue(task.id)
-      if (store.taskLog(task.id).findLast(asksForFreshRun)?.name === 'v1.GitHubActivityQueued') {
+      if (store.freshRunRequest(task.id)?.kind === 'github') {
         watch?.kick()
       }
       return
@@ -5873,12 +5824,7 @@ export function createTasks(options: {
   }
 
   function pendingPickUp(task: StoredTask): string | undefined {
-    const log = store.taskLog(task.id)
-    const asked = log.findLastIndex(asksForFreshRun)
-    const started = log.findLastIndex(
-      (e) => e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted',
-    )
-    return asked > started ? freshRunNote(task) : undefined
+    return store.freshRunRequest(task.id)?.pending ? freshRunNote(task) : undefined
   }
 
   function movedByApproval(task: StoredTask, answers: readonly Comment[]): boolean {
@@ -5887,30 +5833,30 @@ export function createTasks(options: {
   }
 
   function freshRunNote(task: StoredTask): string {
-    const last = store.taskLog(task.id).findLast(asksForFreshRun)
-    if (last?.name === 'v1.TaskRetried' || last?.name === 'v1.TaskLeadFailed') {
+    const last = store.freshRunRequest(task.id)
+    if (last?.kind === 'retried' || last?.kind === 'failure') {
       return fromTheBrief(task, freshAfterFailure(last))
     }
-    if (last?.name === 'v1.TaskUnarchived') {
+    if (last?.kind === 'unarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
         why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
       })
     }
-    if (last?.name === 'v1.GitHubActivityQueued') {
-      const notices = Array.isArray(last.data.notices) ? (last.data.notices as GitHubNotice[]) : []
+    if (last?.kind === 'github') {
+      const notices = last.notices
       return fromTheBrief(task, {
         heading: 'Picking up after activity on GitHub',
         why: freshRunReason(gitHubSummary(notices)),
       })
     }
-    if (last?.name === 'v1.TaskStartedAfterPlanning') {
+    if (last?.kind === 'planning') {
       return fromTheBrief(task, {
         heading: 'Picking up after planning outside TED',
         why: afterPlanningWhy,
       })
     }
-    if (last?.name === 'v1.TaskResumed') {
+    if (last?.kind === 'resumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
         why: 'The human resumed this Task after its Task Lead stopped.',
@@ -6207,13 +6153,13 @@ export function createTasks(options: {
     if (task.status?.kind === 'failed' || stoppingByHand.has(task.id)) return
     if (stoppingForBlockers.has(task.id) || store.queue().some((q) => q.id === task.id)) return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
-    const log = store.taskLog(task.id)
-    if (alreadyFailed(log, run.id, run.revivedAt ?? run.startedAt)) return
+    if (store.alreadyFailed(task.id, run.id, run.revivedAt ?? run.startedAt)) return
     const ended = run.ended
     const reason = silence ?? endingReason(ended)
     const resumeFailed = silence === undefined && ended?.resumeFailed === true
     const now = clock.now()
-    const earlier = recentFailures(log, now)
+    const history = store.failureHistory(task.id, now)
+    const earlier = history.recent
     const canResume =
       run.sessionId !== undefined &&
       (task.lead?.agent ?? run.agent) === run.agent &&
@@ -6225,7 +6171,6 @@ export function createTasks(options: {
         : canResume
           ? 'resume'
           : 'fresh'
-    const first = earlier[0]
     store.leadFailed({
       taskId: task.id,
       runId: run.id,
@@ -6233,7 +6178,7 @@ export function createTasks(options: {
       recovery,
       resumeFailed,
       ...(recovery === 'failed' && {
-        ask: failedAsk(run.agent, first ? log.slice(log.indexOf(first)) : [], reason, ended, now),
+        ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
       }),
     })
     if (recovery === 'resume') awaitingRevive.add(task.id)
@@ -6246,12 +6191,12 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
     if (task.stage === 'backlog' || task.stage === 'done') return undefined
-    const last = store.taskLog(taskId).findLast((e) => e.name === 'v1.TaskLeadFailed')
-    if (last?.data.recovery !== 'resume') return undefined
-    const run = store.getRun(String(last.data.runId))
+    const last = store.latestLeadFailure(taskId)
+    if (last?.recovery !== 'resume') return undefined
+    const run = store.getRun(last.runId)
     if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
     if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
-    return { task, run, reason: String(last.data.reason) }
+    return { task, run, reason: last.reason }
   }
 
   async function reviveLead(taskId: string): Promise<void> {
@@ -6419,9 +6364,7 @@ export function createTasks(options: {
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
     if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
     if (planningInChat(task.id)) return
-    const nudged = store
-      .taskLog(task.id)
-      .findLast((e) => e.name === 'v1.TaskLeadNudged' && e.data.runId === run.id)?.at
+    const nudged = store.latestNudge(task.id, run.id)
     if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
     else askAboutIdle(task, run)
   }
@@ -7527,7 +7470,7 @@ export function createTasks(options: {
 
     threadEvents(ref) {
       const task = find(ref)
-      return threadEvents(task.id, store.taskLog(task.id), {
+      return taskThreadEvents(store, task.id, {
         comments: store.listComments(task.id),
         displayIdOf: (id) => store.getTask(id)?.displayId ?? id,
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
