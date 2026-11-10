@@ -31,6 +31,7 @@ interface StubHealth {
   version?: string
   signedIn?: boolean
   autoUnavailable?: boolean
+  resumeSteps?: Step[]
   resumeFails?: boolean
   resumeWaitsFor?: string
   apiKeySource?: string
@@ -118,7 +119,7 @@ const hook = (name: string) => {
     emit({ type: 'system', subtype: 'hook_started', hook_name: name, hook_event: event })
 }
 
-let everyMessage: Step[] = []
+let everyMessage: Step[] = flag('--resume') !== undefined ? (stubHealth().resumeSteps ?? []) : []
 let inputGate: string | undefined
 let interrupted = false
 let gating = false

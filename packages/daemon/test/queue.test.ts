@@ -6,10 +6,12 @@ const task = (id: string, priority: Priority, rank: number, factoryId = 'nb') =>
   ({ id, kind: 'task', priority, rank, factoryId }) as const
 
 describe('queueOrder', () => {
-  test('the setup Task, sub-agent requests, Planning Runs and Automation Runs come before Tasks', () => {
+  test('setup, sub-agents, Planning, Coordinators, drafts and Automations come before Tasks', () => {
     const order = queueOrder([
       task('urgent-task', 'urgent', 1),
       { id: 'automation', kind: 'automation', rank: 1 },
+      { id: 'draft', kind: 'automation-draft', rank: 1 },
+      { id: 'coordinator', kind: 'coordinator', rank: 1 },
       { id: 'planning', kind: 'planning', rank: 1 },
       { id: 'sub-agent', kind: 'sub-agent', rank: 1 },
       { id: 'setup', kind: 'setup-task', rank: 1 },
@@ -17,7 +19,9 @@ describe('queueOrder', () => {
     expect(order.map((e) => e.id)).toEqual([
       'setup',
       'sub-agent',
+      'coordinator',
       'planning',
+      'draft',
       'automation',
       'urgent-task',
     ])

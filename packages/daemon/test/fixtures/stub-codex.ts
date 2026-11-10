@@ -36,6 +36,7 @@ function stubHealth(): {
   signedIn?: boolean
   account?: 'chatgpt' | 'apiKey'
   rateLimits?: Record<string, unknown>
+  resumeSteps?: Step[]
   turnStartDelayMs?: number
 } {
   try {
@@ -65,12 +66,14 @@ if (reply) {
   await new Promise(() => {})
 }
 writeFileSync('stub-record.json', JSON.stringify({ argv, env: process.env, pid: process.pid }))
+appendFileSync('stub-starts.jsonl', `${JSON.stringify({ argv, pid: process.pid })}\n`)
 
 const send = (message: Message) => process.stdout.write(`${JSON.stringify(message)}\n`)
 const notify = (method: string, params: Record<string, unknown>) => send({ method, params })
 
 let threadId = ''
 let threadModel = ''
+let resumed = false
 
 const models = [
   { model: 'gpt-6-astra', efforts: ['low', 'medium', 'high', 'xhigh', 'max'], isDefault: true },
@@ -228,10 +231,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     send({ id, result: { rateLimits: limits ?? { primary: null, secondary: null } } })
   } else if (message.method === 'model/list') {
     send({ id, result: { data: models, nextCursor: null } })
+  } else if (message.method === 'config/read') {
+    send({ id, result: { config: { mcp_servers: { external: { command: 'must-not-run' } } } } })
   } else if (message.method === 'thread/start') {
     threadModel = String(message.params?.model ?? '')
     openThread(id, `0199a000-0000-7000-8000-${randomUUID().slice(-12)}`)
   } else if (message.method === 'thread/resume') {
+    resumed = true
     threadModel = String(message.params?.model ?? '')
     openThread(id, String(message.params?.threadId))
   } else if (
@@ -298,7 +304,12 @@ for await (const line of createInterface({ input: process.stdin })) {
       item: { type: 'userMessage', id: randomUUID(), content: input },
     })
     void (async () => {
-      for (const step of stepsIn(text)) {
+      const steps = stepsIn(text)
+      for (const step of steps.length > 0
+        ? steps
+        : resumed
+          ? (stubHealth().resumeSteps ?? [])
+          : []) {
         if (interrupted || turn !== turnNumber) break
         await runStep(step, turn)
       }

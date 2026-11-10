@@ -192,7 +192,7 @@ export function claudeAgent(binary: string): Agent {
   return {
     kind: 'claude',
     binary,
-    launch({ prompt, runDir, env, resume, model, effort, permissions, billing }) {
+    launch({ prompt, runDir, env, resume, model, effort, permissions, billing, tools }) {
       if (model !== undefined && !isModelName(model)) {
         throw new Error(`“${model}” isn’t a model name`)
       }
@@ -232,6 +232,18 @@ export function claudeAgent(binary: string): Agent {
           modeFlag[permissions],
           '--permission-prompt-tool',
           'stdio',
+          ...(tools === 'none'
+            ? [
+                '--tools',
+                '',
+                '--strict-mcp-config',
+                '--mcp-config',
+                '{"mcpServers":{}}',
+                '--setting-sources',
+                '',
+                '--disable-slash-commands',
+              ]
+            : []),
           ...(model !== undefined ? ['--model', model] : []),
           ...(effort !== undefined ? ['--effort', effort === 'ultra' ? 'max' : effort] : []),
         ],
@@ -239,7 +251,9 @@ export function claudeAgent(binary: string): Agent {
         input: prompt === '' ? '' : userMessage(prompt),
         files: {
           'settings.json': JSON.stringify(
-            { ...(permissions === 'auto' && { permissions: { allow: tedCommand } }), hooks },
+            tools === 'none'
+              ? { disableAllHooks: true }
+              : { ...(permissions === 'auto' && { permissions: { allow: tedCommand } }), hooks },
             null,
             2,
           ),
@@ -294,6 +308,13 @@ export function claudeAgent(binary: string): Agent {
       if (message.type === 'result') return 'idle'
       if (message.type !== 'system' || message.subtype !== 'hook_started') return undefined
       return typeof message.hook_event === 'string' ? stateByHook[message.hook_event] : undefined
+    },
+    turnFrom(line) {
+      const message = parse(line)
+      if (message?.type === 'result') return 'completed'
+      if (message?.type === 'user' && textParts(message.message?.content) !== undefined)
+        return 'started'
+      return undefined
     },
     acceptedTextFrom(line) {
       const message = parse(line)

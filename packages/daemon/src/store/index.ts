@@ -90,6 +90,7 @@ import {
   taskStatus,
   taskStatuses,
 } from '../tasks/status.ts'
+import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { type CoordinatorStore, createCoordinatorStore } from './coordinators.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
@@ -767,6 +768,7 @@ export interface TedStore {
   newWorkHold(): string | undefined
   setTaskChecking(taskId: string, on: boolean): void
   onWriteResult(listener: (error?: unknown) => void): () => void
+  automationDrafts: AutomationDraftStore
   automations: AutomationStore
   coordinators: CoordinatorStore
   failures: FailureStore
@@ -2177,6 +2179,7 @@ export async function openStore({
   })
 
   return {
+    automationDrafts: createAutomationDraftStore({ store, commit }),
     coordinators: coordinatorStore,
     automations: automationStore,
     plans: planStore,
