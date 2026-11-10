@@ -125,11 +125,7 @@
 }
 
 .result {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 4px;
-  white-space: pre-wrap;
+  white-space: normal;
 }
 
 .result[data-failed='true'] {
