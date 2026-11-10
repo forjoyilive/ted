@@ -392,7 +392,7 @@ describe('Full Inbox', () => {
 })
 
 describe('Permission requests', () => {
-  test('a permission prompt is a card with the command; Deny and Approve collapse it with the answer line', async () => {
+  test('a permission prompt is a card with the command; Deny and Approve keep its details with the answer line', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     await addFactory(origin, 'NB')
     const ask = (command: string, description: string) => ({
@@ -434,7 +434,11 @@ describe('Permission requests', () => {
     const denied = thread.getByRole('region', { name: 'Permission, answered' }).first()
     await denied.getByText('You denied').waitFor()
     await denied.getByText('“Use npm, not an install script.”').waitFor()
-    await denied.getByText('curl -s https://registry.example.dev/install.sh | sh').waitFor()
+    await denied
+      .getByText(/\$ curl -s https:\/\/registry\.example\.dev\/install\.sh \| sh$/)
+      .waitFor()
+    await denied.getByText('Install the CRDT tool').waitFor()
+    expect(await denied.getByRole('button', { name: /Show request|Hide request/ }).count()).toBe(0)
 
     await card.getByText(/npm install --save yjs@13\.6\.27$/).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })

@@ -804,6 +804,11 @@ export function AnsweredCard({
   onOpenRun?: ((runId: string) => void) | undefined
 }) {
   const now = useNow()
+  const permission = request.kind === 'permission'
+  const shown =
+    request.permission && request.body.trim() === ''
+      ? 'The agent didn’t provide an explanation for this request.'
+      : summary(request)
   const [showing, setShowing] = useState(expanded)
   const card = useRef<HTMLElement>(null)
   useEffect(() => {
@@ -829,7 +834,7 @@ export function AnsweredCard({
           >
             Open chat
           </button>
-        ) : (
+        ) : !permission ? (
           <button
             type="button"
             className={styles.showRequest}
@@ -838,10 +843,22 @@ export function AnsweredCard({
           >
             {showing ? 'Hide request' : 'Show request'}
           </button>
-        )}
+        ) : null}
       </div>
-      {request.permission ? (
-        <p className={styles.answeredCommand}>{request.permission.command}</p>
+      {permission ? (
+        <>
+          <h2 className={styles.title}>{headline(request)}</h2>
+          {shown !== undefined && shown !== '' && <Summary text={shown} />}
+          <PermissionCommand request={request} />
+          {request.simulator && (
+            <SimulatorRequest
+              request={request}
+              readOnly
+              chosen={firstChoice(request.simulator.booted)}
+              onChoose={() => {}}
+            />
+          )}
+        </>
       ) : (
         <p className={styles.answeredTitle}>{headline(request)}</p>
       )}
@@ -866,7 +883,7 @@ export function AnsweredCard({
         </div>
       )}
       {quoted !== undefined && quoted !== '' && <p className={styles.quote}>“{quoted}”</p>}
-      {showing && <RequestCard request={request} task={task} readOnly />}
+      {!permission && showing && <RequestCard request={request} task={task} readOnly />}
     </section>
   )
 }

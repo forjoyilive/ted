@@ -12,10 +12,11 @@ import type {
   Task,
   TaskBrief,
   TaskEnding,
+  TaskFileRef,
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
 import { type ChangedFile, changedFiles, useTaskChanges } from '../changes.ts'
@@ -33,6 +34,8 @@ import { DetailsSection } from '../components/DetailsSection.tsx'
 import { AllChanges, type DiffSeams, DiffView } from '../components/DiffViews.tsx'
 import { EventLine, Findings } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
+import { FilesSection } from '../components/FilesSection.tsx'
+import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
 import { ChevronIcon, CloseIcon } from '../components/icons.tsx'
 import {
@@ -43,6 +46,7 @@ import {
   useDiffComments,
   useLineComments,
 } from '../components/LineComments.tsx'
+import { QuickOpen } from '../components/QuickOpen.tsx'
 import {
   AnsweredCard,
   OpenRequestLine,
@@ -70,6 +74,7 @@ import {
 } from '../data.ts'
 import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
+import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
 import {
   type ChangesView,
   type MiddlePaneAction,
@@ -324,6 +329,29 @@ export function TaskPanes({
   useEffect(() => {
     if (answeredId !== undefined) setState((s) => middlePaneStep(s, '', { kind: 'answered' }))
   }, [answeredId])
+  const [browsing, setBrowsing] = useState(false)
+  const [quickTask, setQuickTask] = useState<string>()
+  const browse = useCallback(() => setBrowsing(true), [])
+  const fileList = useTaskFiles(task, browsing || quickTask === task.id)
+  const showQuick = () => {
+    setBrowsing(true)
+    setQuickTask(task.id)
+  }
+  useEffect(() => {
+    const take = () => {
+      if (takeFileRequest(task.id)) {
+        setBrowsing(true)
+        setQuickTask(task.id)
+      }
+    }
+    take()
+    window.addEventListener(quickOpenEvent, take)
+    return () => window.removeEventListener(quickOpenEvent, take)
+  }, [task.id])
+  const inspectFile = (file: TaskFileRef) => {
+    setQuickTask(undefined)
+    go({ kind: 'file', file })
+  }
   const changes = useTaskChanges(task)
   const brief = useTaskBrief(task.id)
   const pane = middlePane(state, task, changes !== undefined)
@@ -400,6 +428,27 @@ export function TaskPanes({
   const { covered, shell: shellRepo } = pane
   return (
     <>
+      {quickTask === task.id && (
+        <QuickOpen
+          key={task.id}
+          files={fileList.files}
+          error={fileList.error}
+          onClose={() => setQuickTask(undefined)}
+          onOpen={inspectFile}
+          refresh={fileList.refresh}
+        />
+      )}
+      {pane.file && (
+        <FileView
+          key={`${task.id}:${pane.file.repo}:${pane.file.path}`}
+          taskId={task.id}
+          file={pane.file}
+          backLabel={
+            state.changes?.taskId === task.id || state.brief === task.id ? '← Back' : '← Thread'
+          }
+          onBack={() => go({ kind: 'file', file: undefined })}
+        />
+      )}
       {all && changes !== undefined && (
         <AllChanges
           taskId={task.id}
@@ -469,6 +518,18 @@ export function TaskPanes({
             onExpandAll={() => showChanges({ kind: 'all' })}
             drafts={draftsIn}
             draftTotal={drafts.length}
+          />
+        }
+        files={
+          <FilesSection
+            task={task}
+            files={fileList.files}
+            error={fileList.error}
+            selected={pane.file}
+            onOpen={inspectFile}
+            onBrowse={browse}
+            onQuickOpen={showQuick}
+            refresh={fileList.refresh}
           />
         }
         brief={brief}
@@ -869,6 +930,7 @@ export function TaskDetails({
   onOpenRun,
   onOpenShell,
   changes,
+  files,
   hidden = false,
   shownApp,
   onOpenApp,
@@ -881,6 +943,7 @@ export function TaskDetails({
   factories: readonly Factory[]
   onOpenRun: (runId: string) => void
   onOpenShell: (repo: string) => void
+  files?: ReactNode
   changes?: ReactNode
   hidden?: boolean
   shownApp?: ShownApp | undefined
@@ -1028,6 +1091,7 @@ export function TaskDetails({
       )}
       <CodeSection task={task} onOpenShell={onOpenShell} />
       {changes}
+      {files}
       <TaskRuns task={task} onOpenRun={onOpenRun} />
       <AppsSection task={task} shown={shownApp} onOpenApp={(app) => onOpenApp?.(app)} />
       <TaskBriefSection

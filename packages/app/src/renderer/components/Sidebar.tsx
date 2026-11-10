@@ -3,8 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
 import { FactoryMenu } from './FactoryMenu.tsx'
-import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
+import { ChevronIcon, DotIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
+import { ResourceUsage } from './ResourceUsage.tsx'
 import styles from './Sidebar.module.css'
 import { StatusChip } from './StatusChip.tsx'
 
@@ -32,6 +33,7 @@ interface SidebarProps {
   navigation: Navigation
   factories: readonly Factory[]
   currentFactoryId: string | undefined
+  developerMode?: boolean
   inboxCount: number
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
@@ -167,6 +169,7 @@ export function Sidebar({
   factories,
   currentFactoryId,
   inboxCount,
+  developerMode = false,
   badges = {},
   settingsProblem = false,
   footer = {},
@@ -209,14 +212,6 @@ export function Sidebar({
             <SearchIcon className={styles.searchIcon} />
             <span className={styles.searchLabel}>Search</span>
             <span className={styles.shortcut}>⌘K</span>
-          </button>
-          <button
-            type="button"
-            className={styles.newTask}
-            aria-label="New Task"
-            onClick={() => onNewTask()}
-          >
-            <PlusIcon />
           </button>
         </div>
 
@@ -529,6 +524,7 @@ export function Sidebar({
             )}
           </footer>
         )}
+        {developerMode && <ResourceUsage />}
       </nav>
     </ResizableSidebar>
   )

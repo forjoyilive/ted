@@ -319,11 +319,15 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   openInEditor: (client, taskId, repo, at) => {
     const given = (at ?? {}) as Record<string, unknown>
     return client.openInEditor(String(taskId), String(repo), {
+      ...(typeof given.snapshot === 'boolean' && { snapshot: given.snapshot }),
       ...(typeof given.file === 'string' && { file: given.file }),
       ...(typeof given.line === 'number' && { line: given.line }),
       ...(typeof given.column === 'number' && { column: given.column }),
     })
   },
+  taskFiles: (client, taskId) => client.taskFiles(String(taskId)),
+  taskFile: (client, taskId, repo, file) =>
+    client.taskFile(String(taskId), String(repo), String(file)),
   taskChanges: (client, taskId) => client.taskChanges(String(taskId)),
   fileDiffs: (client, taskId, repo, file) =>
     client.fileDiffs(String(taskId), String(repo), file === undefined ? undefined : String(file)),
