@@ -562,7 +562,6 @@ export function RequestCard({
               </>
             ) : request.permission ? (
               <>
-                <Help>Applies to this request only.</Help>
                 <Button
                   disabled={sending}
                   onClick={() => void send({ action: 'deny', ...withText })}
