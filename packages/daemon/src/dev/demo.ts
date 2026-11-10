@@ -50,10 +50,23 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
         }
       }
     }
-    if (runs.length > 0) {
-      await withDaemon(home, (client) => client.shutdown(), {
-        appToken: randomBytes(32).toString('hex'),
-      })
+    const appFolders = await readdir(path.join(home, 'apps')).catch(() => [])
+    if (runs.length > 0 || appFolders.length > 0) {
+      await withDaemon(
+        home,
+        async (client) => {
+          try {
+            for (const task of await client.listTasks()) {
+              for (const app of await client.listApps(task.id)) {
+                await client.stopApp(task.id, { repo: app.repo, name: app.name })
+              }
+            }
+          } finally {
+            await client.shutdown()
+          }
+        },
+        { appToken: randomBytes(32).toString('hex') },
+      )
       await until(async () => !(await readDaemonInfo(home)), 'demo shutdown before reset')
     }
     await until(

@@ -6,7 +6,7 @@ import { installedElectron } from './electron-path.ts'
 
 const args = process.argv.slice(2)
 const demo = args.includes('--demo')
-if (args.some((arg) => arg !== '--demo')) throw new Error('Usage: pnpm app [--demo]')
+const forwarded = args.filter((arg) => arg !== '--demo')
 const cwd = fileURLToPath(new URL('..', import.meta.url))
 const started = Date.now()
 let env = process.env
@@ -37,5 +37,5 @@ const build = await run('pnpm', ['exec', 'vite', 'build'])
 if (build !== 0) process.exit(build)
 if (demo) await seedDemoFromCli(demoHome())
 process.exitCode = executable
-  ? await run(executable, [path.resolve(cwd)])
-  : await run('pnpm', ['exec', 'electron', path.resolve(cwd)])
+  ? await run(executable, [path.resolve(cwd), ...forwarded])
+  : await run('pnpm', ['exec', 'electron', path.resolve(cwd), ...forwarded])
