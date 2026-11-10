@@ -27,7 +27,9 @@ import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
-import { ordinal, TaskStatusChips } from '../components/TaskStatus.tsx'
+import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
+import { ordinal } from '../components/TaskStatus.tsx'
+import { useListCollapsed } from '../list-collapse.ts'
 import {
   activeFilterCount,
   columnLabels,
@@ -56,6 +58,7 @@ import {
 } from '../list-view.ts'
 import { age, useNow } from '../requests.ts'
 import { startTask } from '../setup-notice.ts'
+import { activeSubAgentCount } from '../sub-agents.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -478,7 +481,7 @@ export function TaskList({
     setDraft((current) => (current && viewKey(current.view) === savedKey ? undefined : current))
   }, [savedKey])
   const [text, setText] = useState('')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const collapse = useListCollapsed(scope, view.group)
   const [selected, setSelected] = useState<string[]>([])
   const [anchor, setAnchor] = useState<string>()
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
@@ -492,7 +495,6 @@ export function TaskList({
     void scope
     setSelected([])
     setAnchor(undefined)
-    setCollapsed({})
     setText('')
   }, [scope])
 
@@ -509,7 +511,7 @@ export function TaskList({
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'
   const canDrag = view.sort === 'manual' && !archivedOnly
-  const isCollapsed = (group: TaskGroup) => collapsed[group.key] ?? group.collapsed
+  const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : g.tasks))
   const grid = [...(queueMode ? (['queue'] as const) : []), ...columns]
     .map((c) => columnWidths[c])
@@ -622,10 +624,10 @@ export function TaskList({
         return stageName(task.stage)
       case 'status':
         if (task.archived) return <span className={styles.meta}>{ending(task)}</span>
-        if (!task.status && task.markers.length === 0) {
+        if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
           return <span className={styles.none}>—</span>
         }
-        return <TaskStatusChips task={task} onOpenTask={onOpenTask} />
+        return <TaskStatusWithSubAgents task={task} onOpenTask={onOpenTask} />
       case 'blocked-by': {
         const blockers = task.blockedBy.map((id) => displayIds.get(id) ?? id)
         return blockers.length === 0 ? <span className={styles.none}>—</span> : blockers.join(', ')
@@ -879,6 +881,8 @@ export function TaskList({
         <span className={views.headerSpacer} />
         <span className={styles.summary}>
           {summaryLine(inScope, shown, view, scope, factories)}
+          {' · '}
+          <SubAgentTotal tasks={shown} filtered={text !== '' || chips.length > 0} />
         </span>
         {queueMode && (
           <Help>
@@ -924,7 +928,7 @@ export function TaskList({
                           type="button"
                           className={styles.groupHead}
                           aria-expanded={!closed}
-                          onClick={() => setCollapsed((c) => ({ ...c, [group.key]: !closed }))}
+                          onClick={() => collapse.change(group.key, !closed)}
                           onDragOver={(event) => onDragOver(event, group, group.tasks.length)}
                           onDrop={(event) => {
                             event.preventDefault()

@@ -38,6 +38,7 @@ import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
+import { writingGuidance } from '../writing.ts'
 import { createAutomationDrafts } from './drafts.ts'
 import { automationTemplates } from './templates.ts'
 
@@ -407,6 +408,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     })
     return [
       `# You are an Automation Run in TED`,
+      writingGuidance,
       `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
       [
         `You are “${automation.name}”, an Automation in the ${factory.name} Factory (repos: ${repos.join(', ')}). TED started this Run ${why[firing.trigger]}. You run outside any Task, usually to bring new work in as Tasks.`,
@@ -425,7 +427,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function finalMessage(runId: string): string | undefined {
     const run = store.getRun(runId)
     if (!run) return undefined
-    const entries = agents.get(run.agent).chat(store.conversation(run.id), run.cwd)
+    const entries = agents.get(run.agent).chat(runs.output.entries(run.id), run.cwd)
     const text = entries.findLast((e) => e.kind === 'agent')?.text
     return text === undefined ? undefined : firstLine(text) || undefined
   }

@@ -668,6 +668,7 @@ export function TaskThread({
         <RunChat
           key={shownRun}
           runId={shownRun}
+          bar={shownRun !== task.leadRunId}
           endedNote={
             task.canResume
               ? 'This Run has ended and is read-only. Resume the Task to carry on.'

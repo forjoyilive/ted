@@ -32,6 +32,7 @@ import type {
   Comment,
   Coordinator,
   CoordinatorMessage,
+  CoordinatorStatus,
   CreateAutomationRequest,
   CreateFactoryRequest,
   CreateTaskRequest,
@@ -45,6 +46,7 @@ import type {
   DriftCounts,
   EditAutomationRequest,
   EditTaskRequest,
+  ExportFormat,
   Factory,
   FactoryBoard,
   FactoryRemoval,
@@ -83,6 +85,7 @@ import type {
   RunMessage,
   RunSlots,
   RunSummary,
+  SaveExportResult,
   SaveLibraryRequest,
   SaveSettingsRequest,
   SaveSettingsResult,
@@ -150,6 +153,10 @@ export const ted = {
   listWaiting: () => window.ted.request('listWaiting') as Promise<WaitingRequest[]>,
   getCoordinator: (id: string) =>
     window.ted.request('getCoordinator', id) as Promise<Coordinator | null>,
+  getCoordinatorChat: (id: string) =>
+    window.ted.request('getCoordinatorChat', id) as Promise<RunChat | null>,
+  coordinatorStatuses: () =>
+    window.ted.request('coordinatorStatuses') as Promise<CoordinatorStatus[]>,
   messageCoordinator: (id: string, input: CoordinatorMessage) =>
     window.ted.request('messageCoordinator', id, input) as Promise<Coordinator>,
   stopCoordinator: (id: string) =>
@@ -214,6 +221,8 @@ export const ted = {
     window.ted.request('listCheckRuns', taskId) as Promise<CheckRun[]>,
   checkOutput: (checkRunId: string, position: number) =>
     window.ted.request('checkOutput', checkRunId, position) as Promise<CheckOutput>,
+  exportFactory: (factoryId: string, format: ExportFormat) =>
+    window.ted.request('exportFactory', factoryId, format) as Promise<SaveExportResult>,
   listFactories: () => window.ted.request('listFactories') as Promise<Factory[]>,
   createTask: (input: CreateTaskRequest) =>
     window.ted.request('createTask', input) as Promise<Task>,

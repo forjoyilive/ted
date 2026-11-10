@@ -1,6 +1,7 @@
 import type { PlanRequest, PlanTask, RoundAnswer } from '@ted/protocol'
 import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
+import { writingGuidance } from '../writing.ts'
 
 export const planOpening = '## What the human wants to plan'
 
@@ -58,6 +59,7 @@ export function plannerInstructions(input: {
       : `Your working folder, ${folder}, holds a fresh checkout of each of the Factory’s repos at its latest base branch: ${entries.map((e) => `\`${e.name}/\` (${e.repo})`).join(', ')}.`
   return [
     '# You are the planner in a TED planning chat',
+    writingGuidance,
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
     [
       `The human wants to work out a piece of work in the ${factory.name} Factory that is too big for one Task. Talk it through with them, settle what needs settling, and end by proposing Tasks, with which ones block which, for them to approve. You plan; you don’t build. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,

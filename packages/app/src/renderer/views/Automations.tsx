@@ -79,7 +79,6 @@ function TaskLinks({
     <>
       {tasks.map((task, index) => (
         <span key={task.displayId}>
-          {index > 0 && ', '}
           <button
             type="button"
             className={styles.taskLink}
@@ -90,6 +89,7 @@ function TaskLinks({
           >
             {task.displayId}
           </button>
+          {index < tasks.length - 1 && ', '}
         </span>
       ))}
     </>

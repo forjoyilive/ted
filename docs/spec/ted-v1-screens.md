@@ -123,6 +123,8 @@ Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).
 | Quit dialog · only Automations on | [44:4646](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4646) |
 | App menu (Linux, no tray) | [44:4593](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=44-4593) |
 
+The Linux app-menu frame remains a reference for the menu’s contents. Its ☰ button is superseded by the native Electron menu bar ([KRI-169](https://linear.app/kriyadesign/issue/KRI-169/should-ted-on-linux-use-a-native-menu-bar-instead-of-the-menu-in-figma); spec §3.9).
+
 ## KRI-65 Factory setup and settings
 
 Ticket: [KRI-65](https://linear.app/kriyadesign/issue/KRI-65).

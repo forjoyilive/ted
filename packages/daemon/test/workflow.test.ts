@@ -6,6 +6,7 @@ import {
   resolveAgentChoices,
   resolveWorkflow,
 } from '../src/workflow/index.ts'
+import { subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
 
 const defaults = () => readDefaultLayer()
 
@@ -13,6 +14,18 @@ const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 
 describe('TED defaults', () => {
+  test('sub-agent instructions carry writing guidance for delegated work and TED reviews', async () => {
+    for (const prompt of [
+      await subAgentPrompt('NB-1', 'Investigate login failures.'),
+      await tedSubAgentPrompt('Review the change.'),
+    ]) {
+      expect(prompt).toContain('## Write clearly for the user')
+      expect(prompt).toContain(
+        'Plain language must preserve technical meaning, risks and uncertainty.',
+      )
+    }
+  })
+
   test('run every built-in Stage in order, Backlog first and Done last', async () => {
     const workflow = resolveWorkflow([await defaults()])
 

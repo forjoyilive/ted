@@ -476,3 +476,10 @@
 .stopTurn {
   padding-inline: 6px;
 }
+
+.searchMatch {
+  margin: 4px 8px;
+  border-radius: 6px;
+  background: var(--accent-subtle);
+  outline: 2px solid var(--accent-border);
+}
