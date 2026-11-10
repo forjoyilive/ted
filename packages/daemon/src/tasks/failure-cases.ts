@@ -110,10 +110,7 @@ export function createFailureCases(options: {
         cancelled: true,
       })
   }
-  async function obligations(
-    task: Task,
-    observed?: FailureContext | null,
-  ): Promise<ValidationObligations> {
+  function verify(task: Task, current: FailureContext | null | undefined) {
     const values = store.failures.list(task.id)
     const checkRuns = store
       .listCheckRuns(task.id)
@@ -125,11 +122,7 @@ export function createFailureCases(options: {
         ...(outcome && { outcome }),
         ...(finishedAt && { finishedAt }),
       }))
-    if (values.length === 0) return { satisfied: true, checkRuns, cases: [], blockers: [] }
-    let current = observed
     const completed = task.stage === 'done'
-    if (!completed && current === undefined)
-      current = await options.snapshot(task).catch(() => null)
     const cases: ValidationObligations['cases'] = []
     const invalidated: string[] = []
     for (let value of values) {
@@ -176,7 +169,13 @@ export function createFailureCases(options: {
     const blockers = cases
       .filter((c) => c.disposition === 'unresolved' || c.disposition === 'invalidated')
       .map((c) => c.id)
-    if (!completed && blockers.length > 0) {
+    return {
+      result: { satisfied: blockers.length === 0, checkRuns, cases, blockers },
+      invalidated,
+    }
+  }
+  async function applyHold(task: Task, { result, invalidated }: ReturnType<typeof verify>) {
+    if (task.stage !== 'done' && result.blockers.length > 0) {
       await store.persisted()
       try {
         await options.onHold(task)
@@ -184,7 +183,32 @@ export function createFailureCases(options: {
         if (invalidated.length > 0) await options.onInvalidated(task, invalidated)
       }
     }
-    return { satisfied: blockers.length === 0, checkRuns, cases, blockers }
+  }
+  async function obligations(
+    task: Task,
+    observed?: FailureContext | null,
+  ): Promise<ValidationObligations> {
+    let current = observed
+    if (task.stage !== 'done' && current === undefined && store.failures.list(task.id).length > 0)
+      current = await options.snapshot(task).catch(() => null)
+    const verification = verify(task, current)
+    await applyHold(task, verification)
+    return verification.result
+  }
+  function pendingDecision(task: Task, id: string, requestId: string) {
+    const value = get(task, id)
+    const decision = value.decisions.at(-1)
+    const assessment = currentAssessment(value)
+    const comment = store.getComment(requestId)
+    if (
+      !decision ||
+      decision.commentId !== requestId ||
+      decision.assessmentId !== assessment?.id ||
+      !comment ||
+      comment.answer
+    )
+      throw new RequestError(409, 'this failure decision is stale or already answered')
+    return { value, decision, assessment }
   }
   return {
     list: (task: Task) => store.failures.list(task.id),
@@ -371,57 +395,54 @@ export function createFailureCases(options: {
     },
     async resolve(task: Task, id: string, request: ResolveFailureRequest) {
       await obligations(task)
-      const value = get(task, id)
-      const decision = value.decisions.at(-1)
-      const assessment = currentAssessment(value)
-      const comment = store.getComment(request.requestId)
-      if (
-        !decision ||
-        decision.commentId !== request.requestId ||
-        decision.assessmentId !== assessment?.id ||
-        !comment ||
-        comment.answer
-      )
-        throw new RequestError(409, 'this failure decision is stale or already answered')
+      pendingDecision(task, id, request.requestId)
       const reason = failureText(request.reason?.trim() ?? '')
       if (request.resolution !== 'accepted' && !reason)
         throw new RequestError(400, 'closing a failure needs a reason')
-      const context = tested(task, decision.contextId)
-      if (request.resolution === 'accepted') {
-        const current = await options.snapshot(task).catch(() => undefined)
+      const current =
+        request.resolution === 'accepted'
+          ? await options.snapshot(task).catch(() => null)
+          : undefined
+      const verification = current === undefined ? undefined : verify(task, current)
+      try {
+        const { value, decision, assessment } = pendingDecision(task, id, request.requestId)
+        const context = tested(task, decision.contextId)
         if (
-          !sourceContext(value.source, tested(task, value.contextId)) ||
-          !sourceContext(value.source, context) ||
-          !context ||
-          !current ||
-          context.fingerprint !== current.fingerprint
+          request.resolution === 'accepted' &&
+          (!sourceContext(value.source, tested(task, value.contextId)) ||
+            !sourceContext(value.source, context) ||
+            !context ||
+            !current ||
+            context.fingerprint !== current.fingerprint)
         )
           throw new RequestError(409, 'acceptance requires verified matching tested context')
+        const at = new Date().toISOString()
+        const next = {
+          ...value,
+          resolutions: [
+            ...value.resolutions,
+            {
+              ...request,
+              reason,
+              at,
+              assessmentId: assessment.id,
+              ...(context && { contextId: context.id }),
+            },
+          ],
+        }
+        const answer = {
+          kind: 'answered' as const,
+          choice: failureChoices[request.resolution],
+          text: reason,
+          at,
+        }
+        store.resolveFailure(next, request.requestId, answer, options.drafts(task.id))
+        await store.persisted()
+        await options.tell(task, store.getComment(request.requestId) as Comment)
+        return next
+      } finally {
+        if (verification) await applyHold(task, verification)
       }
-      const at = new Date().toISOString()
-      const next = {
-        ...value,
-        resolutions: [
-          ...value.resolutions,
-          {
-            ...request,
-            reason,
-            at,
-            assessmentId: assessment.id,
-            ...(context && { contextId: context.id }),
-          },
-        ],
-      }
-      const answer = {
-        kind: 'answered' as const,
-        choice: failureChoices[request.resolution],
-        text: reason,
-        at,
-      }
-      store.resolveFailure(next, request.requestId, answer, options.drafts(task.id))
-      await store.persisted()
-      await options.tell(task, store.getComment(request.requestId) as Comment)
-      return next
     },
   }
 }

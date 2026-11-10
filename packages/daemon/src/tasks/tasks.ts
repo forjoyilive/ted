@@ -2457,6 +2457,7 @@ export function createTasks(options: {
           await mergePullRequest(gh, target, method, { auto: false })
         })
       } catch (error) {
+        if (error instanceof RequestError && error.status === 409) throw error
         if (error instanceof GhError && (error.kind === 'auth' || error.kind === 'missing')) {
           setWait(taskId, target.name, 'sign-in')
           throw error

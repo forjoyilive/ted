@@ -232,3 +232,77 @@ test('legacy evidence requires a bound assessment and new bindings survive repla
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('final observation invalidates earlier consent while committing only the matching case', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ted-failure-final-'))
+  const store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Independent final decisions' })
+    store.startRun({ id: 'lead', taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
+    let fingerprint = 'A'
+    let final = false
+    let reads = 0
+    const service = createFailureCases({
+      store,
+      snapshot: async () => ({
+        id: `${fingerprint}-${reads++}`,
+        taskId: task.id,
+        version: 2,
+        capturedAt: new Date().toISOString(),
+        fingerprint: final && reads === 2 ? 'B' : fingerprint,
+        repos: [],
+        checks: 'checks',
+      }),
+      assertLead: () => {},
+      drafts: () => [],
+      onHold: async () => {},
+      onInvalidated: async () => {},
+      tell: async () => {},
+    })
+    const a = await service.capture(task, 'lead')
+    fingerprint = 'B'
+    const b = await service.capture(task, 'lead')
+    fingerprint = 'A'
+    const ask = async (contextId: string) => {
+      const value = await service.record(task, 'lead', {
+        source: { kind: 'finding', runId: 'lead', finding: 'Original Finding' },
+        evidence: 'Original evidence',
+        contextId,
+      })
+      await service.assess(task, value.id, 'lead', {
+        assessment: 'unrelated',
+        recommendation: 'Accept this context',
+      })
+      return service.request(task, value.id, 'lead')
+    }
+    const first = await ask(a.id)
+    await service.resolve(task, first.id, {
+      requestId: first.decisions[0]?.commentId ?? '',
+      resolution: 'accepted',
+    })
+    const second = await ask(b.id)
+    final = true
+    reads = 0
+    const resolved = await service.resolve(task, second.id, {
+      requestId: second.decisions[0]?.commentId ?? '',
+      resolution: 'accepted',
+    })
+    expect(resolved.resolutions).toHaveLength(1)
+    expect(resolved.invalidations).toEqual([])
+    expect(store.failures.get(first.id)?.invalidations).toHaveLength(1)
+    expect(store.failures.get(first.id)?.resolutions).toHaveLength(1)
+    final = false
+    fingerprint = 'B'
+    expect(await service.obligations(task)).toMatchObject({
+      satisfied: false,
+      blockers: [first.id],
+      cases: expect.arrayContaining([
+        { id: first.id, disposition: 'invalidated', context: 'changed' },
+        { id: second.id, disposition: 'accepted', context: 'current' },
+      ]),
+    })
+  } finally {
+    await store.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
