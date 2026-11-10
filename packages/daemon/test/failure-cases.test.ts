@@ -551,3 +551,95 @@ test('rejected evidence and assessments preserve requests; fresh decisions expos
   expect(asked.evidence).toBe(first.evidence)
   expect((await s.resolve(asked)).status).toBe(200)
 })
+
+test('invalidation notices survive health suspension and restart and reach the resumed session once', async () => {
+  const client = await start({ order: 'intake, work, merge' })
+  const go = path.join(ctx.scratch, 'go')
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({ steps: [{ waitFor: go }, { authError: true }, { exit: 1 }] }),
+    factory: 'NB',
+    start: true,
+  })
+  const first = await waitUntil(async () => {
+    const t = await getTask(client, task.id)
+    return t.leadRunId ? t : undefined
+  }, 'original session')
+  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(first.leadRunId ?? ''))
+  const post = async <T>(suffix: string, body: unknown = {}): Promise<T> => {
+    const result = await lead.call('POST', `/tasks/${task.id}${suffix}`, body)
+    expect(result.status, JSON.stringify(result.body)).toBeLessThan(300)
+    return result.body as T
+  }
+  const context = await post<FailureContext>('/failure-contexts')
+  const value = await post<FailureCase>('/failures', {
+    source: { kind: 'finding', runId: first.leadRunId, finding: 'Known failure' },
+    evidence: 'Observed',
+    contextId: context.id,
+  })
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'unrelated',
+    recommendation: 'Accept',
+  })
+  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+  await client.ok('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+    requestId: asked.decisions.at(-1)?.commentId,
+    resolution: 'accepted',
+  })
+  await writeFile(path.join(ctx.home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
+  await writeFile(go, '')
+  await waitUntil(
+    async () => (await getTask(client, task.id)).status?.kind === 'paused',
+    'health-held session',
+  )
+  await writeFile(
+    path.join(first.repos[0]?.worktree ?? '', 'changed.txt'),
+    'changed while suspended',
+  )
+  expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
+    satisfied: false,
+  })
+  const notices = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+  const notice = notices.find((c) => c.title === 'Failure acceptance invalidated')
+  expect(notice).toBeDefined()
+  expect(notice?.delivered).toBeUndefined()
+  const original = await client.ok<{ run: { sessionId: string } }>(
+    'GET',
+    `/runs/${first.leadRunId}`,
+  )
+  await ctx.daemon?.stop()
+  ctx.daemon = await startDaemon({
+    home: ctx.home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    fixPollMs: 100,
+    checkAgentsOnStart: true,
+  })
+  const restarted = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+  await writeFile(path.join(ctx.home, 'stub-claude.json'), JSON.stringify({ signedIn: true }))
+  expect((await restarted.call('POST', '/agents/health/check', {})).status).toBe(200)
+  const resumed = await waitUntil(async () => {
+    const response = await restarted.call('GET', '/tasks')
+    const t = (response.body as Task[]).find((t) => t.id === task.id)
+    return t?.leadRunId && t.leadRunId !== first.leadRunId ? t : undefined
+  }, 'saved session recovery')
+  const delivered = await waitUntil(async () => {
+    const result = await restarted.call('GET', `/tasks/${task.id}/comments`)
+    return (result.body as Comment[]).find((c) => c.id === notice?.id && c.delivered)
+  }, 'notice delivery')
+  expect(delivered.delivered?.runId).toBe(resumed.leadRunId)
+  const launch = JSON.parse(
+    await readFile(path.join(ctx.home, 'runs', resumed.leadRunId ?? '', 'launch.json'), 'utf8'),
+  ) as { args: string[] }
+  expect(launch.args[launch.args.indexOf('--resume') + 1]).toBe(original.run.sessionId)
+  const result = await restarted.call('GET', `/runs/${resumed.leadRunId}`)
+  const prompt = (result.body as { run: { prompt: string } }).run.prompt
+  expect(prompt.split(notice?.body ?? 'missing notice')).toHaveLength(2)
+  const again = await restarted.call('GET', `/tasks/${task.id}/validation-obligations`)
+  expect(again.status).toBe(200)
+  expect(
+    ((await restarted.call('GET', `/tasks/${task.id}/comments`)).body as Comment[]).filter(
+      (c) => c.title === notice?.title,
+    ),
+  ).toHaveLength(1)
+})

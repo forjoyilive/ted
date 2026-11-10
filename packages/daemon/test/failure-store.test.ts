@@ -84,7 +84,10 @@ test('failure history and atomic request/answer linkage replay without changing 
     }
     store.resolveFailure(resolved, id, { kind: 'answered', choice: 'Accept this failure', at }, [])
     const final = { ...resolved, invalidations: [{ requestId: id, reason: 'Changed code', at }] }
-    store.failures.save(final, 'invalidated')
+    store.invalidateFailure(final, {
+      title: 'Failure acceptance invalidated',
+      body: 'Changed code',
+    })
     expect(() => store.failures.save({ ...final, resolutions: [] }, 'assessed')).toThrow(
       'append-only',
     )
@@ -96,6 +99,13 @@ test('failure history and atomic request/answer linkage replay without changing 
     store = await openStore({ directory })
     expect(store.failures.context(context.id)).toEqual(context)
     expect(store.failures.get(value.id)).toEqual(final)
+    expect(
+      store.listComments(task.id).filter((c) => c.title === 'Failure acceptance invalidated'),
+    ).toMatchObject([{ body: 'Changed code', author: { kind: 'ted' } }])
+    expect(
+      store.listComments(task.id).find((c) => c.title === 'Failure acceptance invalidated')
+        ?.delivered,
+    ).toBeUndefined()
     expect(store.getCheckRun(check.id)).toEqual(original)
     expect(store.getComment(id)?.answer).toMatchObject({
       kind: 'answered',

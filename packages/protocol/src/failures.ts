@@ -82,7 +82,7 @@ export interface ValidationObligations {
   cases: {
     id: string
     disposition: 'unresolved' | 'accepted' | 'fixed' | 'no-longer-applicable' | 'invalidated'
-    context: 'current' | 'unknown' | 'changed'
+    context: 'current' | 'unknown' | 'changed' | 'historical'
   }[]
   blockers: string[]
 }

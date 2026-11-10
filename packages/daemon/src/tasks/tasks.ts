@@ -156,7 +156,12 @@ import {
   summary,
   tedSettingsCheck,
 } from './checks.ts'
-import { ciFailureKey, createFailureCases, failureText } from './failure-cases.ts'
+import {
+  ciFailureKey,
+  createFailureCases,
+  failureNoticeTitle,
+  failureText,
+} from './failure-cases.ts'
 import {
   alreadyFailed,
   asksForFreshRun,
@@ -1507,6 +1512,7 @@ export function createTasks(options: {
       try {
         recordPullRequests(task, read)
         if (
+          task.stage !== 'done' &&
           store.failures.list(task.id).length > 0 &&
           !advancing.has(task.id) &&
           !mergeInFlight.has(task.id)
@@ -2287,6 +2293,7 @@ export function createTasks(options: {
     if (store.failures.list(taskId).length > 0) await untilFree(taskId)
     const task = find(taskId)
     if (advancing.has(taskId)) return 'busy'
+    if (task.stage === 'done') return watchOnlyCycle(taskId, read)
     if (store.failures.list(task.id).length > 0) {
       if (read) recordPullRequests(task, read)
       try {
@@ -2295,7 +2302,6 @@ export function createTasks(options: {
         return 'wait'
       }
     }
-    if (task.stage === 'done') return watchOnlyCycle(taskId, read)
     const resolution = await taskWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
     if (mode === undefined) return 'done'
@@ -3250,11 +3256,18 @@ export function createTasks(options: {
     ]
   }
 
+  const failureNotice = (comment: Comment) =>
+    comment.author.kind === 'ted' && comment.title === failureNoticeTitle
+
   function waitingForRun(taskId: string): { comments: Comment[]; answers: Comment[] } {
     return {
       comments: store
         .listComments(taskId)
-        .filter((c) => c.author.kind === 'human' && c.delivered === undefined),
+        .filter(
+          (c) =>
+            (c.author.kind === 'human' || failureNotice(c)) &&
+            c.delivered === undefined,
+        ),
       answers: store.heldAnswers(taskId),
     }
   }
@@ -3272,7 +3285,10 @@ export function createTasks(options: {
     const items = [
       ...comments.map((c) => ({
         at: c.createdAt,
-        line: withLines(`- ${c.createdAt}: ${flat(plainText(c))}`, c),
+        line: withLines(
+          `- ${c.createdAt}: ${failureNotice(c) ? 'TED: ' : ''}${flat(plainText(c))}`,
+          c,
+        ),
       })),
       ...answers.flatMap((c) => {
         const task = store.getTask(taskId)
@@ -3303,7 +3319,7 @@ export function createTasks(options: {
     const brief = withBrief ? store.latestBrief(taskId) : undefined
     return [
       '# Comments since the last Run',
-      'The human wrote these while no Run was working on this Task. Read them before you carry on. Answer their questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.',
+      'These messages arrived while no Run was working on this Task. Read them before you carry on. Answer their questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.',
       ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
       items.map((i) => i.line).join('\n'),
     ].join('\n\n')
@@ -3319,6 +3335,7 @@ export function createTasks(options: {
   async function sendComment(runId: string): Promise<void> {
     try {
       await options.steering.changed(runId)
+      await store.persisted()
     } catch (error) {
       console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
     }
@@ -5245,7 +5262,7 @@ export function createTasks(options: {
     const notes = store
       .listComments(task.id)
       .filter((c) => !brief || c.createdAt > brief.createdAt)
-      .filter((c) => c.author.kind !== 'human' || c.delivered !== undefined)
+      .filter((c) => (c.author.kind !== 'human' && !failureNotice(c)) || c.delivered !== undefined)
       .map(
         (c) => `- ${authors[c.author.kind]}, ${c.createdAt}: ${c.body.replace(/\s*\n\s*/g, ' ')}`,
       )
@@ -5785,7 +5802,7 @@ export function createTasks(options: {
       if (!task || liveLead(task)?.id !== run.id) return []
       return waitingForRun(task.id).comments.map((comment) => ({
         id: comment.id,
-        text: humanMessage(commentText(comment)),
+        text: comment.author.kind === 'human' ? humanMessage(commentText(comment)) : commentText(comment),
         at: comment.createdAt,
       }))
     },
@@ -6121,16 +6138,16 @@ export function createTasks(options: {
       taskLead(task.id, { kind: 'run', runId }, 'manages failure cases')
     },
     drafts,
-    onInvalidated: async (task, ids) => {
-      const note = store.postComment({
-        taskId: task.id,
-        author: { kind: 'ted' },
-        body: `Acceptance is no longer current for failure cases ${ids.join(', ')}. Their tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh human decision.`,
-      })
-      await store.persisted()
-      await deliver(task, note.body)
+    onInvalidated: async (task) => {
+      await sendWaiting(task.id)
     },
     onHold: async (task) => {
+      const current = find(task.id)
+      const split = mergeSplit(current)
+      if (current.stage !== 'done' && split && !current.statuses.includes('partly-merged')) {
+        store.mergeStoppedPartway(task.id, split)
+        await store.persisted()
+      }
       const stillOn = await turnOffAutoMerge(task.id)
       if (stillOn.length > 0) {
         const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`

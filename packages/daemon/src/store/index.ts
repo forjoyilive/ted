@@ -769,6 +769,7 @@ export interface TedStore {
   automations: AutomationStore
   coordinators: CoordinatorStore
   failures: FailureStore
+  invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
   postFailureDecision(value: FailureCase, body: string): FailureCase
   resolveFailure(
     value: FailureCase,
@@ -2177,6 +2178,20 @@ export async function openStore({
     automations: automationStore,
     plans: planStore,
     failures: failureStore,
+    invalidateFailure(value, note) {
+      const { id, event, attached } = commentPosted(
+        {
+          taskId: value.taskId,
+          kind: 'note',
+          author: { kind: 'ted' },
+          ...note,
+        },
+        new Date().toISOString(),
+      )
+      commit(failureStore.event(value, 'invalidated'), event, ...attached)
+      emit({ type: 'comment-posted', comment: requireComment(id) })
+      updatedTask(value.taskId)
+    },
     postFailureDecision(value, body) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)

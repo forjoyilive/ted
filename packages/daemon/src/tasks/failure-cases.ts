@@ -21,6 +21,16 @@ export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' 
     .digest('hex')
 }
 
+export const failureNoticeTitle = 'Failure acceptance invalidated'
+
+function acceptedResolution(value: FailureCase): boolean {
+  const resolution = value.resolutions.at(-1)
+  return (
+    resolution?.resolution === 'accepted' &&
+    !value.invalidations.some((i) => i.requestId === resolution.requestId)
+  )
+}
+
 export function failureText(value: string): string {
   for (const match of value.matchAll(/https?:\/\/[^\s<>"']+/gi)) {
     try {
@@ -111,7 +121,9 @@ export function createFailureCases(options: {
       }))
     if (values.length === 0) return { satisfied: true, checkRuns, cases: [], blockers: [] }
     let current = observed
-    if (current === undefined) current = await options.snapshot(task).catch(() => null)
+    const completed = task.stage === 'done'
+    if (!completed && current === undefined)
+      current = await options.snapshot(task).catch(() => null)
     const cases: ValidationObligations['cases'] = []
     const invalidated: string[] = []
     for (let value of values) {
@@ -119,18 +131,19 @@ export function createFailureCases(options: {
       let disposition: ValidationObligations['cases'][number]['disposition'] =
         resolution?.resolution ?? 'unresolved'
       const context = tested(task, resolution?.contextId ?? value.contextId)
-      const state =
-        !current ||
-        !context ||
-        !sourceContext(value.source, tested(task, value.contextId)) ||
-        !sourceContext(value.source, context)
+      const state = completed
+        ? 'historical'
+        : !current ||
+            !context ||
+            !sourceContext(value.source, tested(task, value.contextId)) ||
+            !sourceContext(value.source, context)
           ? 'unknown'
           : current.fingerprint === context.fingerprint
             ? 'current'
             : 'changed'
       if (resolution?.resolution === 'accepted') {
-        const invalid = value.invalidations.some((i) => i.requestId === resolution.requestId)
-        if (!invalid && state !== 'current') {
+        const invalid = !acceptedResolution(value)
+        if (!completed && !invalid && state !== 'current') {
           value = {
             ...value,
             invalidations: [
@@ -143,18 +156,21 @@ export function createFailureCases(options: {
               },
             ],
           }
-          store.failures.save(value, 'invalidated')
+          store.invalidateFailure(value, {
+            title: failureNoticeTitle,
+            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh human decision.`,
+          })
           invalidated.push(value.id)
           withdraw(value)
         }
-        if (invalid || state !== 'current') disposition = 'invalidated'
+        if (invalid || (!completed && state !== 'current')) disposition = 'invalidated'
       }
       cases.push({ id: value.id, disposition, context: state })
     }
     const blockers = cases
       .filter((c) => c.disposition === 'unresolved' || c.disposition === 'invalidated')
       .map((c) => c.id)
-    if (blockers.length > 0) {
+    if (!completed && blockers.length > 0) {
       await store.persisted()
       try {
         await options.onHold(task)
@@ -277,10 +293,7 @@ export function createFailureCases(options: {
       const lastResolution = value.resolutions.at(-1)
       if (lastResolution && lastResolution.resolution !== 'accepted')
         throw new RequestError(409, 'this case is closed; record a new failure')
-      if (
-        lastResolution?.resolution === 'accepted' &&
-        !value.invalidations.some((i) => i.requestId === lastResolution.requestId)
-      )
+      if (acceptedResolution(value))
         throw new RequestError(409, 'this failure already has current acceptance')
       withdraw(value)
       const contextId = value.additions.at(-1)?.contextId ?? value.contextId
@@ -307,11 +320,7 @@ export function createFailureCases(options: {
       options.assertLead(task, runId)
       const value = get(task, id)
       const resolution = value.resolutions.at(-1)
-      if (
-        resolution &&
-        (resolution.resolution !== 'accepted' ||
-          !value.invalidations.some((i) => i.requestId === resolution.requestId))
-      )
+      if (resolution && (resolution.resolution !== 'accepted' || acceptedResolution(value)))
         throw new RequestError(409, 'this case is already resolved')
       const assessment = value.assessments.at(-1)
       if (!assessment || (value.additions.at(-1)?.at ?? '') > assessment.at)

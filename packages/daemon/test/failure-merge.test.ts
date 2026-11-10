@@ -1,8 +1,9 @@
-import { writeFile } from 'node:fs/promises'
+import { rm, writeFile } from 'node:fs/promises'
 import { type Comment, type FailureCase, type FailureContext, tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
+import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
-import { api, waitUntil } from './helpers.ts'
+import { api, stubClaudePath, waitUntil } from './helpers.ts'
 import {
   approve,
   ctx,
@@ -348,4 +349,58 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
       })
     ).status,
   ).toBe(409)
+})
+
+test('completed acceptance survives background reads, explicit queries and daemon restart', async () => {
+  const client = await start()
+  const { task, signoff } = await toSignoff(client)
+  await writeFile(client.mergingFile, '')
+  const current = await getTask(client, task.id)
+  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
+  const post = async <T>(suffix: string, body: unknown = {}): Promise<T> => {
+    const result = await lead.call('POST', `/tasks/${task.id}${suffix}`, body)
+    expect(result.status, JSON.stringify(result.body)).toBeLessThan(300)
+    return result.body as T
+  }
+  const context = await post<FailureContext>('/failure-contexts')
+  const value = await post<FailureCase>('/failures', {
+    source: { kind: 'finding', runId: current.leadRunId, finding: 'Known unrelated issue' },
+    evidence: 'Observed',
+    contextId: context.id,
+  })
+  await post(`/failures/${value.id}/assessments`, {
+    assessment: 'unrelated',
+    recommendation: 'Accept',
+  })
+  const asked = await post<FailureCase>(`/failures/${value.id}/decision`)
+  await client.ok('POST', `/tasks/${task.id}/failures/${value.id}/resolve`, {
+    requestId: asked.decisions.at(-1)?.commentId,
+    resolution: 'accepted',
+  })
+  await approve(client, signoff)
+  await waitUntil(async () => (await getTask(client, task.id)).stage === 'done', 'Done')
+  await rm(client.mergingFile)
+  await toSignoff(client)
+
+  const query = `/tasks/${task.id}/validation-obligations`
+  expect(await client.ok('GET', query)).toMatchObject({
+    satisfied: true,
+    cases: [{ id: value.id, disposition: 'accepted', context: 'historical' }],
+  })
+  const history = await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)
+  expect(history[0]?.invalidations).toEqual([])
+  await ctx.daemon?.stop()
+  ctx.daemon = await startDaemon({
+    home: ctx.home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    mergePollMs: 100,
+  })
+  const restarted = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+  expect((await restarted.call('GET', query)).body).toMatchObject({
+    satisfied: true,
+    cases: [{ id: value.id, disposition: 'accepted', context: 'historical' }],
+  })
+  expect((await restarted.call('GET', `/tasks/${task.id}/failures`)).body).toEqual(history)
 })
