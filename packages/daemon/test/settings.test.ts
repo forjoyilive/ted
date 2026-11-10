@@ -81,6 +81,7 @@ describe('machine settings in the store', () => {
       linearSyncDeclined: {},
       appsOutsideSandbox: {},
       lowPriorityWork: true,
+      maxChecksAtOnce: 2,
     })
     first.updateSettings({ terminalFontSize: 16, developerMode: true, overnightMode: true })
     first.updateSettings({ profilePicture: picture })
@@ -256,6 +257,8 @@ describe('settings and Factories over the daemon API', () => {
     ['Stay Awake that is not true or false', { stayAwake: 1 }],
     ['first launch done that is not true or false', { firstLaunchDone: 'yes' }],
     ['no simulator slots', { maxBootedSimulators: 0 }],
+    ['no Checks at once', { maxChecksAtOnce: 0 }],
+    ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
     ['more simulator slots than the limit', { maxBootedSimulators: 21 }],
     ['Run output kept for no days', { runOutputDays: 0 }],
     ['Run output kept for more than a year', { runOutputDays: 366 }],

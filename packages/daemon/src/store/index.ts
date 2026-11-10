@@ -770,6 +770,7 @@ export interface TedStore {
   newWorkHold(): string | undefined
   holdForLoad(held: boolean): void
   setTaskChecking(taskId: string, on: boolean): void
+  setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
   automations: AutomationStore
@@ -834,6 +835,7 @@ export async function openStore({
   let heldForLoad = false
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
+  let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
   }
@@ -1309,6 +1311,9 @@ export async function openStore({
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
       ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
       ...(checkingNow && { checking: checkingNow }),
+      ...(checksWaiting.has(row.id) && {
+        checksWaiting: { place: checksWaiting.get(row.id) ?? 1 },
+      }),
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
@@ -1727,6 +1732,7 @@ export async function openStore({
     startedAt: row.startedAt,
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
     ...(row.outcome !== null && { outcome: row.outcome as CheckRunOutcome }),
+    ...(row.finishedAt === null && checksWaiting.has(row.taskId) && { waiting: true }),
   })
   const checkProgress = (checkRunId: string) => {
     const rows = checkResultRows(checkRunId)
@@ -2027,10 +2033,13 @@ export async function openStore({
       },
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning: new Set([
-        ...checkingTasks,
-        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-      ]).size,
+      checksRunning: [
+        ...new Set([
+          ...checkingTasks,
+          ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+        ]),
+      ].filter((taskId) => !checksWaiting.has(taskId)).length,
+      checksWaiting: checksWaiting.size,
       shellsRunning,
     }
   }
@@ -4080,6 +4089,17 @@ export async function openStore({
         checkingTasks.add(taskId)
       } else checkingTasks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
+      noteActivity()
+    },
+    setChecksWaiting(places) {
+      const before = checksWaiting
+      checksWaiting = new Map([...places].filter(([taskId]) => taskRow(taskId)))
+      for (const taskId of new Set([...before.keys(), ...checksWaiting.keys()])) {
+        if (before.get(taskId) === checksWaiting.get(taskId) || !taskRow(taskId)) continue
+        const unfinished = checkRunRows(taskId).find((r) => r.finishedAt === null)
+        if (unfinished) updatedCheckRun(unfinished.id)
+        else updatedTask(taskId)
+      }
       noteActivity()
     },
     onWriteResult(listener) {

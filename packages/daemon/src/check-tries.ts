@@ -8,6 +8,7 @@ import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import * as git from './git.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
+import type { CheckSlots } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
@@ -42,6 +43,7 @@ const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/
 
 export function createCheckTries(options: {
   store: TedStore
+  checkSlots: CheckSlots
   banners: Banners
   workflows: Workflows
   reposDir: string
@@ -76,9 +78,9 @@ export function createCheckTries(options: {
     try {
       if (text !== undefined) state = JSON.parse(text) as ScratchState
     } catch {}
-    for (const t of state.tries) {
-      if (t.state === 'running') Object.assign(t, { state: 'stopped' })
-    }
+    state.tries = state.tries.map(({ waiting: _, ...t }) =>
+      t.state === 'running' ? { ...t, state: 'stopped' } : t,
+    )
     states.set(factoryId, state)
     return state
   }
@@ -214,12 +216,22 @@ export function createCheckTries(options: {
     request: CheckTryRequest,
     started: CheckTry,
     abort: AbortController,
+    shownWaiting: boolean,
   ): Promise<void> {
     const log = logFile(factory.id, request.name)
     await mkdir(path.dirname(log), { recursive: true, mode: 0o700 })
+    const waits = options.checkSlots.full()
+    const taking = options.checkSlots.take({ signal: abort.signal })
     let finished: CheckTry
     try {
-      const prepared = await prepare(factory, entry, log, abort.signal)
+      if (waits !== shownWaiting) {
+        await update(factory.id, waits ? { ...started, waiting: true } : started)
+      }
+      const release = await taking
+      if (release && waits) await update(factory.id, started)
+      const prepared = release
+        ? await prepare(factory, entry, log, abort.signal)
+        : { failed: 'stopped' as const }
       if ('failed' in prepared) {
         finished = {
           ...started,
@@ -257,6 +269,8 @@ export function createCheckTries(options: {
       finished = abort.signal.aborted
         ? { ...started, state: 'stopped' }
         : { ...started, state: 'failed', setupFailed: true }
+    } finally {
+      void taking.then((release) => release?.())
     }
     const finishedAt = new Date()
     await update(factory.id, {
@@ -320,13 +334,15 @@ export function createCheckTries(options: {
           state: 'running',
           startedAt: new Date().toISOString(),
         }
-        await update(factoryId, started)
-        placeholder.done = execute(factory, entry, request, started, placeholder.abort)
+        const waits = options.checkSlots.full()
+        const shown = waits ? { ...started, waiting: true } : started
+        await update(factoryId, shown)
+        placeholder.done = execute(factory, entry, request, started, placeholder.abort, waits)
           .catch((error: unknown) => console.error('a Check tried from settings failed:', error))
           .finally(() => {
             if (running.get(factoryId) === placeholder) running.delete(factoryId)
           })
-        return started
+        return shown
       } catch (error) {
         running.delete(factoryId)
         throw error

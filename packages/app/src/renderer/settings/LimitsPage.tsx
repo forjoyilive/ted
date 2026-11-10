@@ -1,5 +1,5 @@
 import { simulatorSlotLimits } from '@ted/protocol/app'
-import { workingRunLimits } from '@ted/protocol/settings'
+import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
 import { useSimulators, useSlots } from '../data.ts'
 import { nowLine } from '../slots.ts'
 import { ted } from '../ted.ts'
@@ -54,6 +54,19 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
+        <SettingRow
+          title="Checks running at once"
+          help="A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running."
+        >
+          <Stepper
+            value={settings.maxChecksAtOnce}
+            min={checkLimits.min}
+            max={checkLimits.max}
+            lessLabel="Fewer Checks at once"
+            moreLabel="More Checks at once"
+            onChange={(maxChecksAtOnce) => void ted.updateSettings({ maxChecksAtOnce })}
+          />
+        </SettingRow>
         <SettingRow
           title="Run agents and Checks at low priority"
           help="Agents, Checks, worktree setup and teardown, and Apps an agent starts run at niceness 10. On Linux that lowers their share of the processor; on macOS it doesn’t. Apps you start with ▶ and Task shells keep normal priority."

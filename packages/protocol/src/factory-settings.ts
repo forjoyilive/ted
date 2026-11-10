@@ -124,6 +124,7 @@ export interface CheckTry {
   name: string
   repo: string
   state: CheckTryState
+  waiting?: boolean
   exitCode?: number
   setupFailed?: boolean
   durationMs?: number

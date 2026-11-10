@@ -13,6 +13,8 @@ export type Appearance = (typeof appearances)[number]
 
 export const workingRunLimits = { min: 1, max: 99 } as const
 
+export const checkLimits = { min: 1, max: 16 } as const
+
 export const terminalFontSizes = { min: 10, max: 20 } as const
 
 export const runOutputDayLimits = { min: 1, max: 365 } as const
@@ -52,6 +54,7 @@ export interface MachineSettings {
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
+  maxChecksAtOnce: number
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -85,6 +88,7 @@ export const defaultMachineSettings: MachineSettings = {
   linearSyncDeclined: {},
   appsOutsideSandbox: {},
   lowPriorityWork: true,
+  maxChecksAtOnce: 2,
 }
 
 export interface Profile {

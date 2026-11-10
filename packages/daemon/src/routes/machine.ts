@@ -5,6 +5,7 @@ import {
   archivedFilters,
   type BannerActionInput,
   billings,
+  checkLimits,
   createdByKinds,
   editorIds,
   isLinearTeamKey,
@@ -53,7 +54,10 @@ export const machineRoutes: Route[] = [
     path: /^\/update\/work$/,
     handle: async (_, { store, tasks }) => [
       200,
-      { checks: store.activity().checksRunning, merges: tasks.mergesInFlight() },
+      {
+        checks: store.activity().checksRunning + store.activity().checksWaiting,
+        merges: tasks.mergesInFlight(),
+      },
     ],
   },
   {
@@ -258,6 +262,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   firstLaunchDone: onOff('firstLaunchDone'),
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
+  maxChecksAtOnce(value) {
+    const { min, max } = checkLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxChecksAtOnce must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   appsOutsideSandbox(value) {

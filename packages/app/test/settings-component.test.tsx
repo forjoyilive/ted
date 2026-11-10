@@ -75,7 +75,7 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
   ])
 })
 
-test('Limits turns low priority for agents and Checks off', async () => {
+test('Limits changes how many Checks run at once and turns low priority off', async () => {
   const update = vi.fn()
   bridge({
     getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
@@ -88,7 +88,14 @@ test('Limits turns low priority for agents and Checks off', async () => {
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
   await user().click(toggle)
-  expect(update.mock.calls).toEqual([[{ lowPriorityWork: false }]])
+  expect(screen.getByText('Checks running at once')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'More Checks at once' }))
+  await user().click(screen.getByRole('button', { name: 'Fewer Checks at once' }))
+  expect(update.mock.calls).toEqual([
+    [{ lowPriorityWork: false }],
+    [{ maxChecksAtOnce: 3 }],
+    [{ maxChecksAtOnce: 1 }],
+  ])
 })
 
 test('Storage sets how long Run output is kept after a Task is done', async () => {

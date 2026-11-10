@@ -381,6 +381,7 @@ export {
 export {
   type Appearance,
   appearances,
+  checkLimits,
   defaultMachineSettings,
   type MachineSettings,
   type Profile,

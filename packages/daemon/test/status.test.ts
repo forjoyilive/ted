@@ -64,6 +64,9 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
     expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
+    expect(taskActivity(at({ tedWorking: true, checksWaiting: { place: 2 } }))).toBe(
+      'Waiting to run Checks · 2nd',
+    )
   })
 
   test('an open request or a Run waiting on the human makes it Waiting on you', () => {
