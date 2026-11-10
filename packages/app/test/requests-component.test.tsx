@@ -145,6 +145,51 @@ test('answered and superseded cards expand read-only and never send again', asyn
 })
 
 test.each([
+  { kind: 'approved', at: createdAt, text: 'For this request' },
+  { kind: 'denied', at: createdAt, text: 'For this request' },
+  { kind: 'withdrawn', at: createdAt, runStopped: true },
+] as const)('resolved permissions retain their full request: $kind', (answer) => {
+  const api = requestApi()
+  const request = comment({
+    kind: 'permission',
+    title: 'Run a command',
+    body: 'Install the CRDT library',
+    permission: {
+      command: 'npm install --save yjs@13.6.27',
+      repo: 'ted',
+      details: 'Network access is required.\nWrites package.json and pnpm-lock.yaml.',
+    },
+  })
+  const view = render(<RequestCard task={task()} request={request} />)
+  expect(screen.getByText('Install the CRDT library')).toBeTruthy()
+  view.rerender(<AnsweredCard task={task()} request={{ ...request, answer }} />)
+  expect(screen.getByRole('heading', { name: 'Run a command' })).toBeTruthy()
+  expect(screen.getByText('Install the CRDT library')).toBeTruthy()
+  expect(screen.getAllByText(/npm install --save yjs@13\.6\.27/)).toHaveLength(1)
+  expect(screen.getByText('ted $')).toBeTruthy()
+  expect(screen.getByText(/Network access is required/).textContent).toBe(
+    request.permission?.details,
+  )
+  expect(screen.getAllByText('Permission')).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: /Show request|Hide request/ })).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(screen.queryByRole('button', { name: /Approve|Deny/ })).toBeNull()
+  expect(
+    screen.getByText(
+      answer.kind === 'approved'
+        ? 'You approved · this request only'
+        : answer.kind === 'denied'
+          ? 'You denied'
+          : /Run stopped before you answered/,
+    ),
+  ).toBeTruthy()
+  if (answer.kind !== 'withdrawn') expect(screen.getByText('“For this request”')).toBeTruthy()
+  view.rerender(<AnsweredCard task={task()} request={{ ...request, answer }} expanded />)
+  expect(screen.getAllByText(/npm install --save yjs@13\.6\.27/)).toHaveLength(1)
+  expect(api.answer).not.toHaveBeenCalled()
+})
+
+test.each([
   [
     'Finish the current Stage and move the Task on.',
     'Finish the current Stage and move the Task on.',
@@ -153,7 +198,7 @@ test.each([
   [' \n\t ', 'The agent didn’t provide an explanation for this request.'],
 ])('permission card explains a request with body %j', (body, explanation) => {
   requestApi()
-  render(
+  const view = render(
     <RequestCard
       task={task()}
       request={comment({
@@ -170,6 +215,19 @@ test.each([
   )
   expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy()
   expect(screen.getByRole('button', { name: 'Deny' })).toBeTruthy()
+  view.rerender(
+    <AnsweredCard
+      task={task()}
+      request={comment({
+        kind: 'permission',
+        title: 'Run a command',
+        body,
+        permission: { command: '/tmp/ted-run-c58cea04.sh outcome advance', repo: 'ted' },
+        answer: { kind: 'approved', at: createdAt },
+      })}
+    />,
+  )
+  expect(screen.getByText(explanation)).toBeTruthy()
 })
 
 test.each(['approve', 'deny'] as const)(
