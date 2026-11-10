@@ -218,7 +218,7 @@ describe('Factory settings: Workflow', () => {
       view.version,
     )
     expect(await originFile('.ted/stages/review.md')).toBe(`${inherited}\nAlso check the docs.\n`)
-    expect(parse(await originFile('.ted/workflow.yaml')).stages.review.based_on).toBe(
+    expect(parse((await originFile('.ted/workflow.yaml')) ?? '').stages.review.based_on).toBe(
       blobHash(inherited),
     )
     const overridden = await client.settings()
