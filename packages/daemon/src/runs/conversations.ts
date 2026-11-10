@@ -21,6 +21,7 @@ import type { TedStore } from '../store/index.ts'
 import type { Caller } from '../tasks/tasks.ts'
 import { preambleText, subAgentPreamble } from '../workflow/workflow.ts'
 import type { RunManager } from './run-manager.ts'
+import type { OutputKept } from './run-output.ts'
 import type { Steering } from './steering.ts'
 
 export interface Conversations {
@@ -102,6 +103,27 @@ export function withPermissions(items: ChatItem[], requests: readonly Comment[])
       at: request.createdAt,
     })),
   )
+}
+
+function withOutputNote(kept: OutputKept, items: ChatItem[]): ChatItem[] {
+  if (kept === 'all') return items
+  const after = items.findIndex((item) => item.kind !== 'instructions' && item.kind !== 'prompt')
+  const at = after === -1 ? items.length : after
+  const note: ChatItem =
+    kept === 'none'
+      ? {
+          kind: 'ted',
+          id: 'output-not-kept',
+          title: 'Output no longer kept',
+          text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+        }
+      : {
+          kind: 'ted',
+          id: 'output-not-kept',
+          title: 'Earlier output no longer kept',
+          text: 'TED kept only the newest part of this Run’s output. Earlier messages and tool calls can’t be shown.',
+        }
+  return [...items.slice(0, at), note, ...items.slice(at)]
 }
 
 export function chatItems(input: {
@@ -316,18 +338,23 @@ export function createConversations(options: {
         (planned || coordinated) && opening !== -1
           ? run.prompt.slice(0, opening + openingText.length)
           : undefined
+      const kept = runs.output.kept(runId)
       return {
         run: summary(run, entries),
         items: withPermissions(
-          chatItems({
-            run,
-            entries: agents.get(run.agent).chat(entries, run.cwd),
-            messages: store.runMessages(runId),
-            interrupts: store.runInterrupts(runId),
-            preamble:
-              planPreamble ?? (run.parentRunId !== undefined ? await subPreamble : await preamble),
-            promptFromHuman: planPreamble !== undefined,
-          }),
+          withOutputNote(
+            kept,
+            chatItems({
+              run,
+              entries: agents.get(run.agent).chat(entries, run.cwd),
+              messages: store.runMessages(runId),
+              interrupts: store.runInterrupts(runId),
+              preamble:
+                planPreamble ??
+                (run.parentRunId !== undefined ? await subPreamble : await preamble),
+              promptFromHuman: planPreamble !== undefined,
+            }),
+          ),
           run.taskId === undefined
             ? []
             : store

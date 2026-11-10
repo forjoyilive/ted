@@ -30,7 +30,6 @@ import {
   type CommentAnswer,
   type CommentAuthor,
   type CommentKind,
-  type ConversationEntry,
   type ConversationTab,
   type CopySkip,
   type CreatedBy,
@@ -107,7 +106,6 @@ import {
   checkRuns,
   commentAttachments,
   comments,
-  conversationEntries,
   conversationTabs,
   coordinators,
   deletedTasks,
@@ -736,7 +734,6 @@ export interface TedStore {
   getRun(id: string): Run | undefined
   listRuns(): Run[]
   runReadOffset(id: string): number
-  storedConversation(runId: string): ConversationEntry[]
   taskRunList(taskId: string): Run[]
   recordRunMessage(input: { runId: string; text: string; lead: boolean }): RunMessage
   queueRunMessage(input: { runId: string; text: string }): RunMessage
@@ -3830,10 +3827,6 @@ export async function openStore({
     },
     listRuns: () => store.query(allRuns).map(toRun),
     runReadOffset: (id) => runRow(id)?.readOffset ?? 0,
-    storedConversation: (runId) =>
-      store
-        .query(queryDb(conversationEntries.where({ runId }).orderBy('offset', 'asc')))
-        .map(({ offset, line, at }) => ({ offset, line, ...(at !== null && { at }) })),
     taskRunList: (taskId) => taskRuns(taskId).map(toRun),
     recordRunMessage({ runId, text, lead }) {
       const taskId = taskIdOfRun(runId) ?? null

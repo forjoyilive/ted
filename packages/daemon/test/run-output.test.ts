@@ -153,10 +153,17 @@ test('a Run whose host.log is gone still answers, with no Conversation', async (
   const gone = await client.call('GET', `/runs/${run.id}`)
   expect(gone.status).toBe(200)
   expect(gone.body.conversation).toEqual([])
-  expect((await client.call('GET', `/runs/${run.id}/chat`)).status).toBe(200)
+  const chat = await client.call('GET', `/runs/${run.id}/chat`)
+  expect(chat.status).toBe(200)
+  expect(chat.body.items).toContainEqual({
+    kind: 'ted',
+    id: 'output-not-kept',
+    title: 'Output no longer kept',
+    text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+  })
 })
 
-test('a Run whose host.log is gone answers with the lines an older TED stored', async () => {
+test('lines an older TED saved as v2.RunOutputRead stay out of the state database, and the Conversation comes from host.log', async () => {
   let client = await start()
   const run = await client.startRun([{ say: 'hello' }, { say: 'world' }, { endTurn: true }], cwd)
   await idle(client, run.id)
@@ -177,12 +184,27 @@ test('a Run whose host.log is gone answers with the lines an older TED stored', 
   for (const file of await readdir(dir)) {
     if (file.startsWith('state')) await rm(path.join(dir, file))
   }
-  await rm(path.join(home, 'runs', run.id), { recursive: true, force: true })
 
   client = await start()
   const old = await client.getRun(run.id)
   expect(old.conversation).toEqual(entries)
   expect(assistantTexts(old.conversation)).toEqual(['hello', 'world'])
+  await stop()
+  const states = (await storeDbFiles(dir)).filter((f) => f.startsWith('state'))
+  expect(states).toHaveLength(1)
+  const state = new DatabaseSync(path.join(dir, states[0] as string), { readOnly: true })
+  try {
+    const tables = state.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all()
+    expect(tables.map((t) => t.name)).not.toContain('conversationEntries')
+    const row = state.prepare('SELECT readOffset FROM runs WHERE id = ?').get(run.id)
+    expect(row?.readOffset).toBe(toOffset)
+  } finally {
+    state.close()
+  }
+
+  await rm(path.join(home, 'runs', run.id), { recursive: true, force: true })
+  client = await start()
+  expect((await client.getRun(run.id)).conversation).toEqual([])
 })
 
 test('a finished Run whose host.log was cut to its tail answers with the tail', async () => {
@@ -197,12 +219,21 @@ test('a finished Run whose host.log was cut to its tail answers with the tail', 
   await writeFile(logFile(run.id), log.subarray(kept[0]?.offset))
 
   expect((await client.getRun(run.id)).conversation).toEqual(kept)
+  const chat = await client.call('GET', `/runs/${run.id}/chat`)
+  expect(
+    (chat.body.items as { id: string; title?: string }[]).find((i) => i.id === 'output-not-kept')
+      ?.title,
+  ).toBe('Earlier output no longer kept')
 })
 
 test('killing the daemon mid-Run neither loses a line nor repeats one', async () => {
   const startProcess = async () => {
     await rm(path.join(home, 'daemon.json'), { force: true })
-    child = spawnDaemonProcess([], { ...process.env, TED_HOME: home, TED_CLAUDE_BIN: stubClaudePath })
+    child = spawnDaemonProcess([], {
+      ...process.env,
+      TED_HOME: home,
+      TED_CLAUDE_BIN: stubClaudePath,
+    })
     const info = await waitUntil(() => readDaemonInfo(home), 'daemon.json')
     return api(info.port, { appKey: testAppToken })
   }

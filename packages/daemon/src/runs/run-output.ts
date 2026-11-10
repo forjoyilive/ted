@@ -4,7 +4,10 @@ import { type ConversationEntry, tedPaths } from '@ted/protocol'
 import type { TedStore } from '../store/index.ts'
 import { type HostRecord, runFiles } from './host-files.ts'
 
+export type OutputKept = 'all' | 'tail' | 'none'
+
 export interface RunOutputReader {
+  kept(runId: string): OutputKept
   entries(runId: string): ConversationEntry[]
   last(runId: string, count: number): ConversationEntry[]
   findLast(
@@ -15,7 +18,7 @@ export interface RunOutputReader {
 
 export interface RunOutputOptions {
   home: string
-  store: Pick<TedStore, 'getRun' | 'runReadOffset' | 'storedConversation'>
+  store: Pick<TedStore, 'getRun' | 'runReadOffset'>
   cacheBytes?: number
   cacheRuns?: number
 }
@@ -24,7 +27,7 @@ const defaultCacheBytes = 64 * 1024 * 1024
 const defaultCacheRuns = 64
 const chunkBytes = 1024 * 1024
 
-type Source = 'log' | 'tail' | 'stored'
+type Source = 'log' | 'tail'
 
 interface OpenLog {
   fd: number
@@ -68,19 +71,6 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
     return cached
   }
 
-  function stored(runId: string): Cached {
-    const cached = cache.get(runId)
-    if (cached?.source === 'stored') return keep(runId, cached)
-    const entries = store.storedConversation(runId)
-    return keep(runId, {
-      source: 'stored',
-      inode: 0,
-      parsedTo: 0,
-      entries,
-      bytes: entries.reduce((sum, entry) => sum + entry.line.length, 0),
-    })
-  }
-
   function openLog(runId: string): OpenLog | undefined {
     const run = store.getRun(runId)
     const file = run && logOf(run.id)
@@ -104,8 +94,6 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
     const cached = cache.get(runId)
     if (size < to) {
       if (cached?.source === 'tail' && cached.inode === inode) return keep(runId, cached)
-      const rows = stored(runId)
-      if (rows.entries.length > 0) return rows
       const entries = readEntries(fd, 0, size, to - size)
       return keep(runId, { source: 'tail', inode, parsedTo: size, entries, bytes: size })
     }
@@ -123,12 +111,15 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
 
   function load(runId: string): Cached {
     const log = openLog(runId)
-    if (!log) return store.getRun(runId) ? stored(runId) : emptyCache
+    if (!log) {
+      cache.delete(runId)
+      return none
+    }
     try {
       return fromFile(runId, log)
     } catch (error) {
       console.error(`couldn’t read Run ${runId}’s output:`, error)
-      return stored(runId)
+      return none
     } finally {
       closeSync(log.fd)
     }
@@ -152,6 +143,12 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
   }
 
   return {
+    kept(runId) {
+      const log = openLog(runId)
+      if (!log) return store.runReadOffset(runId) > 0 ? 'none' : 'all'
+      closeSync(log.fd)
+      return log.size < log.to ? 'tail' : 'all'
+    },
     entries: (runId) => load(runId).entries.slice(),
     last(runId, count) {
       const found: ConversationEntry[] = []
@@ -168,7 +165,7 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
   }
 }
 
-const emptyCache: Cached = { source: 'stored', inode: 0, parsedTo: 0, entries: [], bytes: 0 }
+const none: Cached = { source: 'log', inode: 0, parsedTo: 0, entries: [], bytes: 0 }
 
 function readBytes(fd: number, from: number, to: number): Buffer {
   const buffer = Buffer.alloc(to - from)

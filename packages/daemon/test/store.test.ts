@@ -120,7 +120,6 @@ describe('TedStore', () => {
       expect(second.getRun('run-1')).toMatchObject({ sessionId: 'session-1', state: 'idle' })
       expect(second.runReadOffset('run-1')).toBe(60)
       expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:05.000Z')
-      expect(second.storedConversation('run-1')).toEqual([])
       expect(second.listRuns().map((r) => r.id)).toEqual(['run-1'])
       expect(second.getRun('missing')).toBeUndefined()
     } finally {
@@ -128,7 +127,7 @@ describe('TedStore', () => {
     }
   })
 
-  test('an event log that holds v2.RunOutputRead lines still loads them', async () => {
+  test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })
     first.recordRunOutput('run-1', { toOffset: 40, output: {} })
@@ -159,9 +158,19 @@ describe('TedStore', () => {
     try {
       expect(second.runReadOffset('run-1')).toBe(60)
       expect(second.lastOutputAt('run-1')).toBe('2026-01-02T03:04:06.000Z')
-      expect(second.storedConversation('run-1')).toEqual(old.entries)
     } finally {
       await second.close()
+    }
+    for (const file of await readdir(folder)) {
+      if (!file.startsWith('state') || !file.endsWith('.db')) continue
+      const state = new DatabaseSync(path.join(folder, file), { readOnly: true })
+      try {
+        const tables = state.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all()
+        expect(tables.map((t) => t.name)).not.toContain('conversationEntries')
+        expect(tables.map((t) => t.name)).toContain('runs')
+      } finally {
+        state.close()
+      }
     }
   })
 
