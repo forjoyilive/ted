@@ -125,6 +125,7 @@ export type {
   Coordinator,
   CoordinatorAction,
   CoordinatorMessage,
+  CoordinatorOperation,
   CoordinatorReceipt,
   CoordinatorTask,
   CoordinatorTaskSummary,

@@ -401,6 +401,7 @@ export interface Tasks {
   setActivity(ref: string, caller: Caller, text: string): Task
   reportOutcome(ref: string, caller: Caller, outcome: OutcomeInput): Promise<OutcomeResult>
   answer(commentId: string, answer: AnswerRequest): Promise<Comment>
+  isFailureDecision(commentId: string): boolean
   talkThrough(commentId: string): Promise<Comment>
   doneTalking(commentId: string): Promise<Comment>
   closeRound(ref: string, caller: Caller, summary: string): Promise<Comment>
@@ -7043,6 +7044,8 @@ export function createTasks(options: {
     talkThrough: (id) => talkThrough(id),
     doneTalking: (id) => doneTalking(id),
     closeRound: (ref, caller, summary) => closeRound(ref, caller, summary),
+
+    isFailureDecision: (id) => failures.findDecision(id) !== undefined,
 
     async answer(id, request) {
       const answering = store.getComment(id)

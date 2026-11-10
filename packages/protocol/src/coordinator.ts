@@ -10,9 +10,11 @@ import type {
 
 export type CoordinatorTaskState = Pick<Task, 'stage' | 'priority' | 'rank' | 'status' | 'archived'>
 
+export type CoordinatorOperation = 'start' | 'move' | 'tell' | 'answer'
+
 export interface CoordinatorReceipt {
   id: string
-  operation: string
+  operation: CoordinatorOperation
   taskId: string
   text: string
   at: string
@@ -60,4 +62,7 @@ export interface CoordinatorAction extends MoveTaskRequest {
   operation: string
   version: string
   neighbours?: Record<string, string>
+  message?: string
+  request?: string
+  choice?: string
 }

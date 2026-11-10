@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  type Comment,
   type Coordinator,
+  type CoordinatorReceipt,
   type CoordinatorTask,
   type Factory,
   type RunChat,
@@ -12,12 +14,15 @@ import {
   readDaemonInfo,
   type Task,
   tedPaths,
+  type WaitingRequest,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { coordinatorLine } from '../src/coordinators/coordinators.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
+  commitToOrigin,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -42,7 +47,11 @@ afterEach(async () => {
   await cleanup()
   await rm(scratch, { recursive: true, force: true })
 })
-async function setup(disk?: { freeBytes: () => Promise<number>; checkEveryMs: number }) {
+async function setup(
+  disk?: { freeBytes: () => Promise<number>; checkEveryMs: number },
+  workflow?: string,
+) {
+  if (workflow) await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
   daemon = await startDaemon({
     home,
     version: '9.9.9',
@@ -73,8 +82,24 @@ async function setup(disk?: { freeBytes: () => Promise<number>; checkEveryMs: nu
   }
   const task = (title = 'A Task', factoryKey = 'NB') =>
     ok<Task>('POST', '/tasks', { factory: factoryKey, title })
-  return { port, client, ok, factory, base, chat, tokens, start, task }
+  async function led(...steps: unknown[]) {
+    const made = await task(JSON.stringify({ steps }))
+    await ok('POST', `/tasks/${made.id}/start`)
+    const leadRunId = await waitUntil(
+      async () => (await ok<Task[]>('GET', '/tasks')).find((t) => t.id === made.id)?.leadRunId,
+      'a Task Lead Run',
+    )
+    return { task: made, leadRunId, lead: api(port, tokens.issue(leadRunId)) }
+  }
+  const comments = (id: string) => ok<Comment[]>('GET', `/tasks/${id}/comments`)
+  const waitingIds = async () =>
+    (await ok<WaitingRequest[]>('GET', '/inbox/waiting')).map((w) => w.id)
+  return { port, client, ok, factory, base, chat, tokens, start, task, led, comments, waitingIds }
 }
+type Api = ReturnType<typeof api>
+const version = async (run: Api, id: string) =>
+  unpack<CoordinatorTask>((await run.call('GET', `/coordinator/tasks/${id}`)).body).version
+const hold = () => ({ waitFor: path.join(scratch, 'lead-finish') })
 function unpack<T>(body: unknown): T {
   const text = (body as { context: string }).context
   return JSON.parse(text.split('\n').slice(1, -1).join('\n')) as T
@@ -503,4 +528,335 @@ test('working Coordinator messages share steering’s boundary gate and serializ
   await writeFile(path.join(scratch, 'finish-turn'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'response finishes')
   expect((await s.ok<RunSlots>('GET', '/slots')).working).toBe(0)
+})
+
+test('tell posts a Comment marked as sent through the Coordinator and delivers it to the Task Lead', async () => {
+  const s = await setup(),
+    boundary = path.join(scratch, 'lead-boundary'),
+    { task, leadRunId, lead } = await s.led({ waitFor: boundary }, { tool: 'Read' }, hold()),
+    { run } = await s.start()
+  const input = {
+    operation: 'tell-1',
+    version: await version(run, task.id),
+    message: 'Wait for the queued reviewer; do not start another one.',
+  }
+  const told = await run.call('POST', `/coordinator/tasks/${task.id}/tell`, input)
+  expect(told.status).toBe(200)
+  expect(told.body).toMatchObject({
+    operation: 'tell',
+    taskId: task.id,
+    text: `Told ${task.displayId}’s Task Lead`,
+  })
+  const posted = (await s.comments(task.id)).filter((c) => c.body.startsWith(coordinatorLine))
+  expect(posted).toHaveLength(1)
+  expect(posted[0]).toMatchObject({
+    kind: 'note',
+    author: { kind: 'human' },
+    body: `${coordinatorLine}\n\n${input.message}`,
+  })
+  await writeFile(boundary, '')
+  await waitUntil(
+    async () =>
+      (await s.comments(task.id)).find((c) => c.id === posted[0]?.id)?.delivered?.runId ===
+      leadRunId,
+    'the Comment to reach the Task Lead',
+  )
+  await waitUntil(async () => {
+    const heard = JSON.stringify(await s.ok<RunChat>('GET', `/runs/${leadRunId}/chat`))
+    return heard.includes(coordinatorLine) && heard.includes(input.message)
+  }, 'the Task Lead to read the message')
+
+  expect((await run.call('POST', `/coordinator/tasks/${task.id}/tell`, input)).body).toEqual(
+    told.body,
+  )
+  const reused = await run.call('POST', `/coordinator/tasks/${task.id}/tell`, {
+    ...input,
+    message: 'Something else',
+  })
+  expect(reused.status).toBe(409)
+  expect((await s.comments(task.id)).filter((c) => c.author.kind === 'human')).toHaveLength(1)
+  expect((await s.chat()).receipts.map((r) => r.id)).toEqual(['tell-1'])
+
+  expect(
+    (
+      await run.call('POST', `/coordinator/tasks/${task.id}/tell`, {
+        ...input,
+        operation: 'empty',
+        message: ' ',
+      })
+    ).status,
+  ).toBe(400)
+  for (const kind of ['tell', 'answer'])
+    expect(
+      (await lead.call('POST', `/coordinator/tasks/${task.id}/${kind}`, { ...input, request: 'x' }))
+        .status,
+      kind,
+    ).toBe(403)
+
+  const backlog = await s.task('Unstarted')
+  const quiet = await run.call('POST', `/coordinator/tasks/${backlog.id}/tell`, {
+    operation: 'tell-backlog',
+    version: await version(run, backlog.id),
+    message: 'Read this when you start.',
+  })
+  expect((quiet.body as CoordinatorReceipt).text).toContain(
+    `Left a Comment on ${backlog.displayId}`,
+  )
+
+  await s.ok('POST', `/tasks/${backlog.id}/archive`)
+  const archived = await run.call('POST', `/coordinator/tasks/${backlog.id}/tell`, {
+    operation: 'tell-archived',
+    version: await version(run, backlog.id),
+    message: 'Too late.',
+  })
+  expect(archived.status).toBe(409)
+  expect((archived.body as { error: string }).error).toContain('not archived and not Done')
+})
+
+test('answer closes a Task Lead’s open question, which leaves the Inbox', async () => {
+  const s = await setup(),
+    { task, lead } = await s.led(hold()),
+    other = await s.led(hold()),
+    { run } = await s.start()
+  const ask = async (who: Api, id: string, body: string) =>
+    (await who.call('POST', `/tasks/${id}/comments`, { body, choices: ['Wait', 'Start another'] }))
+      .body as Comment
+  const question = await ask(lead, task.id, 'My reviewer is queued. What should I do?')
+  const foreign = await ask(other.lead, other.task.id, 'Same question on another Task')
+  const note = (await lead.call('POST', `/tasks/${task.id}/comments`, { body: 'A note' }))
+    .body as Comment
+  expect(await s.waitingIds()).toContain(question.id)
+  const answer = async (body: Record<string, unknown>) =>
+    run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      version: await version(run, task.id),
+      ...body,
+    })
+
+  const wrongChoice = await answer({ operation: 'bad', request: question.id, choice: 'Skip it' })
+  expect(wrongChoice.status).toBe(409)
+  expect((await answer({ operation: 'other', request: foreign.id, choice: 'Wait' })).status).toBe(
+    409,
+  )
+  expect(
+    (await answer({ operation: 'gone', request: 'no-such-comment', choice: 'Wait' })).status,
+  ).toBe(409)
+  expect((await answer({ operation: 'note', request: note.id, message: 'Noted' })).status).toBe(403)
+  expect((await answer({ operation: 'nothing', request: question.id })).status).toBe(400)
+  expect(await s.waitingIds()).toContain(question.id)
+
+  const input = {
+    operation: 'answer-1',
+    version: await version(run, task.id),
+    request: question.id,
+    choice: 'Wait',
+    message: 'The reviewer starts when a slot frees.',
+  }
+  const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, input)
+  expect(answered.status).toBe(200)
+  expect(answered.body).toMatchObject({
+    operation: 'answer',
+    text: `Answered ${task.displayId}’s question`,
+  })
+  expect((await s.comments(task.id)).find((c) => c.id === question.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Wait',
+    text: `${coordinatorLine}\n\n${input.message}`,
+  })
+  const waiting = await s.waitingIds()
+  expect(waiting).not.toContain(question.id)
+  expect(waiting).toContain(foreign.id)
+
+  expect((await run.call('POST', `/coordinator/tasks/${task.id}/answer`, input)).body).toEqual(
+    answered.body,
+  )
+  expect(
+    (
+      await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+        ...input,
+        choice: 'Start another',
+      })
+    ).status,
+  ).toBe(409)
+  const again = await answer({ operation: 'again', request: question.id, choice: 'Wait' })
+  expect(again.status).toBe(409)
+  expect((again.body as { error: string }).error).toContain('already closed')
+})
+
+test('answer refuses Gate requests and permission prompts', async () => {
+  const s = await setup(undefined, 'version: 1\norder: [intake, design, work, merge]\n')
+  const briefFile = path.join(scratch, 'brief.md')
+  await writeFile(
+    briefFile,
+    '## Goal\n\nEdit notes offline.\n\n## Decisions so far\n\n- Keep both copies.\n\n## Current state\n\nNothing built yet.\n\n## Open questions\n\nNone.\n\n## Next step\n\nDesign the merge view.\n',
+  )
+  const advance = { run: ['ted', 'outcome', 'advance'] }
+  const gated = await s.led(
+    {
+      everyMessage: [
+        { run: ['ted', 'brief', 'write', '--file', briefFile] },
+        advance,
+        { endTurn: true },
+      ],
+    },
+    advance,
+    { endTurn: true },
+  )
+  const prompted = await s.led(
+    {
+      permission: {
+        tool: 'Bash',
+        input: { command: 'npm install', description: 'Install' },
+        description: 'Install',
+      },
+    },
+    { endTurn: true },
+  )
+  const request = (id: string, wanted: (c: Comment) => boolean, what: string) =>
+    waitUntil(async () => (await s.comments(id)).find(wanted), what)
+  const gate = await request(gated.task.id, (c) => c.gate !== undefined, 'a Gate request')
+  const permission = await request(
+    prompted.task.id,
+    (c) => c.kind === 'permission',
+    'a permission request',
+  )
+  const { run } = await s.start()
+  for (const [task, comment] of [
+    [gated.task, gate],
+    [prompted.task, permission],
+  ] as const) {
+    const refused = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      operation: `refused-${comment.kind}`,
+      version: await version(run, task.id),
+      request: comment.id,
+      message: 'Approved',
+    })
+    expect(refused.status, comment.kind).toBe(403)
+    expect((await s.comments(task.id)).find((c) => c.id === comment.id)?.answer).toBeUndefined()
+    expect(await s.waitingIds()).toContain(comment.id)
+  }
+})
+
+test('answer refuses Clarify rounds and size checks', async () => {
+  const s = await setup(undefined, 'version: 1\norder: [intake, clarify, work]\n')
+  const roundFile = path.join(scratch, 'round.json')
+  await writeFile(
+    roundFile,
+    JSON.stringify({
+      title: 'Sync · 1 question',
+      questions: [{ question: 'How long offline before a warning?', recommended: '7 days' }],
+    }),
+  )
+  const advance = { run: ['ted', 'outcome', 'advance'] }
+  const asking = await s.led(
+    advance,
+    { run: ['ted', 'clarify', 'depth', 'few', 'one question settles it'] },
+    { run: ['ted', 'ask', '--round', roundFile] },
+    { endTurn: true },
+  )
+  const sizing = await s.led(
+    advance,
+    {
+      run: [
+        'ted',
+        'clarify',
+        'too-big',
+        '--settle',
+        'Which piece ships first',
+        'It touches storage and sync.',
+      ],
+    },
+    { endTurn: true },
+  )
+  const request = (id: string, wanted: (c: Comment) => boolean, what: string) =>
+    waitUntil(async () => (await s.comments(id)).find(wanted), what)
+  const round = await request(asking.task.id, (c) => c.kind === 'round', 'a round')
+  const sizeCheck = await request(sizing.task.id, (c) => c.sizeCheck !== undefined, 'a size check')
+  const { run } = await s.start()
+  for (const [task, comment, body] of [
+    [asking.task, round, { message: '7 days' }],
+    [sizing.task, sizeCheck, { choice: sizeCheck.choices?.[0] }],
+  ] as const) {
+    const refused = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
+      operation: `refused-${comment.kind}`,
+      version: await version(run, task.id),
+      request: comment.id,
+      ...body,
+    })
+    expect(refused.status, comment.kind).toBe(403)
+    expect((await s.comments(task.id)).find((c) => c.id === comment.id)?.answer).toBeUndefined()
+  }
+})
+
+test('the Coordinator CLI tells and answers from a message file', async () => {
+  const s = await setup(),
+    quiet = await s.task('Unstarted'),
+    { task, lead } = await s.led(hold())
+  const question = (
+    await lead.call('POST', `/tasks/${task.id}/comments`, {
+      body: 'My reviewer is queued. What should I do?',
+      choices: ['Wait', 'Start another'],
+    })
+  ).body as Comment
+  const release = path.join(scratch, 'first-turn')
+  const { c, run } = await s.start([{ waitFor: release }, { endTurn: true }])
+  const versions = { quiet: await version(run, quiet.id), task: await version(run, task.id) }
+  await writeFile(release, '')
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'first turn to end')
+  const file = path.join(scratch, 'message.md')
+  await writeFile(file, 'Wait for the queued reviewer.\n')
+  const common = ['--message-file', file, '--operation']
+  await s.ok('POST', `${s.base}/messages`, {
+    text: JSON.stringify({
+      steps: [
+        {
+          run: [
+            'ted',
+            'coordinator',
+            'tell',
+            quiet.id,
+            ...common,
+            'cli-tell',
+            '--version',
+            versions.quiet,
+          ],
+        },
+        {
+          run: [
+            'ted',
+            'coordinator',
+            'answer',
+            task.id,
+            '--request',
+            question.id,
+            '--choice',
+            'Wait',
+            ...common,
+            'cli-answer',
+            '--version',
+            versions.task,
+          ],
+        },
+        { endTurn: true },
+      ],
+    }),
+  })
+  await waitUntil(async () => {
+    const chat = await s.chat()
+    return chat.receipts.length === 2 && chat.status === 'ready'
+  }, 'both CLI actions')
+  const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
+  const results = chat.items.flatMap((i) =>
+    i.kind === 'agent' && i.text.includes('stdout')
+      ? [JSON.parse(i.text) as { code: number; stderr: string }]
+      : [],
+  )
+  expect(results.map((r) => r.code)).toEqual([0, 0])
+  expect((await s.comments(quiet.id)).map((c) => c.body)).toEqual([
+    `${coordinatorLine}\n\nWait for the queued reviewer.`,
+  ])
+  expect((await s.comments(task.id)).find((c) => c.id === question.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Wait',
+    text: `${coordinatorLine}\n\nWait for the queued reviewer.`,
+  })
 })

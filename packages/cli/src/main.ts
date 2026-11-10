@@ -118,6 +118,14 @@ const usage = `Usage:
   ted coordinator start <id> --operation <id> --version <version>
   ted coordinator move <id> --after <id> / --before <id> --operation <id> --version <version> --neighbours <json>
                                              Start or reorder waiting Tasks (Coordinator only)
+  ted coordinator tell <id> --operation <id> --version <version> --message-file <file>
+                                             Send a message to a Task’s Task Lead, on the
+                                             human’s instruction (Coordinator only)
+  ted coordinator answer <id> --request <comment-id> --operation <id> --version <version>
+                         [--choice "<answer>"] [--message-file <file>]
+                                             Answer an open question a Task Lead asked, on the
+                                             human’s instruction; never a Gate, sign-off or
+                                             permission prompt (Coordinator only)
   ted task list                              List Tasks with their Stages
   ted task start <id>                        Start a Task from Backlog
   ted task propose --file <file> [--supersedes <request-id>]
@@ -157,6 +165,8 @@ function parse() {
         operation: { type: 'string' },
         version: { type: 'string' },
         neighbours: { type: 'string' },
+        'message-file': { type: 'string' },
+        request: { type: 'string' },
         after: { type: 'string' },
         before: { type: 'string' },
         choice: { type: 'string', multiple: true },
@@ -321,7 +331,35 @@ try {
             }),
           ),
         )
-      } else throw new UsageError('Use coordinator tasks, task, start or move')
+      } else if ((command === 'tell' || command === 'answer') && rest.length === 1) {
+        if (!options.operation || !options.version)
+          throw new UsageError('operation and version are required')
+        const file = options['message-file']
+        const message =
+          file === undefined ? undefined : (await readFile(path.resolve(file), 'utf8')).trim()
+        if (message === '') throw new UsageError('the message file is empty')
+        const choices = options.choice ?? []
+        if (command === 'tell' && message === undefined)
+          throw new UsageError('give the message with --message-file <file>')
+        if (command === 'tell' && (options.request || choices.length > 0))
+          throw new UsageError('tell takes only --message-file')
+        if (command === 'answer' && !options.request)
+          throw new UsageError('name the question with --request <comment-id>')
+        if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
+        if (command === 'answer' && choices.length === 0 && message === undefined)
+          throw new UsageError('give --choice, --message-file, or both')
+        console.log(
+          JSON.stringify(
+            await client.coordinatorAct(rest[0] ?? '', command, {
+              operation: options.operation,
+              version: options.version,
+              ...(message !== undefined && { message }),
+              ...(command === 'answer' && { request: options.request }),
+              ...(choices[0] !== undefined && { choice: choices[0] }),
+            }),
+          ),
+        )
+      } else throw new UsageError('Use coordinator tasks, task, start, move, tell or answer')
     })
   } else if (group === 'automation') {
     await automationCommand(home, command, rest, options)

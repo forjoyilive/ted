@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CoordinatorAction } from '@ted/protocol'
+import type { CoordinatorAction, CoordinatorOperation } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { agentChoice, bodyObject, type Route, readJson } from './route.ts'
 
@@ -10,7 +10,8 @@ const context = (value: unknown) => {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
   }
 }
-function action(value: unknown): CoordinatorAction {
+const operations: readonly string[] = ['start', 'move', 'tell', 'answer']
+function action(value: unknown, kind: CoordinatorOperation): CoordinatorAction {
   const body = bodyObject(value)
   if (typeof body.operation !== 'string' || !/^[\w-]{1,100}$/.test(body.operation))
     throw new RequestError(400, 'operation must be a unique ID of up to 100 characters')
@@ -27,12 +28,34 @@ function action(value: unknown): CoordinatorAction {
       neighbours[key] = value
     }
   }
+  const base = { operation: body.operation, version: body.version }
+  if (kind === 'start' || kind === 'move')
+    return {
+      ...base,
+      ...(typeof body.after === 'string' && { after: body.after }),
+      ...(typeof body.before === 'string' && { before: body.before }),
+      neighbours,
+    }
+  if (body.message !== undefined && typeof body.message !== 'string')
+    throw new RequestError(400, 'message must be text')
+  const message = typeof body.message === 'string' ? body.message.trim() : ''
+  if (message.length > 100_000)
+    throw new RequestError(400, 'message is limited to 100000 characters')
+  if (kind === 'tell') {
+    if (message === '') throw new RequestError(400, 'message is required')
+    return { ...base, message }
+  }
+  if (typeof body.request !== 'string' || body.request === '')
+    throw new RequestError(400, 'request must be the question’s Comment ID')
+  if (body.choice !== undefined && (typeof body.choice !== 'string' || body.choice === ''))
+    throw new RequestError(400, 'choice must be one of the question’s choices')
+  if (body.choice === undefined && message === '')
+    throw new RequestError(400, 'pick a choice or write an answer')
   return {
-    operation: body.operation,
-    version: body.version,
-    ...(typeof body.after === 'string' && { after: body.after }),
-    ...(typeof body.before === 'string' && { before: body.before }),
-    neighbours,
+    ...base,
+    request: body.request,
+    ...(typeof body.choice === 'string' && { choice: body.choice }),
+    ...(message !== '' && { message }),
   }
 }
 export const coordinatorRoutes: Route[] = [
@@ -80,11 +103,15 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
-    path: /^\/coordinator\/tasks\/([^/]+)\/(start|move)$/,
+    path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer)$/,
     runToken: true,
-    async handle({ caller, req, params: [ref = '', kind] }, { coordinators }) {
-      if (kind !== 'start' && kind !== 'move') throw new RequestError(400, 'unknown action')
-      return [200, await coordinators.act(caller, ref, kind, action(await readJson(req)))]
+    async handle({ caller, req, params: [ref = '', kind = ''] }, { coordinators }) {
+      if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')
+      const operation = kind as CoordinatorOperation
+      return [
+        200,
+        await coordinators.act(caller, ref, operation, action(await readJson(req), operation)),
+      ]
     },
   },
 ]
