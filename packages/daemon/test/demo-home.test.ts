@@ -72,3 +72,35 @@ test('refuses a demo daemon pointer linked to another home', async () => {
   await symlink(path.join(homedir(), '.ted', 'daemon.json'), path.join(folder, 'daemon.json'))
   await expect(checkDemoHome(folder)).rejects.toThrow('daemon.json must not be a link')
 })
+
+test('reset recovers an incomplete demo with stale daemon metadata', async () => {
+  const pid = 2_147_483_647
+  expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }))
+  await markDemo(folder, { version: demoVersion, complete: false })
+  await writeFile(
+    path.join(folder, 'daemon.json'),
+    JSON.stringify({
+      port: 9,
+      token: 'demo-fixture-token',
+      pid,
+      version: '0.1.3',
+    }),
+  )
+  expect((await prepareDemo(folder, true)).complete).toBe(false)
+  expect(await readdir(folder)).not.toContain('daemon.json')
+})
+
+test('reset still refuses a live daemon', async () => {
+  await markDemo(folder, { version: demoVersion, complete: false })
+  await writeFile(
+    path.join(folder, 'daemon.json'),
+    JSON.stringify({
+      port: 9,
+      token: 'demo-fixture-token',
+      pid: process.pid,
+      version: '0.1.3',
+    }),
+  )
+  await expect(prepareDemo(folder, true)).rejects.toThrow('Quit the demo app')
+  expect(await readdir(folder)).toContain('daemon.json')
+})

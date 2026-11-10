@@ -26,10 +26,24 @@ export async function until<T>(
   throw new Error(`Demo timed out waiting for ${what}.`)
 }
 
+function processRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
+
 export async function prepareDemo(home: string, reset = false): Promise<DemoManifest> {
   const known = await checkDemoHome(home)
   if (reset && known) {
-    if (await readDaemonInfo(home)) throw new Error('Quit the demo app before resetting its data.')
+    const daemon = await readDaemonInfo(home)
+    if (daemon && (!Number.isInteger(daemon.pid) || daemon.pid <= 1))
+      throw new Error('Unexpected demo daemon pid.')
+    if (daemon && processRunning(daemon.pid))
+      throw new Error('Quit the demo app before resetting its data.')
     const runs = await readdir(path.join(home, 'runs')).catch(() => [])
     const pids = new Set<number>()
     for (const run of runs) {
@@ -42,9 +56,9 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
       if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Unexpected demo host log.')
       const lines = (await readFile(log, 'utf8')).trim().split('\n')
       for (const line of lines.filter(Boolean)) {
-        const entry = JSON.parse(line) as { hostPid?: number; agentPid?: number }
+        const entry = JSON.parse(line) as { hostPid?: number | null; agentPid?: number | null }
         for (const pid of [entry.hostPid, entry.agentPid]) {
-          if (pid === undefined) continue
+          if (pid === undefined || pid === null) continue
           if (!Number.isInteger(pid) || pid <= 1) throw new Error('Unexpected demo host pid.')
           pids.add(pid)
         }
@@ -72,12 +86,7 @@ export async function prepareDemo(home: string, reset = false): Promise<DemoMani
     await until(
       async () => {
         for (const pid of pids) {
-          try {
-            process.kill(pid, 0)
-            return false
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-          }
+          if (processRunning(pid)) return false
         }
         return true
       },
