@@ -765,6 +765,7 @@ export interface TedStore {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
+  holdForLoad(held: boolean): void
   setTaskChecking(taskId: string, on: boolean): void
   onWriteResult(listener: (error?: unknown) => void): () => void
   automationDrafts: AutomationDraftStore
@@ -827,6 +828,7 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
+  let heldForLoad = false
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
   const tellWriters = (error?: unknown) => {
@@ -1289,6 +1291,7 @@ export async function openStore({
         !waitsForBlockers &&
         repos.some((r) => !r.removed) && { interrupted: true }),
       ...(place > 0 && { queue: newWorkHeld === undefined ? { place } : { hold: newWorkHeld } }),
+      ...(place > 0 && heldForLoad && { heldForLoad }),
       runs: live.map((r) => r.state as RunState),
       openRequests: openRequestRows(row.id).filter((r) => r.linearTeam === null).length,
       ...permissionWait(row.id, lead?.id),
@@ -4036,6 +4039,11 @@ export async function openStore({
       updatedQueue()
     },
     newWorkHold: () => newWorkHeld,
+    holdForLoad(held) {
+      if (held === heldForLoad) return
+      heldForLoad = held
+      updatedQueue()
+    },
     setTaskChecking(taskId, on) {
       if (checkingTasks.has(taskId) === on) return
       if (on) {

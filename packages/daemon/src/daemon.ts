@@ -63,6 +63,7 @@ export interface DaemonOptions {
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
   disk?: DaemonDiskOptions
+  load?: DaemonLoadOptions
   nudgeAfterMs?: number
   appToken?: string
   mergePollMs?: number
@@ -103,6 +104,11 @@ export interface DaemonOnlineOptions {
   isOnline?: () => Promise<boolean>
   onlineEveryMs?: number
   offlineEveryMs?: number
+}
+
+export interface DaemonLoadOptions {
+  ratio?: () => number
+  checkEveryMs?: number
 }
 
 export interface DaemonDiskOptions {
@@ -373,6 +379,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.mergePollMs !== undefined && { mergePollMs: options.mergePollMs }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
+        ...(options.load !== undefined && { load: options.load }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
         simulators: {

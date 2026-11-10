@@ -408,6 +408,7 @@ export {
   type TaskShell,
 } from './shell.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
+export { busyHold } from './slots.ts'
 export {
   diskFullHold,
   diskLimits,

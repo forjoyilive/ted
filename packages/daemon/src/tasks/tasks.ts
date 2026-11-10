@@ -108,6 +108,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
+import { machineLoadRatio } from '../load.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
@@ -223,7 +224,14 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  heldForLoad,
+  type QueueEntry,
+  type QueueSource,
+  queueOrder,
+  type SlotUse,
+  startsNow,
+} from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -486,6 +494,7 @@ export function createTasks(options: {
   mergePollMs?: number
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
+  load?: { ratio?: () => number; checkEveryMs?: number }
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
@@ -754,6 +763,9 @@ export function createTasks(options: {
   let pumping: Promise<void> | undefined
   let again = false
   let shownSlots = ''
+  const loadRatio = options.load?.ratio ?? machineLoadRatio
+  let heldAtLoad: number | undefined
+  let loadTimer: NodeJS.Timeout | undefined
   const autoStartFailures = new Set<string>()
   let backlogVersion = 0
 
@@ -939,6 +951,7 @@ export function createTasks(options: {
         all,
         holders.map((h) => h.task.id),
       ),
+      heldForLoad: heldAtLoad !== undefined,
     }
     return { use, holders, others, all }
   }
@@ -1020,6 +1033,23 @@ export function createTasks(options: {
     )
   }
 
+  function checkLoad(waiting: boolean): void {
+    const ratio = waiting && store.settings().adjustRunsToLoad ? loadRatio() : undefined
+    const was = heldAtLoad !== undefined
+    const held = ratio !== undefined && heldForLoad(was, ratio)
+    heldAtLoad = held ? ratio : undefined
+    if (held && !loadTimer) {
+      loadTimer = setInterval(() => void pump(), options.load?.checkEveryMs ?? 15_000)
+      loadTimer.unref()
+    } else if (!held) stopLoadTimer()
+    if (held !== was) store.holdForLoad(held)
+  }
+
+  function stopLoadTimer(): void {
+    clearInterval(loadTimer)
+    loadTimer = undefined
+  }
+
   async function fill(): Promise<void> {
     if (closed || store.newWorkHold() !== undefined) return
     const version = backlogVersion
@@ -1041,8 +1071,9 @@ export function createTasks(options: {
     const revives = revivesReady()
     const held = heldReady()
     const queued = ready()
-    if (queued.length === 0 && held.length === 0 && revives.length === 0 && backlog.length === 0)
-      return
+    const waiting = queued.length + held.length + revives.length + backlog.length > 0
+    checkLoad(waiting)
+    if (!waiting) return
     const { use } = await slotUse(
       [...revives, ...held, ...queued, ...backlog].flatMap((q) => q.factoryId ?? []),
     )
@@ -1180,6 +1211,10 @@ export function createTasks(options: {
       factories: factoryIds.flatMap((factoryId) => {
         const cap = use.caps[factoryId]
         return cap === undefined ? [] : [{ factoryId, cap, working: use.byFactory[factoryId] ?? 0 }]
+      }),
+      ...(heldAtLoad !== undefined && {
+        heldForLoad: true as const,
+        loadRatio: Math.round(heldAtLoad * 100) / 100,
       }),
     }
   }
@@ -7778,6 +7813,7 @@ export function createTasks(options: {
       closed = true
       subAgents.close()
       clearInterval(silenceTimer)
+      stopLoadTimer()
       for (const timer of nudgeTimers.values()) clearTimeout(timer)
       nudgeTimers.clear()
       unsubscribe()

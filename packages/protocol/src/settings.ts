@@ -30,6 +30,7 @@ export interface MachineSettings {
   developerMode: boolean
   overnightMode: boolean
   maxWorkingRuns: number
+  adjustRunsToLoad: boolean
   maxBootedSimulators: number
   runOutputDays: number
   quitWithWorkRunning: QuitChoice
@@ -61,6 +62,7 @@ export const defaultMachineSettings: MachineSettings = {
   developerMode: false,
   overnightMode: false,
   maxWorkingRuns: 6,
+  adjustRunsToLoad: false,
   maxBootedSimulators: 3,
   runOutputDays: 7,
   quitWithWorkRunning: 'ask',
