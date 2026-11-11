@@ -18,9 +18,9 @@ The original screenshot’s historical 14-to-7 breakdown cannot be recovered fro
 
 ## Verification
 
-Status: implementation and native captures complete. The broad run passed 169/171 files and 1967/1969 tests. Native background/menu/capture verification passed 7/7 tests without retries. Four renderer component files and the corrected agent-health file remain queued behind other required full runs.
+Current result: the required merged-code run passed 188/191 files and 2,152/2,155 tests. Its three failures remain preserved: two timeout cases and an over-specific recovery-resume test assertion. After correcting only that assertion, all 50 tests across the three affected files passed on the final code. The exact two timeout cases also passed on the merged base (three parameterized cases). Typecheck and Lint pass. Corrected renderer coverage passed 3/3 files and 11/11 tests; agent-health passed 8/8. The original broad run is not relabeled passing. The timeout cause is still unestablished; these successful repeats support timing sensitivity without proving it unrelated to this Task.
 
-The broad run retained two failures:
+The original pre-merge 171-file run retained two failures:
 
 1. `failure-merge.test.ts` · “acceptance, obligations and Gate approval each verify worktree edits made while GitHub is pending” exceeded its 30-second limit. TED-147 independently reported the same timeout on its separate branch (peer evidence at commit f6fe4951). This is evidence of a shared timing problem, not proof that this change cannot affect its timing. Assessment: uncertain; no unrelated merge code was changed. A user decision is required before treating this failure as acceptable for this Task.
 2. `agent-health.test.ts` · the auth-error resume test expected a held launch to remain an active Run. Actual was 0, as intended by the approved definitions. The assertion now checks active 0 / queued 1. The focused file rerun remains queued; it is not reported as passing. The broad run’s new TedStore held-launch and queue tests passed.
@@ -82,3 +82,16 @@ The required 191-file run completed on the production repair with 188 files and 
 3. `task-lead.test.ts` · “Stop holds Task Lead messages until send-now, including after an effort change” timed out waiting for Stop and pending effort to be applied. Cause is not established. Compare this exact test on the base and repeat focused verification before assessing it.
 
 The earlier two-file focused run passed the store file but failed the same over-specific resume assertion and an already-corrected private-field assertion in the Stop test. That run loaded the old Stop assertion before its correction; the original Expected true / Received undefined output is retained. Direct Typecheck caught the private-field error and passed after using `status.kind`. Logs are `recovery-green.log`, `recovery-final-typecheck.log` and `recovery-public-status-{typecheck,lint}.log`.
+
+
+## Final focused and base results
+
+Final source/test revision `5247512f` passed all 50 tests across `failures.test.ts`, `failure-merge.test.ts` and `task-lead.test.ts` in `recovery-corrected-tests.log`. Both new recovery cases passed: one queued item while the finished Lead waits; no queued recovery after revival or Stop; stopping prevents revival after the slot becomes free. This verifies Validate Finding 1 without changing recovery scheduling.
+
+An exact archive of merged base `8a8ad3bb` passed both timeout-test files and all three selected parameterized cases in `base-timeout-repeat.log`. Workspace dependencies were installed offline and `@ted/protocol` was verified to resolve inside that snapshot. The comparison ran from `.claude/worktrees/ted136-baseline`, an ignored folder inside this worktree. The initial comparison under `node_modules` was canceled before collection because Node refuses TypeScript child paths there; its log is not a test result. No peer process or shared lock was changed.
+
+Direct Typecheck and Lint pass in `recovery-corrected-typecheck.log` and `recovery-corrected-lint.log`. TED’s manual Checks command refused “already moving” despite the Task being in Work; this is recorded separately from the passing direct commands and does not claim final Factory hand-off Checks ran.
+
+The historical broad timeouts remain in failure cases `c3d148b7-d555-4f2f-ba94-bbfa8ceecc46` (merge acceptance) and `7007c3c6-242c-4236-bea4-87f04ddae284` (Stop/effort). Both exact cases now pass on this branch and the base, but no causal timing repair was made. These Work-reported cases require the user’s decision; the Task Lead cannot close them with `failure verify`, which is limited to eligible Validate failures. Recommend accepting the retained timing uncertainty with the original broad results and successful repeats both visible. Acceptance is not a passing test result or merge approval.
+
+This final evidence update changes documentation only. Production code is unchanged since `cf6ec880`; the subsequent test corrections and evidence commits do not require repeating the 188 other passing broad files. No additional verification is pending.
