@@ -163,6 +163,11 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(id === 'validate' && {
+          p1OnlyFrom: stage?.p1_only_from ?? false,
+          subAgents: stage?.sub_agents === true,
+        }),
+        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
         from: libraryFile !== undefined ? 'library' : 'ted',
         ...(libraryFile !== undefined && { libraryFile }),
         ...(defaultText !== undefined && { defaultText }),

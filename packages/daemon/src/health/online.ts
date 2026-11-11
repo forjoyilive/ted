@@ -44,24 +44,37 @@ export function watchOnline(options: {
   let closed = false
   let timer: NodeJS.Timeout | undefined
   let running: Promise<boolean> | undefined
+  let failedAt: number | undefined
+  const confirmationMs = options.offlineEveryMs ?? offlineCheckMs
 
   function schedule(): void {
     if (closed) return
     clearTimeout(timer)
     timer = setTimeout(
       () => void check(),
-      online
-        ? (options.onlineEveryMs ?? onlineCheckMs)
-        : (options.offlineEveryMs ?? offlineCheckMs),
+      failedAt !== undefined && online
+        ? Math.max(0, failedAt + confirmationMs - performance.now())
+        : online
+          ? (options.onlineEveryMs ?? onlineCheckMs)
+          : confirmationMs,
     )
     timer.unref()
   }
 
   function check(): Promise<boolean> {
+    const startedAt = performance.now()
     running ??= options
       .isOnline()
       .catch(() => true)
       .then((now) => {
+        if (now) {
+          failedAt = undefined
+        } else if (failedAt === undefined) {
+          failedAt = performance.now()
+          return now
+        } else if (online && startedAt - failedAt < confirmationMs) {
+          return now
+        }
         if (!closed && now !== online) {
           online = now
           options.onChange(now)

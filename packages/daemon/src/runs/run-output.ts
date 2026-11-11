@@ -6,9 +6,15 @@ import { type HostRecord, runFiles } from './host-files.ts'
 
 export type OutputKept = 'all' | 'tail' | 'none'
 
+export interface OutputFold {
+  add(entry: ConversationEntry): void
+}
+
 export interface RunOutputReader {
   kept(runId: string): OutputKept
+  stamp(runId: string): string
   entries(runId: string): ConversationEntry[]
+  fold<T extends OutputFold>(runId: string, name: string, create: () => T): T
   last(runId: string, count: number): ConversationEntry[]
   findLast(
     runId: string,
@@ -42,7 +48,10 @@ interface Cached {
   parsedTo: number
   entries: ConversationEntry[]
   bytes: number
+  folds: Map<string, { fold: OutputFold; count: number }>
 }
+
+const weight = (cached: Cached) => cached.bytes * (cached.folds.size > 0 ? 2 : 1)
 
 export function createRunOutput(options: RunOutputOptions): RunOutputReader {
   const { store } = options
@@ -62,11 +71,11 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
     cache.delete(runId)
     cache.set(runId, cached)
     let total = 0
-    for (const { bytes } of cache.values()) total += bytes
-    for (const [id, { bytes }] of cache) {
+    for (const held of cache.values()) total += weight(held)
+    for (const [id, held] of cache) {
       if (cache.size <= 1 || (total <= cacheBytes && cache.size <= cacheRuns)) break
       cache.delete(id)
-      total -= bytes
+      total -= weight(held)
     }
     return cached
   }
@@ -95,12 +104,19 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
     if (size < to) {
       if (cached?.source === 'tail' && cached.inode === inode) return keep(runId, cached)
       const entries = readEntries(fd, 0, size, to - size)
-      return keep(runId, { source: 'tail', inode, parsedTo: size, entries, bytes: size })
+      return keep(runId, {
+        source: 'tail',
+        inode,
+        parsedTo: size,
+        entries,
+        bytes: size,
+        folds: new Map(),
+      })
     }
-    const from =
+    const from: Cached =
       cached?.source === 'log' && cached.inode === inode && cached.parsedTo <= to
         ? cached
-        : { source: 'log' as const, inode, parsedTo: 0, entries: [], bytes: 0 }
+        : { source: 'log', inode, parsedTo: 0, entries: [], bytes: 0, folds: new Map() }
     if (from.parsedTo < to) {
       for (const entry of readEntries(fd, from.parsedTo, to, 0)) from.entries.push(entry)
       from.bytes += to - from.parsedTo
@@ -149,7 +165,30 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
       closeSync(log.fd)
       return log.size < log.to ? 'tail' : 'all'
     },
+    stamp(runId) {
+      const log = openLog(runId)
+      if (!log) return `none:${store.runReadOffset(runId)}`
+      closeSync(log.fd)
+      return `${log.inode}:${log.size}:${log.to}`
+    },
     entries: (runId) => load(runId).entries.slice(),
+    fold<T extends OutputFold>(runId: string, name: string, create: () => T): T {
+      const cached = load(runId)
+      if (cached === none) return create()
+      let held = cached.folds.get(name)
+      if (!held) {
+        held = { fold: create(), count: 0 }
+        cached.folds.set(name, held)
+      }
+      try {
+        for (; held.count < cached.entries.length; held.count++)
+          held.fold.add(cached.entries[held.count] as ConversationEntry)
+      } catch (error) {
+        cached.folds.delete(name)
+        throw error
+      }
+      return held.fold as T
+    },
     last(runId, count) {
       const found: ConversationEntry[] = []
       for (const entry of newestFirst(runId)) {
@@ -165,7 +204,14 @@ export function createRunOutput(options: RunOutputOptions): RunOutputReader {
   }
 }
 
-const none: Cached = { source: 'log', inode: 0, parsedTo: 0, entries: [], bytes: 0 }
+const none: Cached = {
+  source: 'log',
+  inode: 0,
+  parsedTo: 0,
+  entries: [],
+  bytes: 0,
+  folds: new Map(),
+}
 
 function readBytes(fd: number, from: number, to: number): Buffer {
   const buffer = Buffer.alloc(to - from)

@@ -195,6 +195,52 @@ describe('Factory settings: Workflow', () => {
     expect(after.stages.find((s) => s.id === 'work')?.maxBack).toBe(2)
   })
 
+  test('the Validate round settings show as off, save to workflow.yaml and turn off again', async () => {
+    const client = await start()
+    const view = await client.settings()
+    const validate = (v: typeof view) => v.stages.find((s) => s.id === 'validate')
+    expect(validate(view)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+    expect(view.stages.find((s) => s.id === 'work')).not.toHaveProperty('p1OnlyFrom')
+
+    await client.save(
+      {
+        ...unchanged(view),
+        stages: {
+          validate: { p1OnlyFrom: 3, subAgents: true },
+          work: { leadClosesFailures: true },
+        },
+      },
+      view.version,
+    )
+    const yaml = await originFile('.ted/workflow.yaml')
+    expect(yaml).toMatch(/p1_only_from: 3/)
+    expect(yaml).toMatch(/sub_agents: true/)
+    expect(yaml).toMatch(/lead_closes_failures: true/)
+    expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
+    const on = await client.settings()
+    expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 5 })
+    expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
+    expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+
+    for (const stages of [
+      { validate: { p1OnlyFrom: 1 } },
+      { validate: { subAgents: 'yes' } },
+      { work: { p1OnlyFrom: 3 } },
+      { work: { subAgents: true } },
+      { validate: { leadClosesFailures: true } },
+    ]) {
+      const refused = await client.call(
+        'POST',
+        `/factories/${client.factory.id}/settings/preview`,
+        {
+          ...unchanged(on),
+          stages,
+        },
+      )
+      expect(refused.status).toBe(400)
+    }
+  })
+
   test('Intake and Work can’t be turned off', async () => {
     const client = await start()
     const view = await client.settings()

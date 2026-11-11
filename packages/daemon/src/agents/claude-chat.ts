@@ -1,5 +1,5 @@
 import type { ChatDiff, ConversationEntry } from '@ted/protocol'
-import type { AgentChatEntry } from './agent.ts'
+import type { AgentChat, AgentChatEntry } from './agent.ts'
 import { chatList, clip, label, list, parseObject, record, shortPath, str } from './chat-entries.ts'
 import { diffTexts } from './diff.ts'
 
@@ -60,13 +60,14 @@ function resultText(content: unknown): string {
     .join('\n')
 }
 
-export function claudeChat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[] {
+export function claudeChatFrom(cwd: string): AgentChat {
   const chat = chatList()
-  for (const { offset, line, at } of entries) {
+  const add = ({ offset, line, at }: ConversationEntry): void => {
     const message = parseObject(line)
-    if (!message) continue
+    if (!message) return
     const parent = message.parent_tool_use_id
-    if (parent !== undefined && parent !== null) continue
+    if (parent !== undefined && parent !== null) return
+    chat.reading(offset)
     const when = at !== undefined ? { at } : {}
     if (message.type === 'assistant') {
       list(record(message.message).content).forEach((block, index) => {
@@ -95,7 +96,7 @@ export function claudeChat(entries: readonly ConversationEntry[], cwd: string): 
       const content = record(message.message).content
       if (typeof content === 'string') {
         chat.put({ kind: 'user', key: String(offset), text: content, ...when })
-        continue
+        return
       }
       const texts: string[] = []
       for (const block of list(content)) {
@@ -119,5 +120,11 @@ export function claudeChat(entries: readonly ConversationEntry[], cwd: string): 
       }
     }
   }
-  return chat.entries()
+  return { add, entries: chat.entries, userFrom: chat.userFrom }
+}
+
+export function claudeChat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[] {
+  const chat = claudeChatFrom(cwd)
+  for (const entry of entries) chat.add(entry)
+  return [...chat.entries()]
 }

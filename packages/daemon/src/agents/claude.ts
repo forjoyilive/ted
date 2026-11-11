@@ -15,7 +15,7 @@ import {
   type UsageSignal,
   withoutCredentials,
 } from './agent.ts'
-import { claudeChat } from './claude-chat.ts'
+import { claudeChat, claudeChatFrom } from './claude-chat.ts'
 
 const stateByHook: Record<string, RunState> = {
   UserPromptSubmit: 'working',
@@ -91,16 +91,23 @@ function keyHelp(source: string | undefined): string {
   return `${where} Remove it, or choose API key billing if you meant to use one.`
 }
 
+function reportedCost(line: string): number | undefined {
+  const message = parse(line)
+  return message?.type === 'result' && typeof message.total_cost_usd === 'number'
+    ? message.total_cost_usd
+    : undefined
+}
+
 function costOf(lines: readonly string[]): number | undefined {
   let total = 0
   let last = 0
   let seen = false
   for (const line of lines) {
-    const message = parse(line)
-    if (message?.type !== 'result' || typeof message.total_cost_usd !== 'number') continue
+    const cost = reportedCost(line)
+    if (cost === undefined) continue
     seen = true
-    if (message.total_cost_usd < last) total += last
-    last = message.total_cost_usd
+    if (cost < last) total += last
+    last = cost
   }
   return seen ? total + last : undefined
 }
@@ -301,6 +308,7 @@ export function claudeAgent(binary: string): Agent {
       ]
     },
     chat: claudeChat,
+    chatFrom: claudeChatFrom,
     stateFrom(line) {
       const message = parse(line)
       if (message === undefined) return undefined
@@ -388,6 +396,7 @@ export function claudeAgent(binary: string): Agent {
       return [shown]
     },
     costOf,
+    costLine: (line) => reportedCost(line) !== undefined,
     keyHelp,
     health: {
       minimumVersion: '2.1.111',

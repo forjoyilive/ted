@@ -17,7 +17,7 @@ import {
   type UsageSignal,
   withoutCredentials,
 } from './agent.ts'
-import { codexChat } from './codex-chat.ts'
+import { codexChat, codexChatFrom } from './codex-chat.ts'
 import type { CodexPlan } from './codex-driver.ts'
 import { codexHome, isolatedCodexSession } from './codex-home.ts'
 import { codexPlanWindows, readCodexPlanUsage } from './codex-usage.ts'
@@ -516,6 +516,7 @@ export function codexAgent(binary: string, home?: string): Agent {
       ]
     },
     chat: codexChat,
+    chatFrom: codexChatFrom,
     stateFrom(line) {
       const message = parse(line)
       if (typeof message?.method !== 'string') return undefined
@@ -633,6 +634,7 @@ export function codexAgent(binary: string, home?: string): Agent {
         1_000_000
       )
     },
+    costLine: (line) => parse(line)?.method === 'thread/tokenUsage/updated',
     keyHelp: () => apiKeyHelp,
     health: {
       minimumVersion: '0.128.0',

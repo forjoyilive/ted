@@ -29,6 +29,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_NOTIFY_LOG`, `TED_NOTIFY_STATUS` | Record or disable notifications and badges. |
 | `TED_LOGIN_SHELL`, `TED_STAY_AWAKE`, `TED_TIME_MACHINE` | Disable login-shell loading, sleep prevention or backup exclusions during tests. |
 | `TED_EDITOR_APP_DIRS` | Substitute the folders searched for editor bundles. |
+| `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
 Internal output names such as `TED_COMMAND_SCRIPT` (a generated script marker) and `__TED_LOGIN_ENV__` (a shell-output delimiter) are not environment inputs. Test fixtures can have their own `TED_STUB_*` inputs outside runtime `packages/*/src`.
 

@@ -192,13 +192,14 @@ function pause(at: Exclude<keyof typeof pauses, 'dispatchPhase'>) {
     },
   }
 }
-async function setup() {
+async function setup(runs?: { inputAckMs: number }) {
   const origin = await makeOriginRepo(scratch)
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    ...(runs && { runs }),
   })
   let client = api(daemon.port, { appKey: daemon.appToken })
   async function call<T>(method: string, route: string, body?: unknown): Promise<T> {
@@ -226,6 +227,7 @@ async function setup() {
         version: '9.9.9',
         claudeBin: stubClaudePath,
         codexBin: stubCodexPath,
+        ...(runs && { runs }),
       })
       client = api(daemon.port, { appKey: daemon.appToken })
       return daemon
@@ -974,7 +976,7 @@ test('Queued Work and Intake Tasks share the same Coordinator waiting group', as
 })
 
 test('admitted Codex follow-ups wait without failing a slow healthy response', async () => {
-  const s = await setup()
+  const s = await setup({ inputAckMs: 3_000 })
   await s.call('PATCH', '/settings', { maxWorkingRuns: 1 })
   const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
     agent: 'codex',
@@ -1013,7 +1015,7 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
       ),
     'first follow-up running',
   )
-  await new Promise((resolve) => setTimeout(resolve, 11000))
+  await new Promise((resolve) => setTimeout(resolve, 4_000))
   expect((await s.chat()).status).toBe('working')
   const during = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(

@@ -18,6 +18,7 @@ export interface CustomRequests {
   openTaskSource: (taskId: string) => Promise<void>
   openPullRequest: (taskId: string, repoName: string) => Promise<void>
   openFigmaLink: (taskId: string, commentId: string) => Promise<void>
+  openMarkdownLink: (url: string) => Promise<void>
   presentBrowser: (
     taskId: string,
     repo: string,

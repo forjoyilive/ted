@@ -251,7 +251,7 @@ test('final observation invalidates earlier consent while committing only the ma
         capturedAt: new Date().toISOString(),
         fingerprint: final && reads === 2 ? 'B' : fingerprint,
         repos: [],
-        checks: 'checks',
+        checks: final && reads === 2 ? 'B' : fingerprint,
       }),
       assertLead: () => {},
       drafts: () => [],
@@ -279,6 +279,11 @@ test('final observation invalidates earlier consent while committing only the ma
     await service.resolve(task, first.id, {
       requestId: first.decisions[0]?.commentId ?? '',
       resolution: 'accepted',
+    })
+    store.recordRunOutput('lead', {
+      toOffset: 0,
+      state: 'finished',
+      ending: { how: 'exited', errorLines: [], at: new Date().toISOString() },
     })
     const second = await ask(b.id)
     final = true

@@ -18,7 +18,17 @@ const repos = [
   },
 ] satisfies P.RepoSettingsInput[]
 const library = {
-  stages: { work: { enabled: true, gate: false, maxBack: 2, depth: 'few', effort: 'high' } },
+  stages: {
+    work: {
+      enabled: true,
+      gate: false,
+      maxBack: 2,
+      depth: 'few',
+      effort: 'high',
+      leadClosesFailures: true,
+    },
+    validate: { p1OnlyFrom: 3, subAgents: true },
+  },
   stageFiles: { work: '# Work', review: null },
   keepStageFiles: ['work'],
   agents: { lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' }, reviewer: null },
@@ -31,6 +41,8 @@ const settings = {
   maxWorkingRuns: 2,
   notes: '# Notes',
 } satisfies Required<P.FactorySettingsChanges>
+roundTrip(P.parseMergeSettingsRequest, { receipt: 'a'.repeat(32) })
+rejects(P.parseMergeSettingsRequest, { receipt: '../bad' }, 'receipt must be')
 roundTrip(P.parseAutoStartBacklogRequest, { enabled: true })
 roundTrip(P.parseCreateFactoryRequest, {
   name: 'TED',
@@ -94,6 +106,31 @@ rejects(
   'gate must be true or false',
 )
 rejects(
+  P.parseLibraryChanges,
+  { stages: { validate: { p1OnlyFrom: 1 } } },
+  'validate.p1OnlyFrom must be a round number, 2 or more, or false, on Validate',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { work: { p1OnlyFrom: 3 } } },
+  'work.p1OnlyFrom must be a round number',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { validate: { subAgents: 'yes' } } },
+  'validate.subAgents must be true or false, on Validate',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { work: { subAgents: true } } },
+  'work.subAgents must be true or false, on Validate',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { validate: { leadClosesFailures: true } } },
+  'validate.leadClosesFailures must be true or false, on Work',
+)
+rejects(
   P.parseSaveSettingsRequest,
   { mode: 'other', version: 'v', changes: settings },
   'mode must be',
@@ -118,6 +155,12 @@ test('legacy Factory normalization and defaults', () => {
   expect(
     P.parseSaveSettingsRequest({ mode: 'merge', version: 'v', changes: settings }).confirmBypass,
   ).toBe(false)
+})
+
+test('a P1-only round of false is kept, so a layer can turn it off', () => {
+  expect(P.parseLibraryChanges({ stages: { validate: { p1OnlyFrom: false } } })).toEqual({
+    stages: { validate: { p1OnlyFrom: false } },
+  })
 })
 
 test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {

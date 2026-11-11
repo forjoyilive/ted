@@ -107,6 +107,12 @@ export type AgentChatEntry =
       endedAt?: string
     }
 
+export interface AgentChat {
+  add(entry: ConversationEntry): void
+  entries(): readonly AgentChatEntry[]
+  userFrom(key: string): number | undefined
+}
+
 export type AutoModeSignal = 'on' | 'unavailable'
 
 export interface Agent {
@@ -134,6 +140,7 @@ export interface Agent {
   autoModeFrom(line: string): AutoModeSignal | undefined
   permissionReply(reply: PermissionReply): string[]
   chat(entries: readonly ConversationEntry[], cwd: string): AgentChatEntry[]
+  chatFrom(cwd: string): AgentChat
   acceptedTextFrom(line: string): string | undefined
   agentTextFrom(line: string): string | undefined
   sessionIdFrom(line: string): string | undefined
@@ -152,6 +159,7 @@ export interface Agent {
   }): Promise<PlanWindow[] | undefined>
   planUsageFrom(line: string): PlanWindow[] | undefined
   costOf(lines: readonly string[], model: string | undefined): number | undefined
+  costLine(line: string): boolean
   keyHelp(source: string | undefined): string
   environment(env: NodeJS.ProcessEnv, billing: Billing): NodeJS.ProcessEnv
   health: AgentHealthSpec

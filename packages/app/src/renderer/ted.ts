@@ -1,5 +1,12 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
-import type { DaemonEvent, ExportFormat, RunFixRequest } from '@ted/protocol'
+import type {
+  AutomationRequest,
+  Comment,
+  DaemonEvent,
+  ExportFormat,
+  PlanRequest,
+  RunFixRequest,
+} from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import { type CustomRequests, customRequest } from '../custom-requests.ts'
 import { daemonRequests } from '../daemon-requests.ts'
@@ -26,15 +33,69 @@ declare global {
   }
 }
 
+export function readableError(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message : String(failure)
+  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
+}
+
+async function invoke(name: string, ...args: unknown[]): Promise<unknown> {
+  try {
+    return await window.ted.request(name, ...args)
+  } catch (failure) {
+    throw new Error(readableError(failure), { cause: failure })
+  }
+}
+
 function request<K extends keyof CustomRequests>(
   name: K,
   ...args: Parameters<CustomRequests[K]>
 ): ReturnType<CustomRequests[K]> {
-  return customRequest((name, ...args) => window.ted.request(name, ...args), name, ...args)
+  return customRequest(invoke, name, ...args)
 }
 
+export type AnsweredRequest = { order: number } & (
+  | { source: 'task'; request: Comment }
+  | { source: 'plan'; request: PlanRequest }
+  | { source: 'automation'; request: AutomationRequest }
+)
+
+let answerOrder = 0
+
+const answerListeners = new Set<(answer: AnsweredRequest) => void>()
+
+export function onRequestAnswered(listener: (answer: AnsweredRequest) => void): () => void {
+  answerListeners.add(listener)
+  return () => {
+    answerListeners.delete(listener)
+  }
+}
+
+function answered(answer: AnsweredRequest) {
+  for (const listener of answerListeners) listener(answer)
+}
+
+const daemon = daemonRequests(invoke)
+
 export const ted = {
-  ...daemonRequests((name, ...args) => window.ted.request(name, ...args)),
+  ...daemon,
+  answerRequest: async (...args: Parameters<typeof daemon.answerRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerRequest(...args)
+    answered({ source: 'task', request, order })
+    return request
+  },
+  answerPlanRequest: async (...args: Parameters<typeof daemon.answerPlanRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerPlanRequest(...args)
+    answered({ source: 'plan', request, order })
+    return request
+  },
+  answerAutomationRequest: async (...args: Parameters<typeof daemon.answerAutomationRequest>) => {
+    const order = ++answerOrder
+    const request = await daemon.answerAutomationRequest(...args)
+    answered({ source: 'automation', request, order })
+    return request
+  },
   getAutomation: (id: string) => request('getAutomation', id),
   exportFactory: (factoryId: string, format: ExportFormat) =>
     request('exportFactory', factoryId, format),
@@ -43,6 +104,7 @@ export const ted = {
   openPullRequest: (taskId: string, repoName: string) =>
     request('openPullRequest', taskId, repoName),
   openFigmaLink: (taskId: string, commentId: string) => request('openFigmaLink', taskId, commentId),
+  openMarkdownLink: (url: string) => request('openMarkdownLink', url),
   presentBrowser: (
     taskId: string,
     repo: string,
@@ -81,9 +143,4 @@ export const ted = {
   runFix: (input: RunFixRequest) => request('runFix', input),
   openLinearKeyPage: () => request('openLinearKeyPage'),
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
-}
-
-export function readableError(failure: unknown): string {
-  const message = failure instanceof Error ? failure.message : String(failure)
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
 }

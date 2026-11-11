@@ -355,6 +355,34 @@ describe('restart idle Runs onto new agent versions', () => {
   })
 })
 
+test('the Validate round settings save to the Library and turn off again', async () => {
+  const client = await start()
+  const before = await client.view()
+  const validate = (view: typeof before) => view.stages.find((s) => s.id === 'validate')
+  expect(validate(before)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+  const on = await client.save(
+    {
+      stages: {
+        validate: { p1OnlyFrom: 2, subAgents: true },
+        work: { leadClosesFailures: true },
+      },
+    },
+    before.version,
+  )
+  expect(validate(on)).toMatchObject({ p1OnlyFrom: 2, subAgents: true, maxBack: 5 })
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
+  expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+  const yaml = await libraryFile('workflow.yaml')
+  expect(yaml).toContain('p1_only_from: 2')
+  expect(yaml).toContain('sub_agents: true')
+  const off = await client.save(
+    { stages: { validate: { p1OnlyFrom: false, subAgents: false } } },
+    on.version,
+  )
+  expect(validate(off)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
+  expect(await libraryFile('workflow.yaml')).toContain('p1_only_from: false')
+})
+
 test('Stage effort saves and removing it restores inheritance without losing other Stage settings', async () => {
   const client = await start()
   const before = await client.view()

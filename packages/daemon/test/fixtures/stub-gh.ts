@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -13,6 +14,7 @@ import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 interface StubState {
+  healthGate?: { entered: string; release: string }
   mergeGate?: { entered: string; release: string }
   graphqlGate?: { entered: string; release: string; after?: number }
   version?: string
@@ -59,6 +61,7 @@ interface StubMerge {
   disableAutoFails?: boolean
   rollup?: 'empty' | 'missing' | 'truncated'
   title?: string
+  baseRefName?: string
   mergeState?: string
   mergeable?: string
   reviewDecision?: string | null
@@ -101,13 +104,40 @@ const readyHosts = {
 }
 
 const statePath = process.env.TED_STUB_GH
-const state: StubState = statePath ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
 const args = process.argv.slice(2)
 const stdin =
   args.includes('--input') || args.includes('--body-file') ? readFileSync(0, 'utf8') : undefined
+const mutation =
+  (args[0] === 'pr' && (args[1] === 'create' || args[1] === 'merge')) ||
+  (args[0] === 'api' && args[1] === 'graphql' && stdin?.includes('updatePullRequestBranch'))
+if (statePath && process.env.TED_DEMO === '1' && mutation) {
+  const { DatabaseSync } = await import('node:sqlite')
+  const lock = new DatabaseSync(`${statePath}.lock.sqlite`, { timeout: 0 })
+  process.once('exit', () => lock.close())
+  const started = Date.now()
+  for (;;) {
+    try {
+      lock.exec('BEGIN EXCLUSIVE')
+      break
+    } catch (error) {
+      if ((error as { errcode?: number }).errcode !== 5) throw error
+      if (Date.now() - started > 60_000) throw new Error('Demo GitHub fixture lock timed out.')
+      await sleep(10)
+    }
+  }
+}
+
+const state: StubState = statePath ? JSON.parse(readFileSync(statePath, 'utf8')) : {}
 
 const save = () => {
-  if (statePath) writeFileSync(statePath, JSON.stringify(state))
+  if (!statePath) return
+  if (process.env.TED_DEMO !== '1') {
+    writeFileSync(statePath, JSON.stringify(state))
+    return
+  }
+  const temporary = `${statePath}.${process.pid}.tmp`
+  writeFileSync(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
+  renameSync(temporary, statePath)
 }
 
 const gitEnv = {
@@ -134,6 +164,10 @@ const headOf = (number: string): string => {
 }
 
 const logPath = process.env.TED_STUB_GH_LOG
+if (args[0] === '--version' && state.healthGate) {
+  writeFileSync(state.healthGate.entered, 'waiting')
+  while (!existsSync(state.healthGate.release)) await sleep(5)
+}
 if (logPath) {
   appendFileSync(
     logPath,
@@ -191,7 +225,7 @@ function pullRequests(variables: Record<string, unknown>) {
         id: `PR_${number}`,
         title: merge.title ?? 'Stub pull request',
         url: `https://github.com/${String(variables[`o${i}`])}/${String(variables[`n${i}`])}/pull/${number}`,
-        baseRefName: 'main',
+        baseRefName: merge.baseRefName ?? 'main',
         state: merge.merged ? 'MERGED' : merge.closed ? 'CLOSED' : 'OPEN',
         isDraft: merge.isDraft ?? false,
         headRefOid: headOf(number),

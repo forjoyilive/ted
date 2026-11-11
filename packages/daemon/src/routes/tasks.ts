@@ -28,6 +28,7 @@ import {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSetTaskSnoozeRequest,
+  parseStartTaskRequest,
   parseTaskLead,
   parseVerifyFailureRequest,
   parseWriteBriefRequest,
@@ -200,12 +201,17 @@ export const taskRoutes: Route[] = [
       return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
     },
   }),
-  {
+  jsonRoute(parseStartTaskRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,
     fileToken: true,
-    handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.start(ref)],
-  },
+    optionalBody: true,
+    async handle({ params: [ref = ''], body, caller }, { tasks }) {
+      if (body.prepare && caller.kind !== 'app')
+        throw new HttpError(403, 'only the TED app can prepare Tasks')
+      return [200, await tasks.start(ref, body)]
+    },
+  }),
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/backlog$/,
@@ -394,6 +400,14 @@ export const taskRoutes: Route[] = [
       if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read files')
       const relative = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? ''
       return [200, await tasks.file(ref, repo, relative)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/pull-request-changes\/([^/?]+)$/,
+    async handle({ params: [ref = '', repo = ''], caller }, { tasks }) {
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read PR changes')
+      return [200, await tasks.pullRequestChanges(ref, repo)]
     },
   },
   {
@@ -589,6 +603,15 @@ export const taskRoutes: Route[] = [
       const task = store.getTask(ref)
       if (!task) throw new HttpError(404, `no Task ${ref}`)
       return [200, store.listSendBacks(task.id)]
+    },
+  },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/]+)\/base-conflicts$/,
+    async handle({ params: [ref = ''] }, { store }) {
+      const task = store.getTask(ref)
+      if (!task) throw new HttpError(404, `no Task ${ref}`)
+      return [200, store.baseConflicts(task.id)]
     },
   },
   {

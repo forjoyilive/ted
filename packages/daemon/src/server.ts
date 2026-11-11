@@ -2,9 +2,10 @@ import { timingSafeEqual } from 'node:crypto'
 import { once } from 'node:events'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { performance } from 'node:perf_hooks'
 import { Readable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type { RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
+import type { ProfileRequest, RestoreBackupRequest, ShutdownRequest } from '@ted/protocol'
 import {
   type AppAuth,
   bodyHash,
@@ -14,12 +15,14 @@ import {
   daemonProof,
   equalHex,
   parseAppAuth,
+  parseProfileRequest,
   parseRestoreBackupRequest,
   parseShutdownRequest,
   RequestValidationError,
   requestMac,
   responseMac,
   responseMacHeader,
+  testReporterPrefix,
 } from '@ted/protocol'
 import { maxAttachmentBytes } from './attachments.ts'
 import type { Data } from './data.ts'
@@ -42,11 +45,13 @@ import {
   maxBodyBytes,
   type RequestContext,
   type Route,
+  routePattern,
 } from './routes/route.ts'
 import { runRoutes } from './routes/runs.ts'
 import { searchRoutes } from './routes/search.ts'
 import { shellRoutes } from './routes/shells.ts'
 import { taskRoutes } from './routes/tasks.ts'
+import { testInvocationRoutes } from './routes/test-invocations.ts'
 import type { Caller } from './tasks/tasks.ts'
 
 export type { BaseOptions, ServerOptions } from './routes/route.ts'
@@ -55,6 +60,7 @@ const dataRoutes: Route<BaseOptions>[] = [
   {
     method: 'GET',
     path: /^\/events(\?app=1)?$/,
+    waits: true,
     async handle({ req, res, params: [app] }, options) {
       streamEvents(req, res, options, app === '?app=1')
       return undefined
@@ -121,6 +127,20 @@ const dataRoutes: Route<BaseOptions>[] = [
     handle: async (_, { commandLine }) => [200, await commandLine.install()],
   },
   {
+    method: 'GET',
+    path: /^\/diagnostics\/slow$/,
+    handle: async (_, { slow }) => [200, slow.read()],
+  },
+  jsonRoute<ProfileRequest, BaseOptions>(parseProfileRequest, {
+    optionalBody: true,
+    method: 'POST',
+    path: /^\/diagnostics\/profile$/,
+    waits: true,
+    async handle({ body }, { profiler }) {
+      return [201, await profiler.record(body.seconds)]
+    },
+  }),
+  {
     method: 'POST',
     path: /^\/app\/open$/,
     fileToken: true,
@@ -144,6 +164,7 @@ async function settled(data: Data): Promise<void> {
 
 const routes: Route[] = [
   ...taskRoutes,
+  ...testInvocationRoutes,
   ...peerRoutes,
   ...shellRoutes,
   ...appRoutes,
@@ -161,20 +182,40 @@ const routes: Route[] = [
 
 const drainTimeoutMs = 10_000
 
+interface Timing {
+  route?: string
+  started?: number
+  handled?: number
+}
+
 export async function listen(options: BaseOptions): Promise<{ server: http.Server; port: number }> {
   const server = http.createServer((req, res) => {
     const release = options.idle?.hold()
     if (release) res.on('close', release)
-    handle(req, res, options).catch(async (error: unknown) => {
-      await drain(req)
-      if (error instanceof HttpError || error instanceof RequestValidationError)
-        return sendJson(res, error.status, { error: error.message })
-      if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
-      console.error(
-        redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
-      )
-      sendJson(res, 500, { error: 'internal error' })
-    })
+    const timing: Timing = {}
+    handle(req, res, options, timing)
+      .catch(async (error: unknown) => {
+        await drain(req)
+        if (error instanceof HttpError || error instanceof RequestValidationError)
+          return sendJson(res, error.status, { error: error.message })
+        if (isDiskFullError(error)) return sendJson(res, 507, { error: cantSaveMessage })
+        console.error(
+          redactSecrets(error instanceof Error ? (error.stack ?? error.message) : String(error)),
+        )
+        sendJson(res, 500, { error: 'internal error' })
+      })
+      .finally(() => {
+        const { route, started } = timing
+        if (route === undefined || started === undefined) return
+        const now = performance.now()
+        options.slow.request({
+          method: req.method ?? '',
+          route,
+          status: res.statusCode,
+          handlerMs: (timing.handled ?? now) - started,
+          totalMs: now - started,
+        })
+      })
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
@@ -187,6 +228,7 @@ async function handle(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   options: BaseOptions,
+  timing: Timing,
 ): Promise<void> {
   if (!isLoopbackHost(req.headers.host)) throw new HttpError(403, 'host not allowed')
   if (req.headers.origin !== undefined) throw new HttpError(403, 'browser requests not allowed')
@@ -204,7 +246,11 @@ async function handle(
   if (signed) signedResponses.set(res, { key: options.appToken, nonce: signed.nonce })
   const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
-  if (caller.kind === 'run') {
+  if (caller.kind === 'run' && caller.runId.startsWith(testReporterPrefix)) {
+    const id = caller.runId.slice(testReporterPrefix.length).split(':')[0]
+    if (req.method !== 'POST' || url !== `/test-invocations/${id}/reports`)
+      throw new HttpError(403, 'test reporters may only report their own invocation')
+  } else if (caller.kind === 'run') {
     const services = await options.data.services()
     if (!services.store.getRun(caller.runId)) throw new HttpError(403, 'This Run no longer exists')
     if (services.store.sideChats.forRun(caller.runId))
@@ -223,7 +269,9 @@ async function handle(
   }
   const dataRoute = find(dataRoutes, req, url, caller)
   if (dataRoute) {
+    begin(dataRoute.route)
     const reply = await dataRoute.route.handle(context(dataRoute.params), options)
+    timing.handled = performance.now()
     if (reply) sendJson(res, ...reply)
     return
   }
@@ -233,9 +281,17 @@ async function handle(
   if (services.disk.cantSave() && req.method !== 'GET' && !url.startsWith('/storage/')) {
     throw new HttpError(507, cantSaveMessage)
   }
+  begin(route.route)
   const reply = await route.route.handle(context(route.params), { ...options, ...services })
+  timing.handled = performance.now()
   if (req.method !== 'GET') await services.store.persisted()
   if (reply) sendJson(res, ...reply)
+
+  function begin(found: { path: RegExp; waits?: true }): void {
+    if (found.waits) return
+    timing.route = routePattern(found.path)
+    timing.started = performance.now()
+  }
 
   function context(params: string[]): RequestContext {
     return { req: request, res, params, caller: caller as Caller }

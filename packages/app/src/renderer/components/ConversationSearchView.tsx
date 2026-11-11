@@ -1,7 +1,6 @@
 import type { ConversationHit, RunChat } from '@ted/protocol'
-import { useEffect, useState } from 'react'
-import { useConnection } from '../data.ts'
-import { readableError, ted } from '../ted.ts'
+import { useEventValue } from '../data.ts'
+import { ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import { ChatSection } from './RunChat.tsx'
 import styles from './SearchPalette.module.css'
@@ -13,38 +12,16 @@ export function ConversationSearchView({
   hit: ConversationHit
   onBack: () => void
 }) {
-  const { epoch } = useConnection()
-  const [chat, setChat] = useState<RunChat>()
-  const [error, setError] = useState<string>()
-  useEffect(() => {
-    void epoch
-    let current = true
-    let revision = 0
-    const load = async () => {
-      const request = ++revision
-      try {
-        const found = await ted.getRunChat(hit.runId)
-        if (current && request === revision) {
-          setChat(found)
-          setError(undefined)
-        }
-      } catch (failure) {
-        if (current && request === revision) setError(readableError(failure))
-      }
-    }
-    void load()
-    const unsubscribe = ted.onEvent((event) => {
-      if (
-        (event.type === 'run-output' && event.runId === hit.runId) ||
-        (event.type === 'run-updated' && event.run.id === hit.runId)
-      )
-        void load()
-    })
-    return () => {
-      current = false
-      unsubscribe()
-    }
-  }, [hit.runId, epoch])
+  const { value: chat, error } = useEventValue<RunChat | undefined>({
+    initial: undefined,
+    key: hit.runId,
+    load: () => ted.getRunChat(hit.runId),
+    event: (event) =>
+      (event.type === 'run-output' && event.runId === hit.runId) ||
+      (event.type === 'run-updated' && event.run.id === hit.runId)
+        ? 'reload'
+        : undefined,
+  })
   const missing = chat !== undefined && !chat.items.some((item) => item.id === hit.itemId)
   return (
     <>

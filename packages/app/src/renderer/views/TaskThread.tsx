@@ -1,5 +1,6 @@
 import type {
   AgentStageId,
+  ChangesSource,
   CheckRun,
   ClarifyDepth,
   Comment,
@@ -17,10 +18,15 @@ import type {
   ThreadEvent,
 } from '@ted/protocol'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 import { mergedLine } from '../board.ts'
 import { CodeSection } from '../CodeSection.tsx'
-import { type ChangedFile, changedFiles, useTaskChanges } from '../changes.ts'
+import {
+  type ChangedFile,
+  changedFiles,
+  usePullRequestChanges,
+  useTaskChanges,
+} from '../changes.ts'
 import { AppLogView } from '../components/AppLogView.tsx'
 import { AppsSection, type ShownApp } from '../components/AppsSection.tsx'
 import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
@@ -48,6 +54,7 @@ import {
   useLineComments,
 } from '../components/LineComments.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
 import {
   AnsweredCard,
@@ -67,6 +74,7 @@ import { TaskBrowserView } from '../components/TaskBrowserView.tsx'
 import { TaskShell } from '../components/TaskShell.tsx'
 import { RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
 import {
+  useBrowserOpen,
   useCheckRunList,
   useCommentList,
   useComments,
@@ -80,6 +88,7 @@ import {
 import { briefPart, briefSummary } from '../details.ts'
 import { openInEditor } from '../editor.ts'
 import { quickOpenEvent, takeFileRequest, useTaskFiles } from '../files.ts'
+import { InboxRequestsContext } from '../inbox-requests.ts'
 import {
   type ChangesView,
   type MiddlePaneAction,
@@ -88,7 +97,7 @@ import {
   middlePaneStep,
 } from '../middle-pane.ts'
 import { useProfile } from '../profile.tsx'
-import { useNow } from '../requests.ts'
+import { ago, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
@@ -100,7 +109,7 @@ import {
   priorityLabels,
 } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
-import { formatDate, formatTime } from '../time.ts'
+import { formatDate } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskGatesField } from './TaskGatesField.tsx'
@@ -129,10 +138,12 @@ function NoteRow({
   task,
   comment,
   lines,
+  now,
 }: {
   task: Task
   comment: Comment
   lines?: LineLinks | undefined
+  now: number
 }) {
   const profile = useProfile()
   const agent = leadAgent(task, comment)
@@ -156,11 +167,11 @@ function NoteRow({
       <div>
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
-          <span className={styles.taskMeta}>{formatTime(comment.createdAt)}</span>
+          <span className={styles.taskMeta}>{ago(comment.createdAt, now)}</span>
           {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
-        {comment.body !== '' && <p className={styles.commentBody}>{comment.body}</p>}
+        {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}
         {comment.attachments && <CommentFiles files={comment.attachments} />}
         {comment.lineComments && (
           <SentLineComments
@@ -330,15 +341,9 @@ export function TaskPanes({
   onFollowedUp: (followUp: Task) => void
 }) {
   const [state, setState] = useState<MiddlePaneState>({})
-  useEffect(
-    () =>
-      ted.onEvent((event) => {
-        if (event.type === 'browser-open' && event.taskId === task.id) {
-          setState((s) => middlePaneStep(s, task.id, { kind: 'app', app: event.app }))
-        }
-      }),
-    [task.id],
-  )
+  useBrowserOpen(task.id, (app) => {
+    setState((s) => middlePaneStep(s, task.id, { kind: 'app', app }))
+  })
 
   const go = (action: MiddlePaneAction) => setState((s) => middlePaneStep(s, task.id, action))
   useEffect(() => {
@@ -368,9 +373,17 @@ export function TaskPanes({
     go({ kind: 'file', file })
   }
   const changes = useTaskChanges(task)
+  const selectedSource =
+    state.changes?.taskId === task.id ? (state.changes.view.source ?? 'local') : 'local'
+  const hasPullRequest = task.repos.some((r) => r.pullRequest !== undefined)
+  const source: ChangesSource =
+    selectedSource === 'pull-request' && hasPullRequest ? 'pull-request' : 'local'
+  const remote = usePullRequestChanges(task, source === 'pull-request')
+  const shownChanges = source === 'pull-request' ? remote.changes : changes
+  const remoteReader = source === 'pull-request' ? remote : undefined
   const briefResource = useTaskBriefState(task.id)
   const brief = briefResource.value
-  const pane = middlePane(state, task, changes !== undefined)
+  const pane = middlePane(state, task, shownChanges !== undefined)
   const { changes: view, app: shownApp, brief: fullBrief, run: visibleRun, all } = pane
   const showChanges = (next: ChangesView | undefined) => go({ kind: 'changes', view: next })
   const openApp = (chosen: ShownApp) => go({ kind: 'app', app: chosen })
@@ -398,7 +411,8 @@ export function TaskPanes({
     window.addEventListener(openShellEvent, take)
     return () => window.removeEventListener(openShellEvent, take)
   }, [task.id, task.repos])
-  const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file })
+  const openFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source })
+  const openLocalFile = (file: ChangedFile) => showChanges({ kind: 'diff', file, source: 'local' })
   const lineComments = useLineComments(task.id)
   const drafts = lineComments.filter(isDraft)
   const seams: DiffSeams = {
@@ -468,14 +482,16 @@ export function TaskPanes({
           onBack={() => go({ kind: 'file', file: undefined })}
         />
       )}
-      {all && changes !== undefined && (
+      {all && (
         <AllChanges
           taskId={task.id}
-          changes={changes}
-          seams={seams}
-          footer={bar}
+          changes={shownChanges}
+          seams={source === 'local' ? seams : {}}
+          footer={source === 'local' ? bar : undefined}
           backLabel={reviewOpen ? '← Back to sign-off' : 'Collapse'}
           onCollapse={back}
+          remote={remoteReader}
+          sidebar
         />
       )}
       {fullBrief && (
@@ -490,14 +506,15 @@ export function TaskPanes({
       {view?.kind === 'diff' && (
         <DiffView
           taskId={task.id}
-          changes={changes}
+          changes={shownChanges}
           file={view.file}
-          seams={seams}
+          seams={source === 'local' ? seams : {}}
           focus={view.focus}
-          footer={bar}
+          footer={source === 'local' ? bar : undefined}
           backLabel={reviewOpen ? '← Back to sign-off' : '← Thread'}
           onBack={back}
           onOpen={openFile}
+          remote={remoteReader}
         />
       )}
       {shellRepo !== undefined && !covered ? (
@@ -518,7 +535,7 @@ export function TaskPanes({
           onOpenPlan={onOpenPlan}
           onFollowedUp={onFollowedUp}
           taskChanges={changes}
-          onOpenFile={openFile}
+          onOpenFile={openLocalFile}
           onAllChanges={() => showChanges({ kind: 'all' })}
           shownRun={visibleRun}
           onShowRun={show}
@@ -539,15 +556,18 @@ export function TaskPanes({
         onOpenShell={openShell}
         shownApp={shownApp}
         onOpenApp={openApp}
-        hidden={all}
         changes={
           <ChangesSection
-            changes={changes}
+            changes={shownChanges}
+            source={source}
+            onSource={(next) => showChanges({ kind: 'all', source: next })}
+            hasPullRequest={hasPullRequest}
+            refresh={remote.refresh}
             selected={view?.kind === 'diff' ? view.file : undefined}
             onOpen={openFile}
-            onExpandAll={() => showChanges({ kind: 'all' })}
-            drafts={draftsIn}
-            draftTotal={drafts.length}
+            onExpandAll={() => showChanges({ kind: 'all', source })}
+            drafts={source === 'local' ? draftsIn : undefined}
+            draftTotal={source === 'local' ? drafts.length : 0}
           />
         }
         files={
@@ -618,7 +638,8 @@ export function TaskThread({
   const commentList = useCommentList(task.id)
   const eventList = useThreadEventList(task.id)
   const checkList = useCheckRunList(task.id)
-  const comments = commentList.items
+  const inbox = useContext(InboxRequestsContext)
+  const comments = commentList.items.filter((comment) => !inbox?.resolved.has(comment.id))
   const events = eventList.value ?? []
   const checkRuns = checkList.items
   const failures = useFailures(task.id)
@@ -664,7 +685,10 @@ export function TaskThread({
   const headerAction = statusAction(task)
   const now = useNow()
   const activity = mergedLine(task, now) ?? task.activity
-  const pin = (id: string) => setChosen({ from: requestId, id })
+  const pin = (id: string) => {
+    setChosen({ from: requestId, id })
+    inbox?.select(id)
+  }
   const talk = open.find((c) => c.kind === 'round' && c.talk?.runId === shownRun)
 
   if (talk && shownRun !== undefined && shownApp === undefined) {
@@ -869,7 +893,15 @@ export function TaskThread({
                   )
                 }
                 if (comment.kind === 'note') {
-                  return <NoteRow key={comment.id} task={task} comment={comment} lines={lines} />
+                  return (
+                    <NoteRow
+                      key={comment.id}
+                      task={task}
+                      comment={comment}
+                      lines={lines}
+                      now={now}
+                    />
+                  )
                 }
                 if (comment.answer !== undefined) {
                   const { answer } = comment
@@ -1039,8 +1071,8 @@ export function TaskDetails({
     <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
       {task.setup && (
         <p className={styles.setupNote}>
-          The Design and Review Gates are always on for a setup Task. Tasks started before it merges
-          use TED’s defaults.
+          The Design and Review sign-offs are always on for a setup Task. Tasks started before it
+          merges use TED’s defaults.
         </p>
       )}
       <dl className={styles.details}>
@@ -1093,7 +1125,7 @@ export function TaskDetails({
             </>
           )}
         </dd>
-        <dt>Gates</dt>
+        <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
           <TaskGatesField key={task.id} taskId={task.id} />
         </dd>

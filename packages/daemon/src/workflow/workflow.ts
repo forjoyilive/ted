@@ -23,7 +23,7 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
   const gate =
     workflow.settings.stages[stage]?.gate === true
       ? [
-          `${stageTitle(stage)} has a Gate. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
+          `${stageTitle(stage)} has a sign-off. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
         ]
       : []
   return [file.text.trim(), ...gate].join('\n\n')

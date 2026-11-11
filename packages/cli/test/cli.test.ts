@@ -274,6 +274,21 @@ describe('ted task', () => {
   })
 })
 
+describe('ted dev slow', () => {
+  test('prints the daemon’s slow requests and stalls for the last minute and hour', async () => {
+    const { stdout } = await ted(['dev', 'slow'])
+
+    const lines = stdout.trim().split('\n')
+    expect(lines[0]).toMatch(
+      /^Measured since \d{4}-\d\d-\d\dT[\d:.]+Z\. A request is slow over 100 ms; the event loop is blocked over 200 ms\.$/,
+    )
+    expect(lines).toContain('Last minute')
+    expect(lines).toContain('Last hour')
+    expect(lines.filter((line) => line.startsWith('  Event loop: '))).toHaveLength(2)
+    expect(lines.filter((line) => line.startsWith('  Requests: '))).toHaveLength(2)
+  })
+})
+
 describe('ted dev run', () => {
   async function shownWhenFinished(id: string): Promise<string> {
     const daemon = await client()
@@ -772,6 +787,30 @@ describe('ted workflow check', () => {
       '.ted/workflow.yaml:9:13: error: `remote` must be a GitHub repo',
       '.ted/stages/review.md:1:1: error: the Stage file is empty',
       '6 errors',
+      '',
+    ])
+  })
+
+  test('accepts the Validate round settings and rejects a P1-only round below 2', async () => {
+    await writeLayer({
+      'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: 3, sub_agents: true }\n',
+    })
+    expect((await ted(['workflow', 'check'])).stdout.trim()).toBe('No problems in .ted')
+
+    await writeLayer({
+      'workflow.yaml':
+        'version: 1\nstages:\n  validate:\n    p1_only_from: 1\n    sub_agents: sure\n',
+    })
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/workflow.yaml:4:19: error: `stages.validate.p1_only_from` must be a round number, 2 or more, or false',
+      '.ted/workflow.yaml:5:17: error: `stages.validate.sub_agents` must be true or false',
+      '2 errors',
       '',
     ])
   })

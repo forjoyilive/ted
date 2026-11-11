@@ -135,7 +135,7 @@ describe('New Task drafts', () => {
     }
   })
 
-  test('switches independent Factory drafts and clears only the submitted draft with Create more and Create', async () => {
+  test('switches independent Factory drafts and clears only the submitted draft with Create more and Create; a removed Linear source stays dismissed on reopening', async () => {
     const window = await setup()
     const client = await daemonClient()
     const factories = await client.listFactories()
@@ -179,6 +179,25 @@ describe('New Task drafts', () => {
     await form(window).waitFor({ state: 'detached' })
     expect((await client.taskDraft(second.id)).draft).toBeNull()
     expect((await client.listTasks()).some((t) => t.description === 'Site draft')).toBe(true)
+
+    await sidebar(window).getByRole('button', { name: 'notebook', exact: true }).click()
+    await open(window)
+    await form(window)
+      .getByLabel('Description', { exact: true })
+      .fill('https://linear.app/kriyadesign/issue/KRI-229')
+    await form(window).getByRole('button', { name: 'Remove source' }).click()
+    await form(window).getByLabel('Start now', { exact: true }).uncheck()
+    const blocker = await client.createTask({ factory: 'NB', title: 'Temporary blocker' })
+    await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
+    await form(window).getByLabel('Find a Task').fill(blocker.displayId)
+    await form(window).getByRole('option').filter({ hasText: blocker.displayId }).click()
+    await window.keyboard.press('Escape')
+    await form(window).waitFor({ state: 'detached' })
+    await open(window)
+    expect(await form(window).getByRole('button', { name: 'Remove source' }).count()).toBe(0)
+    await form(window).getByRole('button', { name: 'Close', exact: true }).click()
+    await form(window).waitFor({ state: 'detached' })
+    await waitUntil(async () => (await client.taskDraft(first.id)).draft, 'saved draft')
   })
 
   test('waits for incomplete startup health and keeps an available lead after Create more', async () => {
@@ -279,28 +298,5 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
       return (await restarted.getRun(current.leadRunId)).run.effort === 'high'
     }, 'fallback Task Lead to use the configured Intake effort')
     await restarted.stopTask(task.displayId)
-  })
-
-  test('a removed Linear source stays dismissed on reopening', async () => {
-    const window = await setup()
-    const client = await daemonClient()
-    await form(window)
-      .getByLabel('Description', { exact: true })
-      .fill('https://linear.app/kriyadesign/issue/KRI-229')
-    await form(window).getByRole('button', { name: 'Remove source' }).click()
-    await form(window).getByLabel('Start now', { exact: true }).uncheck()
-    const factory = (await client.listFactories()).find((f) => f.key === 'NB')
-    if (!factory) throw new Error('no Factory')
-    const blocker = await client.createTask({ factory: 'NB', title: 'Temporary blocker' })
-    await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
-    await form(window).getByLabel('Find a Task').fill(blocker.displayId)
-    await form(window).getByRole('option').filter({ hasText: blocker.displayId }).click()
-    await window.keyboard.press('Escape')
-    await form(window).waitFor({ state: 'detached' })
-    await open(window)
-    expect(await form(window).getByRole('button', { name: 'Remove source' }).count()).toBe(0)
-    await form(window).getByRole('button', { name: 'Close', exact: true }).click()
-    await form(window).waitFor({ state: 'detached' })
-    await waitUntil(async () => (await client.taskDraft(factory.id)).draft, 'saved draft')
   })
 })
