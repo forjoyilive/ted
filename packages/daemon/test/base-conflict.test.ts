@@ -76,7 +76,7 @@ describe('A branch that conflicts with its base', () => {
     )
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so TED kept it in Work')
-    expect(refused).toContain('`notes.txt`')
+    expect(refused).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
     expect(await sendBacks(client, task)).toEqual([])
     const thread = await lines(client, task)
     expect(thread.some((l) => l.includes('sent this back'))).toBe(false)
@@ -117,7 +117,7 @@ describe('A branch that conflicts with its base', () => {
       cause: 'base-conflict',
     })
     expect(sendBack?.round).toBeUndefined()
-    expect(sendBack?.findings).toContain('`notes.txt`')
+    expect(sendBack?.findings).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so TED kept it in Validate')
     expect(refused).toContain('--cause base-conflict')

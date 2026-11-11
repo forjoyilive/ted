@@ -176,7 +176,7 @@ describe('Validate rounds', () => {
       expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
       expect(second).toContain('1. The export button does nothing.')
       expect(second).toMatch(
-        /`GIT_GRAFT_FILE=\/dev\/null\/grafts GIT_SHALLOW_FILE=\/dev\/null git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`\n {2}- export\.txt/,
+        /`GIT_GRAFT_FILE=\/dev\/null\/grafts GIT_SHALLOW_FILE=\/dev\/null git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`\. Files changed:\n {2}(<<<FILES [0-9a-f-]{36}>>>)\n {2}- export\.txt\n {2}\1\n/,
       )
       expect(second).toMatch(
         /<<<TASK LEAD [0-9a-f-]{36}>>>\n# Review the whole branch[\s\S]*<<<TASK LEAD [0-9a-f-]{36}>>>$/,
