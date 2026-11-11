@@ -21,6 +21,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_LOGIN_ITEM_LOG: false,
   TED_LOGIN_ITEM_STATUS: false,
   TED_LOGIN_SHELL: false,
+  TED_LOAD_FILE: false,
+  TED_LOW_PRIORITY: false,
   TED_NOTIFY_LOG: false,
   TED_NOTIFY_STATUS: false,
   TED_NUDGE_AFTER_MS: false,
