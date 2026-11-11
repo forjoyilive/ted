@@ -653,17 +653,24 @@ const sendBackQuestion = (loop = true) => {
   })
   return comment
 }
-const loopWorkflow = () => {
-  const workflow = resolveWorkflow([])
-  return {
-    ...workflow,
-    stageFile: (id: string) => ({
-      layer: 'ted' as const,
-      path: `${id}.md`,
-      text: 'Stage instructions',
-    }),
-  }
-}
+const loopWorkflow = () =>
+  resolveWorkflow([
+    {
+      kind: 'ted',
+      files: {},
+      settings: {
+        stages: {},
+        order: ['intake', 'clarify', 'design', 'work', 'validate', 'review'],
+      },
+      stageFiles: {
+        design: 'Design instructions',
+        work: 'Work instructions',
+        review: 'Review instructions',
+      },
+      problems: [],
+      valid: true,
+    },
+  ])
 
 test.each([
   ['Try again', 'work'],
@@ -827,4 +834,18 @@ test('a simulator App that stopped cannot consume its pending approval', async (
   )
   expect(store.getComment(comment.id)?.answer).toBeUndefined()
   expect(effects).toEqual([])
+})
+
+test('Gate obligations receive the next Stage so a repair may return through validation', async () => {
+  const comment = post({ kind: 'gate' }, { kind: 'signoff', gate: { approveLabel: 'Approve' } })
+  const resolution = await port.gateWorkflow(port.find(taskId))
+  port.gateWorkflow = async () => ({
+    ...resolution,
+    workflow: { ...loopWorkflow(), next: () => 'work' },
+  })
+  port.requireObligations = async (_task, target) => {
+    effects.push(`obligations:${target}`)
+  }
+  await answer(comment, { action: 'approve' })
+  expect(effects).toEqual(['obligations:work', 'approval', 'moved'])
 })

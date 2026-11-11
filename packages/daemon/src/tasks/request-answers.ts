@@ -59,7 +59,7 @@ export interface RequestAnswerPort {
   drafts(id: string): string[]
   deliverAnswer(task: Task, comment: Comment, text: string): Promise<void>
   gateWorkflow(task: StoredTask): Promise<WorkflowResolution>
-  requireObligations(task: StoredTask): Promise<void>
+  requireObligations(task: StoredTask, target?: AgentStageId | 'done'): Promise<void>
   bindApproval(task: StoredTask, comment: Comment, workflow: ResolvedWorkflow): Promise<void>
   liveLead(task: Task): Run | undefined
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
@@ -639,7 +639,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         const now = find(task.id)
         const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
-        await requireObligations(now)
+        await requireObligations(now, next)
         const answered = answerRequest(task, comment, {
           kind: 'approved',
           at,

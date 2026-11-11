@@ -3568,7 +3568,7 @@ export function createTasks(options: {
       drafts,
       deliverAnswer,
       gateWorkflow,
-      requireObligations,
+      requireObligations: (task, target) => requireObligations(task, undefined, target),
       bindApproval,
       liveLead,
       startMerging,
