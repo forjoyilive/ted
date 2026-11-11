@@ -1,6 +1,7 @@
 import {
   parseSendRunMessageRequest,
   parseSendSubAgentRequest,
+  parseSideChatMessageRequest,
   parseStartDevRunRequest,
   parseStartSubAgentRequest,
 } from '@ted/protocol'
@@ -12,6 +13,34 @@ const maxWaitMs = 60_000
 const defaultWaitMs = 25_000
 
 export const runRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.get(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [201, await sideChats.open(id)],
+  },
+  jsonRoute(parseSideChatMessageRequest, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/messages$/,
+    async handle({ body, params: [id = ''] }, { sideChats }) {
+      return [201, await sideChats.send(id, body.text)]
+    },
+  }),
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/stop$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.stop(id)],
+  },
+  {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/side-chat\/retry$/,
+    handle: async ({ params: [id = ''] }, { sideChats }) => [200, await sideChats.retry(id)],
+  },
+
   jsonRoute(parseStartSubAgentRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/sub-agents$/,

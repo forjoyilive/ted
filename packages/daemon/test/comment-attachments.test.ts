@@ -191,7 +191,7 @@ describe('an agent attaching files', () => {
   })
 })
 
-describe('the user attaching files', () => {
+describe('the human attaching files', () => {
   test('a Comment’s files go into the live Run as paths the agent can read', async () => {
     const client = await startTed()
     const task = await create(client, steps({ endTurn: true }), { start: true })

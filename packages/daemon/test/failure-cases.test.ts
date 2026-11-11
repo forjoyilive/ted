@@ -191,7 +191,7 @@ test.each(['direct', 'comment'])(
         }
         return line.type === 'user' &&
           typeof line.message?.content === 'string' &&
-          line.message.content.includes(`The user resolved failure request ${requestId}`)
+          line.message.content.includes(`The human resolved failure request ${requestId}`)
           ? [line.message.content]
           : []
       })
@@ -285,7 +285,7 @@ test.each(['changed', 'unavailable'])(
   },
 )
 
-test('unknown tested contexts can be closed by the user but cannot be accepted', async () => {
+test('unknown tested contexts can be closed by the human but cannot be accepted', async () => {
   const s = await setup()
   const decision = await s.request(await s.record())
   expect((await s.resolve(decision)).status).toBe(409)
@@ -321,7 +321,7 @@ test('new assessments withdraw stale requests and only the latest explicit choic
   expect((await s.obligations()).satisfied).toBe(true)
 })
 
-test('authorization separates lead operations, own-Task reads and user decisions', async () => {
+test('authorization separates lead operations, own-Task reads and human decisions', async () => {
   const s = await setup()
   const context = await s.capture()
   const decision = await s.request(await s.record(context.id))
@@ -861,7 +861,7 @@ test('a failure notice uses steering at the next tool boundary and retains its T
     return messages.length > 0 ? messages : undefined
   }, 'failure notice received in the Run chat')
   expect(forwarded).toHaveLength(1)
-  expect(forwarded[0]).not.toContain('The user posted a Comment')
+  expect(forwarded[0]).not.toContain('The human posted a Comment')
   expect(await client.ok('GET', `${root}/validation-obligations`)).toMatchObject({
     satisfied: false,
   })

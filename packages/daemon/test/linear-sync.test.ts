@@ -231,7 +231,7 @@ describe('Linear → TED', () => {
     )
   })
 
-  test('a Task with a live Run asks the user once; Keep going keeps it, Archive archives it', async () => {
+  test('a Task with a live Run asks the human once; Keep going keeps it, Archive archives it', async () => {
     const client = await startWithLinear()
     const task = await client.ok<Task>('POST', '/tasks', {
       title: waiting(ctx.scratch),
@@ -373,7 +373,7 @@ describe('Tasks an Automation made', () => {
     return { client, task }
   }
 
-  test('outside the allowed teams, TED writes nothing and acts on nothing until the user lets it', async () => {
+  test('outside the allowed teams, TED writes nothing and acts on nothing until the human lets it', async () => {
     const { client, task } = await fromAutomation()
     await seenAfterNow()
     expect(moves()).toEqual([])
@@ -402,7 +402,7 @@ describe('Tasks an Automation made', () => {
     expect(await lines(client, task)).toContain('You let TED sync this Task with NOTE-1 in Linear')
   })
 
-  test('a Task made with the token in daemon.json waits for the user too', async () => {
+  test('a Task made with the token in daemon.json waits for the human too', async () => {
     const client = await startWithLinear()
     const withFileToken = api(ctx.daemon?.port ?? 0, await tokenFor(ctx.home))
 
@@ -422,7 +422,7 @@ describe('Tasks an Automation made', () => {
     expect(byApp.linearSync).toBe('on')
   })
 
-  test('in a team the user allowed for the Factory, TED syncs at once', async () => {
+  test('in a team the human allowed for the Factory, TED syncs at once', async () => {
     const { client, task } = await fromAutomation()
     await client.ok('PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['note'] } })
 
@@ -556,7 +556,7 @@ describe('Tasks an Automation made', () => {
     expect((await getTask(client, second?.id ?? '')).linearSync).toBe('on')
   })
 
-  test('only the user answers it: a Run token or the daemon.json token can’t answer, allow or post it', async () => {
+  test('only the human answers it: a Run token or the daemon.json token can’t answer, allow or post it', async () => {
     const { client, task } = await fromAutomation()
     const ask = await firstAsk(client)
     const runId = (await getTask(client, task.id)).leadRunId ?? ''

@@ -195,7 +195,7 @@ describe('Editing a Task', () => {
     const message = await waitUntil(
       async () =>
         (await userMessages(client, started.leadRunId ?? '')).find((m) =>
-          m.includes('The user edited this Task’s description'),
+          m.includes('The human edited this Task’s description'),
         ),
       'the edit to reach the Task Lead',
     )

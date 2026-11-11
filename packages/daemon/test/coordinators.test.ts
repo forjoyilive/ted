@@ -31,6 +31,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -61,6 +62,7 @@ async function setup(
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     ...(disk && { disk }),
     ...(nudgeAfterMs !== undefined && { nudgeAfterMs }),
   })
@@ -127,11 +129,11 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   expect((await run.call('GET', `/coordinator/tasks/${other.id}`)).status).toBe(404)
-  await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the user' })
+  await s.ok('POST', `/tasks/${task.id}/comments`, { body: 'Fresh context from the human' })
   const read = unpack<CoordinatorTask>(
     (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
   )
-  expect(read.comments.some((c) => c.body === 'Fresh context from the user')).toBe(true)
+  expect(read.comments.some((c) => c.body === 'Fresh context from the human')).toBe(true)
   const again = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
     text: 'Compare these Tasks',
   })
@@ -464,7 +466,7 @@ test('a pause while working records TED’s continuation as TED’s and keeps th
   ])
 })
 
-test('Retry’s continuation shows as TED’s in the resumed Run, never as the user’s', async () => {
+test('Retry’s continuation shows as TED’s in the resumed Run, never as the human’s', async () => {
   const s = await setup()
   const { c } = await s.start([
     { say: 'Saved advice' },
@@ -1480,6 +1482,7 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
     { everyMessage: [advance] },
     { run: ['sh', '-c', 'echo x > a.txt'] },
     advance,
+    { endTurn: true },
   )
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),

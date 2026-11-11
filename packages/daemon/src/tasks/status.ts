@@ -11,6 +11,7 @@ import {
 } from '@ted/protocol'
 
 export interface TaskFacts {
+  snoozedUntil?: string
   stage: StageId
   runs: readonly RunState[]
   openRequests?: number
@@ -126,6 +127,9 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
   if (facts.archived) return []
   const blocker = facts.blockedBy?.[0]
   return [
+    ...(facts.snoozedUntil && facts.stage === 'backlog'
+      ? [{ kind: 'snoozed' as const, until: facts.snoozedUntil }]
+      : []),
     ...(facts.needsPlanning ? [{ kind: 'needs-planning' } as const] : []),
     ...(blocker !== undefined && status?.kind !== 'blocked'
       ? [
@@ -172,6 +176,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   }
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
   if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside TED'
+  if (facts.stage === 'backlog' && facts.snoozedUntil) return 'Scheduled to start'
   if (facts.stage === 'backlog') return 'Not started'
   return undefined
 }

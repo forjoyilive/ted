@@ -105,6 +105,7 @@ export function DiffView({
   focus,
   footer,
   onBack,
+  backLabel = '← Thread',
   onOpen,
 }: {
   taskId: string
@@ -113,6 +114,7 @@ export function DiffView({
   seams?: DiffSeams
   focus?: LineFocus | undefined
   footer?: ReactNode
+  backLabel?: string
   onBack: () => void
   onOpen: (file: ChangedFile) => void
 }) {
@@ -135,7 +137,7 @@ export function DiffView({
     <section className={styles.pane} aria-label="Diff">
       <header className={styles.header}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          {backLabel}
         </button>
         <div className={styles.titleRow}>
           <FilePath path={current.path} />
@@ -206,11 +208,13 @@ export function AllChanges({
   seams = {},
   footer,
   onCollapse,
+  backLabel = 'Collapse',
 }: {
   taskId: string
   changes: TaskChanges
   seams?: DiffSeams
   footer?: ReactNode
+  backLabel?: string
   onCollapse: () => void
 }) {
   const sections = useRef(new Map<string, HTMLElement>())
@@ -227,7 +231,7 @@ export function AllChanges({
         </h2>
         <span className={styles.spacer} />
         <Button size="small" onClick={onCollapse}>
-          Collapse
+          {backLabel}
         </Button>
       </header>
       <div className={styles.allBody}>

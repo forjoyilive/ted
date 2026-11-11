@@ -17,6 +17,34 @@ import {
 setUpAppTests()
 
 describe('Factory settings sections', () => {
+  test('permission mode confirms and saves on this computer without a settings pull request', async () => {
+    await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+    const window = await launchApp()
+    await window.setViewportSize({ width: 1280, height: 900 })
+    const nav = sidebar(window)
+    await nav.getByRole('button', { name: 'widgets' }).click()
+    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await window
+      .getByRole('navigation', { name: 'Jump to a section' })
+      .getByRole('button', { name: 'Permissions' })
+      .click()
+    const permissions = window.getByRole('region', { name: 'Permission mode', exact: true })
+    await permissions.getByText('Auto is on.').waitFor()
+    const captures = path.join(process.cwd(), 'node_modules/.cache/ted-22-design')
+    await permissions.screenshot({ path: path.join(captures, 'app-auto.png') })
+    await permissions.getByRole('button', { name: 'Enable Bypass…' }).click()
+    const dialog = window.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
+    const enable = dialog.getByRole('button', { name: 'Enable Bypass', exact: true })
+    expect(await enable.isDisabled()).toBe(true)
+    await window.screenshot({ path: path.join(captures, 'app-confirmation.png') })
+    await dialog.getByRole('checkbox').check()
+    await enable.click()
+    await permissions.getByText('Bypass is on.').waitFor()
+    expect(await window.getByRole('button', { name: 'Review and save' }).count()).toBe(0)
+    await permissions.getByRole('button', { name: 'Use Auto' }).click()
+    await permissions.getByText('Auto is on.').waitFor()
+  })
+
   test('jumping to a section scrolls only the settings, never the app frame', async () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()

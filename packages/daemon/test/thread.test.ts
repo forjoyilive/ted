@@ -203,7 +203,7 @@ describe('Comments into the Task Lead’s Run', () => {
       expect((await comment(client, task, posted.id)).delivered?.runId).toBe(working.leadRunId)
       const chat = await client.ok<RunChat>('GET', `/runs/${working.leadRunId}/chat`)
       const forwarded = chat.items.flatMap((item) =>
-        item.kind === 'ted' && item.text.includes('The user posted a Comment') ? [item.text] : [],
+        item.kind === 'ted' && item.text.includes('The human posted a Comment') ? [item.text] : [],
       )
       expect(forwarded).toHaveLength(2)
       expect(forwarded[0]).toContain(posted.body)
@@ -320,7 +320,7 @@ describe('Comments into the Task Lead’s Run', () => {
     expect((await comment(client, running, posted.id)).delivered?.runId).toBe(fresh.leadRunId)
   })
 
-  test('the user opening the thread marks the agents’ Comments read', async () => {
+  test('the human opening the thread marks the agents’ Comments read', async () => {
     const client = await startTed()
     const task = await create(client, steps({ run: ['ted', 'comment', 'Done parsing'] }), {
       start: true,
@@ -423,7 +423,7 @@ describe('event lines', () => {
     expect((await getTask(client, task.id)).commentBox).toBe('done')
   })
 
-  test('blockers the user sets show who set them', async () => {
+  test('blockers the human sets show who set them', async () => {
     const client = await startTed()
     const a = await create(client, 'A')
     const b = await create(client, 'B')

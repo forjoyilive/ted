@@ -134,7 +134,7 @@ const waitForAsk = (client: Client, task: Task) =>
       (await comments(client, task)).find(
         (c) => c.kind === 'question' && c.author.kind === 'ted' && c.answer === undefined,
       ),
-    'TED to ask the user',
+    'TED to ask the human',
     30_000,
   )
 
@@ -272,7 +272,7 @@ describe('the reviewer', () => {
   )
 })
 
-const findingsFor = (verdict: string) =>
+const findingsFor = (verdict: string, firstValidate: number) =>
   steps(
     {
       run: [
@@ -280,7 +280,7 @@ const findingsFor = (verdict: string) =>
         '-c',
         [
           'f="n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";',
-          'if [ $n -ge 3 ] && [ $((n % 2)) -eq 1 ];',
+          `if [ $n -ge ${firstValidate} ] && [ $((n % 2)) -eq ${firstValidate % 2} ];`,
           'then ted outcome back --to work --findings "FINDINGS";',
           'else ted outcome advance; fi',
         ].join(' '),
@@ -290,9 +290,9 @@ const findingsFor = (verdict: string) =>
     { endTurn: true },
   )
 
-async function loopTask(client: Client, verdict: string): Promise<Task> {
+async function loopTask(client: Client, verdict: string, firstValidate = 3): Promise<Task> {
   const file = path.join(scratch, `findings-${verdict}.md`)
-  const findings = findingsFor(verdict).replace('FINDINGS', file)
+  const findings = findingsFor(verdict, firstValidate).replace('FINDINGS', file)
   await writeFile(file, `- The export button does nothing.\n\n${findings}\n`)
   const script = JSON.parse(findings).steps[0]
   return startTask(client, { everyMessage: [script, { endTurn: true }] }, script, { endTurn: true })
@@ -300,7 +300,116 @@ async function loopTask(client: Client, verdict: string): Promise<Task> {
 
 describe('the Validate loop check', () => {
   test(
-    'at the third send-back a looping verdict asks the user, and the Task Lead can’t advance until they answer',
+    'the limit gets a fresh assessment after early convergence and still waits for the human',
+    async () => {
+      const client = await start(
+        `${validateFlow}stages:\n  validate: { max_back: 2, loop_check: 1 }\n`,
+      )
+      const task = await loopTask(client, 'converging')
+      const ask = await waitForAsk(client, task)
+      const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+      expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(2)
+      expect(ask.body).toContain('Making progress')
+      expect(ask.body).toContain('Recommended: Try again')
+      expect(ask.body).toContain('leaves the Findings open')
+      expect(ask.body).not.toContain('The export button does nothing.')
+      expect(ask.body.length).toBeLessThan(800)
+      expect((await getTask(client, task.id)).stage).toBe('validate')
+      const history = await threadEvents(client, task)
+      expect(history.filter((e) => e.text.startsWith('Validate sent this back'))).toHaveLength(2)
+      expect(
+        history.find((e) => e.text === 'Validate wants to send this Task back to Work')?.findings,
+      ).toContain('The export button does nothing.')
+
+      await daemon?.stop()
+      daemon = await startDaemon({
+        home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        codexBin: stubCodexPath,
+      })
+      const restarted = api(daemon.port, { appKey: daemon.appToken })
+      const saved = await restarted.call('GET', `/tasks/${task.id}/comments`)
+      expect(saved.status).toBe(200)
+      expect(saved.body).toContainEqual(expect.objectContaining({ id: ask.id, body: ask.body }))
+      const replayed = await restarted.call('GET', `/tasks/${task.id}/events`)
+      expect(replayed.status).toBe(200)
+      expect(replayed.body).toEqual(history)
+    },
+    slow,
+  )
+
+  test(
+    'a pending limit assessment survives restart and still asks after converging',
+    async () => {
+      const client = await start(
+        `${validateFlow}stages:\n  validate: { max_back: 1, loop_check: 3 }\n`,
+      )
+      const release = path.join(scratch, 'release-review')
+      await writeFile(
+        path.join(home, 'stub-codex.json'),
+        JSON.stringify({ turnStartWaitFor: release }),
+      )
+      const task = await loopTask(client, 'converging')
+      await waitUntil(
+        async () =>
+          (await threadEvents(client, task)).some(
+            (e) => e.text === 'TED is checking whether Validate’s 2 rounds are converging',
+          ),
+        'the pending limit assessment',
+        20_000,
+      )
+      expect((await comments(client, task)).some((c) => c.kind === 'question')).toBe(false)
+      await daemon?.stop()
+      daemon = await startDaemon({
+        home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        codexBin: stubCodexPath,
+      })
+      const restarted = api(daemon.port, { appKey: daemon.appToken })
+      await writeFile(release, '')
+      const ask = await waitUntil(
+        async () => {
+          const result = await restarted.call('GET', `/tasks/${task.id}/comments`)
+          return (result.body as Comment[]).find((c) => c.kind === 'question')
+        },
+        'the assessment to ask after restart',
+        20_000,
+      )
+      expect(ask.body).toContain('Making progress')
+      const tasks = await restarted.call('GET', '/tasks')
+      expect((tasks.body as Task[]).find((t) => t.id === task.id)?.stage).toBe('validate')
+      const history = await restarted.call('GET', `/tasks/${task.id}/events`)
+      expect(
+        (history.body as ThreadEvent[]).filter((e) => e.text.startsWith('Validate sent this back')),
+      ).toHaveLength(1)
+    },
+    slow,
+  )
+
+  test.each(['looping', 'unknown'])(
+    'a %s limit assessment asks with a recommendation or explicit uncertainty',
+    async (verdict) => {
+      const client = await start(
+        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 1, loop_check: 3 }\n',
+      )
+      const task = await loopTask(client, verdict, 4)
+      const ask = await waitForAsk(client, task)
+      expect(ask.body).toContain(
+        verdict === 'looping' ? 'Recommended: Back to Design' : 'couldn’t assess progress',
+      )
+      expect(ask.body).not.toContain('The export button does nothing.')
+      expect(ask.body).not.toContain('Round 1:')
+      expect((await getTask(client, task.id)).stage).toBe('validate')
+      const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+      expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(1)
+    },
+    slow,
+  )
+
+  test(
+    'at the third send-back a looping verdict asks the human, and the Task Lead can’t advance until they answer',
     async () => {
       const client = await start(
         `${validateFlow}stages:\n  validate: { max_back: 5, loop_check: 3 }\n`,
@@ -312,9 +421,15 @@ describe('the Validate loop check', () => {
         title: 'Validate and Work are going round in circles',
         choices: ['Try again', 'Move to Review anyway'],
       })
-      expect(ask.body).toContain('Round 1:\n- The export button does nothing.')
-      expect(ask.body).toContain('Round 3:')
-      expect(ask.body).toContain('The export button does nothing.')
+      expect(ask.body).not.toContain('Round 1:')
+      expect(ask.body).not.toContain('The export button does nothing.')
+      expect(ask.body).toContain('Recommended: Try again')
+      expect(ask.body).toContain('history')
+      expect(ask.body.length).toBeLessThan(800)
+      const pending = (await threadEvents(client, task)).find(
+        (e) => e.text === 'Validate wants to send this Task back to Work',
+      )
+      expect(pending?.findings).toContain('The export button does nothing.')
       expect((await getTask(client, task.id)).stage).toBe('validate')
 
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
@@ -331,7 +446,7 @@ describe('the Validate loop check', () => {
       const refused = await waitUntil(
         async () =>
           (await commandResults(client, task)).find((r) =>
-            r.stderr.includes('TED asked the user whether to keep sending NB-1 back'),
+            r.stderr.includes('TED asked the human whether to keep sending NB-1 back'),
           ),
         'the Task Lead’s advance to be refused',
         20_000,
@@ -356,7 +471,7 @@ describe('the Validate loop check', () => {
         async () =>
           (await userMessages(client, task)).some((m) =>
             m.startsWith(
-              'The user chose Try again, so Validate’s count of send-backs starts over.',
+              'The human chose Try again, so Validate’s count of send-backs starts over.',
             ),
           ),
         'the Task Lead to hear about Try again',
@@ -467,7 +582,7 @@ describe('the Validate loop check', () => {
       await waitUntil(
         async () =>
           (await userMessages(client, task)).find((m) =>
-            m.startsWith('The user sent this Task back to Design from Validate.'),
+            m.startsWith('The human sent this Task back to Design from Validate.'),
           ),
         'the Task Lead to hear about Design',
         20_000,

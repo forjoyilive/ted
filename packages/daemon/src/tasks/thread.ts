@@ -32,7 +32,7 @@ const planEndLines: Record<string, string> = {
     'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
 }
 
-export const nudgeMessage = 'Continue, or post a Comment if you need the user.'
+export const nudgeMessage = 'Continue, or post a Comment if you need the human.'
 
 const agentNames: Record<string, string> = { claude: 'Claude', codex: 'Codex' }
 
@@ -287,6 +287,12 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.TaskSnoozed':
+        add(entry, 'edit', 'Task snoozed')
+        break
+      case 'v1.TaskSnoozeCleared':
+        add(entry, 'edit', 'Snooze cleared')
+        break
       case 'v1.TaskQueued':
         add(entry, 'edit', 'Task started')
         break
@@ -468,6 +474,15 @@ export function threadEvents(
           undefined,
           text(data.checkRunId) || undefined,
           { judgments: judgmentsIn(data), validate: 'passed' },
+        )
+        break
+      case 'v1.SendBackAsked':
+        add(
+          entry,
+          'failure',
+          `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
+          text(data.findings).trim(),
+          text(data.checkRunId) || undefined,
         )
         break
       case 'v1.LoopCheckStarted':

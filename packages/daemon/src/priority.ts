@@ -1,4 +1,5 @@
 import { accessSync, constants } from 'node:fs'
+import { tedEnv } from '@ted/protocol'
 
 export const lowPriorityNiceness = 10
 
@@ -21,7 +22,7 @@ export function workCommand(
   lowPriority: boolean,
   wrapper: PriorityWrapper = platformWrapper,
 ): { command: string; args: string[] } {
-  if (!lowPriority || process.env.TED_LOW_PRIORITY === 'off') return { command, args: [...args] }
+  if (!lowPriority || tedEnv('TED_LOW_PRIORITY') === 'off') return { command, args: [...args] }
   const program = wrapper.programs.find(isProgram)
   if (program === undefined) {
     if (!warned) {

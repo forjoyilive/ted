@@ -10,6 +10,7 @@ import {
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
   parseStopCheckTryRequest,
@@ -17,6 +18,7 @@ import {
 import { RequestError as HttpError } from '../errors.ts'
 import { factoryExport } from '../export.ts'
 import { addFactory } from '../factories.ts'
+import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 export const factoryRoutes: Route[] = [
@@ -25,6 +27,30 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/export$/,
     handle: async ({ params: [id = ''] }, { store }) => [200, factoryExport(store, id)],
   },
+  jsonRoute(parseSetFactoryPermissionsRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/permissions$/,
+    async handle({ body, params: [id = ''] }, { store, workflows }) {
+      const factory = store.getFactory(id)
+      if (!factory) throw new HttpError(404, 'no such Factory')
+      const { mode } = body
+      if (mode === 'bypass' && body.confirmBypass !== true) {
+        throw new HttpError(409, 'Confirm Bypass on this computer in Factory settings')
+      }
+      const release = await acquireFactoryPermissions(store, id)
+      try {
+        const permissions = { ...store.settings().factoryPermissions }
+        if (mode === 'auto') delete permissions[id]
+        else permissions[id] = mode
+        store.updateSettings({ factoryPermissions: permissions })
+        await store.persisted()
+        await workflows.resolve(factory, { fetch: false })
+        return [200, { mode: factoryPermissions(store, id) }]
+      } finally {
+        release()
+      }
+    },
+  }),
   jsonRoute(parseAutoStartBacklogRequest, {
     method: 'PUT',
     path: /^\/factories\/([^/]+)\/auto-start-backlog$/,

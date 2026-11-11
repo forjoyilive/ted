@@ -291,7 +291,7 @@ export function claudeAgent(binary: string): Agent {
     permissionReply({ requestId, approved, input, text }) {
       const response = approved
         ? { behavior: 'allow', updatedInput: input ?? {} }
-        : { behavior: 'deny', message: text ?? 'The user denied this request.' }
+        : { behavior: 'deny', message: text ?? 'The human denied this request.' }
       return [
         JSON.stringify({
           type: 'control_response',

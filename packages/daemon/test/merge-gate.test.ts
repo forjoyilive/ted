@@ -132,7 +132,7 @@ describe('Merge Gate', () => {
     expect((await comments(client, task)).filter((c) => c.stage === 'merge')).toEqual([])
   })
 
-  test('a Merge sign-off open when overnight mode turns on still waits for the user', async () => {
+  test('a Merge sign-off open when overnight mode turns on still waits for the human', async () => {
     const client = await start({ workflow: ['stages:', '  merge: { gate: true }'] })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
@@ -460,7 +460,7 @@ describe('CI stuck', () => {
       `CI-stuck question ${count}`,
     )
 
-  test('no check after the push asks the user; Keep waiting asks again later; Merge anyway merges', async () => {
+  test('no check after the push asks the human; Keep waiting asks again later; Merge anyway merges', async () => {
     const clock = new ManualClock()
     const client = await start({ files: ci, ciStuckMs: stuck, daemon: { clock } })
     const { task, signoff } = await toSignoff(client)

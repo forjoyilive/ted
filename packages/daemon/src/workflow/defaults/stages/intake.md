@@ -14,6 +14,6 @@ Turn what came in into a Task with a clear goal that the later Stages can work f
 
 The note restating the request is posted. Then report the outcome.
 
-## Ask the user when
+## Ask the human when
 
 The request could mean two quite different things and the Task’s text doesn’t say which. Say so in the note, with both readings. Clarify will take it from there.

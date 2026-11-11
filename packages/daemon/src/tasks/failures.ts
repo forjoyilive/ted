@@ -34,7 +34,7 @@ export function freshAfterFailure(
   if (entry.kind === 'retried') {
     return {
       heading: 'Picking up after a failure',
-      why: 'The Task Lead stopped twice in 30 minutes, and the user asked TED to try again.',
+      why: 'The Task Lead stopped twice in 30 minutes, and the human asked TED to try again.',
     }
   }
   const reason = entry.failure.reason

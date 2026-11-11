@@ -356,7 +356,13 @@ export function createConversations(options: {
       ...(run.taskId !== undefined && { taskId: run.taskId }),
       ...(subAgent && { parentRunId: run.parentRunId }),
       name: run.name ?? (run.taskId !== undefined ? 'Task Lead' : 'Run'),
-      role: subAgent ? 'sub-agent' : run.taskId !== undefined ? 'lead' : 'run',
+      role: store.sideChats.forRun(run.id)
+        ? 'side-chat'
+        : subAgent
+          ? 'sub-agent'
+          : run.taskId !== undefined
+            ? 'lead'
+            : 'run',
       agent: run.agent,
       ...(run.model !== undefined && { model: run.model }),
       ...(run.effort !== undefined && { effort: run.effort }),
@@ -381,13 +387,7 @@ export function createConversations(options: {
       subPreamble ??= subAgentPreamble().catch(() => '')
       const coordinated = store.coordinators.forRun(runId) !== undefined
       const planned = store.plans.get(runId) !== undefined
-      const openings = coordinated
-        ? [coordinatorOpening, '## Message from the human']
-        : [planOpening, '## What the human wants to plan']
-      // Saved Runs can still carry the opening used before the terminology change.
-      const openingText =
-        openings.find((text) => run.prompt.includes(text)) ??
-        (coordinated ? coordinatorOpening : planOpening)
+      const openingText = coordinated ? coordinatorOpening : planOpening
       const opening = coordinated
         ? run.prompt.lastIndexOf(openingText)
         : run.prompt.indexOf(openingText)
@@ -496,6 +496,8 @@ export function createConversations(options: {
       return store.taskRunList(task.id).map((run) => summary(run))
     },
     async send(runId, text, { interrupt = false } = {}) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId) && options.coordinators)
         return options.coordinators.send(runId, text)
       const run = requireRun(runId)
@@ -508,6 +510,8 @@ export function createConversations(options: {
       return steering.send(runId, text, { interrupt })
     },
     async stopTurn(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
         await options.coordinators.stop(c.factoryId)
@@ -518,12 +522,16 @@ export function createConversations(options: {
       return summary(requireRun(runId))
     },
     sendNow: (runId, messageId) => {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId))
         throw new RequestError(409, 'Coordinator messages wait for their queued turn')
       requireRun(runId)
       return steering.sendNow(runId, messageId)
     },
     deleteMessage(runId, messageId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const coordinator = store.coordinators.forRun(runId)
       if (coordinator && coordinator.runId !== runId)
         throw new RequestError(
@@ -541,6 +549,8 @@ export function createConversations(options: {
       return steering.boundary(runId)
     },
     async restart(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       if (store.coordinators.forRun(runId))
         throw new RequestError(409, 'Use Retry in Coordinator to continue through the Run queue')
       const run = requireRun(runId)
@@ -566,6 +576,8 @@ export function createConversations(options: {
       }
     },
     async stop(runId) {
+      if (store.sideChats.forRun(runId))
+        throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
         await options.coordinators.stop(c.factoryId)

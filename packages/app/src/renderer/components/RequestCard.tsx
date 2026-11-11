@@ -5,8 +5,10 @@ import type {
   MergeRow,
   SignOffChanges,
   Task,
+  TaskChanges,
 } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
+import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
 import { useCheckRuns, useComments, useSimulators, useThreadEvents } from '../data.ts'
 import {
@@ -21,9 +23,11 @@ import {
   useNow,
 } from '../requests.ts'
 import { ted } from '../ted.ts'
+import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
+import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent } from './DesignReview.tsx'
@@ -42,7 +46,7 @@ function CardHead({ request, task, now }: { request: Comment; task: Task; now: n
         {requestLabel(request)}
       </span>
       <span>
-        {`${request.round ? ` · Round ${request.round.number}` : ''}${request.proposal ? ` · ${request.proposal.rows.length} Tasks` : ''}${again ? ' · again' : ''}${request.gate?.pullRequests ? ' · Merge' : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
+        {`${request.round ? ` · Round ${request.round.number}` : ''}${request.proposal ? ` · ${request.proposal.rows.length} Tasks` : ''}${again ? ' · Approval needed again' : ''}${request.gate?.pullRequests ? ' · Merge' : ''} · from ${poster(request, task)} · ${ago(request.createdAt, now)}`}
       </span>
     </div>
   )
@@ -109,10 +113,16 @@ function MergeChangesLine({ changes }: { changes: SignOffChanges }) {
   return <ChangesBlock changes={changes} />
 }
 
-function ChangesBlock({ changes }: { changes: SignOffChanges }) {
+function ChangesBlock({
+  changes,
+  current,
+}: {
+  changes: SignOffChanges
+  current?: TaskChanges | undefined
+}) {
   return (
-    <section className={styles.changes} aria-label="Changes since you approved">
-      <h3 className={styles.sectionHeading}>Changes since you approved</h3>
+    <section className={styles.changes} aria-label="Since your last approval">
+      <h3 className={styles.sectionHeading}>Since your last approval</h3>
       {changes.summary !== undefined && <p className={styles.sectionBody}>{changes.summary}</p>}
       <ul className={styles.changedFiles}>
         {changes.repos.flatMap((repo) =>
@@ -131,6 +141,10 @@ function ChangesBlock({ changes }: { changes: SignOffChanges }) {
                   <span className={styles.changedPath} title={file.path}>
                     {file.path}
                   </span>
+                  {current?.repos.some((r) => r.name === repo.name && !r.unavailable) &&
+                    !current.repos.some(
+                      (r) => r.name === repo.name && r.files.some((f) => f.path === file.path),
+                    ) && <span className={styles.noChanges}>Not in the current Task diff</span>}
                   <span className={styles.counts}>
                     <span className={styles.added}>{`+${file.added}`}</span>{' '}
                     <span className={styles.removed}>{`−${file.removed}`}</span>
@@ -143,10 +157,71 @@ function ChangesBlock({ changes }: { changes: SignOffChanges }) {
   )
 }
 
-function FirstSignOff({ id, task }: { id: string; task: Task }) {
-  const first = useComments(task.id).find((c) => c.id === id)
-  if (!first) return null
-  return <RequestCard request={first} task={task} readOnly />
+function PreviouslyApprovedSignOff({ id, task }: { id: string; task: Task }) {
+  const previous = useComments(task.id).find((c) => c.id === id)
+  if (!previous) return <p className={styles.summary}>Loading previously approved sign-off…</p>
+  return (
+    <>
+      {previous.answer?.kind === 'approved' && (
+        <p className={styles.summary}>
+          Approved{' '}
+          {formatDate(previous.answer.at, {
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </p>
+      )}
+      <RequestCard request={previous} task={task} readOnly />
+    </>
+  )
+}
+
+function ReviewChanges({
+  changes,
+  since,
+  onOpen,
+  onAll,
+}: {
+  changes: TaskChanges | undefined
+  since: SignOffChanges | undefined
+  onOpen: (file: ChangedFile) => void
+  onAll: () => void
+}) {
+  return (
+    <section className={styles.changes} aria-label="Current Task changes">
+      <h3 className={styles.sectionHeading}>Current Task changes</h3>
+      <p className={styles.sectionBody}>
+        Full current diff against each repo’s base branch. Opening changes does not approve this
+        review.
+      </p>
+      {changes === undefined ? (
+        <p className={styles.summary}>Loading changes…</p>
+      ) : changes.repos.length === 0 ? (
+        <p className={styles.summary}>No worktree is available for this Task.</p>
+      ) : (
+        <>
+          <p className={styles.summary}>
+            {changes.files} {changes.files === 1 ? 'file' : 'files'} · +
+            {changes.repos.reduce((sum, r) => sum + r.added, 0)} −
+            {changes.repos.reduce((sum, r) => sum + r.removed, 0)}
+          </p>
+          {changes.files > 0 && (
+            <Button size="small" onClick={onAll}>
+              View all changes
+            </Button>
+          )}
+          {changes.files === 0 && changes.repos.every((r) => !r.unavailable) && (
+            <p className={styles.summary}>No current Task changes.</p>
+          )}
+          <div className={styles.reviewFiles}>
+            <ChangeList changes={changes} onOpen={onOpen} since={since} />
+          </div>
+        </>
+      )}
+    </section>
+  )
 }
 
 function BriefSections({ text, title }: { text: string; title: string }) {
@@ -303,9 +378,15 @@ export function RequestCard({
   onOpenRun,
   onOpenApp,
   onOpenPlan,
+  taskChanges,
+  onOpenFile,
+  onAllChanges,
 }: {
   request: Comment
   task: Task
+  taskChanges?: TaskChanges | undefined
+  onOpenFile?: ((file: ChangedFile) => void) | undefined
+  onAllChanges?: (() => void) | undefined
   readOnly?: boolean
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
@@ -320,7 +401,7 @@ export function RequestCard({
       ? 'The agent didn’t provide an explanation for this request.'
       : summary(request)
   const typed = text.trim() !== ''
-  const [showingFirst, setShowingFirst] = useState(false)
+  const [showingPrevious, setShowingPrevious] = useState(false)
   const simulators = useSimulators()
   const [picked, setPicked] = useState<string>()
   const offered = simulators?.booted ?? request.simulator?.booted ?? []
@@ -331,8 +412,6 @@ export function RequestCard({
   const chosenOwner = offered.find((b) => b.udid === chosen)?.displayId
   const changes = request.gate?.changes
   const rows = request.gate?.pullRequests
-  const short =
-    changes !== undefined && rows === undefined && !changes.repos.some((r) => r.unavailable)
 
   async function send(answer: AnswerRequest) {
     setSending(true)
@@ -382,18 +461,20 @@ export function RequestCard({
           <button
             type="button"
             className={styles.showRequest}
-            aria-expanded={showingFirst}
-            onClick={() => setShowingFirst(!showingFirst)}
+            aria-expanded={showingPrevious}
+            onClick={() => setShowingPrevious(!showingPrevious)}
           >
-            {showingFirst ? 'Hide first sign-off' : 'Show first sign-off'}
+            {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'sign-off'}`}
           </button>
         )}
       </div>
-      {showingFirst && changes && !rows && <FirstSignOff id={changes.since} task={task} />}
+      {showingPrevious && changes && !rows && (
+        <PreviouslyApprovedSignOff id={changes.since} task={task} />
+      )}
       <h2 className={styles.title}>{headline(request)}</h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
-      {changes && !rows && <ChangesBlock changes={changes} />}
+      {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
       {request.kind === 'signoff' && request.stage === 'review' && (
         <ConfirmationRow request={request} task={task} />
       )}
@@ -407,13 +488,24 @@ export function RequestCard({
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (
-        !short &&
         request.body.trim() !== '' && (
           <BriefSections text={request.body} title={headline(request)} />
         )
       ) : (
         shown !== undefined && shown !== '' && <Summary text={shown} />
       )}
+      {request.kind === 'signoff' &&
+        request.stage === 'review' &&
+        !readOnly &&
+        onOpenFile &&
+        onAllChanges && (
+          <ReviewChanges
+            changes={taskChanges}
+            since={changes}
+            onOpen={onOpenFile}
+            onAll={onAllChanges}
+          />
+        )}
       {request.kind === 'signoff' && request.stage === 'review' && !readOnly && (
         <PreviewRow task={task} onOpenApp={onOpenApp} />
       )}

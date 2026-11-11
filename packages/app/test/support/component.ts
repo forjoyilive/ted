@@ -10,6 +10,7 @@ type Handler = (...args: unknown[]) => unknown
 
 export function bridge(given: Record<string, Handler>) {
   const handlers: Record<string, Handler> = {
+    getSideChat: () => null,
     taskGates: () => ({ overrides: {}, rows: [], revision: '' }),
     ...given,
   }

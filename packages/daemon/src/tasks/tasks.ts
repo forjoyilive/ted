@@ -111,6 +111,7 @@ import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
 import { machineLoadRatio } from '../load.ts'
+import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import { type WorktreeFileScope, worktreeFileScope } from '../regular-file.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -169,7 +170,7 @@ import {
   tedSettingsCheck,
   touchesSettings,
 } from './checks.ts'
-import { type CommandSandbox, runTaskCommand } from './command.ts'
+import { type CommandLaunch, runTaskCommand } from './command.ts'
 import {
   ciFailureKey,
   createFailureCases,
@@ -378,6 +379,7 @@ export interface Tasks {
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   move(ref: string, request: MoveTaskRequest): Task
+  setTaskSnooze(ref: string, until: string | null): Task
   setPriority(ref: string, priority: Priority): Task
   edit(ref: string, request: EditTaskRequest): Promise<Task>
   descriptions(ref: string): DescriptionVersion[]
@@ -504,6 +506,7 @@ export function createTasks(options: {
   beforeMerge?: (taskId: string) => Promise<void>
   ciStuckMs?: { noChecks: number; pending: number }
   stallAfterMs?: number
+  snoozes?: { now?: () => Date; checkEveryMs?: number }
   load?: { ratio?: () => number; checkEveryMs?: number }
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
@@ -645,16 +648,25 @@ export function createTasks(options: {
     }
   }
 
-  async function lifecycleSandbox(
+  async function prepareCommandLaunch(
     task: StoredTask,
     repos: readonly TaskRepo[] = task.repos,
-  ): Promise<CommandSandbox | undefined> {
-    if (runsInBypass(await taskWorkflow(task, { fetch: false }))) return undefined
-    await sandboxProblem(task.factoryId)
-    return {
-      sandbox: options.sandbox,
-      scope: sandboxScope(task, repos),
-      tmpRoot: path.join(sandboxDir, task.displayId),
+  ): Promise<CommandLaunch> {
+    const release = await acquireFactoryPermissions(store, task.factoryId)
+    try {
+      if (factoryPermissions(store, task.factoryId) === 'bypass') return { release }
+      await sandboxProblem(task.factoryId)
+      return {
+        release,
+        sandbox: {
+          sandbox: options.sandbox,
+          scope: sandboxScope(task, repos),
+          tmpRoot: path.join(sandboxDir, task.displayId),
+        },
+      }
+    } catch (error) {
+      release()
+      throw error
     }
   }
 
@@ -1184,6 +1196,7 @@ export function createTasks(options: {
   function backlogEligible(task: StoredTask, preparing = false): boolean {
     return (
       task.stage === 'backlog' &&
+      (!task.snoozedUntil || Date.parse(task.snoozedUntil) <= snoozeNow()) &&
       !task.archived &&
       !task.setup &&
       !task.stopped &&
@@ -1194,7 +1207,8 @@ export function createTasks(options: {
       !deleting.has(task.id) &&
       !removingFactories.has(task.factoryId) &&
       cloned(task.factoryId) &&
-      (store.settings().overnightMode ||
+      (task.snoozedUntil !== undefined ||
+        store.settings().overnightMode ||
         store.getFactory(task.factoryId)?.autoStartBacklog === true) &&
       unmergedBlockers(task.id).length === 0
     )
@@ -1551,14 +1565,7 @@ export function createTasks(options: {
       ...(only !== undefined && { only }),
     })
     if (plan.length === 0) return undefined
-    const sandbox = runsInBypass(resolution)
-      ? undefined
-      : {
-          sandbox: options.sandbox,
-          scope: sandboxScope(task),
-          tmpRoot: path.join(sandboxDir, task.displayId),
-        }
-    if (sandbox !== undefined) await sandboxProblem(factory.id)
+    if (factoryPermissions(store, factory.id) !== 'bypass') await sandboxProblem(factory.id)
     const checkRun = store.startChecks({
       taskId: task.id,
       trigger,
@@ -1583,7 +1590,7 @@ export function createTasks(options: {
         libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
         env: options.env?.() ?? process.env,
         logFor: (position) => checkLog(task, checkRun.id, position),
-        ...(sandbox !== undefined && { sandbox }),
+        prepareLaunch: () => prepareCommandLaunch(task),
         signal: stopping.signal,
         lowPriority: store.settings().lowPriorityWork,
         onStart: (position) => store.checkStarted(checkRun.id, position),
@@ -2214,7 +2221,7 @@ export function createTasks(options: {
     `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
 
   const needsSignOff = (target: MergeWork, why: string) =>
-    `${why} TED merges only the commits the user signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
+    `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
 
   async function adoptRebase(
     task: StoredTask,
@@ -2404,17 +2411,17 @@ export function createTasks(options: {
       await mergeSendBack(
         task.id,
         [
-          `TED asked the user about CI at Merge: ${comment.title ?? ''}.`,
+          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
           comment.body.split('\n\n')[0] ?? '',
-          'The user sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
-          ...(text !== '' ? [`The user added: ${text}`] : []),
+          'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
+          ...(text !== '' ? [`The human added: ${text}`] : []),
         ].join('\n\n'),
         undefined,
         false,
         { counted: false },
       )
     } else if (choice === undefined && text !== '') {
-      await deliverAnswer(task, answered, `The user answered “${comment.title ?? ''}”:\n\n${text}`)
+      await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
     }
     return store.getComment(comment.id) ?? answered
   }
@@ -2555,7 +2562,7 @@ export function createTasks(options: {
       await sendComment(run.id)
       await deliver(
         current,
-        'The user cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the user’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+        'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
       )
     }
     if (stillOn.length > 0) {
@@ -3106,7 +3113,7 @@ export function createTasks(options: {
       .map((r) => r.name)
       .join(', ')
     const lines = [
-      `The user changed this Task’s repos. They are now: ${names}.`,
+      `The human changed this Task’s repos. They are now: ${names}.`,
       ...adding.map((e) => {
         const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, e.repo))
         const where = repo ? ` Its worktree is ${repo.worktree}, on branch ${repo.branch}.` : ''
@@ -3500,10 +3507,9 @@ export function createTasks(options: {
     const teardown = entry?.teardown
     if (!teardown) return undefined
     const current = find(task.id)
-    const sandbox = await lifecycleSandbox(current, remainingRepos ?? current.repos)
     const result: CommandResult = await runTaskCommand({
       label: 'teardown',
-      ...(sandbox !== undefined && { sandbox }),
+      prepareLaunch: () => prepareCommandLaunch(current, remainingRepos ?? current.repos),
       command: teardown,
       cwd: repo.worktree,
       env: commandEnv(task, entry.env),
@@ -3724,7 +3730,7 @@ export function createTasks(options: {
     if (!edited) return []
     const current = find(task.id)
     return [
-      `The user edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
+      `The human edited this Task while your session was running or stopped. Work from this version:\n\nTitle: ${current.title}\n\n${current.description || '(no description)'}`,
     ]
   }
 
@@ -3780,7 +3786,7 @@ export function createTasks(options: {
               {
                 at: c.answer?.at ?? c.createdAt,
                 line: withLines(
-                  `- ${c.answer?.at ?? c.createdAt}: the user answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
+                  `- ${c.answer?.at ?? c.createdAt}: the human answered “${c.title ?? firstLine(c.body)}”: ${flat(answer)}`,
                   c,
                 ),
               },
@@ -3866,7 +3872,7 @@ export function createTasks(options: {
         if (open) {
           throw new RequestError(
             409,
-            `Round ${open.round?.number ?? ''} is still waiting on the user; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
+            `Round ${open.round?.number ?? ''} is still waiting on the human; if it’s out of date, replace it with \`ted ask --supersedes ${open.id} --round <file>\``,
           )
         }
         const answered = roundsThisVisit(task).some(
@@ -3937,7 +3943,7 @@ export function createTasks(options: {
           ? undefined
           : supersedable(task, runId, supersedes, isSizeCheck, 'size check')
       if (!old && openRequestOf(task, isSizeCheck)) {
-        throw new RequestError(409, 'the size check is already waiting on the user')
+        throw new RequestError(409, 'the size check is already waiting on the human')
       }
       const comment = {
         taskId: task.id,
@@ -3986,7 +3992,7 @@ export function createTasks(options: {
       if (open) {
         throw new RequestError(
           409,
-          `your proposal is still waiting on the user; if it’s out of date, replace it with \`ted task propose --supersedes ${open.id} --file <file>\``,
+          `your proposal is still waiting on the human; if it’s out of date, replace it with \`ted task propose --supersedes ${open.id} --file <file>\``,
         )
       }
       const comment = {
@@ -4355,11 +4361,11 @@ export function createTasks(options: {
           task,
           comment,
           [
-            `The user asked for changes at the ${gateName(comment)}:`,
+            `The human asked for changes at the ${gateName(comment)}:`,
             text,
             ...(lines !== undefined ? [lines] : []),
             picksStage
-              ? `Decide whether the fix belongs in Work or in Design, write the user’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
+              ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
               : comment.stage === 'clarify'
                 ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
                 : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
@@ -4381,8 +4387,8 @@ export function createTasks(options: {
         if (!liveLead(now)) store.holdAnswer(comment.id)
         const approved =
           text === ''
-            ? `The user approved the ${gateName(comment)}.`
-            : `The user approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+            ? `The human approved the ${gateName(comment)}.`
+            : `The human approved the ${gateName(comment)} and added:\n\n${text}\n\n`
         if (now.stage === 'merge') {
           startMerging(find(task.id), resolution.workflow)
           watchMerge(task.id)
@@ -4454,7 +4460,7 @@ export function createTasks(options: {
         task,
         comment,
         [
-          `The user answered “${comment.title ?? firstLine(comment.body)}”:`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}”:`,
           ...(choice !== undefined ? [choice] : []),
           ...(text !== '' ? [text] : []),
           ...(lines !== undefined ? [lines] : []),
@@ -4568,10 +4574,9 @@ export function createTasks(options: {
     { untilStopped }: { untilStopped: boolean },
   ): Promise<{ result: CommandResult; report?: string } | undefined> {
     const log = commandLog(task, 'setup', repo.name)
-    const sandbox = await lifecycleSandbox(find(task.id))
     const result = await runTaskCommand({
       label: 'setup',
-      ...(sandbox !== undefined && { sandbox }),
+      prepareLaunch: () => prepareCommandLaunch(find(task.id)),
       command: { run: setup.command, timeoutMs: setup.timeoutMs },
       cwd: repo.worktree,
       env: commandEnv(task, setup.env),
@@ -4774,7 +4779,7 @@ export function createTasks(options: {
     const talking = store.startRoundTalk(round.id, run.id)
     await deliver(
       task,
-      `The user wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
+      `The human wants to talk Round ${round.round?.number ?? ''} “${round.title ?? ''}” through with you here; when it’s settled, post a summary with \`ted ask --close --summary <file>\`.`,
     )
     return talking
   }
@@ -4793,7 +4798,7 @@ export function createTasks(options: {
     await deliver(
       task,
       [
-        `The user is done talking Round ${round.round?.number ?? ''} through.`,
+        `The human is done talking Round ${round.round?.number ?? ''} through.`,
         'Write a summary of the talk to a file: each question and what you agreed, then what is still open. Post it with `ted ask --close --summary <file>`; TED posts it as your note and closes the round as answered in Talk it through.',
         'If anything is still open, ask it in a new round with `ted ask --round <file>` after closing this one.',
       ].join('\n\n'),
@@ -4812,13 +4817,13 @@ export function createTasks(options: {
       if (!round?.talk) {
         throw new RequestError(
           409,
-          'no round is being talked through; `ted ask --close` closes a round after the user clicks Talk it through',
+          'no round is being talked through; `ted ask --close` closes a round after the human clicks Talk it through',
         )
       }
       if (round.talk.runId !== runId) {
         throw new RequestError(
           409,
-          `the user talked Round ${round.round?.number ?? ''} through with an earlier Task Lead Run; ask them to click Talk it through again, or ask a new round`,
+          `the human talked Round ${round.round?.number ?? ''} through with an earlier Task Lead Run; ask them to click Talk it through again, or ask a new round`,
         )
       }
       const note = store.postComment({
@@ -5008,16 +5013,33 @@ export function createTasks(options: {
     if (counted && limit !== undefined && count >= limit) {
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
       if (from === 'validate') {
+        if (
+          workflow.settings.stages.validate?.loop_check !== false &&
+          (await startLoopCheck(task, {
+            to,
+            findings,
+            round: count + 1,
+            limit,
+            ...(checkRunId !== undefined && { checkRunId }),
+          }))
+        ) {
+          return {
+            task: publicTask(task.id),
+            message:
+              'TED is checking progress before asking the human. The Task stays in Validate.',
+            pending: true,
+          }
+        }
         const request = askAboutLoop(task, workflow, {
           to,
           findings,
           title: `Validate has sent this Task back ${times}, its limit`,
-          intro: `Validate has sent this Task back to ${stageTitle(to)} ${times}, its limit (max_back: ${limit}), and wants to send it back again. These are each round’s blocking Findings.`,
+          intro: `TED couldn’t assess progress. ${workflow.settings.stages.validate?.loop_check === false ? 'Loop checks are disabled.' : 'A Loop check couldn’t start.'} Validate has reached its send-back limit (${count}) and needs your decision.`,
           ...(checkRunId !== undefined && { checkRunId }),
         })
         return {
           task: publicTask(task.id),
-          message: `Validate has sent this Task back ${times}, its limit, so TED asked the user instead. TED sends you their answer.`,
+          message: `Validate has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
           request,
         }
       }
@@ -5026,7 +5048,7 @@ export function createTasks(options: {
         kind: 'question',
         author: { kind: 'ted' },
         title: `${stageTitle(from)} wants to send this Task back to ${stageTitle(to)} again`,
-        body: `${stageTitle(from)} has sent this Task back ${times}, its limit (max_back: ${limit}). Its Findings this time:\n\n${findings}`,
+        body: `${stageTitle(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${stageTitle(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
         choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
       })
       store.askAboutSendBack({
@@ -5040,7 +5062,7 @@ export function createTasks(options: {
       })
       return {
         task: publicTask(task.id),
-        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the user instead. TED sends you their answer.`,
+        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
         request,
       }
     }
@@ -5097,10 +5119,19 @@ export function createTasks(options: {
       findings: string
       title: string
       intro: string
+      verdict?: LoopVerdict
       checkRunId?: string
     },
   ): Comment {
-    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
+    const choices = loopChoices(workflow)
+    const recommendation =
+      input.verdict === 'looping' && choices.includes(backToDesignChoice)
+        ? `Recommended: ${backToDesignChoice}. Revisit the approach before another repair.`
+        : input.verdict === 'converging'
+          ? `Recommended: ${tryAgainChoice}. Allow another attempt at the remaining Findings.`
+          : input.verdict === 'looping'
+            ? `Recommended: ${tryAgainChoice}. Add guidance to break the repeated pattern.`
+            : `Suggested next step: ${tryAgainChoice} to allow another repair attempt${choices.includes(backToDesignChoice) ? ', or Back to Design to revisit the approach' : ''}.`
     const request = store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -5108,9 +5139,10 @@ export function createTasks(options: {
       title: input.title,
       body: [
         input.intro,
-        ...rounds.map((findings, i) => `Round ${i + 1}:\n${findings.trim()}`),
+        recommendation,
+        'Full Findings are in the Task’s history. Moving on leaves the Findings open.',
       ].join('\n\n'),
-      choices: loopChoices(workflow),
+      choices,
     })
     store.askAboutSendBack({
       commentId: request.id,
@@ -5196,7 +5228,8 @@ export function createTasks(options: {
     store.finishLoopCheck(check.runId, verdict, reason)
     const task = find(check.taskId)
     if (task.stage !== 'validate' || task.archived) return
-    if (verdict === 'converging') {
+    const atLimit = check.limit !== undefined && check.round > check.limit
+    if (verdict === 'converging' && !atLimit) {
       store.recordSendBack({
         taskId: task.id,
         from: 'validate',
@@ -5222,17 +5255,22 @@ export function createTasks(options: {
     const request = askAboutLoop(task, workflow, {
       to: check.to,
       findings: check.findings,
-      title: looping
-        ? 'Validate and Work are going round in circles'
-        : `Validate has sent this Task back ${check.round} times`,
+      title: atLimit
+        ? `Validate has sent this Task back ${check.round - 1} ${check.round === 2 ? 'time' : 'times'}, its limit`
+        : looping
+          ? 'Validate and Work are going round in circles'
+          : `Validate has sent this Task back ${check.round} times`,
       intro: looping
-        ? `TED’s loop check read Validate’s ${check.round} rounds of Findings and the changes between them, and found they’re looping: ${reason}`
-        : `TED couldn’t tell whether Validate’s ${check.round} rounds are converging (${reason}), so it’s asking you.`,
+        ? `Work and Validate are repeating the same problem. ${reason}`
+        : verdict === 'converging'
+          ? `Making progress, but Validate has reached its send-back limit (${check.limit}) and needs your decision. ${reason}`
+          : `TED couldn’t assess progress: ${reason}. The Task is waiting for your decision.`,
+      verdict,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
     })
     await deliver(
       task,
-      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : 'gave no verdict'}, so TED asked the user what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
+      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
     )
   }
 
@@ -5295,7 +5333,7 @@ export function createTasks(options: {
     if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
     if (choice !== tryAgainChoice && choice !== backToDesignChoice)
       await requireObligations(current)
-    const added = text === '' ? '' : `\n\nThe user added:\n\n${text}`
+    const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
       at,
@@ -5318,7 +5356,7 @@ export function createTasks(options: {
         current,
         resolution,
         ask.to,
-        `The user chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -5332,18 +5370,18 @@ export function createTasks(options: {
         current,
         resolution,
         'design',
-        `The user sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
       )
     } else {
       pullRequestWork(task.id, 'again')
-      const open = `# Open Findings\n\nThe user chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the user sees them at ${stageTitle(next)}:\n\n${ask.findings}`
+      const open = `# Open Findings\n\nThe human chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
       await move(
         current,
         resolution,
         next,
         next === 'done'
           ? undefined
-          : `The user moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
+          : `The human moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
       )
     }
     return answered
@@ -5943,7 +5981,7 @@ export function createTasks(options: {
     if (last?.kind === 'unarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
-        why: 'The user archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
+        why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
       })
     }
     if (last?.kind === 'github') {
@@ -5962,7 +6000,7 @@ export function createTasks(options: {
     if (last?.kind === 'resumed') {
       return fromTheBrief(task, {
         heading: 'Picking up after a stop',
-        why: 'The user resumed this Task after its Task Lead stopped.',
+        why: 'The human resumed this Task after its Task Lead stopped.',
       })
     }
     const merged = store
@@ -5977,7 +6015,7 @@ export function createTasks(options: {
 
   function fromTheBrief(task: StoredTask, { heading, why }: { heading: string; why: string }) {
     const brief = store.latestBrief(task.id)
-    const authors = { ted: 'TED', human: 'The user', run: 'Task Lead' } as const
+    const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
     const notes = store
       .listComments(task.id)
       .filter((c) => !brief || c.createdAt > brief.createdAt)
@@ -6003,7 +6041,7 @@ export function createTasks(options: {
     if (!firing || !automation || !factory) {
       throw new RequestError(
         403,
-        'Only an Automation Run creates Tasks with `ted task create`. Ask the user to create it.',
+        'Only an Automation Run creates Tasks with `ted task create`. Ask the human to create it.',
       )
     }
     if (firing.state !== 'started') throw new RequestError(409, 'this Automation Run has finished')
@@ -6110,7 +6148,7 @@ export function createTasks(options: {
     const merged = original.merged ? ` It merged at ${original.merged.at}.` : ''
     return [
       `# Follow-up to ${id}`,
-      `This Task follows up ${id} · ${original.title.replace(/\s*\n\s*/g, ' ')}.${merged} ${id} is Done and is never reopened, so make the further change the user asked for in this Task. Start from ${id}’s Task brief and pull requests below. Where they already settle what Clarify or Design would decide, skip that Stage with \`ted outcome advance --skip\`.`,
+      `This Task follows up ${id} · ${original.title.replace(/\s*\n\s*/g, ' ')}.${merged} ${id} is Done and is never reopened, so make the further change the human asked for in this Task. Start from ${id}’s Task brief and pull requests below. Where they already settle what Clarify or Design would decide, skip that Stage with \`ted outcome advance --skip\`.`,
       ...(brief
         ? [`## ${id}’s Task brief (version ${brief.version})\n\n${brief.text.trim()}`]
         : []),
@@ -6171,7 +6209,7 @@ export function createTasks(options: {
       if (!task || task.blockedBy.length === 0 || queued.has(id) || starting.has(id)) continue
       if (task.archived || task.stopped) continue
       if (unmergedBlockers(id).length > 0) continue
-      if (task.stage === 'backlog' && task.startRequested) {
+      if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
         inBackground(`start ${task.displayId}`, async () => {
           await start(id)
         })
@@ -6185,7 +6223,7 @@ export function createTasks(options: {
     const id = blocker.displayId
     return runs.send(
       run.id,
-      `The user made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the user with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
+      `The human made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the human with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
     )
   }
 
@@ -6759,7 +6797,36 @@ export function createTasks(options: {
     inBackground('wait for a loop check', () => awaitLoopCheck(check))
   }
 
+  function snoozeNow(): number {
+    return options.snoozes?.now?.().getTime() ?? clock.now()
+  }
+  let snoozeTimer: Timer | undefined
+  let releaseSnoozeIdle: (() => void) | undefined
+  function refreshSnoozes(): void {
+    const pending = store
+      .listTasks()
+      .some((task) => task.stage === 'backlog' && !task.archived && task.snoozedUntil)
+    if (pending && !snoozeTimer) {
+      releaseSnoozeIdle = options.idle?.hold()
+      snoozeTimer = clock.interval(() => void pump(), options.snoozes?.checkEveryMs ?? 30_000)
+      snoozeTimer.unref()
+    } else if (!pending && snoozeTimer) {
+      snoozeTimer.cancel()
+      snoozeTimer = undefined
+      releaseSnoozeIdle?.()
+      releaseSnoozeIdle = undefined
+    }
+  }
+  refreshSnoozes()
   const stopPumping = store.subscribe((event) => {
+    if (
+      event.type === 'task-created' ||
+      event.type === 'task-updated' ||
+      event.type === 'task-deleted' ||
+      event.type === 'factory-removed'
+    )
+      refreshSnoozes()
+
     if (event.type === 'settings-changed') {
       options.checkSlots.recheck()
       overnightChangedAt = new Date().toISOString()
@@ -6975,7 +7042,7 @@ export function createTasks(options: {
         redactSecrets(
           withLines(
             failureText(
-              `The user resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
+              `The human resolved failure request ${comment.id}: ${comment.answer?.kind === 'answered' ? comment.answer.choice : ''}. ${comment.answer && 'text' in comment.answer ? comment.answer.text : ''}`,
             ),
             comment,
           ),
@@ -7241,6 +7308,23 @@ export function createTasks(options: {
       return store.rankTask(task.id, placed.rank, placed.priority)
     },
 
+    setTaskSnooze(ref, until) {
+      const task = live(ref)
+      if (task.stage !== 'backlog' || task.archived || task.setup || starting.has(task.id)) {
+        throw new RequestError(409, 'Only an unstarted Backlog Task can be snoozed')
+      }
+      if (
+        until !== null &&
+        (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(until) ||
+          !Number.isFinite(Date.parse(until)) ||
+          new Date(until).toISOString() !== until ||
+          Date.parse(until) <= snoozeNow())
+      ) {
+        throw new RequestError(400, 'Choose a future date and time')
+      }
+      autoStartFailures.delete(task.id)
+      return store.setTaskSnooze(task.id, until)
+    },
     setPriority(ref, priority) {
       return store.setPriority(live(ref).id, priority)
     },
@@ -7564,8 +7648,8 @@ export function createTasks(options: {
           await deliver(
             task,
             depth === 'auto'
-              ? 'The user set Clarify depth back to Auto. Pick one yourself at Clarify.'
-              : `The user set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
+              ? 'The human set Clarify depth back to Auto. Pick one yourself at Clarify.'
+              : `The human set Clarify depth to ${depthNames[depth]}. Use it at Clarify instead of picking one.`,
           )
         }
         return set
@@ -7582,7 +7666,7 @@ export function createTasks(options: {
       if (floor !== undefined && depthOrder.indexOf(depth) < depthOrder.indexOf(floor)) {
         throw new RequestError(
           403,
-          `the user set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
+          `the human set the Clarify depth to ${depthNames[floor]}; you can only raise it`,
         )
       }
       return store.setClarifyDepth(task.id, {
@@ -7710,7 +7794,7 @@ export function createTasks(options: {
         if (asked) {
           throw new RequestError(
             409,
-            `TED asked the user whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+            `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
           )
         }
       }
@@ -7727,7 +7811,7 @@ export function createTasks(options: {
           })
           return {
             task: publicTask(task.id),
-            message: `Asked the user (request ${request.id}). TED sends you their answer.`,
+            message: `Asked the human (request ${request.id}). TED sends you their answer.`,
             request,
           }
         }
@@ -7741,7 +7825,7 @@ export function createTasks(options: {
           if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
             throw new RequestError(
               409,
-              `the user asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
+              `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
             )
           }
           if (stage === 'validate') {
@@ -7753,7 +7837,7 @@ export function createTasks(options: {
         if (changesAsked) {
           throw new RequestError(
             409,
-            `the user asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+            `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
           )
         }
         if (stage === 'merge') {
@@ -7761,7 +7845,7 @@ export function createTasks(options: {
           throw new RequestError(
             409,
             mode === 'off'
-              ? `Merge is off for this Factory: the user merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
+              ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
               : mode === 'gate'
                 ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
                 : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
@@ -7771,7 +7855,7 @@ export function createTasks(options: {
         if (waiting) {
           throw new RequestError(
             409,
-            `Round ${waiting.round?.number ?? ''} is still waiting on the user; TED sends you their answers`,
+            `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
           )
         }
         if (outcome.skip === true) {
@@ -7874,7 +7958,7 @@ export function createTasks(options: {
         }
         return {
           task: publicTask(task.id),
-          message: `Waiting for the user at the ${name}. TED sends you their answer.`,
+          message: `Waiting for the human at the ${name}. TED sends you their answer.`,
           request,
         }
       })
@@ -8127,6 +8211,8 @@ export function createTasks(options: {
       closed = true
       subAgents.close()
       silenceTimer.cancel()
+      snoozeTimer?.cancel()
+      releaseSnoozeIdle?.()
       stopLoadTimer()
       for (const timer of nudgeTimers.values()) timer.cancel()
       nudgeTimers.clear()
@@ -8199,7 +8285,7 @@ const sendToLeadChoice = 'Send to Task Lead'
 const keepWaitingChoice = 'Keep waiting'
 const mergeAnywayChoice = 'Merge anyway'
 const mergeOffMessage =
-  'Merge is off for this Factory: the user merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
+  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
 
 function isCiStuck(comment: Comment): boolean {
   return (
@@ -8274,7 +8360,7 @@ function reasonIn(text: string): string {
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return oneLine(reason === '' ? 'no reason given' : reason, 300)
+  return oneLine(redactSecrets(reason === '' ? 'no reason given' : reason), 300)
 }
 
 function latest(a: string, b: string): string {
@@ -8390,11 +8476,11 @@ function permissionMessage(approved: boolean, command: string, text: string): st
   if (approved) {
     return text === ''
       ? undefined
-      : `The user approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
+      : `The human approved your permission request for \`${oneLine(command)}\` and added:\n\n${text}`
   }
   return text === ''
-    ? 'The user denied this request. Don’t retry it; find another way or ask with `ted ask`.'
-    : `The user denied this request and said:\n\n${text}`
+    ? 'The human denied this request. Don’t retry it; find another way or ask with `ted ask`.'
+    : `The human denied this request and said:\n\n${text}`
 }
 
 function editMessage(
@@ -8407,7 +8493,7 @@ function editMessage(
   const marks = { context: '  ', added: '+ ', removed: '- ' } as const
   const diff = diffTexts('description', before, edited.description)
   return [
-    `The user edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
+    `The human edited this Task’s ${renamed && changed ? 'title and description' : renamed ? 'title' : 'description'}. Work from the new version from now on.`,
     ...(renamed ? [`Title was: ${task.title}\nTitle now: ${edited.title}`] : []),
     ...(changed
       ? [
@@ -8423,7 +8509,7 @@ function editMessage(
 }
 
 function humanMessage(body: string): string {
-  return `The user posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
+  return `The human posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
 }
 
 function flat(text: string): string {
@@ -8516,7 +8602,7 @@ function joinAnd(items: readonly string[]): string {
 const setupProblem = 'setup-unfinished'
 
 const firstSetupDescription =
-  'Set up TED for this Factory. Read its repos, ask how the user works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
+  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
 
 const laterSetupDescription =
-  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the user works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'
+  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'

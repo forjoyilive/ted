@@ -1,7 +1,16 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, Run, Task, TaskBrief, TaskGates } from '@ted/protocol'
+import type {
+  Comment,
+  Factory,
+  InboxItem,
+  Run,
+  Task,
+  TaskBrief,
+  TaskGates,
+  ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -163,7 +172,7 @@ describe('Gates', () => {
     await waitForIdle(client, task)
     expect((await commandResults(client, task)).at(-1)).toMatchObject({
       code: 0,
-      stdout: 'Waiting for the user at the Design Gate. TED sends you their answer.\n',
+      stdout: 'Waiting for the human at the Design Gate. TED sends you their answer.\n',
     })
     expect((await getTask(client, task.id)).stage).toBe('design')
   })
@@ -307,11 +316,12 @@ describe('Gates', () => {
     await waitForStage(client, task, 'work')
     expect(await inbox(client)).toEqual([])
     const work = await waitUntil(
-      async () => (await userMessages(client, task)).find((m) => m.startsWith('The user approved')),
+      async () =>
+        (await userMessages(client, task)).find((m) => m.startsWith('The human approved')),
       'the Work instructions to reach the Task Lead',
     )
     expect(work).toMatch(
-      /^The user approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
+      /^The human approved the Design Gate and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
     )
     expect(work).toContain('# Work')
   })
@@ -373,7 +383,7 @@ describe('Gates', () => {
       return run.id !== first.id ? run : undefined
     }, 'the resumed Run')
     const prompt = (resumed as Run & { prompt?: string }).prompt ?? ''
-    expect(prompt).toContain('the user answered')
+    expect(prompt).toContain('the human answered')
     expect(prompt).toContain('approved')
     expect(prompt).toContain('TED moved this Task to Work.')
     expect(prompt).toContain('# Work')
@@ -381,7 +391,7 @@ describe('Gates', () => {
     expect(answered?.answer?.kind).toBe('approved')
   })
 
-  test('a Task Lead that exits on a sign-in error after the user signs in again is held, not failed', async () => {
+  test('a Task Lead that exits on a sign-in error after the human signs in again is held, not failed', async () => {
     const client = await start()
     const go = path.join(scratch, 'go')
     const exit = path.join(scratch, 'exit')
@@ -415,7 +425,7 @@ describe('Gates', () => {
       return run.id !== first.id ? run : undefined
     }, 'the resumed Run')
     const prompt = (resumed as Run & { prompt?: string }).prompt ?? ''
-    expect(prompt).toContain('the user answered')
+    expect(prompt).toContain('the human answered')
     expect(prompt).toContain('TED moved this Task to Work.')
     expect(prompt).toContain('# Work')
     expect((await getTask(client, task.id)).statuses).not.toContain('failed')
@@ -446,9 +456,9 @@ describe('Gates', () => {
     expect(answered.answer).toMatchObject({ kind: 'changes-requested' })
     const message = await waitUntil(
       async () => (await userMessages(client, task)).find((m) => m.includes('Split the sync')),
-      'the user’s text to reach the Task Lead',
+      'the human’s text to reach the Task Lead',
     )
-    expect(message).toMatch(/^The user asked for changes at the Design Gate:\n\nSplit the sync/)
+    expect(message).toMatch(/^The human asked for changes at the Design Gate:\n\nSplit the sync/)
     await waitUntil(async () => (await commandResults(client, task)).length === 4, 'four commands')
     expect((await commandResults(client, task)).at(-1)?.stderr).toBe(
       'ted: write the Task brief with `ted brief write` before passing the Design Gate\n',
@@ -459,7 +469,7 @@ describe('Gates', () => {
     expect(res).toEqual({ status: 409, body: { error: 'this request has already been answered' } })
   })
 
-  test('a Gate request is withdrawn when the Task leaves the Stage before the user answers', async () => {
+  test('a Gate request is withdrawn when the Task leaves the Stage before the human answers', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -494,7 +504,7 @@ describe('Gates', () => {
     expect((await getTask(client, task.id)).stage).toBe('design')
   })
 
-  test('only the user answers: a Run can’t, and a note has nothing to answer', async () => {
+  test('only the human answers: a Run can’t, and a note has nothing to answer', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -572,7 +582,12 @@ describe('outcomes', () => {
       title: 'Work wants to send this Task back to Design again',
       choices: ['Send it back to Design', 'Keep it in Work'],
     })
-    expect(request.body).toContain('The sync test fails on a clash.')
+    expect(request.body).not.toContain('The sync test fails on a clash.')
+    expect(request.body).toContain('history')
+    const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(
+      history.find((e) => e.text === 'Work wants to send this Task back to Design')?.findings,
+    ).toContain('The sync test fails on a clash.')
     expect((await getTask(client, task.id)).stage).toBe('work')
     const backMessage = (await userMessages(client, task)).find((m) =>
       m.startsWith('TED moved this Task back to Design.'),
@@ -580,7 +595,7 @@ describe('outcomes', () => {
     expect(backMessage).toContain('The sync test fails on a clash.')
     await waitForIdle(client, task)
     expect((await commandResults(client, task)).at(-1)?.stdout).toBe(
-      'Work has sent this Task back 1 time, its limit, so TED asked the user instead. TED sends you their answer.\n',
+      'Work has sent this Task back 1 time, its limit, so TED asked the human instead. TED sends you their answer.\n',
     )
 
     await client.ok('POST', `/comments/${request.id}/answer`, {
@@ -590,7 +605,8 @@ describe('outcomes', () => {
     })
 
     const answer = await waitUntil(
-      async () => (await userMessages(client, task)).find((m) => m.startsWith('The user answered')),
+      async () =>
+        (await userMessages(client, task)).find((m) => m.startsWith('The human answered')),
       'the answer to reach the Task Lead',
     )
     expect(answer).toContain('Send it back to Design')

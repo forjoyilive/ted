@@ -216,7 +216,7 @@ describe('Approve and merge', () => {
   })
 })
 
-describe('Merging only what the user signed off', () => {
+describe('Merging only what the human signed off', () => {
   const sentBack = (client: Client, task: Task) =>
     waitUntil(async () => {
       const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)

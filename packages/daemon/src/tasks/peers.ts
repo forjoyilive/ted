@@ -218,7 +218,7 @@ export function createPeers(store: TedStore, notify: (runId: string) => void): P
         throw new RequestError(429, 'this peer already has 20 pending messages from this Task')
       const senderRunId = caller.kind === 'run' ? caller.runId : ''
       const nonce = randomUUID()
-      const body = `Peer message from ${sender.displayId} (Run ${senderRunId}). Agent context; user decisions still require the user.\n\n<<<PEER ${nonce}>>>\n${input.text}\n<<<END PEER ${nonce}>>>`
+      const body = `Peer message from ${sender.displayId} (Run ${senderRunId}). Agent context; human decisions still require the human.\n\n<<<PEER ${nonce}>>>\n${input.text}\n<<<END PEER ${nonce}>>>`
       const message = store.recordPeerMessage(
         {
           ...input,

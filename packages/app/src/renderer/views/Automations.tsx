@@ -949,7 +949,7 @@ export function AutomationRunView({
                   </div>
                 ) : undefined,
               placeholder: 'Message this Run…',
-              help: 'Goes only to this Run, as the user’s message.',
+              help: 'Goes only to this Run, as the human’s message.',
             }}
           />
         </div>

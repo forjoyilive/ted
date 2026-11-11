@@ -3,13 +3,13 @@ import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
 import { writingGuidance } from '../writing.ts'
 
-export const planOpening = '## What the user wants to plan'
+export const planOpening = '## What the human wants to plan'
 
 export const planResumePrompt =
   'Your process stopped before you finished, so TED resumed your session. Check where you were in the planning chat, then carry on.'
 
 const roundFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the user edits your recommended answer as text.'
+  'The file is JSON: a short `title`, an optional one-line `summary`, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. Without `choices`, the human edits your recommended answer as text.'
 
 const proposalFormat =
   'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first.'
@@ -25,7 +25,7 @@ export interface PlanTaskContext {
 function fromTaskSection(task: PlanTaskContext): string {
   return [
     `## The Task this chat started from: ${task.displayId}`,
-    `The user started this chat from ${task.displayId}, “${task.title}”, which its Task Lead judged too big for one pull request per repo. ${task.displayId} waits in Clarify until this chat ends.`,
+    `The human started this chat from ${task.displayId}, “${task.title}”, which its Task Lead judged too big for one pull request per repo. ${task.displayId} waits in Clarify until this chat ends.`,
     `Its description:\n\n${task.description.trim() === '' ? '(none)' : task.description.trim()}`,
     ...(task.why !== undefined && task.why.trim() !== ''
       ? [`Why the Task Lead judged it too big:\n\n${task.why.trim()}`]
@@ -62,20 +62,20 @@ export function plannerInstructions(input: {
     writingGuidance,
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
     [
-      `The user wants to work out a piece of work in the ${factory.name} Factory that is too big for one Task. Talk it through with them, settle what needs settling, and end by proposing Tasks, with which ones block which, for them to approve. You plan; you don’t build. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
+      `The human wants to work out a piece of work in the ${factory.name} Factory that is too big for one Task. Talk it through with them, settle what needs settling, and end by proposing Tasks, with which ones block which, for them to approve. You plan; you don’t build. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
       '',
       '- Use `to-spec` to shape the specification and `to-tickets` to split it into Tasks, each if the skill is available to your agent. Otherwise settle the goal, scope and acceptance criteria in the chat, then split the work into Tasks with clear success criteria and dependencies. Use the TED rounds and proposal format below in either case.',
       '- For research that takes a while, start sub-agents of your own and give each a narrow question.',
-      `- Ask the user questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the user may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
+      `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
       `- When the plan is clear, post it with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should be one pull request per repo. Then end your turn.`,
-      '- If the user asks for changes, post a revised proposal the same way; it replaces the old one.',
-      '- When the user approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
+      '- If the human asks for changes, post a revised proposal the same way; it replaces the old one.',
+      '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
     ].join('\n'),
     ...(task ? [fromTaskSection(task)] : []),
     ...(earlier !== undefined && earlier !== ''
       ? [
           '## The earlier planning chat this one builds on',
-          `The user started this chat from an earlier one with **Plan more from here**. Build on what it settled and created; don’t ask again what it already answered.\n\n${earlier}`,
+          `The human started this chat from an earlier one with **Plan more from here**. Build on what it settled and created; don’t ask again what it already answered.\n\n${earlier}`,
         ]
       : []),
     planOpening,
@@ -104,7 +104,7 @@ export function earlierPlanContext(input: {
   const { title, message, requests, tasks } = input
   const rounds = requests.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded')
   const proposal = requests.findLast((r) => r.kind === 'proposal')
-  const parts = [`### “${title}”`, `The user’s first message:\n\n${message}`]
+  const parts = [`### “${title}”`, `The human’s first message:\n\n${message}`]
   for (const round of rounds) {
     parts.push(
       [`#### Round ${round.round?.number ?? ''}: ${round.title ?? ''}`, ...answerLines(round)].join(
@@ -160,7 +160,7 @@ export function planRoundAnswerMessage(
     ].join('\n')
   })
   return [
-    `The user answered Round ${request.round?.number ?? ''} “${request.title ?? ''}”:`,
+    `The human answered Round ${request.round?.number ?? ''} “${request.title ?? ''}”:`,
     lines.join('\n'),
     'If anything is still open, ask another round. When nothing is, post your proposal with `ted task propose --file <file>`.',
   ].join('\n\n')
@@ -168,7 +168,7 @@ export function planRoundAnswerMessage(
 
 export function planChangesMessage(text: string): string {
   return [
-    'The user asked for changes to your proposal:',
+    'The human asked for changes to your proposal:',
     text,
     'Post a revised proposal with `ted task propose --file <file>`, then end your turn.',
   ].join('\n\n')
@@ -177,7 +177,7 @@ export function planChangesMessage(text: string): string {
 export function planApprovedMessage(
   created: readonly { row: number; displayId: string }[],
 ): string {
-  return `The user approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} in Backlog and is ending this chat. Thank you.`
+  return `The human approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} in Backlog and is ending this chat. Thank you.`
 }
 
 export function planCreatedNote(

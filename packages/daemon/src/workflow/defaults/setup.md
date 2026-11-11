@@ -4,7 +4,7 @@ This Task is the Factory’s setup Task. It decides TED’s settings for this Fa
 
 If the primary repo already has `.ted/` on its default branch, this is a later setup Task: propose changes to the current files and show each change as a diff in the design review, instead of writing the files from scratch.
 
-Don’t propose adding or removing repos; if something suggests a repo is missing, say so in Worth your eye. Suggest `lead`, `reviewer` or `planner` values only if the user asks for them.
+Don’t propose adding or removing repos; if something suggests a repo is missing, say so in Worth your eye. Suggest `lead`, `reviewer` or `planner` values only if the human asks for them.
 
 ## Intake
 
@@ -12,7 +12,7 @@ TED filled in this Task. Run `ted outcome advance`.
 
 ## Clarify
 
-Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the user how they work, in rounds with `ted ask --round <file>`: which Stages they want, where Gates go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read.
+Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the human how they work, in rounds with `ted ask --round <file>`: which Stages they want, where Gates go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read.
 
 ## Design
 

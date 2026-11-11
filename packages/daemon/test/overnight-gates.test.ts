@@ -131,7 +131,7 @@ describe('overnight mode turns Gates off', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the user at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
     })
     expect(await gateRequests(client, task)).toHaveLength(1)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
@@ -238,7 +238,7 @@ describe('overnight mode turns Gates off', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the user at the Review Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
     })
     expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
@@ -249,7 +249,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
   const kept = (stage: string) =>
     `Overnight mode is on, but this Task changes .ted/, so its ${stage} Gate stays on`
 
-  test('with every Gate off in the Workflow, it stops for the user before Merge', async () => {
+  test('with every Gate off in the Workflow, it stops for the human before Merge', async () => {
     const client = await start(open)
     await overnight(client, true)
     const task = await begin(client, {}, settingsStep)
@@ -259,7 +259,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the user at the Review Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Review Gate. TED sends you their answer.',
     })
     const [request] = await gateRequests(client, task)
     expect(request?.request.stage).toBe('review')
@@ -301,7 +301,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the user at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
     })
     expect(await lines(client, task)).toContain(kept('Design'))
   })
@@ -317,7 +317,7 @@ describe('overnight mode and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the user at the Design Gate. TED sends you their answer.',
+      message: 'Waiting for the human at the Design Gate. TED sends you their answer.',
     })
     expect(await lines(client, task)).toContain(
       'Overnight mode is on, but TED couldn’t read this Task’s changes, so its Design Gate stays on',

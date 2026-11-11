@@ -27,6 +27,7 @@ import { redactSecrets } from './redact.ts'
 import type { Conversations } from './runs/conversations.ts'
 import type { RunManager } from './runs/run-manager.ts'
 import type { Shells } from './shells.ts'
+import type { SideChats } from './side-chats/side-chats.ts'
 import type { Storage } from './storage.ts'
 import { type CompactOptions, compactOutputEvents, hasOutputToCompact } from './store/compact.ts'
 import {
@@ -44,6 +45,7 @@ import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
 
 export interface Services {
+  sideChats: SideChats
   store: TedStore
   automations: Automations
   coordinators: Coordinators

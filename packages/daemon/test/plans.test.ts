@@ -302,7 +302,7 @@ describe('Planning chats', () => {
     )
   })
 
-  test('with the limit full the chat waits as queued, and a chat waiting on the user frees its slot', async () => {
+  test('with the limit full the chat waits as queued, and a chat waiting on the human frees its slot', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
     const roundFile = await file('round.json', round)
@@ -322,7 +322,7 @@ describe('Planning chats', () => {
     await waitForPlan(client, second.id, (d) => d.plan.status === 'idle', 'the second to start')
   })
 
-  test('only the user starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {
+  test('only the human starts, renames and deletes chats, and only a Planning Run posts rounds', async () => {
     const client = await startTed()
     const plan = await start(client, `Plan it\n${steps({ say: 'Hi' }, { endTurn: true })}`)
     const renamed = await client.ok<Plan>('PATCH', `/plans/${plan.id}`, { title: '  Sharing  ' })
@@ -355,7 +355,7 @@ describe('Planning chats', () => {
 })
 
 describe('Plans list', () => {
-  test('a chat waiting on the user says what it waits on', async () => {
+  test('a chat waiting on the human says what it waits on', async () => {
     const client = await startTed()
     const roundFile = await file('round.json', round)
     const plan = await start(

@@ -194,3 +194,34 @@ rejects(
   'skipRows must be',
 )
 rejects(P.parseOpenInEditorRequest, { file: 'file', snapshot: 'yes' }, 'snapshot must be a boolean')
+
+roundTrip(P.parseShellWorkspaceRequest, { cols: 80, rows: 24, create: true })
+roundTrip(P.parseShellWorkspaceRequest, { cols: 80, rows: 24, create: false })
+roundTrip(P.parseShellChange, {
+  kind: 'split',
+  revision: 2,
+  shellId: 'shell-1',
+  direction: 'right',
+  size: { cols: 80, rows: 24 },
+})
+roundTrip(P.parseShellChange, {
+  kind: 'split',
+  revision: 3,
+  shellId: 'shell-2',
+  direction: 'below',
+  size: { cols: 80, rows: 24 },
+})
+roundTrip(P.parseShellChange, { kind: 'close', revision: 4, shellId: 'shell-2' })
+roundTrip(P.parseShellChange, { kind: 'ratio', revision: 5, branchId: 'divider-1', ratio: 0.65 })
+rejects(
+  P.parseShellWorkspaceRequest,
+  { cols: 80, rows: 24, create: 'yes' },
+  'create must be a boolean',
+)
+rejects(P.parseShellChange, { kind: 'close', revision: -1, shellId: 'shell-1' }, 'revision must be')
+rejects(P.parseShellChange, { kind: 'close', revision: 1, shellId: '../shell' }, 'ID is required')
+rejects(
+  P.parseShellChange,
+  { kind: 'ratio', revision: 1, branchId: 'divider', ratio: 1 },
+  'ratio must be',
+)

@@ -27,6 +27,7 @@ import {
   parseSetPriorityRequest,
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
+  parseSetTaskSnoozeRequest,
   parseTaskLead,
   parseWriteBriefRequest,
 } from '@ted/protocol'
@@ -183,6 +184,13 @@ export const taskRoutes: Route[] = [
       return [201, await tasks.upload(ref, caller, () => attachments.save(req))]
     },
   },
+  jsonRoute(parseSetTaskSnoozeRequest, {
+    method: 'PUT',
+    path: /^\/tasks\/([^/]+)\/snooze$/,
+    async handle({ body, params: [ref = ''] }, { tasks }) {
+      return [200, tasks.setTaskSnooze(ref, body.snoozedUntil)]
+    },
+  }),
   {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/start$/,

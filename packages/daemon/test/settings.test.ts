@@ -381,7 +381,7 @@ describe('settings and Factories over the daemon API', () => {
     expect(await ted.getSettings()).toMatchObject({ firstLaunchDone: true })
   })
 
-  test('the profile gives a name for the user’s initials', async () => {
+  test('the profile gives a name for the human’s initials', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
 
     const { name } = await (await client()).getProfile()

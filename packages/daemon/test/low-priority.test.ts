@@ -182,7 +182,7 @@ describe('Low priority for the work TED starts', () => {
     expect(checkRun.outcome).toBe('passed')
   })
 
-  test('an App a Run starts is lowered, and the same App started by the user is not', async () => {
+  test('an App a Run starts is lowered, and the same App started by the human is not', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': [
         'version: 1',

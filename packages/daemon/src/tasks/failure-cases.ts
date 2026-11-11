@@ -194,7 +194,7 @@ export function createFailureCases(options: {
           }
           store.invalidateFailure(value, {
             title: failureNoticeTitle,
-            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh user decision.`,
+            body: `Acceptance is no longer current for failure case ${value.id} (decision ${resolution.requestId}). Its tested context changed or could not be verified. Advancement remains held; capture new evidence and request a fresh human decision.`,
           })
           invalidated.push(value.id)
           withdraw(value)

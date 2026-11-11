@@ -1,3 +1,4 @@
+import type { PermissionMode } from './run.ts'
 export interface LocalFolder {
   path: string
   found: boolean
@@ -186,4 +187,9 @@ export interface SetRepoFolderRequest {
 }
 export interface StopCheckTryRequest {
   name: string
+}
+
+export interface SetFactoryPermissionsRequest {
+  mode: PermissionMode
+  confirmBypass?: boolean
 }

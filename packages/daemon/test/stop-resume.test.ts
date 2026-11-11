@@ -123,7 +123,7 @@ const threadEvents = (client: Client, task: Task) =>
 const promptOf = async (client: Client, runId: string) =>
   ((await client.getRun(runId)).run as { prompt?: string }).prompt ?? ''
 
-const nudge = 'Continue, or post a Comment if you need the user.'
+const nudge = 'Continue, or post a Comment if you need the human.'
 
 test('a Task interrupted by full quit can resume directly after reopening', async () => {
   const client = await startTed()
@@ -482,7 +482,7 @@ describe('the idle Task Lead', () => {
     )
   })
 
-  test('isn’t nudged while it waits on the user', async () => {
+  test('isn’t nudged while it waits on the human', async () => {
     const clock = new ManualClock()
     const client = await startTed({ nudgeAfterMs: 100, clock })
     const task = await create(
@@ -495,7 +495,7 @@ describe('the idle Task Lead', () => {
     await eventWait(
       clock.subscribe,
       () => clock.pending.includes(100),
-      'the idle timer to arm while waiting on the user',
+      'the idle timer to arm while waiting on the human',
     )
     clock.advance(500)
 

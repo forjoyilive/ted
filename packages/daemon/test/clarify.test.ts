@@ -243,7 +243,7 @@ describe('Clarify rounds', () => {
     expect(results[3]?.stdout).toMatch(/^Posted Round 1 \(request [0-9a-f-]+\)/)
     expect(results[4]).toMatchObject({
       code: 1,
-      stderr: expect.stringContaining('Round 1 is still waiting on the user'),
+      stderr: expect.stringContaining('Round 1 is still waiting on the human'),
     })
     expect(results[5]).toMatchObject({
       code: 1,
@@ -383,7 +383,7 @@ describe('Clarify rounds', () => {
     )
   })
 
-  test('the user sets the depth; the field says so and the live Task Lead is told', async () => {
+  test('the human sets the depth; the field says so and the live Task Lead is told', async () => {
     const client = await start()
     const task = await startTask(client, advance, { endTurn: true })
     await waitForStage(client, task, 'clarify')
@@ -394,7 +394,7 @@ describe('Clarify rounds', () => {
     await waitUntil(
       async () =>
         (await userMessages(client, task)).find((m) =>
-          m.includes('The user set Clarify depth to Few'),
+          m.includes('The human set Clarify depth to Few'),
         ),
       'the depth to reach the Task Lead',
     )
@@ -403,7 +403,7 @@ describe('Clarify rounds', () => {
     expect(bad.status).toBe(400)
   })
 
-  test('after the user sets the depth, the Task Lead can raise it but not go below it', async () => {
+  test('after the human sets the depth, the Task Lead can raise it but not go below it', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -425,12 +425,12 @@ describe('Clarify rounds', () => {
     )
     const picks = (await commandResults(client, task)).slice(-5)
     expect(picks.map((r) => r.code === 0)).toEqual([false, true, true, true, false])
-    expect(picks[0]?.stderr).toMatch(/the user set the Clarify depth/)
-    expect(picks[4]?.stderr).toMatch(/the user set the Clarify depth/)
+    expect(picks[0]?.stderr).toMatch(/the human set the Clarify depth/)
+    expect(picks[4]?.stderr).toMatch(/the human set the Clarify depth/)
     expect(await getTask(client, task.id)).toMatchObject({ clarifyDepth: 'few' })
   })
 
-  test('a depth the user picks when creating the Task is a floor too', async () => {
+  test('a depth the human picks when creating the Task is a floor too', async () => {
     const client = await start()
     const task = await client.ok<Task>('POST', '/tasks', {
       title: steps(advance, depth('few', 'looks small'), { endTurn: true }),
@@ -441,7 +441,7 @@ describe('Clarify rounds', () => {
     await waitUntil(async () => (await commandResults(client, task)).length >= 2, 'the depth pick')
     const [, pick] = await commandResults(client, task)
     expect(pick?.code).not.toBe(0)
-    expect(pick?.stderr).toMatch(/the user set the Clarify depth to Grill/)
+    expect(pick?.stderr).toMatch(/the human set the Clarify depth to Grill/)
   })
 
   test('an open round is withdrawn when the Task goes back to Intake', async () => {

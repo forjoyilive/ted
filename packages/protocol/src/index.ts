@@ -208,6 +208,7 @@ export {
   type RepoSetup,
   type RepoSource,
   repoNamePattern,
+  type SetFactoryPermissionsRequest,
   type SetLocalFolderRequest,
   suggestFactoryName,
   suggestKey,
@@ -227,6 +228,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
   parseStopCheckTryRequest,
@@ -482,18 +484,30 @@ export {
   editorPlaceholders,
   type FoundEditor,
   maxShellInputChars,
+  maxShellPanes,
   type OpenInEditorRequest,
+  type ShellChange,
+  type ShellLayout,
   type ShellOutput,
   type ShellOutputQuery,
   type ShellSize,
+  type ShellWorkspace,
+  type ShellWorkspaceRequest,
   shellSizeLimits,
   type TaskShell,
 } from './shell.ts'
 export {
   parseOpenInEditorRequest,
+  parseShellChange,
   parseShellInputRequest,
   parseShellSize,
+  parseShellWorkspaceRequest,
 } from './shell-parsers.ts'
+export {
+  parseSideChatMessageRequest,
+  type SideChat,
+  type SideChatMessageRequest,
+} from './side-chat.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export { busyHold } from './slots.ts'
 export {
@@ -574,6 +588,7 @@ export {
   type ProposalRow,
   type ProposalRowInput,
   type PullRequestPreview,
+  parseSetTaskSnoozeRequest,
   priorities,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -590,6 +605,7 @@ export {
   type SetPriorityRequest,
   type SetTaskLeadRequest,
   type SetTaskReposRequest,
+  type SetTaskSnoozeRequest,
   type SetupAppTried,
   type SetupCheckTried,
   type SetupFileLine,

@@ -97,7 +97,7 @@ async function blockerQuestion(client: Client, task: Task, blocker: Task) {
     client,
     task,
     (t) => t.status?.kind === 'waiting-on-you' && t.runs[0]?.state === 'idle',
-    'to wait for the user’s decision',
+    'to wait for the human’s decision',
   )
   expect(current.blockedBy).toEqual([blocker.id])
   const [question] = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
@@ -175,7 +175,7 @@ describe('adding a blocker', () => {
     expect(started.markers).toEqual([])
   })
 
-  test('a running Task asks the user before stopping to wait, then resumes from its brief', async () => {
+  test('a running Task asks the human before stopping to wait, then resumes from its brief', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
     const briefFile = path.join(scratch, 'brief.md')
@@ -215,7 +215,7 @@ describe('adding a blocker', () => {
     const waiting = await getTask(client, running.id)
     expect(waiting.leadRunId).toBe(runId)
     const [, message] = await userMessages(client, runId)
-    expect(message).toContain('The user made this Task wait for NB-1')
+    expect(message).toContain('The human made this Task wait for NB-1')
     expect(message).toContain('Before doing more work')
     expect(message).toContain('then end your turn and wait for their answer')
     expect(message).toContain('Don’t remove the blocker just to continue')

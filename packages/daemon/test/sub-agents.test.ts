@@ -456,7 +456,7 @@ describe('sub-agents', () => {
     expect(result?.stdout.split('\n').slice(1)).toEqual(['First answer', 'Second answer', ''])
   })
 
-  test('the user stops a sub-agent, and the waiting Task Lead hears it', async () => {
+  test('the human stops a sub-agent, and the waiting Task Lead hears it', async () => {
     const client = await startTed()
     const prompt = await promptFile(
       'forever.md',

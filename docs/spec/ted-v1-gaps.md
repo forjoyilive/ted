@@ -10,7 +10,7 @@ Updated 2026-11-08.
 - **NEW-2** Duplicate-source check: covers open, Done and archived Tasks in the Factory (KRI-55’s rule). This replaces the narrower wording in KRI-60’s review change. Spec 12.4.
 - **NEW-3** Deleting a queued Run-chat message: keep **Delete**. Both CLIs take a message at once and can’t drop one, so TED holds queued messages itself and delivers each at the agent’s next tool-call boundary: on Codex’s `item/completed` with `turn/steer`, on Claude Code through a `PostToolUse` hook that waits while TED writes the message. Tested on Claude Code 2.1.319 and Codex 0.160.0 (KRI-80, `docs/research/kri-80/`). Spec 10.6.
 - **NEW-4** Original request: a collapsed row at the end of the Task brief section, with a link to the description’s history. Spec 10.7.
-- **GAP-63** Comments: the user attaches files by drag and drop or paste; a sent Comment can’t be edited or deleted (Nabha’s review). Spec 10.5.
+- **GAP-63** Comments: the human attaches files by drag and drop or paste; a sent Comment can’t be edited or deleted (Nabha’s review). Spec 10.5.
 - **Revisiting a Done Task’s source:** `--follow-up` creates a Follow-up Task; the Automation agent judges whether the fix held, by release for mobile apps (Nabha’s review). Spec 12.4.
 - **Nudge event dots** are grey (KRI-61 follow-up), not blue.
 
@@ -169,7 +169,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - Removing a secondary repo while Tasks use it (KRI-58) → refused (coordinator decision 12).
 - All Checks run after a failure (KRI-60) → stop at the first failure (Nabha’s review).
 - No CI after a 2-minute wait (KRI-60) → detected at push (Nabha’s review).
-- Automation firing skipped while the Run waits on the user (KRI-60) → fires again (Nabha’s review).
+- Automation firing skipped while the Run waits on the human (KRI-60) → fires again (Nabha’s review).
 - Approve with unsent line comments asks or sends them (KRI-60, KRI-63) → never asks, never sends (coordinator decision 7).
 - Restart the daemon for updates only with no Runs (KRI-11) → restarting never stops Runs (KRI-59).
 - A systemd unit for start at login → the app in the background via LaunchAgent or XDG autostart (KRI-57).

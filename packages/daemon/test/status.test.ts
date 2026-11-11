@@ -11,7 +11,7 @@ import {
 const at = (facts: Partial<TaskFacts>): TaskFacts => ({ stage: 'work', runs: [], ...facts })
 
 describe('interrupted Tasks', () => {
-  test('offers continuation and explains it without claiming the user stopped the Task', () => {
+  test('offers continuation and explains it without claiming the human stopped the Task', () => {
     const facts = at({ interrupted: true, agentActivity: 'Old activity' })
     expect(taskCanResume(facts)).toBe(true)
     expect(taskStatus(facts)).toBeUndefined()
@@ -69,7 +69,7 @@ describe('taskStatus', () => {
     )
   })
 
-  test('an open request or a Run waiting on the user makes it Waiting on you', () => {
+  test('an open request or a Run waiting on the human makes it Waiting on you', () => {
     expect(taskStatus(at({ openRequests: 2, runs: ['working'] }))).toEqual({
       kind: 'waiting-on-you',
     })
@@ -184,4 +184,16 @@ describe('taskActivity', () => {
     expect(taskMarkers(facts, taskStatus(facts))).toEqual([{ kind: 'blocked-by', by: 'NB-41' }])
     expect(taskActivity(facts)).toBeUndefined()
   })
+})
+
+test('a snoozed Backlog Task carries its schedule alongside blockers without inventing a Stage', () => {
+  const until = '2099-11-11T09:00:00.000Z'
+  const facts = at({ stage: 'backlog', snoozedUntil: until, blockedBy: ['NB-2'] })
+  expect(taskStatus(facts)).toBeUndefined()
+  expect(taskMarkers(facts, undefined)).toEqual([
+    { kind: 'snoozed', until },
+    { kind: 'blocked-by', by: 'NB-2' },
+  ])
+  expect(taskActivity(at({ stage: 'backlog', snoozedUntil: until }))).toBe('Scheduled to start')
+  expect(taskMarkers({ ...facts, archived: true }, undefined)).toEqual([])
 })
