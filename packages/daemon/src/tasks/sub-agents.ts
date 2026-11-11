@@ -16,7 +16,13 @@ import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
 import type { RunManager } from '../runs/run-manager.ts'
-import type { ReviewerPurpose, StoredTask, SubAgentRequest, TedStore } from '../store/index.ts'
+import type {
+  ReviewerPurpose,
+  ReviewScope,
+  StoredTask,
+  SubAgentRequest,
+  TedStore,
+} from '../store/index.ts'
 import { stageTitle, subAgentPrompt, tedSubAgentPrompt } from '../workflow/workflow.ts'
 import type { QueueEntry } from './queue.ts'
 import type { Caller } from './tasks.ts'
@@ -28,6 +34,7 @@ export interface SubAgents {
     input: { name: string; prompt: string; choice: ReviewerChoice; purpose: ReviewerPurpose },
   ): string | undefined
   result(runId: string): Promise<SubAgentWait>
+  reviewed(runId: string): boolean
   queued(): QueueEntry[]
   begin(id: string): void
   starting(taskId: string): number
@@ -45,6 +52,11 @@ export interface ReviewerChoice {
   unavailable?: AgentKind
 }
 
+export interface PlannedReview {
+  prompt: string
+  scope: Omit<ReviewScope, 'runId' | 'at'>
+}
+
 export interface SubAgentDeps {
   store: TedStore
   runs: RunManager
@@ -52,6 +64,8 @@ export interface SubAgentDeps {
   find(ref: string): StoredTask
   leadFor(task: StoredTask): Promise<TaskLead>
   reviewerFor(task: StoredTask): Promise<ReviewerChoice>
+  visitStart(task: StoredTask): string
+  planReview(task: StoredTask, prompt: string): Promise<PlannedReview>
   envFor(task: StoredTask, repo: TaskRepo): Promise<Record<string, string>>
   permissionsFor(task: StoredTask): Promise<PermissionMode>
   clonePathFor(repo: TaskRepo): string
@@ -187,10 +201,12 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     }
     const shared = (await deps.runFolder(task)) ?? repo.worktree
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name) : shared
-    const prompt =
-      store.reviewerOf(request.id)?.purpose === 'loop-check'
-        ? await tedSubAgentPrompt(request.prompt)
-        : await subAgentPrompt(task.displayId, request.prompt)
+    const fromTed =
+      store.reviewerOf(request.id)?.purpose === 'loop-check' ||
+      store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope === 'fixes')
+    const prompt = fromTed
+      ? await tedSubAgentPrompt(request.prompt)
+      : await subAgentPrompt(task.displayId, request.prompt)
     const env = { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     const permissions = await deps.permissionsFor(task)
     if (cancelled.has(request.id)) {
@@ -213,6 +229,23 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       ...(request.effort !== undefined && { effort: request.effort }),
     })
     if (cancelled.has(request.id)) await runs.stop(request.id)
+  }
+
+  function holdsReview(runId: string): boolean {
+    if (store.subAgentRequests().some((r) => r.id === runId)) return true
+    const run = store.getRun(runId)
+    if (!run || run.failure !== undefined) return false
+    return run.state !== 'finished' || finalMessage(run) !== undefined
+  }
+
+  function validateReviewer(task: StoredTask): string | undefined {
+    const since = deps.visitStart(task)
+    return store
+      .reviewers(task.id)
+      .find(
+        (r) =>
+          r.purpose === 'review' && r.stage === 'validate' && r.at >= since && holdsReview(r.runId),
+      )?.runId
   }
 
   function setWaiting(leadRunId: string, delta: 1 | -1): void {
@@ -370,7 +403,16 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
             'the reviewer’s agent, model and effort come from the `reviewer` setting; leave them out',
           )
         }
+        const planned =
+          task.stage === 'validate' ? await deps.planReview(task, input.prompt) : undefined
         const choice = await deps.reviewerFor(task)
+        const earlier = task.stage === 'validate' ? validateReviewer(task) : undefined
+        if (earlier !== undefined) {
+          throw new RequestError(
+            409,
+            `this Validate visit already has its reviewer (Run ${earlier}), and each visit gets one review. Wait for its Findings with \`ted run wait ${earlier}\`, or send it a follow-up with \`ted run send ${earlier} "<text>"\`.`,
+          )
+        }
         const id = crypto.randomUUID()
         const request = store.requestSubAgent({
           id,
@@ -380,7 +422,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           agent: choice.lead.agent,
           ...(choice.lead.model !== undefined && { model: choice.lead.model }),
           ...(choice.lead.effort !== undefined && { effort: choice.lead.effort }),
-          prompt: input.prompt,
+          prompt: planned?.prompt ?? input.prompt,
           ownWorktree: input.ownWorktree === true,
         })
         store.chooseReviewer({
@@ -391,9 +433,16 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           agent: choice.lead.agent,
           ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
         })
+        if (planned) store.recordReviewScope({ ...planned.scope, runId: id })
         deps.pump()
         const started = store.getRun(request.id)
         return started ? describe(started) : describeRequest(request)
+      }
+      if (task.stage === 'validate') {
+        throw new RequestError(
+          409,
+          'in Validate the only sub-agent is TED’s reviewer, one per visit: start it with `ted run start --reviewer --prompt-file <file>` and do the other steps yourself',
+        )
       }
       const fallback = await deps.leadFor(task)
       const agent: AgentKind = input.agent ?? fallback.agent
@@ -466,6 +515,10 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         const result = await waitFor(runId, 60_000)
         if (result.done || closed) return result
       }
+    },
+    reviewed(runId) {
+      const run = store.getRun(runId)
+      return run !== undefined && run.failure === undefined && finalMessage(run) !== undefined
     },
     requestForTed(task, { name, prompt, choice, purpose }) {
       const leadRunId = task.leadRunId

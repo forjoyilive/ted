@@ -50,6 +50,10 @@ export interface CheckOutput {
   log: string
 }
 
+export const declaredSendBackCauses = ['base-conflict'] as const
+export type DeclaredSendBackCause = (typeof declaredSendBackCauses)[number]
+export type SendBackCause = 'review' | 'check' | 'human' | DeclaredSendBackCause
+
 export interface SendBack {
   id: string
   taskId: string
@@ -60,6 +64,7 @@ export interface SendBack {
   round?: number
   limit?: number
   checkRunId?: string
+  cause?: SendBackCause
   at: string
 }
 

@@ -182,6 +182,11 @@ export function threadEvents(
   const edits = new Map(
     log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
   )
+  const causes = new Map(
+    log
+      .filter((e) => e.name === 'v1.SendBackCauseRecorded')
+      .map((e) => [e.at, e.data.cause] as const),
+  )
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
@@ -451,7 +456,7 @@ export function threadEvents(
           'failure',
           `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
-          }`,
+          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
           checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
           {

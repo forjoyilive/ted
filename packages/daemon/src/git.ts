@@ -370,6 +370,50 @@ export async function replayedTree(
   }
 }
 
+const merged = (out: string) => /^[0-9a-f]{40,64}$/.test(out.split('\0')[0] ?? '')
+
+export async function mergeConflicts(
+  worktree: string,
+  input: { ours: string; theirs: string },
+): Promise<string[] | undefined> {
+  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-conflicts-'))
+  const gitDir = path.join(scratch, 'repo.git')
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
+      cwd: scratch,
+      env: worktreeCommandEnv({}, { GIT_DIR: gitDir }),
+    })
+    const { stdout } = await execFileAsync(
+      'git',
+      [
+        'merge-tree',
+        '--write-tree',
+        '--name-only',
+        '--no-messages',
+        '-z',
+        '--end-of-options',
+        input.ours,
+        input.theirs,
+      ],
+      {
+        cwd: scratch,
+        env: worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects }),
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    )
+    return merged(stdout) ? [] : undefined
+  } catch (error) {
+    const { stdout, code } = error as { stdout?: string; code?: number }
+    if (code !== 1 || typeof stdout !== 'string' || !merged(stdout)) return undefined
+    const files = stdout.split('\0').slice(1)
+    return [...new Set(files.filter((file) => file !== ''))]
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
 export interface FileChange {
   path: string
   added: number

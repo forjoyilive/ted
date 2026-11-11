@@ -57,6 +57,8 @@ import type {
   RoundInput,
   Run,
   RunSlots,
+  SendBack,
+  SendBackCause,
   SetClarifyDepthRequest,
   SetTaskGatesRequest,
   SetTaskReposRequest,
@@ -127,6 +129,7 @@ import type {
   NewTask,
   NewWorktree,
   RecordedSetup,
+  RepoCommit,
   RunFlags,
   StoredFactory,
   StoredTask,
@@ -160,6 +163,13 @@ import {
   taskLeadPrompt,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
+import {
+  type BaseConflict,
+  baseCheckTimeoutMs,
+  conflictChecked,
+  conflictRefusal,
+  noConflictFound,
+} from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
 import { fileDiffs, taskChanges } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
@@ -253,6 +263,13 @@ import {
   sameRepo,
 } from './repos.ts'
 import {
+  type EarlierRound,
+  type FixesSince,
+  scopedReviewPrompt,
+  validateRoundText,
+  workRoundText,
+} from './review-rounds.ts'
+import {
   clarifySignoffCaption,
   depthNames,
   depthOrder,
@@ -275,7 +292,7 @@ import {
   splitApprovedSummary,
   splitChosenMessage,
 } from './split.ts'
-import { createSubAgents, type ReviewerChoice } from './sub-agents.ts'
+import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
 import { type CommandResult, copyFiles, outputTail } from './worktree.ts'
 
@@ -1701,7 +1718,11 @@ export function createTasks(options: {
       const task = find(taskId)
       const resolution = await taskWorkflow(task, { fetch: false })
       const { workflow } = resolution
-      const instructions = message ?? nextStageMessage(workflow, 'validate')
+      const round = await validateRound(task, workflow)
+      const instructions = [
+        message ?? nextStageMessage(workflow, 'validate'),
+        ...(round !== undefined ? [round] : []),
+      ].join('\n\n')
       const started = await beginChecks(task, resolution, 'validate')
       const withApps = async (text: string) => {
         const current = find(taskId)
@@ -1777,6 +1798,37 @@ export function createTasks(options: {
         }
       }),
     )
+  }
+
+  const manyRepos = (task: StoredTask) => task.repos.filter((r) => !r.removed).length > 1
+
+  async function baseConflict(task: StoredTask): Promise<BaseConflict | undefined> {
+    for (const target of await pullRequestTargets(task)) {
+      const repo = task.repos.find((r) => r.name === target.name)
+      if (repo?.pullRequest?.state === 'merged') continue
+      try {
+        const head = await git.headCommit(target.worktree)
+        const known = await git
+          .revParse(target.worktree, `origin/${target.base}`)
+          .catch(() => undefined)
+        const tip = await git.fetchBranch(target.worktree, {
+          url: target.url,
+          branch: target.base,
+          haves: [head, ...(known === undefined ? [] : [known])],
+          timeoutMs: baseCheckTimeoutMs,
+        })
+        const files = await git.mergeConflicts(target.worktree, { ours: head, theirs: tip })
+        if (files !== undefined && files.length > 0) {
+          return { name: target.name, base: target.base, tip, files }
+        }
+      } catch (error) {
+        console.error(
+          `couldn’t check ${task.displayId}’s ${target.name} against ${target.base}:`,
+          redactSecrets(textOf(error)),
+        )
+      }
+    }
+    return undefined
   }
 
   function pullRequestTask(task: StoredTask): PullRequestTask {
@@ -2177,7 +2229,7 @@ export function createTasks(options: {
     findings: string,
     checkRunId?: string,
     toValidate = false,
-    options: { counted?: boolean } = {},
+    options: { counted?: boolean; cause?: SendBackCause } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
     if (task.stage !== 'merge') return 'done'
@@ -2432,6 +2484,8 @@ export function createTasks(options: {
       return leadFrom((await taskWorkflow(task, { fetch: false })).workflow.settings)
     },
     reviewerFor: (task) => reviewerFor(task),
+    visitStart: (task) => visitStart(task),
+    planReview: (task, prompt) => planReview(task, prompt),
     async envFor(task, repo) {
       const appVars = await apps.envFor(task.id)
       const recorded = store.recordedSetup(task.id, repo.name)?.env
@@ -3194,6 +3248,10 @@ export function createTasks(options: {
     if (cwd === undefined) throw new Error(`${task.displayId} has no worktree`)
     const overnightMode = store.settings().overnightMode
     const pending = current.pendingLeadMessages
+    const round =
+      resumeSession === undefined && current.stage === 'validate'
+        ? await validateRound(current, resolution.workflow)
+        : undefined
     const prompt = [
       overnightGuidance(overnightMode),
       ...pending.map((message) => message.text),
@@ -3213,6 +3271,7 @@ export function createTasks(options: {
                 folder: cwd,
               },
             ),
+            ...(round !== undefined ? [round] : []),
             ...(followUp !== undefined ? [followUp] : []),
             ...(note !== undefined ? [note] : []),
           ]
@@ -4540,7 +4599,7 @@ export function createTasks(options: {
     from: AgentStageId,
     request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
     checkRunId?: string,
-    options: { counted?: boolean } = {},
+    options: { counted?: boolean; cause?: SendBackCause } = {},
   ): Promise<OutcomeResult & { pending?: boolean }> {
     const { workflow } = resolution
     const to = request.to
@@ -4622,7 +4681,18 @@ export function createTasks(options: {
         }
       }
     }
-    store.recordSendBack({
+    const cause: SendBackCause | undefined =
+      options.cause ??
+      (from === 'merge'
+        ? undefined
+        : checkRunId !== undefined
+          ? 'check'
+          : !counted
+            ? 'human'
+            : from === 'validate'
+              ? 'review'
+              : undefined)
+    const sentBack = store.recordSendBack({
       taskId: task.id,
       from,
       to,
@@ -4631,10 +4701,125 @@ export function createTasks(options: {
       ...(counted && { round: count + 1 }),
       ...(counted && limit !== undefined && { limit }),
       ...(checkRunId !== undefined && { checkRunId }),
+      ...(cause !== undefined && { cause }),
     })
     if (from === 'review') store.resetSendBacks(task.id, 'validate')
-    const moved = await move(task, resolution, to, backStageMessage(workflow, to, from, findings))
+    const moved = await move(task, resolution, to, backMessage(workflow, to, from, sentBack))
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
+  }
+
+  async function reviewRound(task: StoredTask): Promise<{
+    round: number
+    commits: RepoCommit[]
+    rounds: EarlierRound[]
+    fixes?: FixesSince[]
+    baseConflict?: boolean
+  }> {
+    const series = countedValidateSendBacks(task.id)
+    const live = task.repos.filter((r) => !r.removed)
+    const heads = await Promise.all(
+      live.map(async (r) => ({
+        name: r.name,
+        worktree: r.worktree,
+        commit: await git.headCommit(r.worktree).catch(() => undefined),
+      })),
+    )
+    const commits = heads.flatMap(({ name, commit }) =>
+      commit === undefined ? [] : [{ name, commit }],
+    )
+    const rounds = series.flatMap((b, i) =>
+      b.checkRunId === undefined ? [{ round: b.round ?? i + 1, findings: b.findings }] : [],
+    )
+    const full = { round: series.length + 1, commits, rounds }
+    const visit = visitStart(task)
+    const last = store
+      .reviewScopes(task.id)
+      .findLast((scope) => scope.at < visit && subAgents.reviewed(scope.runId))
+    if (!last || commits.length !== heads.length) return full
+    const inSeries = new Set(series.map((b) => b.id))
+    const since = store.listSendBacks(task.id).filter((b) => b.at > last.at)
+    if (since.some((b) => b.cause === 'base-conflict')) return { ...full, baseConflict: true }
+    if (
+      since.length === 0 ||
+      !since.every((b) => inSeries.has(b.id) && b.to === 'work') ||
+      since.every((b) => b.checkRunId !== undefined)
+    ) {
+      return full
+    }
+    const fixes: FixesSince[] = []
+    for (const head of heads) {
+      const reviewed = last.commits.find((c) => c.name === head.name)?.commit
+      if (reviewed === undefined || head.commit === undefined) return full
+      if (!(await git.isAncestor(head.worktree, reviewed, head.commit))) return full
+      const files = await git
+        .changesBetween(head.worktree, { from: reviewed, to: head.commit })
+        .catch(() => [])
+      fixes.push({
+        name: head.name,
+        since: reviewed,
+        head: head.commit,
+        files: files.map((f) => f.path),
+      })
+    }
+    return { ...full, fixes }
+  }
+
+  async function planReview(task: StoredTask, prompt: string): Promise<PlannedReview> {
+    const { round, commits, rounds, fixes } = await reviewRound(task)
+    if (fixes === undefined) {
+      return { prompt, scope: { taskId: task.id, scope: 'full', round, commits } }
+    }
+    return {
+      prompt: scopedReviewPrompt({
+        displayId: task.displayId,
+        round,
+        rounds,
+        repos: fixes,
+        multiRepo: fixes.length > 1,
+        added: prompt,
+      }),
+      scope: {
+        taskId: task.id,
+        scope: 'fixes',
+        round,
+        commits,
+        since: fixes.map(({ name, since }) => ({ name, commit: since })),
+      },
+    }
+  }
+
+  async function validateRound(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<string | undefined> {
+    const { round, rounds, fixes, baseConflict } = await reviewRound(task)
+    if (round === 1) return undefined
+    const limit = workflow.settings.stages.validate?.max_back
+    return validateRoundText({
+      round,
+      rounds,
+      scoped: fixes !== undefined,
+      ...(baseConflict && { baseConflict }),
+      ...(limit !== undefined && { limit }),
+    })
+  }
+
+  function backMessage(
+    workflow: ResolvedWorkflow,
+    to: AgentStageId,
+    from: AgentStageId,
+    sendBack: SendBack,
+  ): string {
+    const message = backStageMessage(workflow, to, from, sendBack.findings)
+    if (from !== 'validate' || to !== 'work' || sendBack.round === undefined) return message
+    return [
+      message,
+      workRoundText({
+        round: sendBack.round,
+        cause: sendBack.cause,
+        ...(sendBack.limit !== undefined && { limit: sendBack.limit }),
+      }),
+    ].join('\n\n')
   }
 
   function countedValidateSendBacks(taskId: string) {
@@ -4769,7 +4954,7 @@ export function createTasks(options: {
     if (task.stage !== 'validate' || task.archived) return
     const atLimit = check.limit !== undefined && check.round > check.limit
     if (verdict === 'converging' && !atLimit) {
-      store.recordSendBack({
+      const sentBack = store.recordSendBack({
         taskId: task.id,
         from: 'validate',
         to: check.to,
@@ -4778,13 +4963,14 @@ export function createTasks(options: {
         round: check.round,
         ...(check.limit !== undefined && { limit: check.limit }),
         ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
+        cause: check.checkRunId !== undefined ? 'check' : 'review',
       })
       await move(
         task,
         resolution,
         check.to,
         [
-          backStageMessage(workflow, check.to, 'validate', check.findings),
+          backMessage(workflow, check.to, 'validate', sentBack),
           `# Loop check\n\nTED checked Validate’s ${check.round} rounds of Findings and the changes between them. Verdict: converging. ${reason}`,
         ].join('\n\n'),
       )
@@ -4881,7 +5067,7 @@ export function createTasks(options: {
     })
     if (choice === tryAgainChoice) {
       const limit = workflow.settings.stages.validate?.max_back
-      store.recordSendBack({
+      const sentBack = store.recordSendBack({
         taskId: task.id,
         from: 'validate',
         to: ask.to,
@@ -4890,12 +5076,13 @@ export function createTasks(options: {
         round: 1,
         ...(limit !== undefined && { limit }),
         ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
+        cause: ask.checkRunId !== undefined ? 'check' : 'review',
       })
       await move(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, 'validate', sentBack)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -4904,6 +5091,7 @@ export function createTasks(options: {
         to: 'design',
         findings: ask.findings,
         counted: false,
+        cause: 'human',
       })
       await move(
         current,
@@ -7367,11 +7555,28 @@ export function createTasks(options: {
               `the human asked for changes at the ${stageTitle(stage)} Gate; send the Task back to Work or Design`,
             )
           }
+          const declared =
+            outcome.cause === 'base-conflict' &&
+            !changesAsked &&
+            outcome.to === 'work' &&
+            (stage === 'validate' || stage === 'review')
+          if (declared) checkBack(workflow, stage, outcome.to)
+          const conflict = declared ? await baseConflict(current) : undefined
           if (stage === 'validate') {
             checkBack(workflow, stage, outcome.to)
             judge(current, 'sent-back', outcome.judged)
           }
-          return sendBack(current, resolution, stage, outcome)
+          if (conflict) {
+            const findings = `${outcome.findings.trim()}\n\n${conflictChecked(conflict, manyRepos(current))}`
+            return sendBack(current, resolution, stage, { ...outcome, findings }, undefined, {
+              counted: false,
+              cause: 'base-conflict',
+            })
+          }
+          const sent = await sendBack(current, resolution, stage, outcome)
+          return declared
+            ? { ...sent, message: `${sent.message.replace(/\.$/, '')}. ${noConflictFound}` }
+            : sent
         }
         if (changesAsked) {
           throw new RequestError(
@@ -7389,6 +7594,17 @@ export function createTasks(options: {
                 ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
                 : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
           )
+        }
+        if (
+          stage === 'work' ||
+          ((stage === 'validate' || stage === 'review') &&
+            workflow.stages.includes('work') &&
+            workflow.order.indexOf('work') < workflow.order.indexOf(stage))
+        ) {
+          const conflict = await baseConflict(current)
+          if (conflict) {
+            throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
+          }
         }
         const waiting = stage === 'clarify' ? openRound(current) : undefined
         if (waiting) {

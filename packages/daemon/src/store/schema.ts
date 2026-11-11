@@ -260,6 +260,20 @@ export const reviewers = State.SQLite.table({
   },
 })
 
+export const reviewScopes = State.SQLite.table({
+  name: 'reviewScopes',
+  indexes: [{ name: 'idx_reviewScopes_taskId', columns: ['taskId'] }],
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    scope: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    commits: State.SQLite.text(),
+    since: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
 export const loopChecks = State.SQLite.table({
   name: 'loopChecks',
   indexes: [{ name: 'idx_loopChecks_taskId', columns: ['taskId'] }],
@@ -455,6 +469,7 @@ export const sendBacks = State.SQLite.table({
     round: State.SQLite.integer({ nullable: true }),
     limit: State.SQLite.integer({ nullable: true }),
     checkRunId: State.SQLite.text({ nullable: true }),
+    cause: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -2309,6 +2324,29 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  reviewScopeRecorded: Events.synced({
+    name: 'v1.ReviewScopeRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      scope: Schema.String,
+      round: Schema.Number,
+      commits: Schema.Array(Schema.Struct({ name: Schema.String, commit: Schema.String })),
+      since: Schema.NullOr(
+        Schema.Array(Schema.Struct({ name: Schema.String, commit: Schema.String })),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  sendBackCauseRecorded: Events.synced({
+    name: 'v1.SendBackCauseRecorded',
+    schema: Schema.Struct({
+      sendBackId: Schema.String,
+      taskId: Schema.String,
+      cause: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   validateJudged: Events.synced({
     name: 'v1.ValidateJudged',
     schema: Schema.Struct({
@@ -2716,6 +2754,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       limit: args.limit,
       checkRunId: args.checkRunId,
     }),
+  'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v4.RunStarted': (args) => {
@@ -3101,6 +3140,7 @@ const materializers = counted(
         peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
+        reviewScopes.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
@@ -3185,6 +3225,14 @@ const materializers = counted(
       'v1.SubAgentRequested': (request) => subAgentRequests.insert(request),
       'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
       'v1.ReviewerChosen': (row) => reviewers.insert(row),
+      'v1.ReviewScopeRecorded': ({ commits, since, ...row }) =>
+        reviewScopes.insert({
+          ...row,
+          commits: JSON.stringify(commits),
+          since: since === null ? null : JSON.stringify(since),
+        }),
+      'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
+        sendBacks.update({ cause }).where({ id: sendBackId }),
       'v1.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
@@ -3662,6 +3710,7 @@ const state = State.SQLite.makeState({
     runs,
     subAgentRequests,
     reviewers,
+    reviewScopes,
     loopChecks,
     sendBackAsks,
     runMessages,

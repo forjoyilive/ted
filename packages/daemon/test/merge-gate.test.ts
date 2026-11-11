@@ -4,6 +4,7 @@ import {
   type Comment,
   type Factory,
   type InboxItem,
+  type SendBack,
   type Task,
   type TaskGates,
   tedPaths,
@@ -297,6 +298,8 @@ describe('Re-sign-off', () => {
       const text = await lines(client, task)
       return text.some((l) => l.startsWith('Merge sent this back to Work')) ? text : undefined
     }, 'the send-back')
+    const [sentBack] = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+    expect(sentBack).toMatchObject({ from: 'merge', cause: 'base-conflict', counted: true })
     await setGh({ mergeState: 'CLEAN', rebaseConflict: false })
     await rm(client.mergingFile)
     await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Go ahead.' })

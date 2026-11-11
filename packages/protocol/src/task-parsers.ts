@@ -1,5 +1,9 @@
 import { stripVTControlCharacters } from 'node:util'
-import type { RunChecksRequest } from './checks.ts'
+import {
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type RunChecksRequest,
+} from './checks.ts'
 import { proposalCycle } from './proposal.ts'
 import type {
   ArchiveTaskRequest,
@@ -397,7 +401,17 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
     }
     const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
     if (findings === '') throw new HttpError(400, '`back` needs Findings')
-    return { outcome: 'back', to: to as AgentStageId, findings, ...(judged && { judged }) }
+    const cause = request.cause
+    if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
+      throw new HttpError(400, `cause must be one of ${declaredSendBackCauses.join(', ')}`)
+    }
+    return {
+      outcome: 'back',
+      to: to as AgentStageId,
+      findings,
+      ...(judged && { judged }),
+      ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+    }
   }
   if (request.outcome === 'ask') {
     const question = typeof request.question === 'string' ? request.question.trim() : ''

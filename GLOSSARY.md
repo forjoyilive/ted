@@ -141,7 +141,7 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit.
 
 **Loop check**:
 A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.

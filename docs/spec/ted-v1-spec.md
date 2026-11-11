@@ -608,7 +608,8 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - The Task Lead reports the end of a Stage with `ted outcome advance | back --to <Stage> --findings <file> | ask`. TED picks the next Stage from the Workflow. `back` goes only to an earlier Stage and always carries a Findings file. Agents can’t skip a Gate. (KRI-11, KRI-16)
 - A Gate comes at the end of its Stage: the Task Lead writes the Task brief and posts a request. **Approve** moves the Task on. **Request changes** keeps it in the Stage, except at Review and the Merge Gate, where the Task Lead picks Work or Design. (KRI-12, KRI-18, KRI-60)
 - A Stage that skips itself skips its Gate. (KRI-12)
-- `max_back` sits on the Stage that sends back. It counts only send-backs the Task Lead makes on its own; a send-back after the human’s Request changes doesn’t count. Going over turns `back` into `ask`; the count resets when the human answers. A send-back from Review resets Validate’s count. (KRI-12, KRI-58, KRI-18)
+- `max_back` sits on the Stage that sends back. It counts only send-backs the Task Lead makes on its own; a send-back after the human’s Request changes doesn’t count, and neither does one from Validate or Review whose only cause is a conflict with the base branch (`--cause base-conflict`, which TED verifies; ADR 0108). Going over turns `back` into `ask`; the count resets when the human answers. A send-back from Review resets Validate’s count. (KRI-12, KRI-58, KRI-18)
+- TED refuses `advance` at Work, Validate or Review while the Task’s branch conflicts with the tip of its base branch, and names the base commit and the conflicting files. At Work the Task Lead resolves it there; at Validate and Review it sends the Task back to Work with `--cause base-conflict`. A branch that is only behind passes. (ADR 0108)
 - The Task brief is written at every Gate. (KRI-11, KRI-17)
 - **Stage history.** The header’s Stage track shows past Stages, the current one, skipped Stages struck through and future Stages greyed. Clicking a Stage filters the thread to that Stage’s events. There is no separate Stage history section. (KRI-13, KRI-8 coordinator decision 4)
 - A Gate request (design review, grilling sign-off, sign-off) is withdrawn automatically when the Task leaves that Stage before the human answers: “Withdrawn · the Task went back to Work before you answered”. (KRI-61)
@@ -732,6 +733,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - Don’t receive the human’s Comments. The human can open a sub-agent’s chat, message it and Stop it. (KRI-11, KRI-8 steering)
 - A failed sub-agent is reported to the Task Lead, which decides what to do, with no Inbox item. (KRI-54)
 - The reviewer Run is named “Reviewer · Validate”. (KRI-63)
+- In Validate the only sub-agent is the reviewer, one per visit. TED refuses a second reviewer while the first is queued, working or has reported, and refuses any other sub-agent. A reviewer that failed or never started doesn’t count. (ADR 0106)
 
 ### 7.3 Runs
 
@@ -808,7 +810,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 |---|---|---|
 | `ted help` | Command reference, named in the Run preamble. | KRI-11 |
 | `ted outcome advance` | End the Stage and move on. | KRI-11 |
-| `ted outcome back --to <Stage> --findings <file>` | Send back to an earlier Stage. | KRI-11, KRI-16 |
+| `ted outcome back --to <Stage> --findings <file> [--cause base-conflict]` | Send back to an earlier Stage. | KRI-11, KRI-16 |
 | `ted outcome ask` | Ask the human instead of moving. | KRI-11 |
 | `ted comment [--attach <path>] [--choice "…"]` | Post a Comment (note, question with choice buttons, review, sign-off), optionally with files copied into TED’s store. | KRI-11, KRI-55 |
 | `ted ask --round <file>` | Post a Clarify or planning round. | KRI-19 |
@@ -878,10 +880,13 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 - A Finding is blocking or a note. Only blocking Findings send the Task back. Notes carry into the Review brief. (KRI-16)
 - The thread shows “Validate sent this back to Work (round 2 of 5)” with a red-tinted “Blocking findings” box. (KRI-16, KRI-61)
+- Each send-back records its cause where TED knows it: `review` (Findings the Task Lead reported from Validate), `check` (a failed Check at Validate entry), `human` (changes requested at a Gate, or Back to Design) or `base-conflict` (a conflict with the base branch that TED found at Merge or verified with its own test-merge; the thread line ends “· base conflict”). (ADR 0107, ADR 0108)
 
 ### 8.4 Reviewer
 
 - `reviewer` (4.5). The reviewer performs code review and security review of the committed diff with no Work context, supplied with the Task, acceptance criteria, Design brief, repo guidance and a stated base commit. One reviewer can cover both reviews, reporting requested behaviour, repo standards and security separately with evidence for each Finding. (KRI-16, KRI-53, KRI-199)
+- From the second round of Validate, TED sets the reviewer’s scope. When the last round’s reviewer finished and every send-back since came from Validate to Work, the reviewer’s instructions come from TED: the earlier rounds’ blocking Findings and `git diff <last reviewed commit> <HEAD>` for each repo, to check only that each Finding is fixed and that the fixes broke nothing. A problem in code the fixes didn’t touch is a note unless it is P1 (lost or corrupted data, a security hole, or broken behaviour the Task’s description asks for). The Task Lead’s prompt file is added as context and can’t widen the scope. Otherwise (a Check failure with no review before it, a send-back from Review or by the human, a send-back for a conflict with the base branch, a rebased branch) the round is a full review from the Task Lead’s prompt. TED records the commits each reviewer started at. (ADR 0105)
+- At each Validate entry after a send-back, and at each send-back to Work, TED tells the Task Lead the round number, the limit and the rule for that round. (ADR 0105)
 - An explicit `reviewer` pauses like any other Run and never falls back. An unset `reviewer` picks from the agent kinds that are installed, signed in and not limited when Validate starts. The Validate event names the reviewer, for example “Reviewed by Claude (Codex unavailable)”. (KRI-54)
 
 ### 8.5 Loop limit

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { workingChanges } from '../src/git.ts'
+import { mergeConflicts, workingChanges } from '../src/git.ts'
 
 const run = promisify(execFile)
 let dir: string
@@ -262,4 +262,28 @@ test('an uncommitted edit on top of a committed change keeps both diffs', async 
     committed: { added: 1, removed: 1 },
   })
   expect(changes.diffs[0]?.committedHunks?.[0]?.rows).toHaveLength(6)
+})
+
+test('a test-merge names the files that conflict and leaves the repo as it was', async () => {
+  await taskBranch()
+  const task = await git('rev-parse', 'task')
+  expect(
+    await mergeConflicts(repo, { ours: task, theirs: await git('rev-parse', 'main') }),
+  ).toEqual([])
+  await git('checkout', '-q', 'main')
+  const moved = await commit(
+    { 'src/search/SearchPanel.tsx': 'one\ntwo\n3\nfour\nfive\n', 'docs/a b.md': 'main\n' },
+    'main touched the same line',
+  )
+  await git('checkout', '-q', 'task')
+  const head = await commit({ 'docs/a b.md': 'task\n' }, 'task added the same file')
+  const refs = await git('for-each-ref')
+
+  expect(await mergeConflicts(repo, { ours: head, theirs: moved })).toEqual([
+    'docs/a b.md',
+    'src/search/SearchPanel.tsx',
+  ])
+  expect(await mergeConflicts(repo, { ours: head, theirs: 'no-such-commit' })).toBeUndefined()
+  expect(await git('for-each-ref')).toBe(refs)
+  expect(await git('status', '--porcelain')).toBe('')
 })

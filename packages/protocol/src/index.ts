@@ -144,8 +144,11 @@ export {
   type CheckState,
   checkFailed,
   checkLabel,
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
   type RunChecksRequest,
   type SendBack,
+  type SendBackCause,
 } from './checks.ts'
 export {
   DaemonClient,

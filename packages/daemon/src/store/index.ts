@@ -62,6 +62,7 @@ import {
   type RunProblem,
   type RunState,
   type SendBack,
+  type SendBackCause,
   type SimulatorAsk,
   type SizeCheck,
   type StageEntry,
@@ -125,6 +126,7 @@ import {
   planTasks,
   pullRequests,
   reviewers,
+  reviewScopes,
   runInterrupts,
   runMessages,
   runs,
@@ -349,6 +351,21 @@ export interface Reviewer {
   purpose: ReviewerPurpose
   agent: AgentKind
   unavailable?: AgentKind
+  at: string
+}
+
+export interface RepoCommit {
+  name: string
+  commit: string
+}
+
+export interface ReviewScope {
+  runId: string
+  taskId: string
+  scope: 'full' | 'fixes'
+  round: number
+  commits: RepoCommit[]
+  since?: RepoCommit[]
   at: string
 }
 
@@ -693,6 +710,7 @@ export interface TedStore extends TaskHistory {
     round?: number
     limit?: number
     checkRunId?: string
+    cause?: SendBackCause
   }): SendBack
   listSendBacks(taskId: string): SendBack[]
   startChecks(input: {
@@ -733,6 +751,8 @@ export interface TedStore extends TaskHistory {
   chooseReviewer(reviewer: Omit<Reviewer, 'at'>): Reviewer
   reviewerOf(runId: string): Reviewer | undefined
   reviewers(taskId: string): Reviewer[]
+  recordReviewScope(scope: Omit<ReviewScope, 'at'>): ReviewScope
+  reviewScopes(taskId: string): ReviewScope[]
   judgeValidate(input: {
     taskId: string
     outcome: 'passed' | 'sent-back'
@@ -1810,6 +1830,7 @@ export async function openStore({
     ...(row.round !== null && { round: row.round }),
     ...(row.limit !== null && { limit: row.limit }),
     ...(row.checkRunId !== null && { checkRunId: row.checkRunId }),
+    ...(row.cause !== null && { cause: row.cause as SendBackCause }),
     at: row.at,
   })
 
@@ -3555,8 +3576,9 @@ export async function openStore({
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
     },
-    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId }) {
+    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId, cause }) {
       const id = randomUUID()
+      const at = new Date().toISOString()
       commit(
         events.taskSentBackV2({
           id,
@@ -3568,8 +3590,11 @@ export async function openStore({
           round: round ?? null,
           limit: limit ?? null,
           checkRunId: checkRunId ?? null,
-          at: new Date().toISOString(),
+          at,
         }),
+        ...(cause === undefined
+          ? []
+          : [events.sendBackCauseRecorded({ sendBackId: id, taskId, cause, at })]),
       )
       const row = store.query(queryDb(sendBacks.where({ id }))).at(0)
       if (!row) throw new Error(`no send-back ${id}`)
@@ -3740,6 +3765,20 @@ export async function openStore({
     },
     reviewers: (taskId) =>
       store.query(queryDb(reviewers.where({ taskId }).orderBy('at', 'asc'))).map(toReviewer),
+    recordReviewScope({ since, ...scope }) {
+      const at = new Date().toISOString()
+      commit(events.reviewScopeRecorded({ ...scope, since: since ?? null, at }))
+      return { ...scope, ...(since !== undefined && { since }), at }
+    },
+    reviewScopes: (taskId) =>
+      store
+        .query(queryDb(reviewScopes.where({ taskId }).orderBy('at', 'asc')))
+        .map(({ commits, since, ...row }) => ({
+          ...row,
+          scope: row.scope as ReviewScope['scope'],
+          commits: JSON.parse(commits) as RepoCommit[],
+          ...(since !== null && { since: JSON.parse(since) as RepoCommit[] }),
+        })),
     judgeValidate({ taskId, outcome, checkRunId, review, visual, reviewer }) {
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }
