@@ -294,11 +294,14 @@ async function markedProcesses(uid: number, runId: string, home: string, env: No
 async function processIdentity(pid: number, env: NodeJS.ProcessEnv) {
   const result = await command(
     '/bin/ps',
-    ['-p', String(pid), '-o', 'uid=,lstart=,command='],
+    ['-p', String(pid), '-o', 'stat=,uid=,lstart=,command='],
     env,
     '/',
   )
-  return result.code === 0 ? result.stdout.trim() : ''
+  if (result.code !== 0) return ''
+  const match = /^(\S+)\s+(.+)$/.exec(result.stdout.trim())
+  if (!match || match[1]?.startsWith('Z')) return ''
+  return match[2]?.trim() ?? ''
 }
 
 export async function dispatch(request: HostRequest, identify = hostIdentity) {
