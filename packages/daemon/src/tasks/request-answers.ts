@@ -5,6 +5,7 @@ import type {
   Comment,
   CommentAnswer,
   Run,
+  SendBack,
   Task,
 } from '@ted/protocol'
 import { failureChoices, sizeChoices, validateFailureChoices } from '@ted/protocol'
@@ -74,6 +75,13 @@ export interface RequestAnswerPort {
     message: string | undefined,
     options?: { signedOff: boolean },
   ): Promise<Task>
+  backMessage(
+    workflow: ResolvedWorkflow,
+    to: AgentStageId,
+    from: AgentStageId,
+    sendBack: SendBack,
+  ): string
+  leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
   settleDependents(id: string, choice: 'unblock'): void
   archiveNow(task: StoredTask, close: boolean): Task
   wake(): void
@@ -110,6 +118,8 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     deliver,
     pullRequestWork,
     move,
+    backMessage,
+    leaveWorkToDiagnose,
     settleDependents,
     archiveNow,
     wake,
@@ -321,6 +331,24 @@ export function createRequestAnswers(port: RequestAnswerPort) {
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
+    if (ask.from === 'work' && ask.to === 'work' && choice === diagnoseChoice) {
+      const current = find(task.id)
+      const enterValidate = await leaveWorkToDiagnose(current)
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      await enterValidate(
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the Checks didn’t pass in Work. TED runs the Checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
     if (current.stage !== 'validate') return undefined
@@ -342,7 +370,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
     })
     if (choice === tryAgainChoice) {
       const limit = workflow.settings.stages.validate?.max_back
-      store.recordSendBack({
+      const sentBack = store.recordSendBack({
         taskId: task.id,
         from: 'validate',
         to: ask.to,
@@ -351,12 +379,13 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         round: 1,
         ...(limit !== undefined && { limit }),
         ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
+        cause: ask.checkRunId !== undefined ? 'check' : 'review',
       })
       await move(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backStageMessage(workflow, ask.to, 'validate', ask.findings)}`,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, 'validate', sentBack)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -365,6 +394,7 @@ export function createRequestAnswers(port: RequestAnswerPort) {
         to: 'design',
         findings: ask.findings,
         counted: false,
+        cause: 'human',
       })
       await move(
         current,
@@ -768,6 +798,7 @@ function oneLine(text: string, max = 200): string {
 
 export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
+export const diagnoseChoice = 'Diagnose in Validate'
 
 export function loopChoices(workflow: ResolvedWorkflow): string[] {
   const next = workflow.next('validate')

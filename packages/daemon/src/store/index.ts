@@ -16,6 +16,7 @@ import {
   type Banner,
   type BannerAction,
   type BannerSeverity,
+  type BaseConflictFound,
   type BlockerEnded,
   bannerOrder,
   type CheckResult,
@@ -41,6 +42,7 @@ import {
   type Effort,
   type Factory,
   type FailureCase,
+  type FindingSeverity,
   failureChoices,
   type GitHubWait,
   type LayerKind,
@@ -63,6 +65,7 @@ import {
   type RunProblem,
   type RunState,
   type SendBack,
+  type SendBackCause,
   type SimulatorAsk,
   type SizeCheck,
   type StageEntry,
@@ -106,6 +109,7 @@ import {
   automations,
   automationTasks,
   banners,
+  baseConflicts,
   checkResults,
   checkRuns,
   commentAttachments,
@@ -123,12 +127,14 @@ import {
   loopChecks,
   machineSettings,
   machineSettingValues,
+  p1OnlyReviews,
   peerMessages,
   planRequests,
   plans,
   planTasks,
   pullRequests,
   reviewers,
+  reviewScopes,
   runInterrupts,
   runMessages,
   runs,
@@ -136,6 +142,7 @@ import {
   sendBackAsks,
   sendBackResets,
   sendBacks,
+  severityDeclarations,
   sideChats,
   stageEntries,
   stageFileTexts,
@@ -354,6 +361,30 @@ export interface Reviewer {
   agent: AgentKind
   unavailable?: AgentKind
   at: string
+}
+
+export interface RepoCommit {
+  name: string
+  commit: string
+}
+
+export interface ReviewScope {
+  runId: string
+  taskId: string
+  scope: 'full' | 'fixes' | 'conflict'
+  round: number
+  commits: RepoCommit[]
+  since?: RepoCommit[]
+  at: string
+}
+
+export interface FoundConflict {
+  stage: StageId
+  repo: string
+  base: string
+  tip: string
+  fileCount: number
+  files: readonly string[]
 }
 
 export type LoopVerdict = 'converging' | 'looping' | 'failed'
@@ -710,8 +741,20 @@ export interface TedStore extends TaskHistory {
     round?: number
     limit?: number
     checkRunId?: string
+    cause?: SendBackCause
+    conflict?: FoundConflict
   }): SendBack
   listSendBacks(taskId: string): SendBack[]
+  recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
+  baseConflicts(taskId?: string): BaseConflictFound[]
+  declareSeverity(input: {
+    taskId: string
+    runId: string
+    round: number
+    severity: FindingSeverity
+  }): void
+  recordP1OnlyReview(input: { runId: string; taskId: string; round: number; from: number }): void
+  p1OnlyReview(runId: string): boolean
   startChecks(input: {
     taskId: string
     trigger: CheckRunTrigger
@@ -750,6 +793,8 @@ export interface TedStore extends TaskHistory {
   chooseReviewer(reviewer: Omit<Reviewer, 'at'>): Reviewer
   reviewerOf(runId: string): Reviewer | undefined
   reviewers(taskId: string): Reviewer[]
+  recordReviewScope(scope: Omit<ReviewScope, 'at'>): ReviewScope
+  reviewScopes(taskId: string): ReviewScope[]
   judgeValidate(input: {
     taskId: string
     outcome: 'passed' | 'sent-back'
@@ -1861,6 +1906,34 @@ export async function openStore({
     updatedTask(checkRun.taskId)
     return checkRun
   }
+  const conflictFound = (
+    taskId: string,
+    conflict: FoundConflict,
+    at: string,
+    sendBackId: string | null,
+  ) =>
+    events.baseConflictFound({
+      id: randomUUID(),
+      taskId,
+      stage: conflict.stage,
+      repo: conflict.repo,
+      base: conflict.base,
+      tip: conflict.tip,
+      fileCount: conflict.fileCount,
+      files: [...conflict.files],
+      sendBackId,
+      at,
+    })
+  const toBaseConflict = ({
+    files,
+    sendBackId,
+    ...row
+  }: typeof baseConflicts.Type): BaseConflictFound => ({
+    ...row,
+    stage: row.stage as StageId,
+    files: JSON.parse(files) as string[],
+    ...(sendBackId !== null && { sendBackId }),
+  })
   const toSendBack = (row: typeof sendBacks.Type): SendBack => ({
     id: row.id,
     taskId: row.taskId,
@@ -1871,6 +1944,7 @@ export async function openStore({
     ...(row.round !== null && { round: row.round }),
     ...(row.limit !== null && { limit: row.limit }),
     ...(row.checkRunId !== null && { checkRunId: row.checkRunId }),
+    ...(row.cause !== null && { cause: row.cause as SendBackCause }),
     at: row.at,
   })
 
@@ -3730,8 +3804,20 @@ export async function openStore({
       const row = briefRows(taskId).at(-1)
       return row && toBrief(row)
     },
-    recordSendBack({ taskId, from, to, findings, counted, round, limit, checkRunId }) {
+    recordSendBack({
+      taskId,
+      from,
+      to,
+      findings,
+      counted,
+      round,
+      limit,
+      checkRunId,
+      cause,
+      conflict,
+    }) {
       const id = randomUUID()
+      const at = new Date().toISOString()
       commit(
         events.taskSentBackV2({
           id,
@@ -3743,8 +3829,12 @@ export async function openStore({
           round: round ?? null,
           limit: limit ?? null,
           checkRunId: checkRunId ?? null,
-          at: new Date().toISOString(),
+          at,
         }),
+        ...(cause === undefined
+          ? []
+          : [events.sendBackCauseRecorded({ sendBackId: id, taskId, cause, at })]),
+        ...(conflict === undefined ? [] : [conflictFound(taskId, conflict, at, id)]),
       )
       const row = store.query(queryDb(sendBacks.where({ id }))).at(0)
       if (!row) throw new Error(`no send-back ${id}`)
@@ -3752,8 +3842,55 @@ export async function openStore({
       emit({ type: 'sent-back', sendBack })
       return sendBack
     },
-    listSendBacks: (taskId) =>
-      store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))).map(toSendBack),
+    recordBaseConflict(taskId, conflict) {
+      const event = conflictFound(taskId, conflict, new Date().toISOString(), null)
+      commit(event)
+      const row = store.query(queryDb(baseConflicts.where({ id: event.args.id }))).at(0)
+      if (!row) throw new Error(`no base conflict ${event.args.id}`)
+      return toBaseConflict(row)
+    },
+    baseConflicts: (taskId) =>
+      store
+        .query(
+          queryDb(
+            (taskId === undefined ? baseConflicts : baseConflicts.where({ taskId })).orderBy(
+              'at',
+              'asc',
+            ),
+          ),
+        )
+        .map(toBaseConflict),
+    listSendBacks(taskId) {
+      const declared = store.query(
+        queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),
+      )
+      let after = ''
+      return store
+        .query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc')))
+        .map(toSendBack)
+        .map((sendBack) => {
+          const since = after
+          after = sendBack.at
+          if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) {
+            return sendBack
+          }
+          const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
+          return found ? { ...sendBack, severity: found.severity as FindingSeverity } : sendBack
+        })
+    },
+    declareSeverity(input) {
+      commit(
+        events.sendBackSeverityDeclared({
+          ...input,
+          id: randomUUID(),
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    recordP1OnlyReview(input) {
+      commit(events.p1OnlyReviewRecorded({ ...input, at: new Date().toISOString() }))
+    },
+    p1OnlyReview: (runId) => store.query(queryDb(p1OnlyReviews.where({ runId }))).length > 0,
     startChecks({ taskId, trigger, stage, checks }) {
       const id = randomUUID()
       commit(
@@ -3916,6 +4053,20 @@ export async function openStore({
     },
     reviewers: (taskId) =>
       store.query(queryDb(reviewers.where({ taskId }).orderBy('at', 'asc'))).map(toReviewer),
+    recordReviewScope({ since, ...scope }) {
+      const at = new Date().toISOString()
+      commit(events.reviewScopeRecorded({ ...scope, since: since ?? null, at }))
+      return { ...scope, ...(since !== undefined && { since }), at }
+    },
+    reviewScopes: (taskId) =>
+      store
+        .query(queryDb(reviewScopes.where({ taskId }).orderBy('at', 'asc')))
+        .map(({ commits, since, ...row }) => ({
+          ...row,
+          scope: row.scope as ReviewScope['scope'],
+          commits: JSON.parse(commits) as RepoCommit[],
+          ...(since !== null && { since: JSON.parse(since) as RepoCommit[] }),
+        })),
     judgeValidate({ taskId, outcome, checkRunId, review, visual, reviewer }) {
       const judged = (j: { passed: boolean; notes?: number } | undefined) =>
         j === undefined ? null : { passed: j.passed, notes: j.notes ?? null }

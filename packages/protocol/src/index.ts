@@ -135,6 +135,7 @@ export type {
   SendRunMessageRequest,
 } from './chat.ts'
 export {
+  type BaseConflictFound,
   type CheckOutput,
   type CheckResult,
   type CheckRun,
@@ -144,8 +145,13 @@ export {
   type CheckState,
   checkFailed,
   checkLabel,
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
   type SendBack,
+  type SendBackCause,
 } from './checks.ts'
 export {
   DaemonClient,

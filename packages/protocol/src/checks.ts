@@ -20,7 +20,7 @@ export interface CheckResult {
   builtIn?: 'ted-settings'
 }
 
-export type CheckRunTrigger = 'validate' | 'agent' | 'merge'
+export type CheckRunTrigger = 'validate' | 'agent' | 'merge' | 'hand-off'
 
 export type CheckRunOutcome = 'passed' | 'failed' | 'interrupted'
 
@@ -50,6 +50,13 @@ export interface CheckOutput {
   log: string
 }
 
+export const declaredSendBackCauses = ['base-conflict'] as const
+export type DeclaredSendBackCause = (typeof declaredSendBackCauses)[number]
+export type SendBackCause = 'review' | 'check' | 'human' | DeclaredSendBackCause
+
+export const findingSeverities = ['p1', 'unfixed'] as const
+export type FindingSeverity = (typeof findingSeverities)[number]
+
 export interface SendBack {
   id: string
   taskId: string
@@ -60,6 +67,21 @@ export interface SendBack {
   round?: number
   limit?: number
   checkRunId?: string
+  cause?: SendBackCause
+  severity?: FindingSeverity
+  at: string
+}
+
+export interface BaseConflictFound {
+  id: string
+  taskId: string
+  stage: StageId
+  repo: string
+  base: string
+  tip: string
+  fileCount: number
+  files: string[]
+  sendBackId?: string
   at: string
 }
 

@@ -1,4 +1,4 @@
-import type { Comment, GitHubWait, Task } from '@ted/protocol'
+import type { Comment, GitHubWait, SendBackCause, Task } from '@ted/protocol'
 import type { Clock } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
@@ -39,6 +39,7 @@ export interface MergePort {
     findings: string,
     checkRunId?: string,
     toValidate?: boolean,
+    options?: { cause?: SendBackCause },
   ): Promise<MergeCycle>
   finish(id: string): Promise<MergeCycle>
   postGate(
@@ -87,6 +88,8 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       repos.some((r) => r.pullRequest?.state !== 'merged')
     )
   }
+  const conflictSendBack = (taskId: string, target: MergeWork) =>
+    mergeSendBack(taskId, conflictFindings(target), undefined, false, { cause: 'base-conflict' })
   function setWait(taskId: string, name: string, on: GitHubWait | undefined): void {
     const repo = find(taskId).repos.find((r) => r.name === name)
     if (repo?.pullRequest && repo.pullRequest.waiting !== on) {
@@ -468,7 +471,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
             true,
           )
         case 'conflict':
-          return mergeSendBack(taskId, conflictFindings(target))
+          return conflictSendBack(taskId, target)
         case 'behind':
           if (rebaseAsked.get(key)?.from !== target.expectedHead) {
             try {
@@ -479,7 +482,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
               if (to !== undefined) rebaseAsked.set(key, { from: target.expectedHead, to })
             } catch (error) {
               if (/conflict/i.test(textOf(error))) {
-                return mergeSendBack(taskId, conflictFindings(target))
+                return conflictSendBack(taskId, target)
               }
               throw error
             }

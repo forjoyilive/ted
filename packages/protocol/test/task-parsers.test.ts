@@ -147,6 +147,14 @@ roundTrip(P.parseReportOutcomeRequest, {
   to: 'work',
   findings: 'Fix this',
   judged: { review: { passed: false, notes: 1 } },
+  cause: 'base-conflict',
+  severity: 'p1',
+})
+variant(P.parseReportOutcomeRequest, {
+  outcome: 'back',
+  to: 'work',
+  findings: 'Fix this',
+  severity: 'unfixed',
 })
 roundTrip(P.parseReportOutcomeRequest, {
   outcome: 'ask',
@@ -181,6 +189,16 @@ roundTrip(P.parseLocalDesignReviewInput, {
 
 rejects(P.parseCreateTaskRequest, { start: 'yes' }, 'start must be true or false')
 rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude or codex')
+rejects(
+  P.parseReportOutcomeRequest,
+  { outcome: 'back', to: 'work', findings: 'Fix this', cause: 'tired' },
+  'cause must be one of base-conflict',
+)
+rejects(
+  P.parseReportOutcomeRequest,
+  { outcome: 'back', to: 'work', findings: 'Fix this', severity: 'p2' },
+  'severity must be one of p1, unfixed',
+)
 rejects(P.parseSaveTaskDraftRequest, {}, 'invalid draft priority')
 rejects(P.parseResumeTaskRequest, { comment: 2 }, 'comment must be text')
 rejects(P.parseFollowUpRequest, { attachments: {} }, 'attachments must be a list')

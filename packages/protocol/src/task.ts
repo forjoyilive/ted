@@ -1,6 +1,7 @@
 import type { SimulatorAsk } from './app.ts'
 import type { LineComment } from './changes.ts'
 import type { ChatDiff, ConversationTab } from './chat.ts'
+import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
@@ -784,7 +785,14 @@ export type ReportOutcomeRequest =
       changes?: string
       design?: DesignReviewInput
     }
-  | { outcome: 'back'; to: AgentStageId; findings: string; judged?: ValidateJudgments }
+  | {
+      outcome: 'back'
+      to: AgentStageId
+      findings: string
+      judged?: ValidateJudgments
+      cause?: DeclaredSendBackCause
+      severity?: FindingSeverity
+    }
   | { outcome: 'ask'; question: string; choices?: string[] }
 
 export type Outcome = ReportOutcomeRequest['outcome']
