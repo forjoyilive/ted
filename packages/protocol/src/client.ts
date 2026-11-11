@@ -84,6 +84,7 @@ import type {
   LibraryChanges,
   LibraryPreview,
   LibraryView,
+  MergeSettingsRequest,
   RenameFactoryRequest,
   SaveLibraryRequest,
   SaveSettingsRequest,
@@ -140,6 +141,7 @@ import type {
 } from './shell.ts'
 import type { SideChat } from './side-chat.ts'
 import type { RunSlots } from './slots.ts'
+import type { ProfileResult, SlowMoments } from './slow.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
   AgentStageId,
@@ -975,6 +977,14 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics/report')
   }
 
+  getSlowMoments(): Promise<SlowMoments> {
+    return this.#request('GET', '/diagnostics/slow')
+  }
+
+  recordProfile(seconds?: number): Promise<ProfileResult> {
+    return this.#request('POST', '/diagnostics/profile', seconds === undefined ? {} : { seconds })
+  }
+
   readDaemonLog(): Promise<LogText> {
     return this.#request('GET', '/logs/daemon')
   }
@@ -1125,6 +1135,17 @@ export class DaemonClient {
     return this.#request(
       'POST',
       `/factories/${encodeURIComponent(factoryId)}/settings/save`,
+      request,
+    )
+  }
+
+  mergeFactorySettings(
+    factoryId: string,
+    request: MergeSettingsRequest,
+  ): Promise<SaveSettingsResult> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/settings/merge`,
       request,
     )
   }

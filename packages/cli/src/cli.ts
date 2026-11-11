@@ -64,6 +64,7 @@ import {
   UsageError,
 } from './commands.ts'
 import { exportCommand } from './export.ts'
+import { formatSlowMoments } from './slow.ts'
 
 export interface CliRuntime {
   home?: string
@@ -1249,6 +1250,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     workflowCheck: async () => {
       await workflowCheck(args[0] ?? '.ted')
+    },
+    showSlow: async () => {
+      console.log(formatSlowMoments(await withDaemon(home, (client) => client.getSlowMoments())))
     },
     showRun: async () => {
       const id = args[0] ?? ''

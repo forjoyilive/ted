@@ -689,6 +689,7 @@ export interface TedStore extends TaskHistory {
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  permissionComments(runId: string): Comment[]
   taskFiles(taskId: string): Attachment[]
   recordBrowserCapture(taskId: string, attachment: Attachment): void
   browserCaptures(taskId: string): Attachment[]
@@ -806,6 +807,7 @@ export interface TedStore extends TaskHistory {
   lastOutputAt(runId: string): string | undefined
   getRun(id: string): Run | undefined
   listRuns(): Run[]
+  liveRuns(): Run[]
   busyTaskIds(): string[]
   tasksIn(ids: ReadonlySet<string>): Task[]
   backlogTasks(): { id: string; snoozed: boolean }[]
@@ -915,11 +917,12 @@ export async function openStore({
     for (const listener of writeListeners) listener(error)
   }
   let noteWaiting = () => {}
+  let waitingUnchanged = false
   let shutDown = false
   const commit = ((...args: unknown[]) => {
     try {
       const result = (store.commit as (...a: unknown[]) => unknown)(...args)
-      noteWaiting()
+      if (!waitingUnchanged) noteWaiting()
       if (writeFailing) {
         writeFailing = false
         tellWriters()
@@ -954,6 +957,9 @@ export async function openStore({
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
   const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
+  const liveRuns = queryDb(
+    runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
+  )
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
   const taskDraft = (factoryId: string): TaskDraftState => {
@@ -2145,7 +2151,7 @@ export async function openStore({
 
   let shellsRunning = 0
   const activity = (): Activity => {
-    const active = store.query(allRuns).filter((run) => run.state !== 'finished')
+    const active = store.query(liveRuns)
     const held = store.query(queryDb(heldRuns)).length
     const factoryIds = new Set(store.query(allFactories).map((f) => f.id))
     const liveAutomations = store
@@ -3549,6 +3555,19 @@ export async function openStore({
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    permissionComments(runId) {
+      const taskId = runRow(runId)?.taskId
+      if (taskId === undefined || taskId === null) return []
+      return store
+        .query(
+          queryDb(
+            comments
+              .where({ authorRunId: runId, authorKind: 'run', kind: 'permission', taskId })
+              .orderBy('createdAt', 'asc'),
+          ),
+        )
+        .map(toComment)
+    },
     getComment,
     answerComment(id, answer, sending) {
       commit(
@@ -4061,28 +4080,35 @@ export async function openStore({
       const stateChanged = target !== undefined && target !== current.state
       const nowRetrying = state === 'finished' ? false : (retrying ?? current.retrying)
       const retryChanged = nowRetrying !== current.retrying
-      commit(
-        events.runOutputReadV3({
-          runId,
-          toOffset,
-          lastOutputAt: output ? (output.lastAt ?? at) : null,
-        }),
-        ...(sessionId !== undefined && sessionId !== current.sessionId
-          ? [events.runSessionIdentified({ runId, sessionId })]
-          : []),
-        ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
-        ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
-        ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
-        ...(stateChanged && target !== undefined
-          ? [events.runStateChanged({ runId, state: target, at })]
-          : []),
-        ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
-        ...asked.map(({ event }) => event),
-        ...withdrawnOnce.map(({ id, answer }) =>
-          events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
-        ),
-      )
-      if (output) emit({ type: 'run-output', runId })
+      waitingUnchanged = asked.length === 0 && withdrawnOnce.length === 0
+      try {
+        commit(
+          events.runOutputReadV3({
+            runId,
+            toOffset,
+            lastOutputAt: output ? (output.lastAt ?? at) : null,
+          }),
+          ...(sessionId !== undefined && sessionId !== current.sessionId
+            ? [events.runSessionIdentified({ runId, sessionId })]
+            : []),
+          ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
+          ...(retryChanged
+            ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })]
+            : []),
+          ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
+          ...(stateChanged && target !== undefined
+            ? [events.runStateChanged({ runId, state: target, at })]
+            : []),
+          ...(unavailable ? [events.runAutoModeUnavailable({ runId, taskId, at })] : []),
+          ...asked.map(({ event }) => event),
+          ...withdrawnOnce.map(({ id, answer }) =>
+            events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
+          ),
+        )
+      } finally {
+        waitingUnchanged = false
+      }
+      if (output) emit({ type: 'run-output', runId, lines: true })
       for (const { id } of asked) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const { id } of withdrawnOnce) emitComment(id)
       if (asked.length > 0 || withdrawnOnce.length > 0 || retryChanged) {
@@ -4198,6 +4224,7 @@ export async function openStore({
       return comment
     },
     listRuns: () => store.query(allRuns).map(toRun),
+    liveRuns: () => store.query(liveRuns).map(toRun),
     busyTaskIds: () => [
       ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
       ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),

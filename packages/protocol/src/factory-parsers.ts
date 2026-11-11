@@ -14,6 +14,7 @@ import type {
 } from './factory.ts'
 import type {
   LibraryChanges,
+  MergeSettingsRequest,
   RenameFactoryRequest,
   SaveLibraryRequest,
   SaveSettingsRequest,
@@ -338,6 +339,14 @@ export function parseSetLocalFolderRequest(value: unknown): SetLocalFolderReques
   const folder = typeof body?.path === 'string' ? body.path : ''
   if (folder === '') throw new HttpError(400, 'path is required')
   return { path: folder }
+}
+
+export function parseMergeSettingsRequest(value: unknown): MergeSettingsRequest {
+  const body = record(value)
+  if (typeof body.receipt !== 'string' || !/^[a-f0-9]{32}$/.test(body.receipt)) {
+    throw new HttpError(400, 'receipt must be a settings save receipt')
+  }
+  return { receipt: body.receipt }
 }
 
 export function parseSaveSettingsRequest(value: unknown): SaveSettingsRequest {

@@ -235,7 +235,12 @@ export interface SaveSettingsRequest {
   confirmBypass?: boolean
 }
 
+export interface MergeSettingsRequest {
+  receipt: string
+}
+
 export interface SaveSettingsResult {
+  receipt?: string
   pullRequest: { number: number; url: string }
   merged: boolean
   reason?: string

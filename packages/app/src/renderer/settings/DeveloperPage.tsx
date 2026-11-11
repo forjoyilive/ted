@@ -1,4 +1,5 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
+import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { readableError, ted } from '../ted.ts'
@@ -68,10 +69,28 @@ function useCopyReport() {
   return { status, copy }
 }
 
+function useProfile() {
+  const [recording, setRecording] = useState(false)
+  const [status, setStatus] = useState<string>()
+  const record = () => {
+    setRecording(true)
+    setStatus(undefined)
+    ted
+      .recordProfile(profileSeconds.default)
+      .then(
+        ({ file }) => setStatus(`Saved to ${file}`),
+        (error: unknown) => setStatus(`Couldn’t record a profile: ${readableError(error)}`),
+      )
+      .finally(() => setRecording(false))
+  }
+  return { recording, status, record }
+}
+
 export function DeveloperPage({ settings }: SettingsPageProps) {
   const [folder, setFolder] = useState<{ path: string; platform: string }>()
   const [folderProblem, setFolderProblem] = useState<string>()
   const report = useCopyReport()
+  const profile = useProfile()
 
   useEffect(() => {
     void ted.tedFolder().then(setFolder, (error: unknown) => setFolderProblem(readableError(error)))
@@ -115,6 +134,15 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           {...(report.status !== undefined && { detail: report.status })}
         >
           <Button onClick={report.copy}>Copy report</Button>
+        </SettingRow>
+        <SettingRow
+          title="Record a CPU profile"
+          help={`Records where TED’s background process spends its time for ${profileSeconds.default} seconds and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.`}
+          {...(profile.status !== undefined && { detail: profile.status })}
+        >
+          <Button disabled={profile.recording} onClick={profile.record}>
+            {profile.recording ? 'Recording…' : `Record ${profileSeconds.default} seconds`}
+          </Button>
         </SettingRow>
       </SettingsGroup>
 

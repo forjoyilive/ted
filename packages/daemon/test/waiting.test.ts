@@ -90,6 +90,44 @@ describe('waiting Inbox requests', () => {
     expect(seen[1]).toEqual([])
   })
 
+  test('Run output tells subscribers only when it asks or withdraws a permission request', async () => {
+    const task = await store.createTask({ title: 'Fix login' })
+    store.startRun({ id: 'r1', taskId: task.id, agent: 'claude', prompt: 'Fix it', cwd: dir })
+    const seen = inboxEvents()
+
+    store.recordRunOutput('r1', { toOffset: 10, output: {}, state: 'working' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(seen).toEqual([])
+
+    store.recordRunOutput('r1', {
+      toOffset: 20,
+      output: {},
+      state: 'waiting',
+      permissionPrompts: [
+        { requestId: 'p1', title: 'Run a command', command: 'rm -rf build', generation: 1 },
+      ],
+    })
+    await expect.poll(() => seen.length).toBe(1)
+    expect(seen[0]).toMatchObject([{ kind: 'permission', taskId: task.id }])
+    expect(ids(store.waiting())).toEqual(ids(seen[0] ?? []))
+
+    store.recordRunOutput('r1', { toOffset: 30, output: {}, closedPermissions: ['p1'] })
+    await expect.poll(() => seen.length).toBe(2)
+    expect(seen[1]).toEqual([])
+
+    store.recordRunOutput('r1', {
+      toOffset: 40,
+      permissionPrompts: [
+        { requestId: 'p2', title: 'Run a command', command: 'ls', generation: 1 },
+      ],
+    })
+    await expect.poll(() => seen.length).toBe(3)
+    store.recordRunOutput('r1', { toOffset: 50, state: 'finished' })
+    await expect.poll(() => seen.length).toBe(4)
+    expect(seen[3]).toEqual([])
+    expect(store.waiting()).toEqual([])
+  })
+
   test('an archived Task’s requests aren’t waiting', async () => {
     const task = await store.createTask({ title: 'Fix login' })
     store.postComment({ taskId: task.id, body: 'Which page?', author: run, kind: 'question' })
