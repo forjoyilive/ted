@@ -6,15 +6,9 @@ import * as git from '../src/git.ts'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, stubClaudePath, waitUntil } from './helpers.ts'
-import {
-  ctx,
-  getTask,
-  ghCalls,
-  readGh,
-  start,
-  toSignoff,
-  useMergeHarness,
-} from './merge-harness.ts'
+import { ctx, getTask, readGh, start, toSignoff, useMergeHarness } from './merge-harness.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 useMergeHarness()
 
@@ -31,14 +25,21 @@ const scenarios = [
 ] as const
 
 test('acceptance, capture, obligations and the Gate each reject local verification superseded by a changed or unavailable CI observation, acceptance passes an identical one, and every case replays from the event log', async () => {
-  const client = await start({ mergePollMs: 50 })
-  const { task, signoff } = await toSignoff(client)
+  const clock = new ManualClock()
+  const pollEveryMs = 50
+  const client = await start({ mergePollMs: pollEveryMs, daemon: { clock } })
+  const pollFinished = () =>
+    eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(pollEveryMs),
+      'CI observation applied and GitHub poll rearmed',
+    )
+  const { task, signoff } = await toSignoff(client, {}, clock)
   await writeFile(client.mergingFile, '')
   const current = await getTask(client, task.id)
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
   const root = `/tasks/${task.id}`
-  const count = async () => (await ghCalls()).filter((call) => call.args.includes('graphql')).length
   const replacement = [{ name: 'replacement', id: 'replacement', conclusion: 'SUCCESS' }]
 
   for (const [boundary, observation] of scenarios) {
@@ -50,12 +51,10 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
     }
     const state = await readGh()
     const poll = async (merge: typeof state.merge) => {
+      await pollFinished()
       await writeFile(ctx.ghState, JSON.stringify({ ...state, merge }))
-      const before = await count()
-      await waitUntil(
-        async () => (await count()) > before + 1,
-        `${scenario}: CI observation delivered during local read`,
-      )
+      clock.advance(pollEveryMs)
+      await pollFinished()
     }
     const stored = async () =>
       (await client.ok<FailureCase[]>('GET', `${root}/failures`)).find((c) => c.id === value.id)
@@ -81,6 +80,10 @@ test('acceptance, capture, obligations and the Gate each reject local verificati
       })
     if (boundary === 'obligations' || boundary === 'gate')
       expect((await resolve()).status, `${scenario}: acceptance before the race`).toBe(200)
+    // Drain background verification before counting this request’s local reads.
+    await pollFinished()
+    await client.ok('GET', `${root}/validation-obligations`)
+    await pollFinished()
     const original = git.workingChanges
     let enter = () => {},
       release = () => {},

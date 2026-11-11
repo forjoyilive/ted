@@ -38,7 +38,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'working':
       return 'Working'
     case 'stopped':
-      return 'Stopped'
+      return status.prepared ? 'Ready for Work' : 'Stopped'
     case 'blocked':
       return `Blocked by ${status.ended ? `${status.ended} ` : ''}${status.by}`
     case 'queued':
@@ -61,7 +61,7 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'working':
       return { tone: 'working', glyph: 'working' }
     case 'stopped':
-      return { tone: 'neutral', glyph: 'stopped' }
+      return { tone: status.prepared ? 'success' : 'neutral', glyph: 'stopped' }
     case 'blocked':
       return { tone: 'neutral', glyph: 'blocked' }
     case 'queued':
@@ -114,11 +114,15 @@ function Marker({ marker, onOpenTask }: { marker: TaskMarker; onOpenTask: (ref: 
       </span>
     )
   }
-  return <span className={styles.marker}>Needs planning</span>
+  return (
+    <span className={styles.marker}>
+      {marker.kind === 'preparing' ? 'Preparing through Design' : 'Needs planning'}
+    </span>
+  )
 }
 
 function detailedLabel(status: TaskStatus, now: number): string {
-  if (status.kind === 'stopped' && status.at !== undefined) {
+  if (status.kind === 'stopped' && !status.prepared && status.at !== undefined) {
     return `Stopped by you · ${ago(status.at, now)}`
   }
   return statusLabel(status)

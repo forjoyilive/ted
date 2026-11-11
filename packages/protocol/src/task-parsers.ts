@@ -48,12 +48,23 @@ import {
   type SetupProposal,
   type SizeCheckInput,
   type StageId,
+  type StartTaskRequest,
   type TaskLead,
   type ValidateJudgments,
   type WriteBriefRequest,
 } from './task.ts'
 import type { SetTaskGatesRequest, TaskGateOverrides } from './task-gates.ts'
 import { agentChoice, RequestValidationError as HttpError } from './validation.ts'
+
+export function parseStartTaskRequest(value: unknown): StartTaskRequest {
+  if (value === undefined || value === null) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value))
+    throw new HttpError(400, 'a start request must be an object')
+  const { prepare } = value as Record<string, unknown>
+  if (prepare !== undefined && typeof prepare !== 'boolean')
+    throw new HttpError(400, 'prepare must be true or false')
+  return prepare === undefined ? {} : { prepare }
+}
 
 const maxRepoRefs = 20
 
