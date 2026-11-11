@@ -362,6 +362,7 @@ test('accepting a failure with no tested context says so and tells the Task Lead
 
 test('stored contexts are compared by what was tested, not by their fingerprint or base tip', async () => {
   const s = await setup()
+  const changed = acceptRefusals.changedForGood(false)
   const current = await s.capture()
   s.endRun()
   const stored = (id: string, change: Partial<FailureContext>): FailureContext =>
@@ -375,22 +376,20 @@ test('stored contexts are compared by what was tested, not by their fingerprint 
   const accept = async (context: FailureContext) =>
     refusalText(async () => s.resolve(await s.request(await s.record(context.id))))
   expect(await accept(stored('version-2', {}))).toBeUndefined()
-  expect(await accept(stored('version-1', { version: 1 }))).toBe(acceptRefusals.changed)
+  expect(await accept(stored('version-1', { version: 1 }))).toBe(changed)
   expect(
     await accept(
       stored('other-merge-base', {
         repos: current.repos.map((r) => ({ ...r, mergeBase: 'merge-base-0' })),
       }),
     ),
-  ).toBe(acceptRefusals.changed)
+  ).toBe(changed)
   expect(
     await accept(
       stored('other-tree', { repos: current.repos.map((r) => ({ ...r, tree: 'tree-0' })) }),
     ),
-  ).toBe(acceptRefusals.changed)
-  expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(acceptRefusals.changed)
-  expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(
-    acceptRefusals.changed,
-  )
-  expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(acceptRefusals.changed)
+  ).toBe(changed)
+  expect(await accept(stored('other-ci', { ci: 'CI-A' }))).toBe(changed)
+  expect(await accept(stored('other-ci-failures', { ciFailures: ['x'] }))).toBe(changed)
+  expect(await accept(stored('other-checks', { checks: 'B' }))).toBe(changed)
 })
