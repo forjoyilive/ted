@@ -155,7 +155,9 @@ describe('Validate rounds', () => {
           'case $n in',
           '1|2) ted outcome advance;;',
           `3) ${review(prompt)} ted outcome back --to work --findings "${findings}";;`,
-          `4) ${commit('export.txt')} ted outcome advance;;`,
+          `4) ${commit('export.txt')}`,
+          'git replace --graft HEAD "$(git rev-list --max-parents=0 HEAD | head -1)";',
+          'ted outcome advance;;',
           `5) ${review(prompt)}`,
           `echo "SECOND: $(ted run start --reviewer --prompt-file ${prompt} 2>&1)";`,
           `echo "PLAIN: $(ted run start --agent codex --name 'Independent Codex review' --prompt-file ${prompt} 2>&1)";`,
@@ -173,7 +175,9 @@ describe('Validate rounds', () => {
       expect(second).not.toContain('# Your instructions from the Task Lead')
       expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
       expect(second).toContain('1. The export button does nothing.')
-      expect(second).toMatch(/`git diff [0-9a-f]{40} [0-9a-f]{40}`\n {2}- export\.txt/)
+      expect(second).toMatch(
+        /`GIT_GRAFT_FILE=\/dev\/null\/grafts GIT_SHALLOW_FILE=\/dev\/null git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`\n {2}- export\.txt/,
+      )
       expect(second).toMatch(
         /<<<TASK LEAD [0-9a-f-]{36}>>>\n# Review the whole branch[\s\S]*<<<TASK LEAD [0-9a-f-]{36}>>>$/,
       )
@@ -386,7 +390,7 @@ describe('Validate rounds', () => {
     expect(first).toContain('# Your instructions from the Task Lead of NB-1')
     expect(second).toContain('# Your instructions from TED')
     expect(second).toContain('# Review of the conflict resolution in NB-1')
-    expect(second).toMatch(/`git show --remerge-diff [0-9a-f]{40}`/)
+    expect(second).toMatch(/git --no-replace-objects show --remerge-diff [0-9a-f]{40}`/)
     expect(second).toContain(`brought in base commit ${tip}. Files that conflicted:`)
     expect(second).toContain('    - export.txt')
     expect(second).not.toContain('other.txt')
@@ -441,12 +445,12 @@ describe('Validate rounds', () => {
     const [, second] = await reviewerPrompts(client, task)
     expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
     expect(second).toMatch(
-      /`git log -p --reverse --first-parent --remerge-diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
+      /git --no-replace-objects log -p --reverse --first-parent --remerge-diff [0-9a-f]{40}\.\.[0-9a-f]{40}`/,
     )
     expect(second).toContain('not what the base branch brought in')
     expect(second).toContain('  - fix.txt')
     expect(second).toContain('  - export.txt')
     expect(second).not.toContain('other.txt')
-    expect(second).not.toMatch(/`git diff [0-9a-f]{40} [0-9a-f]{40}`/)
+    expect(second).not.toMatch(/git --no-replace-objects diff [0-9a-f]{40} [0-9a-f]{40}`/)
   }, 150_000)
 })

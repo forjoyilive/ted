@@ -71,6 +71,11 @@ function oneLine(file: string): string {
     .slice(0, 300)
 }
 
+// git prints a deprecation hint whenever the graft file opens, even an empty one,
+// so GIT_GRAFT_FILE names a path that can’t exist.
+const reviewGit =
+  'GIT_GRAFT_FILE=/dev/null/grafts GIT_SHALLOW_FILE=/dev/null git --no-replace-objects'
+
 export function validateRoundText(input: {
   round: number
   limit?: number
@@ -185,8 +190,8 @@ export function scopedReviewPrompt(input: {
 
 function changesCommand(repo: FixesSince): string {
   const merges = repo.merges ?? []
-  if (merges.length === 0) return `git diff ${repo.since} ${repo.head}`
-  return `git log -p --reverse --first-parent --remerge-diff ${repo.since}..${repo.head}`
+  if (merges.length === 0) return `${reviewGit} diff ${repo.since} ${repo.head}`
+  return `${reviewGit} log -p --reverse --first-parent --remerge-diff ${repo.since}..${repo.head}`
 }
 
 function changedFiles(repo: FixesSince): string[] {
@@ -250,7 +255,7 @@ export function conflictReviewPrompt(input: {
       only !== undefined &&
       only.commit === repo.head &&
       repo.commitCount === 1
-        ? `git show --remerge-diff ${only.commit}`
+        ? `${reviewGit} show --remerge-diff ${only.commit}`
         : changesCommand(repo)
     const merged = merges.flatMap((merge) => [
       `  - Merge ${merge.commit} brought in base commit ${merge.base}. Files that conflicted:${merge.files.length === 0 ? ' none' : ''}`,
