@@ -150,42 +150,56 @@ describe('a Task Lead that dies', () => {
 })
 
 describe('resuming takes a working slot', () => {
-  test('a dead Task Lead waits for a free slot before its session is resumed', async () => {
-    const client = await startTed()
-    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
-    const task = await startTask(client, steps({ endTurn: true }))
-    const gate = path.join(scratch, 'gate')
-    const other = await client.ok<Task>('POST', '/tasks', {
-      title: steps({ waitFor: gate }, { endTurn: true }),
-      factory: 'NB',
-      start: true,
-    })
-    await waitFor(client, other, (t) => t.runs[0]?.state === 'working', 'to be working')
+  test.each(['resume', 'stop'] as const)(
+    'a dead Task Lead counts once while awaiting a slot, then %s clears the queue',
+    async (action) => {
+      const client = await startTed()
+      await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+      const task = await startTask(client, steps({ endTurn: true }))
+      const gate = path.join(scratch, 'gate')
+      const other = await client.ok<Task>('POST', '/tasks', {
+        title: steps({ waitFor: gate }, { endTurn: true }),
+        factory: 'NB',
+        start: true,
+      })
+      await waitFor(client, other, (t) => t.runs[0]?.state === 'working', 'to be working')
 
-    const count = await killAgent()
+      const count = await killAgent()
 
-    await waitUntil(
-      async () =>
-        (await threadEvents(client, task)).some((e) => e.text.endsWith('resuming the session')),
-      'the failure to be recorded',
-    )
-    const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots.working).toBe(1)
-    expect(slots.holders).toEqual([expect.objectContaining({ kind: 'task', taskId: other.id })])
-    expect(await agentStarts()).toHaveLength(count)
-    expect((await getTask(client, task.id)).runs).toEqual([])
-    await expect
-      .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
-      .toEqual({ active: 1, working: 1, queued: 1 })
+      await waitUntil(
+        async () =>
+          (await threadEvents(client, task)).some((e) => e.text.endsWith('resuming the session')),
+        'the failure to be recorded',
+      )
+      const slots = await client.ok<RunSlots>('GET', '/slots')
+      expect(slots.working).toBe(1)
+      expect(slots.holders).toEqual([expect.objectContaining({ kind: 'task', taskId: other.id })])
+      expect(await agentStarts()).toHaveLength(count)
+      expect((await getTask(client, task.id)).runs).toEqual([])
+      await expect
+        .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
+        .toEqual({ active: 1, working: 1, queued: 1 })
 
-    await writeFile(gate, '')
-    await startsAfter(count)
-    const after = await waitFor(client, task, (t) => t.runs.length === 1, 'to run again')
-    expect(after.leadRunId).toBe(task.leadRunId)
-    await expect
-      .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
-      .toEqual({ active: 2, working: 0, queued: 0 })
-  })
+      if (action === 'stop') {
+        await client.ok('POST', `/tasks/${task.id}/stop`)
+        await expect
+          .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
+          .toEqual({ active: 1, working: 1, queued: 0 })
+        await writeFile(gate, '')
+        await waitFor(client, other, (t) => t.runs[0]?.state === 'idle', 'to go idle')
+        expect(await agentStarts()).toHaveLength(count)
+        expect((await getTask(client, task.id)).stopped).toBe(true)
+        return
+      }
+      await writeFile(gate, '')
+      await startsAfter(count)
+      const after = await waitFor(client, task, (t) => t.runs.length === 1, 'to run again')
+      expect(after.leadRunId).toBe(task.leadRunId)
+      await expect
+        .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
+        .toEqual({ active: 2, working: 0, queued: 0 })
+    },
+  )
 })
 
 describe('an edit while the Task Lead is dead', () => {
