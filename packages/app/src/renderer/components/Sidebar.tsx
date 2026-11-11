@@ -1,4 +1,5 @@
 import type { Coordinator, Factory } from '@ted/protocol'
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
 import { readableError, ted } from '../ted.ts'
@@ -25,7 +26,6 @@ export interface SidebarFooter {
   paused?: string
   overnight?: string
   simulators?: string
-  planChips?: readonly string[]
   update?: { label: string; busy: boolean }
 }
 
@@ -41,7 +41,7 @@ interface SidebarProps {
   runsOpen?: boolean
   onOpenRuns?: () => void
   onOpenFailed?: () => void
-  onOpenPlanUsage?: () => void
+  usage?: ReactNode
   onUpdate?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: (factoryId?: string) => void
@@ -176,7 +176,7 @@ export function Sidebar({
   runsOpen = false,
   onOpenRuns,
   onOpenFailed,
-  onOpenPlanUsage,
+  usage,
   onUpdate,
   dispatch,
   onNewTask,
@@ -497,21 +497,6 @@ export function Sidebar({
             {footer.simulators !== undefined && (
               <p className={styles.simulators}>{footer.simulators}</p>
             )}
-            {footer.planChips?.map((chip) => (
-              <button
-                key={chip}
-                type="button"
-                className={styles.planChip}
-                onClick={() =>
-                  onOpenPlanUsage
-                    ? onOpenPlanUsage()
-                    : dispatch({ type: 'open-settings', section: 'agents' })
-                }
-              >
-                <DotIcon />
-                {chip}
-              </button>
-            ))}
             {footer.update !== undefined && (
               <button
                 type="button"
@@ -524,6 +509,7 @@ export function Sidebar({
             )}
           </footer>
         )}
+        {usage}
         {developerMode && <ResourceUsage />}
       </nav>
     </ResizableSidebar>
