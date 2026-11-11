@@ -537,7 +537,7 @@ export interface ChatOptions {
   extra?: readonly ChatExtra[]
   pinned?: ReactNode
   requests?: readonly RequestJump[]
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   label?: string
   placeholder?: string
   endedPlaceholder?: string
@@ -733,8 +733,8 @@ export function ChatBody({
   const { run, items } = chat
   const [requestReveal, setRequestReveal] = useState<ScrollReveal>()
   useEffect(() => {
-    setRequestReveal(options.requestId === undefined ? undefined : { id: options.requestId })
-  }, [options.requestId])
+    setRequestReveal(options.revealRequest)
+  }, [options.revealRequest])
   const rows = withExtras(items, options.extra ?? [])
   const running = items.some((i) => i.kind === 'tool' && i.status === 'running')
   const ticking = useTicking(running)

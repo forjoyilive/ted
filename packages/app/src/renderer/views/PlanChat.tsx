@@ -19,6 +19,7 @@ import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { RunIcon } from '../components/RunIcon.tsx'
+import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
@@ -42,7 +43,7 @@ import views from './views.module.css'
 export function PlanChatView({
   factory,
   planId,
-  requestId,
+  revealRequest,
   from,
   onBack,
   onOpenPlan,
@@ -52,7 +53,7 @@ export function PlanChatView({
 }: {
   factory: Factory
   planId: string | undefined
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   from?: string
   onBack: () => void
   onOpenPlan: (planId: string) => void
@@ -75,7 +76,7 @@ export function PlanChatView({
     <PlanChat
       key={planId}
       planId={planId}
-      requestId={requestId}
+      revealRequest={revealRequest}
       onBack={onBack}
       onOpenTask={onOpenTask}
       onOpenPlan={onOpenPlan}
@@ -786,7 +787,7 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
 
 function PlanChat({
   planId,
-  requestId,
+  revealRequest,
   onBack,
   onOpenTask,
   onOpenPlan,
@@ -794,7 +795,7 @@ function PlanChat({
   onDeleted,
 }: {
   planId: string
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
@@ -833,7 +834,7 @@ function PlanChat({
               label: requestHeading(request).kind,
               title: request.title ?? request.body,
             }))}
-            requestId={requestId}
+            revealRequest={revealRequest}
             placeholder="Message the planner…"
             help="Goes to the planner. While a round is open, this talks it through."
             {...(ended && { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> })}

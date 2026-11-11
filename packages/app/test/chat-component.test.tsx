@@ -377,7 +377,7 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
     <PlanChatView
       factory={factory()}
       planId="p1"
-      requestId="proposal1"
+      revealRequest={{ id: 'proposal1' }}
       onBack={vi.fn()}
       onOpenTask={vi.fn()}
       onOpenPlan={vi.fn()}

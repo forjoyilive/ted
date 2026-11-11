@@ -176,6 +176,8 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
   const secondJump = within(jumps).getByRole('button', { name: /Can the queue retry offline/ })
   await user().click(firstJump)
   expect(document.activeElement?.contains(firstCard)).toBe(true)
+  await user().click(within(inbox).getByText(second.body))
+  expect(document.activeElement?.contains(secondCard)).toBe(true)
   await user().click(secondJump)
   expect(document.activeElement?.contains(secondCard)).toBe(true)
   expect(

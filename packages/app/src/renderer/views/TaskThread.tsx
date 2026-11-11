@@ -309,7 +309,7 @@ export function TaskPanes({
   tasks,
   factories,
   backLink,
-  requestId,
+  revealRequest,
   answeredId,
   onBack,
   onOpenTask,
@@ -320,7 +320,7 @@ export function TaskPanes({
   tasks: readonly Task[]
   factories: readonly Factory[]
   backLink: string | undefined
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
@@ -509,7 +509,7 @@ export function TaskPanes({
         <TaskThread
           task={task}
           backLink={backLink}
-          requestId={requestId}
+          revealRequest={revealRequest}
           answeredId={answeredId}
           onBack={onBack}
           onOpenTask={onOpenTask}
@@ -576,7 +576,7 @@ export function TaskThread({
   onOpenFile,
   onAllChanges,
   backLink,
-  requestId,
+  revealRequest,
   answeredId,
   onBack,
   onOpenTask,
@@ -597,7 +597,7 @@ export function TaskThread({
   onAllChanges?: (() => void) | undefined
   task: Task
   backLink: string | undefined
-  requestId?: string | undefined
+  revealRequest?: ScrollReveal | undefined
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
@@ -636,9 +636,8 @@ export function TaskThread({
   const [reveal, setReveal] = useState<ScrollReveal>()
   useEffect(() => {
     setFilter(undefined)
-    const id = requestId ?? answeredId
-    setReveal(id === undefined ? undefined : { id })
-  }, [requestId, answeredId])
+    setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
+  }, [revealRequest, answeredId])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
     ...comments.map((comment) => ({
