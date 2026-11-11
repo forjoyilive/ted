@@ -156,6 +156,8 @@ async function populateScenarios(
         ? { clarifyDepth: 'none' as const }
         : {}),
     })
+    if (factory === garden.key && name !== 'partlyMerged')
+      await client.setTaskRepos(task.id, { set: ['demo/garden'] })
     console.log(`Demo: ${name} (${task.displayId}) · ${Date.now() - began} ms`)
     ids[name] = task.displayId
     if (start) {

@@ -15,6 +15,7 @@ import type { Plans } from './plans/plans.ts'
 import type { Storage } from './storage.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
 import type { Tasks } from './tasks/tasks.ts'
+import type { Workflows } from './workflow/workflows.ts'
 
 export interface FactoryRemovals {
   summary(factoryId: string): FactoryRemoval
@@ -31,6 +32,7 @@ export function createFactoryRemovals(options: {
   plans: Pick<Plans, 'removeFactory'>
   factories: Pick<Factories, 'forget'>
   checkTries: Pick<CheckTries, 'forget'>
+  workflows?: Pick<Workflows, 'forget'>
   storage: () => Pick<Storage, 'removeUnusedClones'> | undefined
 }): FactoryRemovals {
   const { store, banners } = options
@@ -88,6 +90,7 @@ export function createFactoryRemovals(options: {
         await options.plans.removeFactory(factory.id)
         await options.tasks.removeFactoryTasks(factory.id, { closePullRequests })
         await options.checkTries.forget(factory.id)
+        options.workflows?.forget(factory.id)
         banners.clearFactory(factory.id)
         const repos = factory.repos.map((r) => r.repo)
         store.removeTaskDraft(factory.id)
