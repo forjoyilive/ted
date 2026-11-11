@@ -201,7 +201,7 @@ export function createSlowMonitor(options: SlowOptions = {}): SlowMonitor {
       add(totals, total)
       const now = mono()
       const line = routeLines.get(name)
-      if (line && now - line.lastLine < quietMs) {
+      if (line && (now - line.lastLine < quietMs || line.held.count > 0)) {
         add(line.held, total)
         return
       }

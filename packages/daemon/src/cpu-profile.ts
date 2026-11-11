@@ -24,11 +24,11 @@ export function createCpuProfiler(home: string): CpuProfiler {
       const stop = new AbortController()
       running = stop
       try {
-        const dir = await profilesDir(home)
+        await profilesDir(home)
         const text = await sample(seconds, stop.signal)
         const name = `daemon-${stamp(new Date())}.cpuprofile`
-        await save(path.join(dir, name), text)
-        await prune(dir)
+        await save(path.join(await profilesDir(home), name), text)
+        await prune(await profilesDir(home))
         return {
           file: displayPath(path.join(home, 'logs', 'profiles', name)),
           seconds,

@@ -235,6 +235,39 @@ describe('event-loop stalls', () => {
     ])
     monitor.close()
   })
+
+  test('a slow request after the quiet period keeps the held count', () => {
+    let now = 0
+    const lines: string[] = []
+    const monitor = createSlowMonitor({
+      wall: () => 1_700_000_000_000 + now,
+      mono: () => now,
+      cpuMs: () => 0,
+      log: (line) => lines.push(line),
+      timer: false,
+    })
+    const request = (totalMs: number) =>
+      monitor.request({
+        method: 'GET',
+        route: '/tasks/:id/runs',
+        status: 200,
+        handlerMs: totalMs,
+        totalMs,
+      })
+
+    request(300)
+    now = 500
+    request(400)
+    now = 10_001
+    request(500)
+    now += 1000
+    monitor.check()
+    expect(lines).toEqual([
+      'slow request: GET /tasks/:id/runs 200 took 300 ms (handler 300 ms)',
+      'slow requests: GET /tasks/:id/runs 2 more in the last 11 s, slowest 500 ms',
+    ])
+    monitor.close()
+  })
 })
 
 describe('reading and profiling: who may call', () => {
