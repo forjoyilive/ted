@@ -7,6 +7,7 @@ import type {
   RemoveFactoryRequest,
   ReorderFactoriesRequest,
   RepoSource,
+  SetFactoryPermissionsRequest,
   SetLocalFolderRequest,
   SetRepoFolderRequest,
   StopCheckTryRequest,
@@ -386,4 +387,14 @@ export function parseSaveLibraryRequest(value: unknown): SaveLibraryRequest {
   const body = record(value)
   if (typeof body.version !== 'string') throw new HttpError(400, 'version is required')
   return { changes: parseLibraryChanges(body.changes), version: body.version }
+}
+
+export function parseSetFactoryPermissionsRequest(value: unknown): SetFactoryPermissionsRequest {
+  const body = record(value)
+  const mode = permissionModes.find((mode) => mode === body.mode)
+  if (!mode) throw new HttpError(400, 'mode must be auto or bypass')
+  return {
+    mode,
+    ...(body.confirmBypass !== undefined && { confirmBypass: body.confirmBypass === true }),
+  }
 }

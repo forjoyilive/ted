@@ -128,3 +128,16 @@ test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {
     'effort must be an effort level or null on a working Stage',
   )
 })
+
+roundTrip(P.parseSetFactoryPermissionsRequest, { mode: 'bypass', confirmBypass: true })
+roundTrip(P.parseSetFactoryPermissionsRequest, { mode: 'auto', confirmBypass: false })
+test('permission confirmation is optional for Auto', () => {
+  expect(P.parseSetFactoryPermissionsRequest({ mode: 'auto' })).toEqual({ mode: 'auto' })
+})
+rejects(P.parseSetFactoryPermissionsRequest, { mode: 'invalid' }, 'mode must be auto or bypass')
+test('permission confirmation accepts only literal true', () => {
+  expect(P.parseSetFactoryPermissionsRequest({ mode: 'bypass', confirmBypass: 'true' })).toEqual({
+    mode: 'bypass',
+    confirmBypass: false,
+  })
+})

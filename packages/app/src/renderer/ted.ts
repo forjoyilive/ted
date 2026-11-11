@@ -350,6 +350,10 @@ export const ted = {
     window.ted.request('checkRepo', request) as Promise<RepoCheck>,
   createFactory: (request: CreateFactoryRequest) =>
     window.ted.request('createFactory', request) as Promise<Factory>,
+  setFactoryPermissions: (factoryId: string, mode: 'auto' | 'bypass', confirmBypass = false) =>
+    window.ted.request('setFactoryPermissions', factoryId, mode, confirmBypass) as Promise<{
+      mode: 'auto' | 'bypass'
+    }>,
   factorySettings: (factoryId: string) =>
     window.ted.request('factorySettings', factoryId) as Promise<FactorySettingsView>,
   previewFactorySettings: (factoryId: string, changes: FactorySettingsChanges) =>

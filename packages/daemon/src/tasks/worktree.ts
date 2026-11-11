@@ -149,6 +149,7 @@ export async function runWorktreeCommand(input: {
   log: string
   signal?: AbortSignal
   shell?: [string, ...string[]]
+  onSpawn?: () => void
   lowPriority: boolean
 }): Promise<CommandResult> {
   await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
@@ -162,6 +163,7 @@ export async function runWorktreeCommand(input: {
       detached: true,
       stdio: ['ignore', log.fd, log.fd],
     })
+    input.onSpawn?.()
     let reason: 'timed-out' | 'interrupted' | undefined
     const kill = (why: 'timed-out' | 'interrupted') => {
       reason ??= why

@@ -440,6 +440,12 @@ const requests: Record<string, (client: DaemonClient, ...args: unknown[]) => Pro
   checkRepo: (client, request) => client.checkRepo(request as CheckRepoRequest),
   createFactory: (client, request) => client.createFactory(request as CreateFactoryRequest),
   retryClone: (client, factoryId) => client.retryClone(String(factoryId)),
+  setFactoryPermissions: (client, factoryId, mode, confirmBypass) =>
+    client.setFactoryPermissions(
+      String(factoryId),
+      mode as 'auto' | 'bypass',
+      confirmBypass === true,
+    ),
   factorySettings: (client, factoryId) => client.factorySettings(String(factoryId)),
   previewFactorySettings: (client, factoryId, changes) =>
     client.previewFactorySettings(String(factoryId), changes as FactorySettingsChanges),

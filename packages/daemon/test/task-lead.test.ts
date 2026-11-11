@@ -594,74 +594,92 @@ describe('Stage effort', () => {
     expect(await claudeStarts()).toHaveLength(2)
   })
 
-  test('a fresh launch keeps held instructions durable until acceptance and does not replay them on later recovery', async () => {
-    let client = await startTed()
-    const task = await client.ok<Task>('POST', '/tasks', {
-      factory: 'NB',
-      title: steps({ endTurn: true }),
-    })
-    await daemon?.stop()
-    daemon = undefined
-    const store = await openStore({ directory: path.join(home, 'store') })
-    try {
-      store.holdLeadMessage(
-        task.id,
-        'Held Stage instructions before a replacement Task Lead starts.',
+  test.each([false, true])(
+    'a fresh launch keeps held instructions durable (wait for host before shutdown: %s)',
+    async (waitForHost) => {
+      let client = await startTed()
+      const task = await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        title: steps({ endTurn: true }),
+      })
+      await daemon?.stop()
+      daemon = undefined
+      const store = await openStore({ directory: path.join(home, 'store') })
+      try {
+        store.holdLeadMessage(
+          task.id,
+          'Held Stage instructions before a replacement Task Lead starts.',
+        )
+        await store.persisted()
+      } finally {
+        await store.close()
+      }
+      const gate = path.join(scratch, 'accept-initial')
+      await writeFile(
+        path.join(home, 'stub-claude.json'),
+        JSON.stringify({ inputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
       )
-      await store.persisted()
-    } finally {
-      await store.close()
-    }
-    const gate = path.join(scratch, 'accept-initial')
-    await writeFile(
-      path.join(home, 'stub-claude.json'),
-      JSON.stringify({ inputWaitsFor: gate, resumeSteps: [{ endTurn: true }] }),
-    )
-    daemon = await startDaemon({
-      home,
-      version: '9.9.9',
-      claudeBin: stubClaudePath,
-      codexBin: stubCodexPath,
-    })
-    client = connect(daemon)
-    await client.ok('POST', `/tasks/${task.id}/start`)
-    const initial = await waitForRun(
-      client,
-      task,
-      (r) => r.sessionId !== undefined,
-      'new Task Lead session before acceptance',
-    )
-    expect(await userMessages(client, initial.id)).toHaveLength(0)
-    await daemon.stop()
-    daemon = undefined
-    const reopened = await openStore({ directory: path.join(home, 'store') })
-    try {
-      expect(reopened.getTask(task.id)?.pendingLeadMessages).toHaveLength(1)
-    } finally {
-      await reopened.close()
-    }
-    daemon = await startDaemon({
-      home,
-      version: '9.9.9',
-      claudeBin: stubClaudePath,
-      codexBin: stubCodexPath,
-    })
-    client = connect(daemon)
-    await writeFile(gate, '')
-    await waitForRun(client, task, (r) => r.state === 'idle', 'initial prompt acceptance')
-    await killRunHosts(home)
-    await waitForRun(
-      client,
-      task,
-      (r) => r.revivedAt !== undefined && r.state === 'idle',
-      'recovery after initial acceptance',
-    )
-    const messages = await userMessages(client, initial.id)
-    expect(
-      messages.filter((m) => m.includes('Held Stage instructions before a replacement')),
-    ).toHaveLength(1)
-    expect(messages.at(-1)).not.toContain('Held Stage instructions before a replacement')
-  })
+      daemon = await startDaemon({
+        home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        codexBin: stubCodexPath,
+      })
+      client = connect(daemon)
+      await client.ok('POST', `/tasks/${task.id}/start`)
+      const initial = await waitForRun(
+        client,
+        task,
+        (r) => r.sessionId !== undefined,
+        'new Task Lead session before acceptance',
+      )
+      if (waitForHost) {
+        await waitUntil(async () => (await claudeStarts()).length === 1, 'initial agent spawn')
+      }
+      expect(await userMessages(client, initial.id)).toHaveLength(0)
+      await daemon.stop()
+      daemon = undefined
+      const reopened = await openStore({ directory: path.join(home, 'store') })
+      try {
+        expect(reopened.getTask(task.id)?.pendingLeadMessages).toHaveLength(1)
+      } finally {
+        await reopened.close()
+      }
+      daemon = await startDaemon({
+        home,
+        version: '9.9.9',
+        claudeBin: stubClaudePath,
+        codexBin: stubCodexPath,
+      })
+      client = connect(daemon)
+      await writeFile(gate, '')
+      const accepted = await waitForRun(
+        client,
+        task,
+        (r) => r.state === 'idle',
+        'initial prompt acceptance',
+      )
+      if (!waitForHost) {
+        const messages = await userMessages(client, initial.id)
+        expect(
+          messages.filter((m) => m.includes('Held Stage instructions before a replacement')),
+        ).toHaveLength(1)
+        return
+      }
+      await killRunHosts(home)
+      await waitForRun(
+        client,
+        task,
+        (r) => r.revivedAt !== accepted.revivedAt && r.state === 'idle',
+        'recovery after initial acceptance',
+      )
+      const messages = await userMessages(client, initial.id)
+      expect(
+        messages.filter((m) => m.includes('Held Stage instructions before a replacement')),
+      ).toHaveLength(1)
+      expect(messages.at(-1)).not.toContain('Held Stage instructions before a replacement')
+    },
+  )
 
   test('recovers a crashed host with the entered Stage’s flags and instructions on its first turn', async () => {
     await commitToOrigin(scratch, {

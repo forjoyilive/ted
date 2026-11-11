@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { closeSync, fstatSync, openSync, readFileSync, renameSync, writeSync } from 'node:fs'
 import { watchExitWith } from '../exit-with.ts'
 import { waitForLock } from '../lock.ts'
+import { checkLaunchAuthority } from '../runs/launch-authority.ts'
 import { type AppHostRecord, type AppLaunchFile, appFiles } from './host-files.ts'
 
 const dir = process.argv[2]
@@ -33,6 +34,7 @@ const writeLog = (chunk: Buffer) => {
 }
 
 const [shell = '/bin/sh', ...flags] = launch.shell ?? ['/bin/sh', '-c']
+checkLaunchAuthority(launch.authority)
 const child = spawn(shell, [...flags, launch.run], {
   cwd: launch.cwd,
   detached: true,

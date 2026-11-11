@@ -284,6 +284,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
+  factoryPermissions() {
+    throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
+  },
   appsOutsideSandbox(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'appsOutsideSandbox must be an object of App names by Factory ID')
