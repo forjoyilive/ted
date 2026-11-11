@@ -633,7 +633,7 @@ export function useCoordinator(factoryId: string): Coordinator | null | undefine
 
 export function useCoordinatorState(factoryId: string) {
   return useReloadingState(
-    () => ted.getCoordinator(factoryId),
+    () => ted.coordinator(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       event.type === 'task-updated' ||
@@ -653,7 +653,7 @@ export function useCoordinatorChat(
 
 export function useCoordinatorChatState(factoryId: string, runIds: readonly string[]) {
   return useReloadingState(
-    () => ted.getCoordinatorChat(factoryId),
+    () => ted.coordinatorChat(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       (event.type === 'run-output' && runIds.includes(event.runId)) ||

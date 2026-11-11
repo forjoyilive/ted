@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -833,4 +834,43 @@ describe('ted workflow check', () => {
       '',
     ])
   })
+})
+
+test('a lost browser mutation response is never replayed', async () => {
+  let mutations = 0
+  const server = createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tasks/NB-1/browser') {
+      mutations++
+      if (mutations === 1) req.socket.destroy()
+      else {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ text: 'replayed' }))
+      }
+    } else if (req.url === '/tasks/NB-1/apps') {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify([]))
+    } else {
+      res.statusCode = 404
+      res.end()
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+  await writeFile(
+    tedPaths(home).daemonInfo,
+    JSON.stringify({ port: address.port, pid: process.pid, token: 'fixture', version: 'test' }),
+  )
+  try {
+    await expect(
+      ted(['browser', 'press', 'Enter'], 30_000, { TED_TASK: 'NB-1' }),
+    ).rejects.toMatchObject({ code: 1 })
+    expect(mutations).toBe(1)
+  } finally {
+    await rm(tedPaths(home).daemonInfo, { force: true })
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
 })

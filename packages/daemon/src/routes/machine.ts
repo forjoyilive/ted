@@ -165,12 +165,16 @@ function listView(value: unknown): ListView {
   if (!sort) throw new HttpError(400, `sort must be ${listSorts.join(', ')}`)
   const group = listGroups.find((g) => g === view.group)
   if (!group) throw new HttpError(400, `group must be ${listGroups.join(', ')}`)
+  if (view.showEmptyGroups !== undefined && typeof view.showEmptyGroups !== 'boolean') {
+    throw new HttpError(400, 'showEmptyGroups must be true or false')
+  }
   const columns = oneOfList('columns', view.columns, listColumns)
   return {
     sort,
     group,
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
+    ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
   }
 }
 

@@ -172,9 +172,9 @@ test('a pending create disables submission and an error preserves the draft', as
 
 test('files dropped while the draft loads are attached once it has loaded', async () => {
   const draft = deferred<{ draft: null }>()
-  const uploaded = vi.fn((name: unknown) => ({
+  const uploaded = vi.fn((file: unknown) => ({
     hash: 'abc',
-    name,
+    name: (file as { name: string }).name,
     mediaType: 'text/plain',
     size: 5,
   }))
@@ -193,7 +193,10 @@ test('files dropped while the draft loads are attached once it has loaded', asyn
   expect(uploaded).not.toHaveBeenCalled()
   await act(async () => draft.resolve({ draft: null }))
   expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
-  expect(uploaded).toHaveBeenCalledWith('notes.txt', 'text/plain', expect.any(Uint8Array))
+  expect(uploaded).toHaveBeenCalledWith(
+    { name: 'notes.txt', mediaType: 'text/plain' },
+    expect.any(Uint8Array),
+  )
   expect(screen.queryByText('Attaching…')).toBeNull()
 })
 
@@ -208,7 +211,7 @@ test('Model unavailable offers the default model and sends the human’s choice'
     startedAt: createdAt,
   }
   const api = bridge({
-    getRun: () => ({ ...run, problem: 'model-unavailable' }),
+    getRun: () => ({ run: { ...run, problem: 'model-unavailable' }, conversation: [] }),
     useDefaultModel: vi.fn(),
   })
   render(

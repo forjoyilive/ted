@@ -391,6 +391,12 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
           />
         ))}
       </Submenu>
+      <CheckItem
+        label="Show empty groups"
+        checked={view.showEmptyGroups ?? false}
+        disabled={view.group === 'none'}
+        onChange={() => onChange({ ...view, showEmptyGroups: !view.showEmptyGroups })}
+      />
       <div className={styles.menuDivider} />
       <div className={styles.menuHeading}>Columns</div>
       {listColumns.map((column) => (
@@ -506,7 +512,12 @@ export function TaskList({
 
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text)
-  const groups = groupTasks(shown, view, factories, dragging ? dropTargets(view.group) : [])
+  const groups = groupTasks(
+    shown,
+    view,
+    allTasks ? factories : factories.filter((f) => f.id === scope),
+    dragging ? dropTargets(view.group) : [],
+  )
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'
@@ -891,7 +902,7 @@ export function TaskList({
           </Help>
         )}
       </div>
-      {shown.length === 0 ? (
+      {groups.length === 0 ? (
         empty()
       ) : (
         <div className={styles.body}>
