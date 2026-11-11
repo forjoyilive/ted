@@ -679,7 +679,7 @@ export const commands = [
     handler: 'automationCreate',
     min: 0,
     max: 0,
-    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|sentry|github] [--agent claude|codex]\n                [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
+    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|sentry|github|architecture] [--agent claude|codex]\n                [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
     callers: 'TED app only',
     options: options(
       'factory',

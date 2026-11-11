@@ -542,17 +542,35 @@ describe('ted automation', () => {
     expect((await ted(['automation', 'list'])).stdout).toContain('Off')
   })
 
-  test('the Sentry template carries the release rules', async () => {
+  test('the template catalog carries release and unattended architecture review rules', async () => {
     await ted(['task', 'list'])
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
+      'Review codebase architecture',
     ])
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
     expect(sentry).toContain('--sentry-id')
+    const architecture = templates.find((t) => t.id === 'architecture')
+    expect(architecture?.schedule).toEqual({ kind: 'weekly', days: ['mon'], at: '09:00' })
+    for (const instruction of [
+      'GLOSSARY.md',
+      'ADRs',
+      'deletion test',
+      'GitHub',
+      'default branch',
+      'up to three',
+      'before/after',
+      'Do not pass `--start`',
+      'query strings or fragments',
+      'Do not use `--follow-up`',
+      'Do not clone',
+    ]) {
+      expect(architecture?.prompt).toContain(instruction)
+    }
   })
 })
 
