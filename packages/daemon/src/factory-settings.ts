@@ -349,6 +349,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           p1OnlyFrom: stage?.p1_only_from ?? false,
           subAgents: stage?.sub_agents === true,
         }),
+        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&

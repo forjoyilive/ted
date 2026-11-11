@@ -361,10 +361,17 @@ test('the Validate round settings save to the Library and turn off again', async
   const validate = (view: typeof before) => view.stages.find((s) => s.id === 'validate')
   expect(validate(before)).toMatchObject({ p1OnlyFrom: false, subAgents: false })
   const on = await client.save(
-    { stages: { validate: { p1OnlyFrom: 2, subAgents: true } } },
+    {
+      stages: {
+        validate: { p1OnlyFrom: 2, subAgents: true },
+        work: { leadClosesFailures: true },
+      },
+    },
     before.version,
   )
   expect(validate(on)).toMatchObject({ p1OnlyFrom: 2, subAgents: true, maxBack: 5 })
+  expect(before.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
+  expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
   const yaml = await libraryFile('workflow.yaml')
   expect(yaml).toContain('p1_only_from: 2')
   expect(yaml).toContain('sub_agents: true')

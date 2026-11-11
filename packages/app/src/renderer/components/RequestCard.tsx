@@ -8,7 +8,7 @@ import type {
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
-import { failureChoices } from '@ted/protocol/failures'
+import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
@@ -513,7 +513,8 @@ export function RequestCard({
           taskId={task.id}
           commentId={request.id}
         />
-      ) : request.choices?.includes('Retry') && request.choices.includes('Accept this failure') ? (
+      ) : request.choices?.includes(validateFailureChoices.retry) &&
+        request.choices.includes(validateFailureChoices.fix) ? (
         <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />

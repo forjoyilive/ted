@@ -33,6 +33,7 @@ import {
   Markdown,
   Toggle,
   ValidateRounds,
+  WorkFailures,
 } from '../views/FactorySettingsSections.tsx'
 import { FileDiff } from '../views/SaveSettingsDialog.tsx'
 import { SettingsPage } from './controls.tsx'
@@ -402,6 +403,7 @@ function StageLine({
         </span>
       </div>
       {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
+      {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}
