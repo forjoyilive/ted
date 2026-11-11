@@ -216,6 +216,7 @@ export interface LeadFailure {
 }
 
 export interface QueueActivity {
+  queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
   startingTasks: readonly string[]
@@ -2245,7 +2246,12 @@ export async function openStore({
     }
   }
 
-  let queueActivity: QueueActivity = { queuedRuns: [], startingRuns: [], startingTasks: [] }
+  let queueActivity: QueueActivity = {
+    queuedTasks: [],
+    queuedRuns: [],
+    startingRuns: [],
+    startingTasks: [],
+  }
   let shellsRunning = 0
   const activity = (): Activity => {
     const active = store.query(liveRuns)
@@ -2257,6 +2263,7 @@ export async function openStore({
     const startingRuns = new Set(queueActivity.startingRuns.filter((id) => !runIds.has(id)))
     const queuedTasks = new Set(
       [
+        ...queueActivity.queuedTasks,
         ...queue().map((entry) => entry.id),
         ...store.query(queryDb(heldRuns)).map((held) => held.taskId),
       ].filter((id) => !taskIds.has(id) && !startingTasks.has(id)),

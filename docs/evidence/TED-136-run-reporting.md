@@ -52,3 +52,21 @@ The Task thread attaches `implemented-mixed.png`, `implemented-above-limit.png` 
 ## Required main integration
 
 After the user accepted the recorded timing uncertainty, TED refused the Work hand-off because main at `8a8ad3bbfe6649f1f9dff4e33e299b3d25ef48ef` conflicted with the branch. That exact main commit was merged. The sole conflict was the store schema import list: keep main’s `severityDeclarations`, and keep this Task’s removal of the unused `sideChats` table import. The reporting implementation and queue summary survived unchanged; main’s Check timing, request/review and Task history changes were retained. Typecheck and Lint passed on the merged tree. Fresh merged-tree verification is required/queued; the earlier counts above describe the pre-merge run. The earlier failure acceptance is historical and must not be treated as current after this merge.
+
+## Validate round 1
+
+Reviewer Run `71d02924-4cc0-4d3e-aaa2-96bc705664ce` reviewed `a33232e7`. Standards review found no confirmed violations. Correctness review found one blocking P2: a finished Task Lead waiting for automatic recovery lives in `awaitingRevive`, outside the normal queued/held Task records and registered queue sources. Until its revival acquires a start hold, Activity omits that pending work. The Task returned to Work with this Finding; no code was committed during review. The fix must report valid pending recovery Tasks once without changing recovery scheduling.
+
+Current merged-revision evidence: hand-off Typecheck and Lint passed, as did PR #143 CI. The corrected agent-health file passed all eight tests. Four component expectations originally used limit 6 against a limit-3 fixture; only the test literals changed in `a33232e7`. Their three-file rerun is still queued. The merged 191-file daemon/protocol and affected-app run was deferred before collection at TED-8’s request so its focused repairs can finish; no result exists for that attempt.
+
+A fresh hidden Electron trial used this Task’s `node_modules/.cache/ted-home`. First-run setup was completed only there. Current light-mode sidebar and Limits captures (`validate-sidebar.png`, `validate-limits.png` in the cache, attached to the Task) clearly show “0 slots in use · limit 6”. The window was closed after capture. Figma could not be read because its MCP View-seat call limit was reached; images were judged against the approved Design. The isolated `pnpm ted dev slow` trial answered with no slow requests or blocked event loop. Historical populated/above-limit captures remain separate from these current empty-state captures.
+
+The latest failure acceptance became stale after the recovery regression test changed the tree. Earlier, creating PR #143 introduced CI into a previously CI-free tested context and invalidated an acceptance without changing code. Original failure results and all historical decisions remain recorded; none is a passing test result or approval of a later code revision.
+
+## Recovery-count repair
+
+The initial HTTP regression ran before production edits and failed as expected: Activity returned `{ active: 1, working: 1, queued: 0 }` while a finished Task Lead awaited a free recovery slot; expected queued was 1. Original output is retained as `recovery-red.log`. The corrected renderer repeat also completed: 3/3 files and 11/11 tests passed.
+
+The minimal repair adds `queuedTasks` to the internal queue activity snapshot. Tasks supplies `awaitingRevive` IDs filtered through `pendingRevive`, independently of slot readiness or agent pauses. TedStore unions these IDs with its existing queued and held Task IDs before applying its existing duplicate, starting-work and live-Lead exclusions. Recovery admission, execution and scheduling are unchanged. Snapshot fixtures now include the required field and duplicate IDs. The HTTP regression also checks that the queued count returns to zero after revival.
+
+Typecheck and Lint passed after this source change. The focused `failures.test.ts` and `store.test.ts` verification is queued (`recovery-green.log`), not yet passing. Required broad daemon coverage remains outstanding. The user chose Keep waiting for shared test capacity; no peer process or lock was altered.

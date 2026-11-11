@@ -1,7 +1,15 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Comment, Factory, InboxItem, RunSlots, Task, ThreadEvent } from '@ted/protocol'
+import type {
+  Activity,
+  Comment,
+  Factory,
+  InboxItem,
+  RunSlots,
+  Task,
+  ThreadEvent,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -166,11 +174,17 @@ describe('resuming takes a working slot', () => {
     expect(slots.holders).toEqual([expect.objectContaining({ kind: 'task', taskId: other.id })])
     expect(await agentStarts()).toHaveLength(count)
     expect((await getTask(client, task.id)).runs).toEqual([])
+    await expect
+      .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
+      .toEqual({ active: 1, working: 1, queued: 1 })
 
     await writeFile(gate, '')
     await startsAfter(count)
     const after = await waitFor(client, task, (t) => t.runs.length === 1, 'to run again')
     expect(after.leadRunId).toBe(task.leadRunId)
+    await expect
+      .poll(async () => (await client.ok<Activity>('GET', '/activity')).runs)
+      .toEqual({ active: 2, working: 0, queued: 0 })
   })
 })
 

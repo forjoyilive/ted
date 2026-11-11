@@ -1445,6 +1445,7 @@ export function createTasks(options: {
       if (!queuedRuns.has(request.id)) startingRuns.add(request.id)
     }
     store.setQueueActivity({
+      queuedTasks: [...awaitingRevive].filter((id) => pendingRevive(id) !== undefined),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
       startingTasks: [...holds.keys()],

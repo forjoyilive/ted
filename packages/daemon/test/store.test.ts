@@ -148,6 +148,7 @@ describe('TedStore', () => {
       const seen: DaemonEvent[] = []
       const unsubscribe = store.subscribe((event) => seen.push(event))
       store.setQueueActivity({
+        queuedTasks: [task.id, task.id],
         queuedRuns: ['plan', 'plan', 'sub'],
         startingRuns: ['draft'],
         startingTasks: [task.id],
@@ -156,17 +157,32 @@ describe('TedStore', () => {
       store.startRun({ id: 'draft', agent: 'claude', prompt: 'Draft', cwd: '/tmp' })
       store.startRun({ id: 'plan', agent: 'claude', prompt: 'Plan', cwd: '/tmp' })
       store.startRun({ id: 'lead', taskId: task.id, agent: 'claude', prompt: 'Lead', cwd: '/tmp' })
-      store.setQueueActivity({ queuedRuns: ['sub'], startingRuns: [], startingTasks: [] })
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: ['sub'],
+        startingRuns: [],
+        startingTasks: [],
+      })
       expect(store.activity().runs).toMatchObject({ active: 3, queued: 1 })
       expect(store.activity().startingWork).toBeUndefined()
-      store.setQueueActivity({ queuedRuns: [], startingRuns: [], startingTasks: [] })
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: [],
+        startingRuns: [],
+        startingTasks: [],
+      })
       expect(store.activity().runs.queued).toBe(0)
       expect(seen.filter((event) => event.type === 'activity-changed').at(-1)).toMatchObject({
         activity: { runs: { active: 3, queued: 0 } },
       })
       unsubscribe()
       store.recordRunOutput('draft', { toOffset: 1, state: 'finished' })
-      store.setQueueActivity({ queuedRuns: [], startingRuns: ['draft'], startingTasks: [] })
+      store.setQueueActivity({
+        queuedTasks: [],
+        queuedRuns: [],
+        startingRuns: ['draft'],
+        startingTasks: [],
+      })
       expect(store.activity().startingWork).toBe(1)
     } finally {
       await store.close()
