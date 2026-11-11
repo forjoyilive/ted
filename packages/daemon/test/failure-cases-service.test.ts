@@ -250,12 +250,13 @@ test('rejected evidence and assessments preserve requests; fresh decisions expos
   s.evidence(first, `New reproduction: Bearer ${secret}`, current.id)
   const asked = await s.request(first)
   const question = s.comment(asked.decisions.at(-1)?.commentId)
-  expect(question?.body).toContain('Reproduced in the stub')
-  expect(question?.body).toContain('New reproduction:')
+  expect(question?.body).toContain('The Task Lead’s assessment:')
+  expect(question?.body).toContain('Recommendation:')
+  expect(question?.body).toContain(`Failure ${first.id}`)
+  expect(question?.body).not.toContain('New reproduction:')
   expect(question?.body).not.toContain(secret)
-  expect(question?.body).toContain(`Original tested context: ${context.id}`)
-  expect(question?.body).toContain(`Decision tested context: ${current.id}`)
-  expect(question?.body).toContain(lead)
+  expect(question?.body).not.toContain(context.id)
+  expect(asked.decisions.at(-1)?.contextId).toBe(current.id)
   expect(asked.evidence).toBe(first.evidence)
   expect((await s.resolve(asked)).resolutions.at(-1)?.resolution).toBe('accepted')
 })
@@ -356,6 +357,10 @@ test('a stale ask is still posted when no new context could be attached or read'
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
   const s = await setup()
   const asked = await s.request(await s.record())
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED has no record it can verify of what was tested'),
+  })
   expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
 })

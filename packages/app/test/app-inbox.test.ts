@@ -110,7 +110,7 @@ describe('Inbox and Gates', () => {
       .waitFor()
   })
 
-  test('Talk it through opens the Task Lead’s chat with the round below it; Done talking closes the round with the summary', async () => {
+  test('Talk it through opens the Task Lead’s chat with the round in the conversation; Done talking closes the round with the summary', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const roundFile = path.join(ctx.home, 'round.json')
     const summaryFile = path.join(ctx.home, 'summary.md')
@@ -157,13 +157,11 @@ describe('Inbox and Gates', () => {
     await card.getByRole('button', { name: 'Talk it through' }).click()
 
     await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
-    await thread.getByText('Round 1 · 1 question · open while you talk').waitFor()
     await thread.getByText('Happy to talk it through.').first().waitFor()
-    await thread.getByRole('button', { name: 'Show', exact: true }).click()
     const shown = thread.getByRole('region', { name: 'Clarify round', exact: true })
     await shown.getByRole('button', { name: 'Submit answers' }).waitFor()
+    expect(await shown.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
     expect(await shown.getByRole('button', { name: 'Talk it through' }).count()).toBe(0)
-    await thread.getByRole('button', { name: 'Hide', exact: true }).click()
 
     const box = thread.getByRole('textbox', { name: 'Message to this Run' })
     await box.fill(

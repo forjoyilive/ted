@@ -403,7 +403,7 @@ export function claudeAgent(binary: string): Agent {
       versionArgs: ['--version'],
       authArgs: ['auth', 'status'],
       auth: claudeAuth,
-      signIn: 'claude auth login',
+      signIn: () => 'claude auth login',
       update: 'claude update',
       install: 'curl -fsSL https://claude.ai/install.sh | bash',
     },

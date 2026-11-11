@@ -215,7 +215,7 @@ export function antigravityAgent(binary: string): Agent {
       authArgs: ['acp', '--help'],
       auth: () => ({ signedIn: false }),
       inspect: antigravityHealth,
-      signIn: 'agy acp --login',
+      signIn: () => 'agy acp --login',
       update: 'agy update',
       install: 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
     },

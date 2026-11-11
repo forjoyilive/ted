@@ -20,6 +20,7 @@ export interface Agents {
 }
 
 export function createAgents(options: {
+  home?: string
   claudeBin?: string
   codexBin?: string
   antigravityBin?: string
@@ -27,7 +28,7 @@ export function createAgents(options: {
 }): Agents {
   const byKind: Record<AgentKind, Agent> = {
     claude: claudeAgent(options.claudeBin ?? 'claude'),
-    codex: codexAgent(options.codexBin ?? 'codex'),
+    codex: codexAgent(options.codexBin ?? 'codex', options.home),
     antigravity: antigravityAgent(options.antigravityBin ?? 'agy'),
   }
   const env = options.env ?? (() => process.env)

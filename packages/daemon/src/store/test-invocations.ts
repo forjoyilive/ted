@@ -1,11 +1,14 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import {
+  type ActiveTestInvocations,
   parseRegisterTestInvocation,
   parseTestInvocationReport,
   type RegisterTestInvocation,
   type TestInvocation,
   type TestInvocationReport,
   type TestInvocationSummary,
+  type TestInvocationUpdate,
+  testActivityLeaseMs,
   testInvocationLimit,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -19,7 +22,9 @@ interface Owner {
 
 export interface TestInvocationStore {
   register(owner: Owner, input: RegisterTestInvocation): TestInvocation
-  report(id: string, input: TestInvocationReport): TestInvocation
+  report(id: string, input: TestInvocationUpdate): TestInvocation
+  active(taskId: string): ActiveTestInvocations
+  close(): void
   get(id: string): TestInvocation | undefined
   summary(taskId: string): TestInvocationSummary
 }
@@ -30,7 +35,9 @@ export function createTestInvocationStore({
   run,
   check,
   checks,
+  changed,
 }: {
+  changed(taskId: string): void
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
   run(id: string): { taskId?: string; state: string } | undefined
@@ -53,6 +60,36 @@ export function createTestInvocationStore({
       ...(JSON.parse(r.data) as TestInvocation),
       ...(r.ownerEnded && { ownerEnded: true }),
     }))
+  const live = new Map<
+    string,
+    {
+      taskId: string
+      phase: 'running' | 'waiting'
+      expiresAt: number
+      timer: ReturnType<typeof setTimeout>
+    }
+  >()
+  const forget = (id: string) => {
+    const previous = live.get(id)
+    if (previous) clearTimeout(previous.timer)
+    live.delete(id)
+    return previous
+  }
+  const refresh = (value: TestInvocation, phase: 'running' | 'waiting') => {
+    const previous = forget(value.id)
+    const timer = setTimeout(() => {
+      forget(value.id)
+      changed(value.taskId)
+    }, testActivityLeaseMs)
+    timer.unref()
+    live.set(value.id, {
+      taskId: value.taskId,
+      phase,
+      expiresAt: Date.now() + testActivityLeaseMs,
+      timer,
+    })
+    if (previous?.phase !== phase || previous.expiresAt <= Date.now()) changed(value.taskId)
+  }
   const save = (value: TestInvocation) => {
     commit(
       events.testInvocationRecorded({
@@ -118,6 +155,21 @@ export function createTestInvocationStore({
       const value = get(id)
       if (!value) throw new RequestError(404, 'no test invocation')
       if (!value.supported) conflict('invocation does not support reporting')
+      if (input.kind === 'running' || input.kind === 'waiting' || input.kind === 'inactive') {
+        if (!ownerLive(value)) conflict('invocation owner has ended')
+        const last = value.reports.at(-1)
+        if (terminal(last)) conflict('invocation is already closed')
+        if (input.sequence !== value.reports.length) conflict('report sequence is out of order')
+        if (Math.abs(Date.now() - input.at) > 5_000) conflict('live report timestamp is stale')
+        if (input.kind === 'inactive') {
+          if (forget(id)) changed(value.taskId)
+        } else {
+          if ((input.kind === 'waiting') !== (last?.kind === 'wait-start'))
+            conflict('live report does not match the wait state')
+          refresh(value, input.kind)
+        }
+        return value
+      }
       const previous = value.reports[input.sequence]
       if (previous) {
         if (JSON.stringify(previous) !== JSON.stringify(input))
@@ -143,7 +195,28 @@ export function createTestInvocationStore({
         conflict('invalid wait transition')
       if (input.sequence === 63 && !terminal(input))
         conflict('last report must close the invocation')
-      return save({ ...value, reports: [...value.reports, input] })
+      const saved = save({ ...value, reports: [...value.reports, input] })
+      if (forget(id)) changed(value.taskId)
+      return saved
+    },
+    active(taskId) {
+      const result: ActiveTestInvocations = { running: 0, waiting: 0, checksWaiting: false }
+      for (const [id, activity] of live) {
+        if (activity.taskId !== taskId) continue
+        const value = get(id)
+        if (!value || !ownerLive(value)) {
+          forget(id)
+          continue
+        }
+        if (activity.expiresAt <= Date.now()) continue
+        if (value.checkRunId !== undefined) {
+          if (activity.phase === 'waiting') result.checksWaiting = true
+        } else result[activity.phase]++
+      }
+      return result
+    },
+    close() {
+      for (const id of live.keys()) forget(id)
     },
     summary(taskId) {
       const values = list(taskId)

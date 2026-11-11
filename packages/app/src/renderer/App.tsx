@@ -10,7 +10,15 @@ import type {
 import { simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
-import { type ReactNode, useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import type { MenuCommand } from '../background.ts'
 import { updateBanner, updateChip, updateFailedProblem } from '../updates.ts'
 import styles from './App.module.css'
@@ -73,6 +81,7 @@ import {
   pressDialogPrimary,
   pressImageNavigation,
   rankNeighbours,
+  replyBox,
   requestChangesBox,
 } from './key-targets.ts'
 import { imageNavigationKey, keyBindings } from './keymap.ts'
@@ -211,6 +220,10 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
 export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
   const [history, dispatch] = useReducer(withHistory, initialNavigation, startHistory)
   const navigation = history.now
+  const revealRequest = useMemo(
+    () => (navigation.requestId === undefined ? undefined : { id: navigation.requestId }),
+    [navigation],
+  )
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
   const settingsResource = useSettingsState()
@@ -406,10 +419,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       setArmed(button)
       return button !== undefined
     },
-    reply: () =>
-      panes.current !== null &&
-      (focusFirst(panes.current, 'textarea[data-answer-box]') ||
-        focusFirst(panes.current, 'textarea[data-comment-box]')),
+    reply: () => {
+      const box = panes.current ? replyBox(panes.current) : undefined
+      box?.focus()
+      return box !== undefined
+    },
     requestChanges: () => {
       const box = panes.current ? requestChangesBox(panes.current) : undefined
       box?.focus()
@@ -664,7 +678,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
         tasks={tasks}
         factories={factories}
         backLink={backLink(navigation)}
-        requestId={navigation.requestId}
+        revealRequest={revealRequest}
         answeredId={inboxScreen?.answered ? navigation.requestId : undefined}
         onBack={() => dispatch({ type: 'close-task' })}
         onOpenTask={openTaskByRef}
@@ -700,6 +714,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
             key={navigation.planId}
             factory={planFactory}
             planId={navigation.planId}
+            revealRequest={revealRequest}
             backLabel="← Inbox"
             onBack={() => dispatch({ type: 'open', screen })}
             onDeleted={() => dispatch({ type: 'open', screen })}
@@ -890,6 +905,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
                 key={navigation.planId}
                 factory={factory}
                 planId={navigation.planId === newPlan ? undefined : navigation.planId}
+                revealRequest={revealRequest}
                 onBack={backToPlans}
                 {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
                 onOpenPlan={(planId) =>

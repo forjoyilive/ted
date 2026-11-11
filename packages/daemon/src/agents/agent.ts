@@ -93,7 +93,7 @@ export interface AgentHealthSpec {
   versionArgs: string[]
   authArgs: string[]
   auth(result: { code: number | null; stdout: string; stderr: string }): AuthCheck
-  signIn: string
+  signIn(env: NodeJS.ProcessEnv): string
   update: string
   install: string
 }

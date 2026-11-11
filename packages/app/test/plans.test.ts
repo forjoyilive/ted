@@ -53,8 +53,8 @@ describe('planning chat text', () => {
     )
   })
 
-  test('the open request is pinned below; a replaced proposal reads Superseded', () => {
-    expect(requestState(round, false)).toBe('pinned below')
+  test('the open request waits for the user; a replaced proposal reads Superseded', () => {
+    expect(requestState(round, false)).toBe('waiting for you')
     const changed: PlanRequest = {
       ...round,
       kind: 'proposal',

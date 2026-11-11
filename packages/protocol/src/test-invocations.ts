@@ -3,6 +3,15 @@ import { bodyObject, RequestValidationError } from './validation.ts'
 export const testReportingVersion = 1
 export const testInvocationLimit = 256
 export const testReportLimit = 64
+export const testActivityLeaseMs = 30_000
+export const testActivityPulseMs = 10_000
+
+export interface ActiveTestInvocations {
+  running: number
+  waiting: number
+  checksWaiting: boolean
+}
+
 export const testReporterPrefix = 'test-report:'
 
 export interface RegisterTestInvocation {
@@ -18,6 +27,12 @@ export interface TestInvocationReport {
   kind: 'wait-start' | 'wait-end' | 'finished' | 'canceled' | 'interrupted'
   at: number
 }
+
+export type TestInvocationUpdate =
+  | TestInvocationReport
+  | { sequence: number; kind: 'running'; at: number }
+  | { sequence: number; kind: 'waiting'; at: number }
+  | { sequence: number; kind: 'inactive'; at: number }
 
 export interface TestInvocation extends RegisterTestInvocation {
   taskId: string
@@ -97,7 +112,7 @@ export function parseRegisterTestInvocation(value: unknown): RegisterTestInvocat
   }
 }
 
-export function parseTestInvocationReport(value: unknown): TestInvocationReport {
+export function parseTestInvocationReport(value: unknown): TestInvocationUpdate {
   const body = bodyObject(value)
   fields(body, ['sequence', 'kind', 'at'])
   if (
@@ -108,7 +123,16 @@ export function parseTestInvocationReport(value: unknown): TestInvocationReport 
     invalid('sequence is outside the reporting limit')
   if (
     typeof body.kind !== 'string' ||
-    !['wait-start', 'wait-end', 'finished', 'canceled', 'interrupted'].includes(body.kind)
+    ![
+      'wait-start',
+      'wait-end',
+      'finished',
+      'canceled',
+      'interrupted',
+      'running',
+      'waiting',
+      'inactive',
+    ].includes(body.kind)
   )
     invalid('unknown test report kind')
   if (
@@ -119,7 +143,7 @@ export function parseTestInvocationReport(value: unknown): TestInvocationReport 
     invalid('at must be a valid timestamp in integer milliseconds')
   return {
     sequence: Number(body.sequence),
-    kind: body.kind as TestInvocationReport['kind'],
+    kind: body.kind as TestInvocationUpdate['kind'],
     at: Number(body.at),
   }
 }

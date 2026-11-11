@@ -1,5 +1,6 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
 import type {
+  Attachment,
   AutomationDetail,
   ExportFormat,
   MachineSettings,
@@ -12,6 +13,7 @@ import type { LoginItemState } from './login-item.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
+  showAttachmentInFolder: (attachment: Pick<Attachment, 'hash' | 'name'>) => Promise<void>
   getAutomation: (id: string) => Promise<AutomationDetail | null>
   exportFactory: (factoryId: string, format: ExportFormat) => Promise<SaveExportResult>
   taskBrief: (taskId: string) => Promise<TaskBrief | null>

@@ -1,12 +1,13 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { describe, expect, test, vi } from 'vitest'
+import { afterAll, describe, expect, test, vi } from 'vitest'
 import { parseStartSubAgentRequest } from '../../protocol/src/run-parsers.ts'
 import { antigravityAgent } from '../src/agents/antigravity.ts'
 import { type AntigravityPlan, drive } from '../src/agents/antigravity-driver.ts'
@@ -14,7 +15,9 @@ import { createAgents } from '../src/agents/index.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
 import { checkLayer } from '../src/workflow/check.ts'
 
-const agents = createAgents({ claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' })
+const home = mkdtempSync(path.join(tmpdir(), 'ted-agents-'))
+afterAll(() => rmSync(home, { recursive: true, force: true }))
+const agents = createAgents({ home, claudeBin: '/nowhere/claude', codexBin: '/nowhere/codex' })
 const run = {
   prompt: 'Carry on',
   runDir: '/tmp/run',
@@ -171,7 +174,9 @@ describe('agent kinds', () => {
       thread: { method: 'thread/resume', params: { threadId: 'thread-1' } },
       prompt: 'Carry on',
     })
-    expect(resumed.args).toEqual(fresh.args)
+    expect(resumed.env.CODEX_HOME).toBeUndefined()
+    expect(fresh.env.CODEX_HOME).toBe(path.join(home, 'codex'))
+    expect(resumed.args).not.toContain(`sqlite_home=${JSON.stringify(path.join(home, 'codex'))}`)
   })
 
   test('Claude Code gets the model and effort as --model and --effort, ultra as max', () => {
@@ -193,6 +198,44 @@ describe('agent kinds', () => {
       )
       expect(() => agents.get(kind).launch({ ...run, model: 'opus[1m]' })).not.toThrow()
     }
+  })
+
+  test('Codex refuses linked session routing folders rather than resuming outside TED storage', () => {
+    const local = path.join(home, 'linked-home')
+    mkdirSync(local)
+    const codex = createAgents({ home: local }).get('codex')
+    codex.environment({}, 'subscription')
+    const folder = path.join(local, 'codex')
+    const elsewhere = path.join(local, 'elsewhere')
+    mkdirSync(elsewhere)
+    writeFileSync(path.join(elsewhere, 'session'), '')
+    symlinkSync(elsewhere, path.join(folder, 'ted-sessions'))
+    expect(() => codex.launch({ ...run, resume: 'session' })).toThrow(/plain folder/)
+  })
+
+  test('Codex storage belongs to this TED home regardless of inherited personal locations', () => {
+    const codex = agents.get('codex')
+    const env = { CODEX_HOME: '/personal/codex', CODEX_SQLITE_HOME: '/personal/db' }
+    const launch = codex.launch({ ...run, env })
+    const folder = path.join(home, 'codex')
+    expect(launch.env).toMatchObject({ CODEX_HOME: folder, CODEX_SQLITE_HOME: folder })
+    expect(launch.args).toContain(`sqlite_home=${JSON.stringify(folder)}`)
+    const legacy = codex.launch({ ...run, env, resume: 'legacy-thread' })
+    expect(legacy.env).toMatchObject(env)
+    expect(legacy.args).not.toContain(`sqlite_home=${JSON.stringify(folder)}`)
+    expect(codex.health.signIn(env)).toBe(
+      `env CODEX_HOME='${folder}' CODEX_SQLITE_HOME='${folder}' codex login`,
+    )
+    const devHome = path.join(home, 'dev')
+    mkdirSync(devHome)
+    expect(
+      createAgents({ home: devHome }).get('codex').environment(env, 'subscription').CODEX_HOME,
+    ).toBe(path.join(devHome, 'codex'))
+    expect(
+      createAgents({ home: path.relative(process.cwd(), devHome) })
+        .get('codex')
+        .environment(env, 'subscription').CODEX_HOME,
+    ).toBe(path.join(devHome, 'codex'))
   })
 
   test('Codex gets the model and effort in its plan', () => {
@@ -409,10 +452,14 @@ describe('usage, credentials and cost', () => {
     const keys = { CODEX_API_KEY: 'c', OPENAI_API_KEY: 'o' }
     const env = { ...removed, ...kept, ...keys }
     const subscription = codex.launch({ ...run, env }).env
-    expect(subscription).toEqual(kept)
-    expect(codex.environment(env, 'subscription')).toEqual(kept)
+    const privateEnv = {
+      CODEX_HOME: path.join(home, 'codex'),
+      CODEX_SQLITE_HOME: path.join(home, 'codex'),
+    }
+    expect(subscription).toEqual({ ...kept, ...privateEnv })
+    expect(codex.environment(env, 'subscription')).toEqual({ ...kept, ...privateEnv })
     const apiKey = codex.launch({ ...run, env, billing: 'api-key' })
-    expect(apiKey.env).toEqual({ ...kept, ...keys })
+    expect(apiKey.env).toEqual({ ...kept, ...keys, ...privateEnv })
     expect(apiKey.args).toEqual(codex.launch({ ...run, env: {}, billing: 'api-key' }).args)
   })
 })
