@@ -168,8 +168,10 @@ export function FactorySettings({
   const loaded = base?.draft.repos ?? []
   const unsaved = base && draft ? unsavedChanges(draft, base.draft) : { count: 0, files: [] }
   const count = unsaved.count
-  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) =>
+  const onDraft = (change: (current: SettingsDraft) => SettingsDraft) => {
+    if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
+  }
   const setRepos = (change: (repos: RepoSettingsInput[]) => RepoSettingsInput[]) =>
     onDraft((current) => ({ ...current, repos: change(current.repos) }))
   const updateRepo = (index: number, change: (repo: RepoSettingsInput) => RepoSettingsInput) =>
@@ -321,6 +323,7 @@ export function FactorySettings({
               )}
               {view && draft && base && (
                 <ReposSection
+                  disabled={merging}
                   view={view}
                   draft={draft.repos}
                   loaded={loaded}
@@ -612,6 +615,7 @@ function DangerZoneSection({ onRemove }: { onRemove: () => void }) {
 }
 
 interface ReposSectionProps {
+  disabled: boolean
   view: FactorySettingsView
   draft: RepoSettingsInput[]
   loaded: RepoSettingsInput[]
@@ -628,6 +632,7 @@ interface ReposSectionProps {
 }
 
 function ReposSection({
+  disabled,
   view,
   draft,
   loaded,
@@ -677,6 +682,7 @@ function ReposSection({
             shown={shown}
             edited={editedFields(repo, loaded)}
             home={home}
+            disabled={disabled}
             dragging={dragging}
             onDragStart={() => setDragging(index)}
             onDragEnd={() => setDragging(undefined)}
@@ -742,6 +748,7 @@ function ReposSection({
 }
 
 interface RepoCardProps {
+  disabled: boolean
   repo: RepoSettingsInput
   index: number
   shown: RepoSettingsView | undefined
@@ -762,6 +769,7 @@ function Edited({ when }: { when: boolean }) {
 }
 
 function RepoCard({
+  disabled,
   repo,
   index,
   shown,
@@ -779,7 +787,7 @@ function RepoCard({
   const id = useId()
   const primary = index === 0
   const isNew = repo.was === undefined
-  const canDrop = !primary && dragging !== undefined && dragging !== index
+  const canDrop = !disabled && !primary && dragging !== undefined && dragging !== index
   const set = (fields: Partial<RepoSettingsInput>) => onChange((r) => ({ ...r, ...fields }))
 
   return (
@@ -801,10 +809,14 @@ function RepoCard({
         ) : (
           <span
             className={styles.handle}
-            draggable
+            draggable={!disabled}
             role="img"
             aria-label="Drag to reorder"
             onDragStart={(event) => {
+              if (disabled) {
+                event.preventDefault()
+                return
+              }
               event.dataTransfer.effectAllowed = 'move'
               onDragStart()
             }}

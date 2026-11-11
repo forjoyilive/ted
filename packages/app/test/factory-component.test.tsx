@@ -138,7 +138,13 @@ test('repo settings explain saving and let the user retry merging without losing
   }
   const merging = deferred<import('@ted/protocol').SaveSettingsResult>()
   const merge = vi.fn(() => merging.promise)
+  const loaded = settingsView()
+  loaded.repos.push(
+    { was: 'api', repo: 'acme/api', name: 'api', primary: false, env: [], copy: [], apps: [] },
+    { was: 'web', repo: 'acme/web', name: 'web', primary: false, env: [], copy: [], apps: [] },
+  )
   const api = open({
+    factorySettings: () => loaded,
     previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
     saveFactorySettings: () => result,
     mergeFactorySettings: merge,
@@ -148,6 +154,22 @@ test('repo settings explain saving and let the user retry merging without losing
   const gate = await screen.findByRole('switch', { name: 'Design Gate' })
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(screen.queryByText('Saved to the repo · pull request')).toBeNull()
+  const repos = within(screen.getByRole('region', { name: 'Repos' }))
+  const order = () => repos.getAllByRole('article').map((row) => row.getAttribute('aria-label'))
+  const drag = () => {
+    fireEvent.dragStart(
+      within(repos.getByRole('article', { name: 'acme/api' })).getByRole('img', {
+        name: 'Drag to reorder',
+      }),
+      { dataTransfer: { effectAllowed: '' } },
+    )
+    fireEvent.drop(repos.getByRole('article', { name: 'acme/web' }))
+  }
+  drag()
+  expect(order()).toEqual(['acme/widgets', 'acme/web', 'acme/api'])
+  await u.click(screen.getByRole('button', { name: 'Discard' }))
+  expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+
   await u.click(gate)
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
@@ -173,6 +195,17 @@ test('repo settings explain saving and let the user retry merging without losing
   await u.click(button)
   expect(screen.getByRole('button', { name: 'Merging…' }).hasAttribute('disabled')).toBe(true)
   expect(gate.closest('fieldset')?.disabled).toBe(true)
+  drag()
+  expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+  const command = screen.getByRole('textbox', { name: 'Typecheck command' })
+  const savedCommand = (command as HTMLInputElement).value
+  fireEvent.change(command, { target: { value: 'must not become a draft' } })
+  expect(command).toHaveProperty('value', savedCommand)
+  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+  for (const handle of repos.getAllByRole('img', { name: 'Drag to reorder' })) {
+    expect(handle.getAttribute('draggable')).toBe('false')
+  }
+
   expect(api.request).toHaveBeenCalledWith('mergeFactorySettings', 'f1', {
     receipt: result.receipt,
   })
