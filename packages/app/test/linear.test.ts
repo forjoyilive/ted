@@ -1,5 +1,4 @@
 import { mkdtemp, rename, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,11 +18,12 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 vi.setConfig({ testTimeout: 90_000 })
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 
 const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
 const issueUrl = 'https://linear.app/kriyadesign/issue/NOTE-212/search-ignores-accents'
