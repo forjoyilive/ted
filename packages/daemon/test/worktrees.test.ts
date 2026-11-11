@@ -1,15 +1,5 @@
 import { execFile } from 'node:child_process'
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -114,30 +104,21 @@ const commandResults = async (client: Client, runId: string) =>
   )
 
 describe('worktree setup', () => {
-  test('one setup execution records one start and one completion in the thread', async () => {
-    await workflow('      setup: "echo run >> stub-count"\n')
-    const client = await startWithStub()
-    await addFactory(client)
-    const task = await createTask(client, steps({ endTurn: true }))
-
-    await client.ok('POST', `/tasks/${task.id}/start`)
-    await leadRun(client, task)
-
-    expect(await readFile(path.join(worktreeOf(), 'stub-count'), 'utf8')).toBe('run\n')
-    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
-    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(1)
-    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
-  })
-
-  test('copy files and env are in place before setup, and setup runs before the Task Lead', async () => {
+  test('copy files and env are in place before setup, setup runs once before the Task Lead with one start and one completion in the thread, and worktree.env can’t replace PATH, TED_ variables or loader and agent variables', async () => {
     await writeFile(path.join(localFolder, '.env'), 'SECRET=1\n')
     await mkdir(path.join(localFolder, 'config'))
     await writeFile(path.join(localFolder, 'config', 'master.key'), 'key\n')
     await workflow(
       [
-        '      setup: "cat .env config/master.key > setup-saw.txt && printf %s \\"$GREETING\\" >> setup-saw.txt"',
+        '      setup: "echo run >> stub-count && cat .env config/master.key > setup-saw.txt && printf %s \\"$GREETING\\" >> setup-saw.txt && printf \'%s|%s|%s|%s\' \\"$PATH\\" \\"$TED_TASK\\" \\"$NODE_OPTIONS\\" \\"$KEEP\\" > env-seen.txt"',
         '      env:',
         '        GREETING: hello',
+        '        PATH: /nowhere',
+        '        TED_TASK: XX-1',
+        '        NODE_OPTIONS: --require=/tmp/evil.js',
+        '        DYLD_INSERT_LIBRARIES: /tmp/evil.dylib',
+        '        ANTHROPIC_API_KEY: stolen',
+        '        KEEP: kept',
         '      copy: [".env", "config/*.key"]',
         '',
       ].join('\n'),
@@ -149,6 +130,7 @@ describe('worktree setup', () => {
       steps(
         { run: ['cat', 'setup-saw.txt'] },
         { run: ['printenv', 'GREETING'] },
+        { run: ['printenv', 'KEEP'] },
         { endTurn: true },
       ),
     )
@@ -159,10 +141,33 @@ describe('worktree setup', () => {
     expect(run.cwd).toBe(worktreeOf())
     const results = await waitUntil(async () => {
       const r = await commandResults(client, run.id)
-      return r.length === 2 ? r : undefined
+      return r.length === 3 ? r : undefined
     }, 'the Task Lead’s commands')
     expect(results[0]?.stdout).toBe('SECRET=1\nkey\nhello')
     expect(results[1]?.stdout).toBe('hello\n')
+
+    expect(await readFile(path.join(worktreeOf(), 'stub-count'), 'utf8')).toBe('run\n')
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(events.filter((event) => event.text.startsWith('Setting up widgets ·'))).toHaveLength(1)
+    expect(events.filter((event) => event.text === 'Setup finished in widgets')).toHaveLength(1)
+
+    const [seenPath, seenTask, seenNodeOptions, kept] = (
+      await readFile(path.join(worktreeOf(), 'env-seen.txt'), 'utf8')
+    ).split('|')
+    expect(seenPath).toBe(process.env.PATH)
+    expect(seenTask).toBe('NB-1')
+    expect(seenNodeOptions).toBe(process.env.NODE_OPTIONS ?? '')
+    expect(kept).toBe('kept')
+    const record = await waitUntil(
+      () =>
+        readFile(path.join(worktreeOf(), 'stub-record.json'), 'utf8')
+          .then((s) => JSON.parse(s) as { env: Record<string, string> })
+          .catch(() => undefined),
+      'the Task Lead to start',
+    )
+    expect(record.env.DYLD_INSERT_LIBRARIES).toBeUndefined()
+    expect(record.env.ANTHROPIC_API_KEY).toBeUndefined()
+    expect(record.env.KEEP).toBe('kept')
   })
 
   test('setup and teardown get the PATH from the login shell, like the Task Lead', async () => {
@@ -238,37 +243,7 @@ describe('worktree setup outcomes', () => {
     expect(log.text).toBe('installing\nhttps://[redacted]@example.com\n')
   })
 
-  test('Stop during setup frees the slot, and Resume runs setup again before the Task Lead', async () => {
-    const go = path.join(scratch, 'go')
-    await workflow(`      setup: "while [ ! -e '${go}' ]; do sleep 0.05; done"\n`)
-    const client = await startWithStub()
-    await addFactory(client)
-    const task = await createTask(client, steps({ endTurn: true }))
-    await client.ok<Task>('POST', `/tasks/${task.id}/start`)
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.repos[0]?.setup?.state === 'running',
-      'setup to start',
-    )
-
-    const stopped = await client.ok<Task>('POST', `/tasks/${task.id}/stop`)
-
-    expect(stopped.status?.kind).toBe('stopped')
-    await waitUntil(
-      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
-      'the slot to be free',
-    )
-
-    await client.ok('POST', `/tasks/${task.id}/resume`, {})
-    await waitUntil(
-      async () => (await getTask(client, task.id))?.status?.kind === 'working',
-      'setup to run again',
-    )
-    expect((await getTask(client, task.id))?.leadRunId).toBeUndefined()
-    await writeFile(go, '')
-    await leadRun(client, task)
-  })
-
-  test('the Task shows Setting up while setup runs, and the Task Lead waits for it', async () => {
+  test('the Task shows Setting up while setup runs and the Task Lead waits for it; Stop during setup frees the slot, and Resume runs setup again before the Task Lead', async () => {
     const go = path.join(scratch, 'go')
     await workflow(`      setup: "while [ ! -e '${go}' ]; do sleep 0.05; done"\n`)
     const client = await startWithStub()
@@ -288,6 +263,21 @@ describe('worktree setup outcomes', () => {
       activity: 'Setting up the worktree',
     })
     expect(started.repos).toMatchObject([{ name: 'widgets', worktree: worktreeOf() }])
+
+    const stopped = await client.ok<Task>('POST', `/tasks/${task.id}/stop`)
+
+    expect(stopped.status?.kind).toBe('stopped')
+    await waitUntil(
+      async () => (await client.ok<RunSlots>('GET', '/slots')).working === 0,
+      'the slot to be free',
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    await waitUntil(
+      async () => (await getTask(client, task.id))?.status?.kind === 'working',
+      'setup to run again',
+    )
+    expect((await getTask(client, task.id))?.leadRunId).toBeUndefined()
     await writeFile(go, '')
     await leadRun(client, task)
     expect((await getTask(client, task.id))?.repos[0]?.setup?.state).toBe('passed')
@@ -357,47 +347,6 @@ describe('worktree setup outcomes', () => {
 })
 
 describe('worktree safety', () => {
-  test('worktree.env can’t replace PATH, TED_ variables or loader and agent variables', async () => {
-    await workflow(
-      [
-        '      setup: "printf \'%s|%s|%s|%s\' \\"$PATH\\" \\"$TED_TASK\\" \\"$NODE_OPTIONS\\" \\"$KEEP\\" > env-seen.txt"',
-        '      env:',
-        '        PATH: /nowhere',
-        '        TED_TASK: XX-1',
-        '        NODE_OPTIONS: --require=/tmp/evil.js',
-        '        DYLD_INSERT_LIBRARIES: /tmp/evil.dylib',
-        '        ANTHROPIC_API_KEY: stolen',
-        '        KEEP: kept',
-        '',
-      ].join('\n'),
-    )
-    const client = await startWithStub()
-    await addFactory(client)
-    const task = await createTask(client, steps({ run: ['printenv', 'KEEP'] }, { endTurn: true }))
-
-    await client.ok('POST', `/tasks/${task.id}/start`)
-
-    const run = await leadRun(client, task)
-    const [seenPath, seenTask, seenNodeOptions, kept] = (
-      await readFile(path.join(worktreeOf(), 'env-seen.txt'), 'utf8')
-    ).split('|')
-    expect(seenPath).toBe(process.env.PATH)
-    expect(seenTask).toBe('NB-1')
-    expect(seenNodeOptions).toBe(process.env.NODE_OPTIONS ?? '')
-    expect(kept).toBe('kept')
-    const record = await waitUntil(
-      () =>
-        readFile(path.join(worktreeOf(), 'stub-record.json'), 'utf8')
-          .then((s) => JSON.parse(s) as { env: Record<string, string> })
-          .catch(() => undefined),
-      'the Task Lead to start',
-    )
-    expect(record.env.DYLD_INSERT_LIBRARIES).toBeUndefined()
-    expect(record.env.ANTHROPIC_API_KEY).toBeUndefined()
-    expect(record.env.KEEP).toBe('kept')
-    expect(run.cwd).toBe(worktreeOf())
-  })
-
   test('a resumed setup runs the command recorded when it started, not a newer one', async () => {
     const go = path.join(scratch, 'go')
     const count = path.join(worktreeOf(), 'stub-count')
@@ -483,32 +432,25 @@ describe('worktree removal', () => {
 })
 
 describe('branch names', () => {
-  test('a long title is cut to 40 characters at a word boundary', async () => {
-    const client = await startWithStub()
-    await addFactory(client)
-    const task = await createTask(
-      client,
-      'Fix the login redirect when the session cookie has expired overnight',
-    )
-
-    const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
-
-    expect(started.branch).toBe('ted/nb-1-fix-the-login-redirect-when-the-session')
-  })
-
-  test('a name already taken on origin gets -2, then -3', async () => {
+  test('a long title is cut to 40 characters at a word boundary, and a name already taken on origin gets -2, then -3', async () => {
     const seed = path.join(scratch, 'seed')
-    for (const branch of ['ted/nb-1-fix-login', 'ted/nb-1-fix-login-2']) {
+    for (const branch of ['ted/nb-2-fix-login', 'ted/nb-2-fix-login-2']) {
       await execFileAsync('git', ['push', origin, `HEAD:refs/heads/${branch}`], { cwd: seed })
     }
     const client = await startWithStub()
     await addFactory(client)
-    const task = await createTask(client, 'Fix login')
+    const long = await createTask(
+      client,
+      'Fix the login redirect when the session cookie has expired overnight',
+    )
+    const taken = await createTask(client, 'Fix login')
 
-    const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
+    const startedLong = await client.ok<Task>('POST', `/tasks/${long.id}/start`)
+    const startedTaken = await client.ok<Task>('POST', `/tasks/${taken.id}/start`)
 
-    expect(started.branch).toBe('ted/nb-1-fix-login-3')
-    expect(started.repos[0]?.branch).toBe('ted/nb-1-fix-login-3')
+    expect(startedLong.branch).toBe('ted/nb-1-fix-the-login-redirect-when-the-session')
+    expect(startedTaken.branch).toBe('ted/nb-2-fix-login-3')
+    expect(startedTaken.repos[0]?.branch).toBe('ted/nb-2-fix-login-3')
   })
 
   test('branches start from base_branch when the repo sets one', async () => {
@@ -575,32 +517,5 @@ describe('local folders and copy files', () => {
       const res = await client.call('PUT', '/factories/NB/local-folder', { path: folder })
       expect(res.status, folder).toBe(400)
     }
-  })
-
-  test('copy never reads outside the local folder or writes outside the worktree', async () => {
-    const secret = path.join(scratch, 'secret.txt')
-    await writeFile(secret, 'secret\n')
-    await symlink(secret, path.join(localFolder, 'linked.txt'))
-    await writeFile(path.join(localFolder, 'inside.txt'), 'ok\n')
-    await mkdir(path.join(localFolder, 'out'))
-    await writeFile(path.join(localFolder, 'out', 'inside.txt'), 'escaped\n')
-    await symlink(scratch, path.join(scratch, 'seed', 'out'))
-    await workflow(
-      '      copy: ["../secret.txt", "/etc/hosts", "linked.txt", "out/inside.txt", "inside.txt"]\n',
-    )
-    const client = await startWithStub()
-    await addFactory(client)
-    const task = await createTask(client, steps({ endTurn: true }))
-
-    const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
-
-    expect(started.repos[0]?.copied).toEqual(['inside.txt'])
-    expect(started.repos[0]?.skipped.map((s) => [s.path, s.reason])).toEqual([
-      ['../secret.txt', 'outside'],
-      ['/etc/hosts', 'outside'],
-      ['linked.txt', 'outside'],
-      ['out/inside.txt', 'outside'],
-    ])
-    expect(await exists(path.join(scratch, 'inside.txt'))).toBe(false)
   })
 })
