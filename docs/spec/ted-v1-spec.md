@@ -143,7 +143,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 - **Daily backup:** the event log and attachment list (not worktrees, clones or simulators), keeping 7. Attachment files are stored by hash and not copied again. (KRI-59)
 - **Restore** is `ted backup restore <name>`, which asks to stop all Runs first and copies the current data to `~/.ted/backups/` before restoring. (KRI-59, KRI-64)
 - If a rebuild fails, or the store was written by a newer TED, a full-window screen shows “TED couldn’t update its data” or “This data needs TED 1.4 or later”, with **Restore the backup from before the update (loses changes since <date>)**, **Copy report**, and **Download TED 1.4** or **Quit TED**. Each screen ends “Runs keep going in the background.” (KRI-59, KRI-64)
-- No export in v1 (KRI-71). (KRI-59)
+- `ted export --factory <key> [--format json|markdown] --output <path>` and Settings → Storage → Export a Factory save a single-file snapshot of all retained Tasks, including Done and archived Tasks, Comments and answers, saved brief and description versions, and Task Run metadata. JSON is the default. Existing destinations are refused. Attachment names and references are included, but attached files, Run Conversations, deleted records, repo files and non-Task Runs are excluded. Known token-shaped secrets and URL credentials are redacted. Export is for reading outside TED; use backups to restore TED data. (KRI-71)
 - **Kept:** (KRI-59)
   - The event log, forever. No compaction in v1 (KRI-73).
   - Conversations and raw Run output, for as long as their Task is open. After the Task is Done or archived, for the number of days set in Settings → Storage (7 by default). A Run without a Task keeps them that long after it finishes; a Coordinator’s Runs keep them while the Coordinator exists (ADR 0098).
@@ -221,6 +221,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
   5. Open TED, New Task… ⌘N, Settings… ⌘,
   6. Quit TED completely ⌘Q, which asks about work running (3.1).
 - Every item is also in the app’s own menus. (KRI-59)
+- **Linux menu bar.** Use the native Electron menu bar, with a TED menu holding the same items as the macOS menu-bar menu. This follows the desktop’s own look and keeps the implementation simple. It supersedes the ☰ menu button shown in Figma. ([KRI-169](https://linear.app/kriyadesign/issue/KRI-169/should-ted-on-linux-use-a-native-menu-bar-instead-of-the-menu-in-figma))
 - **Linux.** Electron’s tray uses StatusNotifierItem, which stock GNOME doesn’t show. So closing the window keeps TED running, as on macOS. The first time the window closes, TED sends one notification: “TED is still running in the background. Open it again from your app launcher.” Opening TED again focuses the running instance (one instance only); `ted open` does the same. Settings → General has **Show tray icon** (on). The Linux app menu holds the same items as the macOS menu-bar menu. The Inbox count shows in the window title (“TED (3)”) and on the launcher icon where supported. (KRI-59, KRI-64)
 
 ---
@@ -282,6 +283,7 @@ Rules:
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
 | `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. | KRI-12 |
+| `stages.<id>.effort` | any layer | Task Lead effort for this working Stage: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. Optional; Backlog and Done take no effort. | KRI-67 |
 | `stages.<id>.gate` | any layer | `true` puts a Gate at the end of the Stage. | KRI-12 |
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage (6.7). UI label: **Send-backs**. | KRI-12, KRI-58, KRI-65 |
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
@@ -291,8 +293,10 @@ Rules:
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
 
 - **Defaults:** Gates on Design and Review; Merge on with no Gate; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
-- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. Effort per Stage is not in v1 (KRI-67). (KRI-15, KRI-53, KRI-54, KRI-57)
+- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
 - An unknown key is a warning, not an error, so a newer file still loads. (KRI-58)
+
+A new Task follows Stage effort settings unless the human explicitly chooses its effort. Precedence is a fixed per-Task effort (including CLI default), then the effective Stage effort, then the Task’s saved lead effort, then the CLI default. Existing Tasks keep their saved effort fixed until the human selects **Follow Stage settings**. Stage effort is resolved at Stage entry; later Workflow edits apply at the next Stage. The Run and conversation stay the same: TED resumes with the new effort at idle, before delivering the new Stage’s instructions. Returning to an unconfigured Stage restores the saved lead effort. Library and Factory Workflow tables expose **Task Lead effort** with an **Inherit** option; removing a local override restores inheritance. `ted task lead <id> claude|codex --stage-effort` follows Stage settings; existing lead commands without this option keep fixed effort semantics. Reviewer, sub-agent, Planning and Automation settings are unchanged. (KRI-67)
 
 ### 4.6 `repos`
 
@@ -502,11 +506,11 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
 
 Each Factory has one saved Coordinator conversation, opened between List and Plans in the Factory sidebar. It compares current Tasks, briefs and Comments and recommends next work. Each Task retains its Task Lead. The Coordinator works only when messaged; there is no background monitoring. Before the first message, agent, model and effort default to the Factory’s planner settings and can be changed with the existing planning controls.
 
-Explicit human requests in the conversation can start Backlog Tasks or reorder Backlog Tasks among Backlog neighbours and Queued Tasks among Queued neighbours. Advice alone authorizes no change; ambiguous requests and recommendations require a chat reply before acting. Starts use the ordinary Intake queue, blockers and slot limits. Reordering uses neighbour IDs and existing Priority rules. Daemon-authored receipts give the actual result and preserve before/after facts. Multi-Task requests execute individually, with partial results reported individually. Stale facts are refused and operation IDs deduplicate actions.
+Human requests in the conversation can start Backlog Tasks, reorder Backlog Tasks among Backlog neighbours and Queued Tasks among Queued neighbours, resume stopped or failed Tasks, send a Task Lead a message, and answer a Task’s open requests: questions, Clarify rounds, proposals, size checks, failure decisions, Gate requests and sign-offs. The request names the kind of action and the Tasks, by name or as a group, and may leave each answer to the Coordinator’s judgement. Permission prompts, simulator asks and the Linear team ask stay with the human (ADR 0094). Advice alone authorizes no change; ambiguous requests and recommendations require a chat reply before acting. Starts use the ordinary Intake queue, blockers and slot limits. Reordering uses neighbour IDs and existing Priority rules. Daemon-authored receipts give the actual result and preserve before/after facts. Multi-Task requests execute individually, with partial results reported individually. Stale facts are refused and operation IDs deduplicate actions.
 
-A Coordinator Run is a deliberate exception to the ordinary own-Task authority in §2.3. Stored Run association identifies its Factory; only Factory-scoped Coordinator reads, start/move tools, caller discovery and its own tool-call boundary are available. Human messages, Stop and Retry are app-only. Generic Run routes cannot grant it broader authority, and other Runs cannot use Coordinator tools. Task text is untrusted context. Gates, Task edits, other Stage changes, settings and credentials remain unavailable.
+A Coordinator Run is a deliberate exception to the ordinary own-Task authority in §2.3. Stored Run association identifies its Factory; only Factory-scoped Coordinator reads, its start, move, tell, answer and resume tools, caller discovery and its own tool-call boundary are available. Human messages, Stop and Retry are app-only. Generic Run routes cannot grant it broader authority, and other Runs cannot use Coordinator tools. Task text is untrusted context. Task edits, settings and credentials remain unavailable, and a Stage changes only as the effect of an answer.
 
-Every idle-to-working turn enters the common queue at the Planning tier, counts against machine and Factory limits, and observes disk and agent health holds. An idle conversation holds no working slot. Messages during a response wait for a tool boundary. Stop cancels undispatched messages and interrupts the response while retaining history. Retry resumes through the queue; if the agent cannot resume its session, a replacement Run receives saved history and action receipts as context. The header shows Ready, Queued, Working, Paused or Failed. The context pane links to Tasks read or changed, with their current status. Removing a Factory removes its Coordinator, pending messages, history and managed files.
+Every idle-to-working turn enters the common queue at the Planning tier, counts against machine and Factory limits, and observes disk and agent health holds. An idle conversation holds no working slot. Messages during a response wait for a tool boundary. Stop cancels undispatched messages and interrupts the response while retaining history. Retry resumes through the queue; if the agent cannot resume its session, a replacement Run receives saved history and action receipts as context. The header shows Ready, Queued, Working, Paused or Failed. The context pane links to Tasks read or changed, with their current status. **New conversation** in the header asks first, then stops the Coordinator and deletes its conversation, pending messages, history and managed files; the next message starts a fresh conversation with nothing carried over. Removing a Factory removes its Coordinator the same way.
 
 ## 6. Tasks and Stages
 
@@ -824,6 +828,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted workflow check [<path>]` | Validate `workflow.yaml` and Stage files. | KRI-58 |
 | `ted automation <subcommand>`: `list`, `show`, `history`, `create`, `edit`, `enable`, `disable`, `run`, `delete` | Manage Automations (12.3). Inside a Run only `list`, `show` and `history` work. | KRI-60 |
 | `ted backup restore <name>` | Restore a backup. | KRI-59 |
+| `ted export --factory <key> [--format json\|markdown] --output <path>` | Export one Factory’s retained Tasks and history; never replaces an existing file. | KRI-71 |
 | `ted doctor` | Health checks and every active banner. | KRI-20, KRI-59 |
 | `ted status` (no argument) | Daemon status and active banners. | KRI-20, KRI-59 |
 | `ted open` | Open or focus the app. | KRI-59 |
@@ -836,7 +841,7 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 - Start the user’s installed, unmodified `claude` and `codex` binaries, as live sessions or headless. Never bundle, patch or wrap them. (ADR 0004)
 - Sign-in is left to the CLIs (`claude auth login`, `codex login`) or the user’s own API key. TED has no sign-in screen and never reads, copies or stores tokens or keys. (ADR 0004, KRI-57)
 - With a Claude subscription, use the CLI, not the Agent SDK. (ADR 0004)
-- Never pass `--bare`; opt out if it becomes the default for `-p` (KRI-45). (ADR 0004)
+- Never pass `--bare`; opt out if it becomes the default for `-p` (KRI-45). Check Claude Code release notes when updating, following the [subscription compatibility checklist](../research/kri-45-claude-bare.md). (ADR 0004)
 - Keep the limit on working Runs on, and show usage limits (7.5). (ADR 0004)
 - Keep each agent kind’s sign-in and start code behind one replaceable module. (ADR 0004)
 - Before shipping to others: recheck Anthropic’s “third-party harness” rule and the Codex app-server line “App-server authentication has never been permitted for commercial or hosted services”, read OpenAI’s Terms of Use by hand (KRI-44), say “runs Claude Code” in plain text only, never resell usage. (ADR 0004, KRI-21, KRI-54)
@@ -1065,7 +1070,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
 - **Comment kinds** (one enum; author is human, agent Run or TED): `note` (never in the Inbox), `question` (optional choice buttons; also covers looping past `max_back`, Model unavailable, FAILED and the idle ask), `round`, `review` (design review), `signoff`, `permission` (also the simulator request), `proposal` (Split it and planning chats). (KRI-55)
 - **Request cards** share one layout: amber border; header “KIND · from the Task Lead · 4m ago” (or a sub-agent, or TED); title; one or two lines of summary; the kind’s content; the comment box; the buttons in a row below it (9.3). (KRI-61, KRI-8 polish pass)
   - **Design review:** screenshot tiles and a video tile, the prototype in a sandboxed frame with **Restart** and **Open full size ↗**, a Figma link row, and a “Worth your eye” box. (KRI-13, KRI-61)
-  - **Clarify round:** numbered questions in one card. Each recommended answer is pre-selected or pre-filled and tagged “Recommended”; an answer the human changed is tagged “Changed · Reset”. Each question has its own small text box. Buttons: **Talk it through** on the left, then **Accept all recommended** (sends the recommended answers, dropping changes) and **Submit answers** (sends what is shown). (KRI-19, KRI-61)
+  - **Clarify round:** numbered questions in one card. Each recommended answer is pre-selected or pre-filled and tagged “Recommended”; an answer the human changed is tagged “Changed · Reset”. Each question has its own small text box. Buttons: **Talk it through** on the left, then **Submit answers** (sends what is shown, including the pre-selected recommendations when unchanged). (KRI-19, KRI-61, KRI-270)
   - **Grilling sign-off:** a “Decisions so far” block, an “Open questions” line, and one line saying what each button does. (KRI-61)
   - **Permission:** the command in monospace prefixed by the repo, why the agent needs it, and “Applies to this request only.” A comment goes to the Run with either answer. (KRI-61)
   - **Re-sign-off, Merge off, Merge Gate, simulator, FAILED and idle asks:** as in 9.2, 9.3, 9.7, 9.9 and 6.18.
@@ -1159,7 +1164,7 @@ Fixed; rebinding is later (KRI-35). KRI-56’s map wins over shortcuts the proto
 
 - **Global:** ⌘K search and commands; ⌘N or `C` New Task; `G` `I` Inbox, `G` `A` All Tasks, `G` `B` Board, `G` `L` List, `G` `P` Plans; ⌘1–⌘9 Factory 1–9; ⌘[ / ⌘] back and forward; Esc closes an open Task back to where it came from, and leaves Settings; ⌘, Settings; `?` or ⌘/ shortcut sheet; ⌘Q quit.
 - **Moving:** `J`/`K` or ↓/↑ next and previous; on the Board `H`/`L` or ←/→ change column; Enter opens.
-- **Answering:** `R` reply; `A` Approve; ⇧`A` Accept all recommended; ⇧`R` Request changes; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` and ⇧`A` take two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
+- **Answering:** `R` reply; `A` Approve; ⇧`R` Request changes; ↵ sends from a comment box or chat and ⇧↵ adds a new line; ⌘↵ also sends, interrupts and sends in a working Run’s chat, and presses the primary button of any dialog. `A` takes two keystrokes: the key highlights the button with “↵ to confirm”, Enter sends, Esc cancels.
 - **Task actions:** `S` Start, Resume or Retry; `P` Priority menu; `B` Blocked by; `E` Edit title and description; ⌥↑/⌥↓ move in rank (Manual only); ⌘⌫ Archive; ⌃` open the Task’s shell. Stop and Delete have no shortcut.
 - **Filter:** `/` focuses the Board or List filter box.
 - Plain number keys stay free for answering choices later (KRI-46).
@@ -1223,7 +1228,7 @@ Figma: KRI-64 First launch and Settings.
    - **Git:** version, name and email.
    - **Linear:** masked key (last 4), where it is stored, “Connected as Nabha · Kriya Design” (checked on Save by asking Linear who the key belongs to), **Test**, **Remove**, **Create a key ↗**.
 6. **Library:** the effective Workflow table (Stage, On, Gate, Send-backs, Clarify depth, a Default or Library tag, **Override in Library** / **Reset to default**; Backlog and Done shown as holding), then Stage files. Each Stage has **Edit in Library**, which copies TED’s default to `~/.ted/library/stages/<id>.md` and opens a Markdown editor with preview and **Compare with default**; **Reset to default** deletes the copy. Edits collect until **Save**, which writes straight to `~/.ted/library/`, under the line “Applies to every Factory that doesn’t override it, from each Task’s next Stage.” Drift for Library copies is in 5.5. Not shown here: `permissions`, Checks, Apps, repos (Factory only), and the agent settings (under Agents, with a link). (KRI-57, KRI-58, KRI-64)
-7. **Storage:** “62.4 GB used under ~/.ted/ · 8.2 GB free on Macintosh HD”; space by category (worktrees, clones, simulators, store, Conversations and logs, attachments, backups, Scratch worktrees); the 10 largest worktrees with **Open Task**; **Remove clones of removed Factories**; **Erase simulators not used by a running Task**; Backups with date, size, **Show in folder** and the `ted backup restore` hint. (KRI-59, KRI-64, KRI-8 coordinator decision 13)
+7. **Storage:** “62.4 GB used under ~/.ted/ · 8.2 GB free on Macintosh HD”; space by category (worktrees, clones, simulators, store, Conversations and logs, attachments, backups, Scratch worktrees); the 10 largest worktrees with **Open Task**; **Remove clones of removed Factories**; **Erase simulators not used by a running Task**; Export a Factory with Factory and format choices and a native save dialog; Backups with date, size, **Show in folder** and the `ted backup restore` hint. (KRI-59, KRI-64, KRI-71, KRI-8 coordinator decision 13)
 8. **Developer:** **Developer mode** (shows Diagnostics and the log viewer here), **Show TED’s folder** (`~/.ted/`), **Copy report**. (KRI-57, KRI-64)
 
 ### 11.4 Developer mode
@@ -1328,7 +1333,7 @@ Figma: KRI-66 Automations and Plans.
 
 - **Plans list** (the Factory’s Plans entry), header with **Plan**. Columns: Title (with “from NB-41” when started from a Task), Status, Started, Tasks (“5 proposed”, “Created 2 Tasks”, “No Tasks”, “—”), Agent, ⋯. Status is a pill plus a detail: Waiting on you (“Round 2 · 3 questions”, “Proposal · 5 Tasks”), Working (the activity line), Idle (“Your turn to write”), Queued · 2nd, Paused · reason, Failed (with **Retry**), Finished, Stopped. Groups: **Open**, then **Past** (Finished, Stopped), collapsed, with a count. No filter in v1; ⌘K finds plans. (KRI-60, KRI-66, KRI-8 coordinator decision 10)
 - **Planning chat** in the middle pane: the Run’s live chat, not a Task-thread layout. Header: “← Plans”, the title (click to rename) with its status pill, Run icons (the planner, then research sub-agents smaller and grey), agent · model · effort, **Stop** and ⋯ (Rename, Delete), and a line “Planning chat · started by you Mon 10 Nov 10:05” or “started from NB-41 …”. (KRI-60, KRI-66)
-- Answered rounds and superseded proposals collapse to one-line grey cards. The open round or proposal shows as a one-line amber card in the chat (“pinned below”) and as the full card pinned between the chat and the message box. Typing in the chat while a round is open is talking it through; planning chats have no Talk it through button. A round card shows each question’s choices as chips, the recommended one pre-selected and tagged, with an “Or your own answer…” field, “Typing below talks it through with the planner.”, **Accept all recommended** and **Submit answers**. (KRI-60, KRI-66)
+- Answered rounds and superseded proposals collapse to one-line grey cards. The open round or proposal shows as a one-line amber card in the chat (“pinned below”) and as the full card pinned between the chat and the message box. Typing in the chat while a round is open is talking it through; planning chats have no Talk it through button. A round card shows each question’s choices as chips, the recommended one pre-selected and tagged, with an “Or your own answer…” field, “Typing below talks it through with the planner.”, and **Submit answers**. (KRI-60, KRI-66, KRI-270)
 - **Right pane:** Started from (the Task with Stage and status, or “Plan, by you”); Proposed Tasks (latest proposal), becoming Created Tasks after approval; Runs; tokens. (KRI-60, KRI-66)
 - **New chat:** greyed title placeholder “New planning chat”; agent, model and effort as three selects in the header; two lines on what the planner does; input focused with “What do you want to plan?”. (KRI-60, KRI-66)
 - **Name:** the first line of the human’s first message (cut at 60 characters), or “Plan: <Task title>” from a Task. The human renames it; agents don’t. (KRI-60)
@@ -1392,11 +1397,9 @@ From the map (KRI-8) and every issue labelled `later`:
 - Watching for `--bare` becoming the default: [KRI-45](https://linear.app/kriyadesign/issue/KRI-45)
 - Inbox ideas from the rejected layouts, including number keys for choices: [KRI-46](https://linear.app/kriyadesign/issue/KRI-46)
 - Android emulator Apps: [KRI-47](https://linear.app/kriyadesign/issue/KRI-47)
-- Effort per Stage: [KRI-67](https://linear.app/kriyadesign/issue/KRI-67)
 - Saved List views: [KRI-68](https://linear.app/kriyadesign/issue/KRI-68)
 - Searching Run Conversations: [KRI-69](https://linear.app/kriyadesign/issue/KRI-69)
 - Sharing Automations through the repo: [KRI-70](https://linear.app/kriyadesign/issue/KRI-70)
-- Exporting Tasks, Comments and briefs: [KRI-71](https://linear.app/kriyadesign/issue/KRI-71)
 - Posting line comments to GitHub as a review: [KRI-72](https://linear.app/kriyadesign/issue/KRI-72)
 - Compacting the event log: [KRI-73](https://linear.app/kriyadesign/issue/KRI-73)
 - apt and dnf repositories: [KRI-74](https://linear.app/kriyadesign/issue/KRI-74)

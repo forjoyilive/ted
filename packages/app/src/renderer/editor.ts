@@ -4,6 +4,7 @@ import { ted } from './ted.ts'
 export interface EditorTarget {
   taskId: string
   repo: string
+  snapshot?: boolean
   file?: string
   line?: number
   column?: number
@@ -35,6 +36,7 @@ export async function openInEditor(target: EditorTarget): Promise<boolean> {
     await ted.updateSettings(pick)
   }
   await ted.openInEditor(target.taskId, target.repo, {
+    ...(target.snapshot !== undefined && { snapshot: target.snapshot }),
     ...(target.file !== undefined && { file: target.file }),
     ...(target.line !== undefined && { line: target.line }),
     ...(target.column !== undefined && { column: target.column }),

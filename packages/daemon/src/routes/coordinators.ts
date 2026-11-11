@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { CoordinatorAction, CoordinatorOperation } from '@ted/protocol'
+import type { CoordinatorAction, CoordinatorOperation, RoundAnswerInput } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { agentChoice, bodyObject, type Route, readJson } from './route.ts'
@@ -12,7 +12,35 @@ const context = (value: unknown) => {
   }
 }
 const maxMessageLength = 8000
-const operations: readonly string[] = ['start', 'move', 'tell', 'answer']
+const maxAnswers = 50
+const operations: readonly string[] = ['start', 'move', 'tell', 'answer', 'resume']
+function roundAnswers(value: unknown): RoundAnswerInput[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxAnswers)
+    throw new RequestError(400, 'answers must be a list with one answer per question')
+  let length = 0
+  const answers = value.map((entry): RoundAnswerInput => {
+    const { answer, note } = bodyObject(entry, 'answer')
+    if (typeof answer !== 'string' || (note !== undefined && typeof note !== 'string'))
+      throw new RequestError(400, 'each answer needs answer text and may have a note')
+    length += answer.length + (note?.length ?? 0)
+    return {
+      answer: redactSecrets(answer.trim()),
+      ...(note !== undefined && note.trim() !== '' && { note: redactSecrets(note.trim()) }),
+    }
+  })
+  if (length > maxMessageLength)
+    throw new RequestError(400, `answers are limited to ${maxMessageLength} characters in all`)
+  return answers
+}
+function rows(value: unknown): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.length > 100 ||
+    !value.every((n) => Number.isSafeInteger(n) && n > 0)
+  )
+    throw new RequestError(400, 'skipRows must be a list of proposal row numbers')
+  return value as number[]
+}
 function action(value: unknown, kind: CoordinatorOperation): CoordinatorAction {
   const body = bodyObject(value)
   if (typeof body.operation !== 'string' || !/^[\w-]{1,100}$/.test(body.operation))
@@ -44,20 +72,47 @@ function action(value: unknown, kind: CoordinatorOperation): CoordinatorAction {
   if (typed.length > maxMessageLength)
     throw new RequestError(400, `message is limited to ${maxMessageLength} characters`)
   const message = redactSecrets(typed)
+  if (kind === 'resume') return { ...base, ...(message !== '' && { message }) }
   if (kind === 'tell') {
     if (message === '') throw new RequestError(400, 'message is required')
     return { ...base, message }
   }
   if (typeof body.request !== 'string' || body.request === '')
-    throw new RequestError(400, 'request must be the question’s Comment ID')
+    throw new RequestError(400, 'request must be the request’s Comment ID')
   if (body.choice !== undefined && (typeof body.choice !== 'string' || body.choice === ''))
-    throw new RequestError(400, 'choice must be one of the question’s choices')
-  if (body.choice === undefined && message === '')
-    throw new RequestError(400, 'pick a choice or write an answer')
+    throw new RequestError(400, 'choice must be one of the request’s choices')
+  if (
+    body.decision !== undefined &&
+    body.decision !== 'approve' &&
+    body.decision !== 'request-changes'
+  )
+    throw new RequestError(400, 'decision must be approve or request-changes')
+  for (const name of ['recommended', 'startUnblocked'])
+    if (body[name] !== undefined && typeof body[name] !== 'boolean')
+      throw new RequestError(400, `${name} must be true or false`)
+  const ways = [
+    body.decision !== undefined,
+    body.answers !== undefined || body.recommended === true,
+    body.choice !== undefined,
+  ].filter(Boolean).length
+  if (ways > 1 || (body.answers !== undefined && body.recommended === true))
+    throw new RequestError(
+      400,
+      'give one of: a decision, round answers or recommended, or a choice',
+    )
+  if (ways === 0 && message === '')
+    throw new RequestError(400, 'pick a choice, give a decision or answers, or write an answer')
+  if (body.decision === 'request-changes' && message === '')
+    throw new RequestError(400, 'Request changes needs a message')
   return {
     ...base,
     request: body.request,
     ...(typeof body.choice === 'string' && { choice: body.choice }),
+    ...(body.decision !== undefined && { decision: body.decision }),
+    ...(body.answers !== undefined && { answers: roundAnswers(body.answers) }),
+    ...(body.recommended === true && { recommended: true }),
+    ...(body.skipRows !== undefined && { skipRows: rows(body.skipRows) }),
+    ...(body.startUnblocked === true && { startUnblocked: true }),
     ...(message !== '' && { message }),
   }
 }
@@ -96,6 +151,14 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator\/reset$/,
+    async handle({ params: [id = ''] }, { coordinators }) {
+      await coordinators.reset(id)
+      return [200, null]
+    },
+  },
+  {
+    method: 'POST',
     path: /^\/factories\/([^/]+)\/coordinator\/retry$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.retry(id)],
   },
@@ -119,7 +182,7 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
-    path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer)$/,
+    path: /^\/coordinator\/tasks\/([^/]+)\/(start|move|tell|answer|resume)$/,
     runToken: true,
     async handle({ caller, req, params: [ref = '', kind = ''] }, { coordinators }) {
       if (!operations.includes(kind)) throw new RequestError(400, 'unknown action')

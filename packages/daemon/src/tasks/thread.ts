@@ -9,7 +9,7 @@ import type {
   ThreadEventTone,
 } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
-import type { LoggedEvent } from '../store/index.ts'
+import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -147,6 +147,14 @@ export function appExitLine(name: string, code: unknown, signal: unknown): strin
   if (typeof code === 'number') return `${name} exited with code ${code}`
   if (typeof signal === 'string' && signal !== '') return `${name} was ended by ${signal}`
   return `${name} stopped running`
+}
+
+export function taskThreadEvents(
+  store: Pick<TedStore, 'taskLog'>,
+  taskId: string,
+  context: ThreadContext,
+): ThreadEvent[] {
+  return threadEvents(taskId, store.taskLog(taskId), context)
 }
 
 export function threadEvents(
@@ -493,7 +501,8 @@ export function threadEvents(
         break
       }
       case 'v1.TaskStageEntered':
-      case 'v2.TaskStageEntered': {
+      case 'v2.TaskStageEntered':
+      case 'v3.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         if (sentBackTo === stage) {

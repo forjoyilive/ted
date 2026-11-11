@@ -54,6 +54,7 @@ import type {
 } from './data.ts'
 import type { Diagnostics, LogText } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
+import type { FactoryExport } from './export.ts'
 import type {
   AddFactoryRequest,
   CheckRepoRequest,
@@ -154,6 +155,7 @@ import type {
   TaskReposResult,
   ThreadEvent,
 } from './task.ts'
+import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
 import type { UpdateWork } from './update.ts'
 import type { WaitingRequest } from './waiting.ts'
@@ -320,6 +322,10 @@ export class DaemonClient {
 
   retryCoordinator(factoryId: string): Promise<Coordinator> {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
+  }
+
+  resetCoordinator(factoryId: string): Promise<null> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
   }
 
   coordinatorTasks(offset = 0): Promise<{ context: string }> {
@@ -665,6 +671,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/outcome`, outcome)
   }
 
+  exportFactory(id: string): Promise<FactoryExport> {
+    return this.#request('GET', `/factories/${encodeURIComponent(id)}/export`)
+  }
+
   listFactories(): Promise<Factory[]> {
     return this.#request('GET', '/factories')
   }
@@ -760,6 +770,17 @@ export class DaemonClient {
       'POST',
       `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/open-in-editor`,
       request,
+    )
+  }
+
+  taskFiles(ref: string): Promise<TaskFiles> {
+    return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/files`)
+  }
+
+  taskFile(ref: string, repo: string, file: string): Promise<TaskFileContent> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(file)}`,
     )
   }
 

@@ -316,6 +316,17 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         inOrder,
         enabled: inOrder && (id === 'done' || stage?.enabled !== false),
         gate: stage?.gate === true,
+        ...(agent && {
+          effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
+          ...(inherited.settings.stages[id]?.effort !== undefined && {
+            inheritedEffort: inherited.settings.stages[id]?.effort as Effort,
+          }),
+          inheritedEffortFrom:
+            base.inherited
+              .slice()
+              .reverse()
+              .find((layer) => layer.settings.stages[id]?.effort !== undefined)?.kind ?? 'ted',
+        }),
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),

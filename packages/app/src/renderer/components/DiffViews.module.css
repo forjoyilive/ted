@@ -166,7 +166,7 @@
   position: sticky;
   top: 0;
   box-sizing: border-box;
-  flex: 0 0 var(--details-pane-width);
+  flex: 0 0 var(--changes-index-width);
   max-height: 100%;
   overflow-y: auto;
   padding: 14px 16px;
@@ -210,4 +210,9 @@
 .editorProblem {
   color: var(--status-failed-fg);
   font-size: var(--text-13);
+}
+
+.pending {
+  display: grid;
+  place-items: center;
 }
