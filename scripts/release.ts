@@ -114,7 +114,7 @@ async function main(): Promise<void> {
   if (hasPassed(git('rev-parse', 'HEAD'))) {
     console.log('\n== Checks already passed on this commit; skipping them')
     step('Install', 'pnpm', ['install', '--frozen-lockfile'])
-  } else if (!(await checkAndRecord())) {
+  } else if (!(await checkAndRecord({ all: true }))) {
     fail('checks failed')
   }
 

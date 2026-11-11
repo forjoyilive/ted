@@ -523,3 +523,8 @@
 .removed {
   color: var(--diff-removed-count);
 }
+
+.reviewFiles {
+  max-height: 240px;
+  overflow-y: auto;
+}

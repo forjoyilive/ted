@@ -87,6 +87,21 @@ export {
 } from './banner.ts'
 export { parseBannerActionInput } from './banner-parsers.ts'
 export {
+  type BrowserAction,
+  type BrowserCommand,
+  type BrowserPollRequest,
+  type BrowserReply,
+  type BrowserReplyRequest,
+  type BrowserRequest,
+  type BrowserResult,
+  browserActions,
+} from './browser.ts'
+export {
+  parseBrowserPollRequest,
+  parseBrowserReplyRequest,
+  parseBrowserRequest,
+} from './browser-parsers.ts'
+export {
   type ChangeFile,
   changeKey,
   type DiffHunk,

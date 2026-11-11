@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -542,17 +543,35 @@ describe('ted automation', () => {
     expect((await ted(['automation', 'list'])).stdout).toContain('Off')
   })
 
-  test('the Sentry template carries the release rules', async () => {
+  test('the template catalog carries release and unattended architecture review rules', async () => {
     await ted(['task', 'list'])
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
+      'Review codebase architecture',
     ])
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
     expect(sentry).toContain('--sentry-id')
+    const architecture = templates.find((t) => t.id === 'architecture')
+    expect(architecture?.schedule).toEqual({ kind: 'weekly', days: ['mon'], at: '09:00' })
+    for (const instruction of [
+      'GLOSSARY.md',
+      'ADRs',
+      'deletion test',
+      'GitHub',
+      'default branch',
+      'up to three',
+      'before/after',
+      'Do not pass `--start`',
+      'query strings or fragments',
+      'Do not use `--follow-up`',
+      'Do not clone',
+    ]) {
+      expect(architecture?.prompt).toContain(instruction)
+    }
   })
 })
 
@@ -867,4 +886,43 @@ test('failure commands capture context and record, inspect, assess and request a
   expect((await invoke(['ask', failure.id])).decisions).toHaveLength(1)
   expect(await invoke(['list'])).toHaveLength(1)
   expect((await invoke(['obligations'])).satisfied).toBe(false)
+})
+
+test('a lost browser mutation response is never replayed', async () => {
+  let mutations = 0
+  const server = createServer((req, res) => {
+    if (req.method === 'POST' && req.url === '/tasks/NB-1/browser') {
+      mutations++
+      if (mutations === 1) req.socket.destroy()
+      else {
+        res.setHeader('content-type', 'application/json')
+        res.end(JSON.stringify({ text: 'replayed' }))
+      }
+    } else if (req.url === '/tasks/NB-1/apps') {
+      res.setHeader('content-type', 'application/json')
+      res.end(JSON.stringify([]))
+    } else {
+      res.statusCode = 404
+      res.end()
+    }
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Missing fixture port')
+  await writeFile(
+    tedPaths(home).daemonInfo,
+    JSON.stringify({ port: address.port, pid: process.pid, token: 'fixture', version: 'test' }),
+  )
+  try {
+    await expect(
+      ted(['browser', 'press', 'Enter'], 30_000, { TED_TASK: 'NB-1' }),
+    ).rejects.toMatchObject({ code: 1 })
+    expect(mutations).toBe(1)
+  } finally {
+    await rm(tedPaths(home).daemonInfo, { force: true })
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+  }
 })

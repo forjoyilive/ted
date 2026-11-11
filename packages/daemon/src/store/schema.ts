@@ -145,6 +145,19 @@ export const taskAttachments = State.SQLite.table({
   },
 })
 
+export const taskBrowserCaptures = State.SQLite.table({
+  name: 'taskBrowserCaptures',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const commentAttachments = State.SQLite.table({
   name: 'commentAttachments',
   columns: {
@@ -1082,6 +1095,17 @@ export const events = {
   }),
   taskAttachmentAdded: Events.synced({
     name: 'v1.TaskAttachmentAdded',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskBrowserCaptureAdded: Events.synced({
+    name: 'v1.TaskBrowserCaptureAdded',
     schema: Schema.Struct({
       taskId: Schema.String,
       hash: Schema.String,
@@ -2919,6 +2943,10 @@ const materializers = counted(
         taskAttachments
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.TaskBrowserCaptureAdded': ({ taskId, hash, name, ...rest }) =>
+        taskBrowserCaptures
+          .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
       'v1.CommentAttachmentAdded': ({ commentId, hash, name, ...rest }) =>
         commentAttachments
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
@@ -3039,6 +3067,7 @@ const materializers = counted(
         taskQueue.delete().where({ taskId }),
         taskBlockers.delete().where({ taskId }),
         taskAttachments.delete().where({ taskId }),
+        taskBrowserCaptures.delete().where({ taskId }),
         commentAttachments.delete().where({ taskId }),
         lineComments.delete().where({ taskId }),
         taskSources.delete().where({ taskId }),
@@ -3610,6 +3639,7 @@ const state = State.SQLite.makeState({
     taskBlockers,
     deletedTasks,
     taskAttachments,
+    taskBrowserCaptures,
     commentAttachments,
     taskSources,
     runs,

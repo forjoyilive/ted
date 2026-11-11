@@ -50,40 +50,7 @@ describe('machine settings in the store', () => {
 
   test('machine settings start at their defaults and keep every change across a reopen', async () => {
     const first = await openStore({ directory: dir })
-    expect(first.settings()).toEqual({
-      timeFormat: 'system',
-      timeZone: 'system',
-      appearance: 'system',
-      textSize: 100,
-      terminalFontSize: 13,
-      profilePicture: null,
-      developerMode: false,
-      overnightMode: false,
-      maxWorkingRuns: 6,
-      adjustRunsToLoad: false,
-      maxBootedSimulators: 3,
-      runOutputDays: 7,
-      quitWithWorkRunning: 'ask',
-      showTrayIcon: true,
-      startAtLogin: true,
-      stayAwake: true,
-      restartIdleRuns: true,
-      notifyInboxItems: true,
-      notifyProblems: true,
-      notifyTaskMerged: false,
-      notifySound: false,
-      listViews: {},
-      billing: { claude: 'subscription', codex: 'subscription' },
-      firstLaunchDone: false,
-      editor: null,
-      editorCommand: '',
-      linearSync: true,
-      linearSyncTeams: {},
-      linearSyncDeclined: {},
-      appsOutsideSandbox: {},
-      lowPriorityWork: true,
-      maxChecksAtOnce: 2,
-    })
+    expect(first.settings()).toEqual(defaultMachineSettings)
     first.updateSettings({ terminalFontSize: 16, developerMode: true, overnightMode: true })
     first.updateSettings({ profilePicture: picture })
     first.updateSettings({ appearance: 'light' })

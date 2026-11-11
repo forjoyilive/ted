@@ -18,6 +18,7 @@ describe('command definitions', () => {
     }
     expect(help).toContain('ted outcome advance')
     expect(help).toContain('ted automation disable')
+    expect(help).toContain('--template linear|sentry|github|architecture')
   })
 
   test.each([

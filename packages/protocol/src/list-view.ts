@@ -43,6 +43,7 @@ export interface ListFilters {
 export interface ListView {
   sort: ListSort
   group: ListGroup
+  showEmptyGroups?: boolean
   columns: ListColumn[]
   filters: ListFilters
 }
