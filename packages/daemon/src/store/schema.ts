@@ -232,6 +232,7 @@ export const runs = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     usesDefaultModel: State.SQLite.boolean({ default: false }),
     problem: State.SQLite.text({ nullable: true }),
+    problemAt: State.SQLite.text({ nullable: true }),
     permissions: State.SQLite.text({ default: 'auto' }),
     manualPermissions: State.SQLite.boolean({ default: false }),
     prompt: State.SQLite.text(),
@@ -383,6 +384,7 @@ export const comments = State.SQLite.table({
     design: State.SQLite.text({ nullable: true }),
     tutorial: State.SQLite.boolean({ default: false }),
     linearTeam: State.SQLite.text({ nullable: true }),
+    purpose: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -1417,6 +1419,10 @@ export const events = {
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
+  }),
+  commentPurposeRecorded: Events.synced({
+    name: 'v1.CommentPurposeRecorded',
+    schema: Schema.Struct({ commentId: Schema.String, purpose: Schema.String }),
   }),
   commentPosted: Events.synced({
     name: 'v1.CommentPosted',
@@ -3239,6 +3245,8 @@ const materializers = counted(
           ? []
           : [checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } })]),
       ],
+      'v1.CommentPurposeRecorded': ({ commentId, purpose }) =>
+        comments.update({ purpose }).where({ id: commentId }),
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
@@ -3324,8 +3332,8 @@ const materializers = counted(
           .where({ id: runId }),
       'v1.RunRetryingChanged': ({ runId, retrying }) =>
         runs.update({ retrying }).where({ id: runId }),
-      'v1.RunProblemFound': ({ runId, problem }) =>
-        runs.update({ problem, state: 'waiting' }).where({ id: runId }),
+      'v1.RunProblemFound': ({ runId, problem, at }) =>
+        runs.update({ problem, problemAt: at, state: 'waiting' }).where({ id: runId }),
       'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
         tasks
           .update({ leadAgent: agent, leadModel: model, leadEffort: effort })

@@ -556,7 +556,28 @@ export type CommentAnswer =
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
+export type RequestPurpose =
+  | { kind: 'model'; runId: string }
+  | {
+      kind:
+        | 'question'
+        | 'round'
+        | 'proposal'
+        | 'gate'
+        | 'permission'
+        | 'simulator'
+        | 'size-check'
+        | 'send-back'
+        | 'failure'
+        | 'failed-run'
+        | 'linear-closed'
+        | 'linear-team'
+        | 'idle-run'
+        | 'ci-stuck'
+    }
+
 export interface Comment {
+  purpose?: RequestPurpose
   id: string
   taskId: string
   kind: CommentKind
