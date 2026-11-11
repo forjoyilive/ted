@@ -789,7 +789,7 @@ describe('Task shell panes', () => {
     const second = ws.shells[1]
     if (!second) throw new Error('no second shell')
     await ted.ok('POST', paneRoute(task, second.id, '/input'), {
-      data: 'echo "PID""=$$"; exec sleep 60\r',
+      data: 'echo "PID""=$$"\r',
     })
     const output = await readUntil(ted, task, second, (t) => /PID=\d+/.test(t), second.id)
     const pid = Number(/PID=(\d+)/.exec(output)?.[1])
@@ -810,7 +810,8 @@ describe('Task shell panes', () => {
       revision: ws.revision,
       shellId: second.id,
     })
-    expect((await waiting).status).toBe(404)
+    const closedRead = await waiting
+    expect(closedRead.status, JSON.stringify(closedRead.body)).toBe(404)
     await waitUntil(async () => !alive(pid) || undefined, 'closed shell to exit')
     ws = await changeWorkspace(ted, task, {
       kind: 'split',
