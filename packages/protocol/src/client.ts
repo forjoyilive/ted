@@ -440,8 +440,8 @@ export class DaemonClient {
     return this.#request('PUT', `/tasks/${encodeURIComponent(ref)}/snooze`, { snoozedUntil })
   }
 
-  startTask(ref: string): Promise<Task> {
-    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`)
+  startTask(ref: string, request?: import('./task.ts').StartTaskRequest): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/start`, request)
   }
 
   blockTask(ref: string, by: string): Promise<Task> {
