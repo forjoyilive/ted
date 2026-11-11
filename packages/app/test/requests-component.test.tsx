@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { FailureCase, Round } from '@ted/protocol'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
 import { AnsweredCard, RequestCard } from '../src/renderer/components/RequestCard.tsx'
@@ -496,11 +496,25 @@ test('Validate failure decisions display evidence and send the selected action',
   expect(screen.getByText('Visual failure')).toBeTruthy()
   expect(screen.getByText('The cause isn’t known')).toBeTruthy()
   expect(screen.getByText('Retry the identified verification.')).toBeTruthy()
+  expect(screen.getByText(/Accepting covers only this failure/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Accept this failure' }))
   expect(answer).toHaveBeenCalledWith(
     expect.anything(),
     expect.objectContaining({ action: 'answer', choice: 'Accept this failure' }),
   )
+  cleanup()
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task'],
+      })}
+      task={task()}
+    />,
+  )
+  expect(await screen.findByText(/This failure can’t be accepted/)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Accept this failure' })).toBeNull()
 })
 
 test('historical failure request keeps its own assessment and decision', async () => {

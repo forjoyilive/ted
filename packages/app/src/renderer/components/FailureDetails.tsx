@@ -34,9 +34,11 @@ const assessmentWords = {
 export function FailureDetails({
   failure,
   requestId,
+  noAccept = false,
 }: {
   failure: FailureCase
   requestId?: string
+  noAccept?: boolean
 }) {
   const request = requestId ? failure.decisions.find((d) => d.commentId === requestId) : undefined
   const assessment = request
@@ -117,7 +119,11 @@ export function FailureDetails({
         </p>
       </details>
       <p className={styles.caption}>
-        Accepting covers only this failure. It doesn’t count as passed or approve a merge.
+        {noAccept
+          ? failure.validation
+            ? 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now.'
+            : 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now. If it still happens, write to the Task Lead instead of choosing.'
+          : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>
   )
@@ -127,15 +133,17 @@ export function FailureRequestDetails({
   taskId,
   requestId,
   fallback,
+  noAccept,
 }: {
   taskId: string
   requestId: string
   fallback: string
+  noAccept?: boolean
 }) {
   const failures = useFailures(taskId)
   const failure = failures.find((f) => f.decisions.some((d) => d.commentId === requestId))
   return failure ? (
-    <FailureDetails failure={failure} requestId={requestId} />
+    <FailureDetails failure={failure} requestId={requestId} {...(noAccept && { noAccept })} />
   ) : (
     <p className={styles.summary}>{fallback}</p>
   )

@@ -517,7 +517,16 @@ export function RequestCard({
         reasonChoices.length > 0 ||
         (request.choices?.includes(validateFailureChoices.retry) &&
           request.choices.includes(validateFailureChoices.fix)) ? (
-        <FailureRequestDetails taskId={task.id} requestId={request.id} fallback={request.body} />
+        <FailureRequestDetails
+          taskId={task.id}
+          requestId={request.id}
+          fallback={request.body}
+          noAccept={
+            !request.answer &&
+            request.choices !== undefined &&
+            !request.choices.includes(failureChoices.accepted)
+          }
+        />
       ) : request.gate && request.stage === 'clarify' ? (
         <SignoffDecisions text={request.body} />
       ) : request.gate ? (
