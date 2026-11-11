@@ -539,6 +539,7 @@ export function createTasks(options: {
     task: Task,
     checkRunId: string,
     position: number,
+    supported: boolean,
   ) => Promise<Record<string, string>>
   steering: Steering
   store: TedStore

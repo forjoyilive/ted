@@ -138,3 +138,64 @@ export async function reportedTestLock(
     throw error
   }
 }
+
+interface TestLockOwner {
+  users: number
+  acquisition: Promise<(() => Promise<void>) | undefined>
+  closing?: Promise<void>
+}
+
+const ownerKey = Symbol.for('ted.vitest.test-lock-owner')
+
+declare global {
+  namespace NodeJS {
+    interface Process {
+      [ownerKey]?: TestLockOwner
+    }
+  }
+}
+
+export async function withProjectTestLock(
+  acquire: () => Promise<(() => Promise<void>) | undefined>,
+  setup: () => Promise<() => Promise<void>>,
+): Promise<() => Promise<void>> {
+  const previous = process[ownerKey]
+  if (previous?.closing) {
+    await previous.closing.catch(() => undefined)
+    return withProjectTestLock(acquire, setup)
+  }
+  const owner: TestLockOwner = previous ?? {
+    users: 0,
+    acquisition: Promise.resolve().then(acquire),
+  }
+  process[ownerKey] = owner
+  owner.users++
+  let released = false
+  const release = async () => {
+    if (released) return
+    released = true
+    if (--owner.users !== 0) return
+    owner.closing = owner.acquisition.then(async (unlock) => {
+      await unlock?.()
+    })
+    try {
+      await owner.closing
+    } finally {
+      if (process[ownerKey] === owner) delete process[ownerKey]
+    }
+  }
+  try {
+    await owner.acquisition
+    const teardown = await setup()
+    return async () => {
+      try {
+        await teardown()
+      } finally {
+        await release()
+      }
+    }
+  } catch (error) {
+    await release().catch(() => undefined)
+    throw error
+  }
+}

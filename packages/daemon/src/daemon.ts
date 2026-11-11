@@ -377,17 +377,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       })
       let plans: Plans | undefined
       const tasks = createTasks({
-        testReportingEnv: async (task, checkRunId, position) => {
+        testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {
             appKey: appToken,
           }).tryRegisterTestInvocation(task.id, {
             id: randomUUID(),
-            supported: true,
+            supported,
             label: 'TED Check',
             checkRunId,
             position,
           })
-          return registration
+          return registration && supported
             ? { TED_HOME: paths.home, TED_RUN_CAPABILITY: registration.token }
             : {}
         },

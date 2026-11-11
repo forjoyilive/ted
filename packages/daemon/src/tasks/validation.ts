@@ -32,6 +32,7 @@ interface ValidationOptions {
     task: Task,
     checkRunId: string,
     position: number,
+    supported: boolean,
   ) => Promise<Record<string, string>>
   env(): NodeJS.ProcessEnv
   libraryDir: string
@@ -241,7 +242,8 @@ export function createValidation(options: ValidationOptions) {
           lowPriority: options.lowPriority(),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
           ...(reportingEnv && {
-            reportingEnv: (position: number) => reportingEnv(task, checkRun.id, position),
+            reportingEnv: (position: number, supported: boolean) =>
+              reportingEnv(task, checkRun.id, position, supported),
           }),
           onStart: (position) => store.checkStarted(checkRun.id, position),
           onFinish: (position, finished) => {

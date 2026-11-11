@@ -1,12 +1,14 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { reportedTestLock, runnerReporter, testReporter } from '../../../scripts/test-reporting.ts'
 import type { TestInvocationReport } from '../../protocol/src/test-invocations.ts'
-import { runChecks } from '../src/tasks/checks.ts'
+import { runChecks, supportsTestReporting } from '../src/tasks/checks.ts'
 import { heldLockEnv } from './support/suite-lock.ts'
 
 let dir: string
@@ -333,4 +335,152 @@ test('an absent or unavailable existing daemon does not create reporting authori
     JSON.stringify({ port: address.port, token: 'not-authority', pid: process.pid, version: '1' }),
   )
   expect(await runnerReporter('Vitest', env)).toBeUndefined()
+})
+
+test.each([
+  ['pnpm check', true],
+  ['pnpm check --all', true],
+  ['pnpm vitest run a.test.ts', true],
+  ['pnpm exec vitest run a.test.ts', true],
+  ['pnpm exec check', false],
+  ['pnpm vitest run a.test.ts && pnpm vitest run b.test.ts', false],
+  ['pnpm vitest run a.test.ts & pnpm vitest run b.test.ts & wait', false],
+  ['pnpm vitest run a.test.ts; pnpm vitest run b.test.ts', false],
+  ['pnpm vitest run a.test.ts\npnpm vitest run b.test.ts', false],
+  ['pnpm vitest run $(other-command)', false],
+  ['pnpm vitest run *.test.ts', false],
+  ['pnpm test', false],
+])('Check reporting support is explicit for %s', (command, supported) => {
+  expect(supportsTestReporting(command)).toBe(supported)
+})
+
+const reporterUrl = pathToFileURL(
+  path.resolve(import.meta.dirname, '../../../scripts/test-reporting.ts'),
+).href
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+
+test.each(['sequential', 'concurrent'])(
+  'a %s compound Check declares unsupported coverage for both children',
+  async (mode) => {
+    const fixture = path.join(dir, 'check-child.ts')
+    await writeFile(
+      fixture,
+      `
+    import { runnerReporter } from ${JSON.stringify(reporterUrl)}
+    const reporter = await runnerReporter('Vitest')
+    if (reporter) {
+      reporter.contention(true, Date.now())
+      reporter.contention(false, Date.now())
+      await reporter.finish()
+      console.log('reported')
+    } else console.log('unsupported')
+  `,
+    )
+    const child = [process.execPath, fixture].map(shellQuote).join(' ')
+    const command = mode === 'sequential' ? `${child} && ${child}` : `${child} & ${child} & wait`
+    const registrations: { position: number; supported: boolean }[] = []
+    const result = await runChecks({
+      checks: [{ check: { name: 'compound', command, timeout: '1m', state: 'waiting' }, cwd: dir }],
+      taskDisplayId: 'NB-1',
+      libraryDir: dir,
+      env: { ...process.env, TED_RUN_CAPABILITY: 'ordinary-run-token', TED_APP_TOKEN: 'app-key' },
+      logFor: () => path.join(dir, 'compound.log'),
+      prepareLaunch: async () => ({ release: () => {} }),
+      lowPriority: false,
+      onStart: () => {},
+      onFinish: () => {},
+      reportingEnv: async (position, supported) => {
+        registrations.push({ position, supported })
+        return supported ? { TED_HOME: dir, TED_RUN_CAPABILITY: 'test-report:unexpected' } : {}
+      },
+    })
+    expect(result.outcome).toBe('passed')
+    expect(registrations).toEqual([{ position: 0, supported: false }])
+    expect((await readFile(path.join(dir, 'compound.log'), 'utf8')).trim().split('\n')).toEqual([
+      'unsupported',
+      'unsupported',
+    ])
+  },
+)
+
+async function isolatedModules(source: string): Promise<unknown> {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', source], {
+    cwd: dir,
+    env: { ...process.env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let output = ''
+  let errors = ''
+  child.stdout.on('data', (chunk) => {
+    output += chunk
+  })
+  child.stderr.on('data', (chunk) => {
+    errors += chunk
+  })
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', resolve)
+  })
+  if (code !== 0) throw new Error(`isolated module fixture failed (${code}): ${errors}`)
+  return JSON.parse(output)
+}
+
+const moduleImports = `
+  const first = await import(${JSON.stringify(`${reporterUrl}?first`)})
+  const second = await import(${JSON.stringify(`${reporterUrl}?second`)})
+  if (first.withProjectTestLock === second.withProjectTestLock) throw new Error('modules were not evaluated independently')
+`
+
+test('independent module evaluations share one acquisition and retain it through the final teardown', async () => {
+  const result = await isolatedModules(`
+    ${moduleImports}
+    let acquired = 0
+    let released = 0
+    const acquire = async () => { acquired++; return async () => { released++ } }
+    const setup = async () => async () => {}
+    const [one, two] = await Promise.all([
+      first.withProjectTestLock(acquire, setup), second.withProjectTestLock(acquire, setup),
+    ])
+    await one()
+    const afterFirst = { acquired, released }
+    await two()
+    await two()
+    console.log(JSON.stringify({ afterFirst, final: { acquired, released } }))
+  `)
+  expect(result).toEqual({
+    afterFirst: { acquired: 1, released: 0 },
+    final: { acquired: 1, released: 1 },
+  })
+})
+
+test('separate project loaders release references after setup, cleanup and acquisition failures', async () => {
+  const result = await isolatedModules(`
+    ${moduleImports}
+    let acquired = 0
+    let released = 0
+    const acquire = async () => { acquired++; return async () => { released++ } }
+    const setup = async () => async () => {}
+    const one = await first.withProjectTestLock(acquire, setup)
+    let setupError
+    try { await second.withProjectTestLock(acquire, async () => { throw new Error('setup') }) }
+    catch (error) { setupError = error.message }
+    const afterFailure = { acquired, released }
+    await one()
+    const cleanup = await second.withProjectTestLock(acquire, async () => async () => { throw new Error('cleanup') })
+    let cleanupError
+    try { await cleanup() } catch (error) { cleanupError = error.message }
+    let acquisitionError
+    try { await first.withProjectTestLock(async () => { throw new Error('acquire') }, setup) }
+    catch (error) { acquisitionError = error.message }
+    const recovered = await second.withProjectTestLock(acquire, setup)
+    await recovered()
+    console.log(JSON.stringify({ setupError, cleanupError, acquisitionError, afterFailure, final: { acquired, released } }))
+  `)
+  expect(result).toEqual({
+    setupError: 'setup',
+    cleanupError: 'cleanup',
+    acquisitionError: 'acquire',
+    afterFailure: { acquired: 1, released: 0 },
+    final: { acquired: 3, released: 3 },
+  })
 })
