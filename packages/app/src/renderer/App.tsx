@@ -115,6 +115,7 @@ import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
 import { CoordinatorView } from './views/Coordinator.tsx'
+import { Dashboard } from './views/Dashboard.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
@@ -485,7 +486,15 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     if (usageOpen && found.id !== 'close') return
     if (settingsOpen && !allowedInSettings.has(found.id)) return
     if (!commandKey && document.querySelector('[role="menu"]')) return
-    const anyDialog = dialogOpen || document.querySelector('dialog[open]') !== null
+    const openDialog = [...document.querySelectorAll('dialog[open]')].at(-1)
+    const anyDialog = dialogOpen || openDialog !== undefined
+    if (
+      openDialog?.hasAttribute('data-nav-dialog') &&
+      (found.id === 'next' || found.id === 'previous')
+    ) {
+      if (moveFocus(openDialog, found.id)) event.preventDefault()
+      return
+    }
     const factoryNumber = /^factory:(\d)$/.exec(found.id)?.[1]
     if (factoryNumber !== undefined) {
       const factory = factories[Number(factoryNumber) - 1]
@@ -803,6 +812,19 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
+        if (screen.view === 'dashboard') {
+          return (
+            <Dashboard
+              key={screen.factoryId}
+              factoryId={screen.factoryId}
+              title={name}
+              state={screen.dashboard ?? { range: '30d' }}
+              onChange={(dashboard) => dispatch({ type: 'open', screen: { ...screen, dashboard } })}
+              onOpenTask={openTaskByRef}
+              banners={view.banners}
+            />
+          )
+        }
         if (screen.view === 'board') {
           return (
             <Board
@@ -848,9 +870,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
               key={factory.id}
               factory={factory}
               banners={view.banners}
-              onOpenFactory={(factoryId) =>
-                dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
-              }
+              onOpenFactory={(factoryId) => dispatch({ type: 'open-factory', factoryId })}
               onOpenGitHubSettings={() =>
                 dispatch({ type: 'open-settings', section: 'integrations' })
               }
@@ -989,14 +1009,11 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           onClose={() => setAddFactoryOpen(false)}
           onAdded={(added) => {
             setAddFactoryOpen(false)
-            dispatch({
-              type: 'open',
-              screen: { kind: 'factory', factoryId: added.id, view: 'board' },
-            })
+            dispatch({ type: 'open-factory', factoryId: added.id })
           }}
           onOpenFactory={(factoryId) => {
             setAddFactoryOpen(false)
-            dispatch({ type: 'open', screen: { kind: 'factory', factoryId, view: 'board' } })
+            dispatch({ type: 'open-factory', factoryId })
           }}
           onOpenGitHubSettings={() => {
             setAddFactoryOpen(false)

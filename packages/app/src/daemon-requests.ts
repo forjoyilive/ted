@@ -68,6 +68,7 @@ export const forwardedRequests = [
   'saveTaskDraft',
   'taskDefaults',
   'factoryBoard',
+  'factoryDashboard',
   'setTaskSnooze',
   'startTask',
   'moveToBacklog',
