@@ -11,6 +11,7 @@ import type {
 } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
+import { redactSecrets } from '../redact.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
@@ -212,7 +213,12 @@ export function createValidation(options: ValidationOptions) {
       })
     await store.persisted()
     const done = (async () => {
-      const release = await options.takeCheckSlot(task.id, checkRun.id)
+      const release = await options.takeCheckSlot(task.id, checkRun.id).catch((error: unknown) => {
+        console.error(
+          redactSecrets(`couldn’t record ${task.displayId}’s Check slot: ${String(error)}`),
+        )
+        return undefined
+      })
       if (release === undefined) {
         if (!options.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
         return { outcome: 'interrupted' as const, notFound: [] }

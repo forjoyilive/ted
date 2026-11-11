@@ -47,3 +47,99 @@ test('contention measures FIFO admission and canceled waiters never acquire', as
     vi.useRealTimers()
   }
 })
+
+test.each(['entered', 'acquired'] as const)(
+  'a failed %s record rejects immediate admission without retaining capacity',
+  async (boundary) => {
+    const slots = createCheckSlots({ limit: () => 1 })
+    await expect(
+      slots.take({
+        observe: (kind) => {
+          if (kind === boundary) throw new Error('recording unavailable')
+        },
+      }),
+    ).rejects.toThrow('recording unavailable')
+    expect(slots.full()).toBe(false)
+    const next = await slots.take({})
+    expect(next).toBeTypeOf('function')
+    next?.()
+  },
+)
+
+test('a failed queued admission rejects and lets later requests acquire in FIFO order', async () => {
+  const slots = createCheckSlots({ limit: () => 1 })
+  const first = await slots.take({})
+  const failed = expect(
+    slots.take({
+      observe: (kind) => {
+        if (kind === 'acquired') throw new Error('recording unavailable')
+      },
+    }),
+  ).rejects.toThrow('recording unavailable')
+  const admitted: string[] = []
+  const second = slots.take({
+    observe: (kind) => {
+      if (kind === 'acquired') admitted.push('second')
+    },
+  })
+  const third = slots.take({
+    observe: (kind) => {
+      if (kind === 'acquired') admitted.push('third')
+    },
+  })
+  expect(() => first?.()).not.toThrow()
+  await failed
+  const release = await second
+  expect(admitted).toEqual(['second'])
+  release?.()
+  const last = await third
+  expect(admitted).toEqual(['second', 'third'])
+  last?.()
+  expect(slots.full()).toBe(false)
+})
+
+test('a failed cancellation record rejects the removed waiter without stranding the line', async () => {
+  const slots = createCheckSlots({ limit: () => 1 })
+  const first = await slots.take({})
+  const abort = new AbortController()
+  const acquired: string[] = []
+  const failed = expect(
+    slots.take({
+      signal: abort.signal,
+      observe: (kind) => {
+        if (kind === 'canceled') throw new Error('recording unavailable')
+        if (kind === 'acquired') acquired.push('canceled')
+      },
+    }),
+  ).rejects.toThrow('recording unavailable')
+  const next = slots.take({
+    observe: (kind) => {
+      if (kind === 'acquired') acquired.push('next')
+    },
+  })
+  abort.abort()
+  await failed
+  first?.()
+  const release = await next
+  expect(acquired).toEqual(['next'])
+  release?.()
+  expect(slots.full()).toBe(false)
+})
+
+test('recording an already aborted request can fail without retaining capacity', async () => {
+  const slots = createCheckSlots({ limit: () => 1 })
+  const abort = new AbortController()
+  abort.abort()
+  await expect(
+    slots.take({
+      signal: abort.signal,
+      observe: (kind) => {
+        if (kind === 'canceled') throw new Error('recording unavailable')
+      },
+    }),
+  ).rejects.toThrow('recording unavailable')
+  expect(slots.full()).toBe(false)
+  const next = await slots.take({})
+  expect(next).toBeTypeOf('function')
+  next?.()
+})

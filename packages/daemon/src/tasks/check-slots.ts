@@ -56,7 +56,7 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
   const full = () => line.length > 0 || running >= options.limit()
 
   return {
-    take({ taskId, signal, observe }) {
+    async take({ taskId, signal, observe }) {
       const at = new Date().toISOString()
       observe?.('entered', at)
       if (signal?.aborted) {
@@ -65,25 +65,41 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
       }
       if (!full()) {
         running += 1
-        observe?.('acquired', at)
-        return Promise.resolve(release())
+        try {
+          observe?.('acquired', at)
+        } catch (error) {
+          running -= 1
+          recheck()
+          throw error
+        }
+        return release()
       }
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         const waiter: Waiter = {
           ...(taskId !== undefined && { taskId }),
           start: () => {
             signal?.removeEventListener('abort', leave)
-            observe?.('acquired', new Date().toISOString())
-            resolve(release())
+            try {
+              observe?.('acquired', new Date().toISOString())
+              resolve(release())
+            } catch (error) {
+              running -= 1
+              reject(error)
+            }
           },
         }
         const leave = () => {
           const index = line.indexOf(waiter)
           if (index === -1) return
           line.splice(index, 1)
-          observe?.('canceled', new Date().toISOString())
-          resolve(undefined)
-          changed()
+          try {
+            observe?.('canceled', new Date().toISOString())
+            resolve(undefined)
+          } catch (error) {
+            reject(error)
+          } finally {
+            changed()
+          }
         }
         signal?.addEventListener('abort', leave, { once: true })
         line.push(waiter)
