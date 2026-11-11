@@ -27,6 +27,7 @@ export function appState() {
     listWaiting: () => [],
     listBanners: () => [],
     listPlans: () => [],
+    coordinatorStatuses: () => [],
     planInbox: () => [],
     automationRequests: () => [],
     listAutomations: () => [],
@@ -58,6 +59,7 @@ export function appState() {
       api.emit({ type: 'settings-changed', settings: state.settings })
       return state.settings
     },
+    taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],
     listThreadEvents: () => [],
     listCheckRuns: () => [],
@@ -65,6 +67,7 @@ export function appState() {
     taskBrief: () => null,
     taskDescriptions: () => [],
     taskChanges: () => ({ repos: [] }),
+    taskFiles: (taskId) => ({ taskId, repos: [] }),
     lineComments: () => [],
     listApps: () => [],
     listStageEntries: () => [],

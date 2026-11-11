@@ -15,6 +15,8 @@ import {
   runFiles,
 } from '../host-files.ts'
 
+import { checkLaunchAuthority } from '../launch-authority.ts'
+
 const runDir = process.argv[2]
 if (!runDir) throw new Error('usage: host/main.ts <run-dir>')
 delete process.env.ELECTRON_RUN_AS_NODE
@@ -48,19 +50,29 @@ let current: Started | undefined
 let generation = earlierStarts
 let restarting = false
 let restartWanted = false
+let lastLaunchId: string | undefined
 const asked = { stop: false }
 
 async function startAgent(): Promise<Started> {
   const launch = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  lastLaunchId = launch.launchId
   const drive =
     launch.driver === undefined
       ? undefined
       : ((await import(pathToFileURL(launch.driver).href)) as { drive: DriveAgent }).drive
+  if (asked.stop) throw new Error('The Run was stopped before its agent started')
+  checkLaunchAuthority(launch.authority)
   const agent = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
-  write({ t: 'start', v: hostProtocol, hostPid: process.pid, agentPid: agent.pid ?? null })
+  write({
+    t: 'start',
+    v: hostProtocol,
+    hostPid: process.pid,
+    agentPid: agent.pid ?? null,
+    ...(launch.permissions !== undefined && { permissions: launch.permissions }),
+  })
   generation += 1
 
   let spawnError: string | undefined
@@ -138,6 +150,7 @@ const stop = () => {
 process.on('SIGTERM', stop)
 watchExitWith(stop)
 process.on('SIGHUP', () => {
+  if (asked.stop) return
   restartWanted = true
   restarting = true
   current?.agent.kill('SIGTERM')
@@ -152,7 +165,10 @@ for (;;) {
   restarting = false
   ;[code, signal] = await current.closed
   spawnError = current.spawnError()
-  if (!restartWanted) break
+  if (asked.stop || !restartWanted) break
+  // Only the daemon prepares a new launch after checking this computer’s permission mode.
+  const next = JSON.parse(readFileSync(files.launch, 'utf8')) as LaunchFile
+  if (next.launchId === undefined || next.launchId === lastLaunchId) break
 }
 
 clearInterval(inputTimer)

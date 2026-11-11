@@ -1,9 +1,19 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
-import type { MachineSettings, RunFixRequest, RunFixResult, TaskBrief } from '@ted/protocol'
+import type {
+  AutomationDetail,
+  ExportFormat,
+  MachineSettings,
+  RunFixRequest,
+  RunFixResult,
+  SaveExportResult,
+  TaskBrief,
+} from '@ted/protocol'
 import type { LoginItemState } from './login-item.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
+  getAutomation: (id: string) => Promise<AutomationDetail | null>
+  exportFactory: (factoryId: string, format: ExportFormat) => Promise<SaveExportResult>
   taskBrief: (taskId: string) => Promise<TaskBrief | null>
   openTaskSource: (taskId: string) => Promise<void>
   openPullRequest: (taskId: string, repoName: string) => Promise<void>

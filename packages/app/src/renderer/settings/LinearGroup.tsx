@@ -1,6 +1,7 @@
 import type { Factory, LinearStatus, MachineSettings } from '@ted/protocol'
 import { type ReactNode, useEffect, useId, useState } from 'react'
 import { Help } from '../components/Help.tsx'
+import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { useFactories } from '../data.ts'
 import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, Switch } from './controls.tsx'
@@ -67,6 +68,17 @@ export function LinearGroup({
   const typing = draft !== ''
   const noKeyring = status?.state === 'no-keyring'
 
+  if (!status)
+    return (
+      <SettingsGroup label="Linear">
+        {problem ? (
+          <LoadingError error={problem} retry={() => act('load', ted.getLinear)} />
+        ) : (
+          <Skeleton shape="settings" rows={1} framed={false} label="Loading Linear…" />
+        )}
+      </SettingsGroup>
+    )
+
   return (
     <SettingsGroup
       label="Linear"
@@ -111,13 +123,13 @@ export function LinearGroup({
           )}
           {typing && !noKeyring && (
             <Button primary onClick={() => save()} disabled={busy !== undefined}>
-              {busy === 'save' ? 'Checking…' : 'Save'}
+              {busy === 'save' ? <Loading compact label="Checking…" /> : 'Save'}
             </Button>
           )}
           {!typing && stored && (
             <>
               <Button onClick={() => act('test', ted.testLinear)} disabled={busy !== undefined}>
-                {busy === 'test' ? 'Testing…' : 'Test'}
+                {busy === 'test' ? <Loading compact label="Testing…" /> : 'Test'}
               </Button>
               <Button
                 danger

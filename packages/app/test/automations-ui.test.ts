@@ -16,7 +16,7 @@ import {
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
-import { firstWindow } from './first-window.ts'
+import { loadedWindow } from './first-window.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const electronPath = createRequire(import.meta.url)('electron') as string
@@ -59,9 +59,8 @@ async function launch(): Promise<{ window: Page; ted: DaemonClient }> {
   await ted.updateSettings({ timeFormat: '24-hour', timeZone: 'Europe/London' })
   await ted.addFactory({ repo: origin, key: 'NB' })
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
-  const window = await firstWindow(app)
+  const window = await loadedWindow(app)
   await window.emulateMedia({ colorScheme: null })
-  await sidebar(window).waitFor()
   return { window, ted }
 }
 
@@ -88,6 +87,13 @@ async function openFirstFactory(window: Page) {
 }
 
 describe('Automations in the app', () => {
+  test('a missing Automation crosses the bridge as deleted rather than a request failure', async () => {
+    const { window } = await launch()
+    expect(
+      await window.evaluate(() => globalThis.window.ted.request('getAutomation', 'missing')),
+    ).toBeNull()
+  })
+
   test('the empty page offers templates; a template fills the form and the schedule checks itself', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)

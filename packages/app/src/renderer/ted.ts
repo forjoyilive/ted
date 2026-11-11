@@ -1,5 +1,5 @@
 import type { DaemonConnection } from '@ted/daemon/launch'
-import type { DaemonEvent, RunFixRequest } from '@ted/protocol'
+import type { DaemonEvent, ExportFormat, RunFixRequest } from '@ted/protocol'
 import type { MenuCommand } from '../background.ts'
 import { type CustomRequests, customRequest } from '../custom-requests.ts'
 import { daemonRequests } from '../daemon-requests.ts'
@@ -34,6 +34,9 @@ function request<K extends keyof CustomRequests>(
 
 export const ted = {
   ...daemonRequests((name, ...args) => window.ted.request(name, ...args)),
+  getAutomation: (id: string) => request('getAutomation', id),
+  exportFactory: (factoryId: string, format: ExportFormat) =>
+    request('exportFactory', factoryId, format),
   taskBrief: (taskId: string) => request('taskBrief', taskId),
   openTaskSource: (taskId: string) => request('openTaskSource', taskId),
   openPullRequest: (taskId: string, repoName: string) =>

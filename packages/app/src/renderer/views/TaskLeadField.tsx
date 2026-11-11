@@ -13,14 +13,16 @@ export function TaskLeadField({ task }: { task: Task }) {
   const [run, setRun] = useState<Run | undefined>()
   const [agent, setAgent] = useState<AgentKind>(lead?.agent ?? 'claude')
   const [model, setModel] = useState(lead?.model ?? '')
-  const [effort, setEffort] = useState<Effort | ''>(lead?.effort ?? '')
+  const [effort, setEffort] = useState<Effort | '' | 'stage'>(
+    lead?.effortMode === 'stage' ? 'stage' : (lead?.effort ?? ''),
+  )
   const [error, setError] = useState<string | undefined>()
 
   useEffect(() => {
     setAgent(lead?.agent ?? 'claude')
     setModel(lead?.model ?? '')
-    setEffort(lead?.effort ?? '')
-  }, [lead?.agent, lead?.model, lead?.effort])
+    setEffort(lead?.effortMode === 'stage' ? 'stage' : (lead?.effort ?? ''))
+  }, [lead?.agent, lead?.model, lead?.effort, lead?.effortMode])
 
   useEffect(() => {
     const runId = task.leadRunId
@@ -37,7 +39,14 @@ export function TaskLeadField({ task }: { task: Task }) {
     const choice: TaskLead = {
       agent,
       ...(model.trim() !== '' && { model: model.trim() }),
-      ...(effort !== '' && { effort }),
+      ...(effort === 'stage'
+        ? {
+            effortMode: 'stage' as const,
+            ...(lead?.effort !== undefined && { effort: lead.effort }),
+          }
+        : effort !== ''
+          ? { effort }
+          : {}),
     }
     ted.setTaskLead(task.id, choice).then(
       () => setError(undefined),
@@ -56,6 +65,17 @@ export function TaskLeadField({ task }: { task: Task }) {
   return (
     <div className={styles.field}>
       {lead && <span>{leadSummary(lead)}</span>}
+      {lead?.effortMode === 'stage' && (
+        <span>
+          {task.stageEffort ?? lead.effort ?? 'CLI default'} effort ·{' '}
+          {task.stageEffort ? 'Stage setting' : 'Task Lead default'}
+        </span>
+      )}
+      {run &&
+        run.effort !==
+          (lead?.effortMode === 'stage' ? (task.stageEffort ?? lead.effort) : lead?.effort) && (
+          <span>Effort changes at the next idle point</span>
+        )}
       {run?.problem === 'model-unavailable' && (
         <div className={styles.problem}>
           <span>Model unavailable</span>
@@ -93,9 +113,10 @@ export function TaskLeadField({ task }: { task: Task }) {
           <select
             className={styles.control}
             value={effort}
-            onChange={(e) => setEffort(e.target.value as Effort | '')}
+            onChange={(e) => setEffort(e.target.value as Effort | '' | 'stage')}
           >
-            <option value="">Default effort</option>
+            <option value="stage">Follow Stage settings</option>
+            <option value="">CLI default · for this Task</option>
             {efforts.map((level) => (
               <option key={level} value={level}>
                 {level}

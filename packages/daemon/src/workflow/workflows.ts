@@ -3,6 +3,7 @@ import type { Banners } from '../banners.ts'
 import { clonePath } from '../factories.ts'
 import { exists } from '../files.ts'
 import * as git from '../git.ts'
+import { factoryPermissions, reportRepoPermissions } from '../permissions.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
 import { findDrift, rememberLayer } from './drift.ts'
@@ -176,6 +177,8 @@ export function createWorkflows(options: {
         defaults,
         ...chosen.flatMap(({ layer }) => (layer ? [layer] : [])),
       ])
+      reportRepoPermissions(store, banners, factory.id, workflow.settings.permissions)
+      workflow.settings.permissions = factoryPermissions(store, factory.id)
       reportChecks(factory, workflow)
       reportInvalid(factory, factoryLayer.use)
       return {

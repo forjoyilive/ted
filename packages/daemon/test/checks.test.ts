@@ -14,6 +14,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -45,7 +46,12 @@ afterEach(async () => {
 })
 
 async function startTed() {
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  daemon = await startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
+  })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -75,8 +81,13 @@ const workflow = (checks: string, extra: Record<string, string> = {}) =>
     ...extra,
   })
 
-async function startTask(client: Client, title: string): Promise<Task> {
-  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+async function startTask(client: Client, title: string, bypass = false): Promise<Task> {
+  const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  if (bypass)
+    await client.ok('PUT', `/factories/${factory.id}/permissions`, {
+      mode: 'bypass',
+      confirmBypass: true,
+    })
   const task = await client.ok<Task>('POST', '/tasks', { title, factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   return task
@@ -439,7 +450,9 @@ describe('Checks over the send-back limit and across restarts', () => {
     const client = await startTed()
     const task = await startTask(
       client,
-      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance),
+      steps({ everyMessage: [advance] }, { run: ['sh', '-c', 'echo x > a.txt'] }, advance, {
+        endTurn: true,
+      }),
     )
 
     const question = await waitUntil(
@@ -462,7 +475,14 @@ describe('Checks over the send-back limit and across restarts', () => {
       const all = await leadMessages(client, task)
       return all.some((m) => m.includes('# A Check failed')) ? all : undefined
     }, 'the note that TED asked the human')
-    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('asked the human')
+    expect(messages.find((m) => m.includes('# A Check failed'))).toContain('checking progress')
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some(
+          (m) => m.includes('TED’s loop check') && m.includes('asked the human'),
+        ),
+      'the assessment to tell the Task Lead it asked the human',
+    )
     await waitUntil(async () => {
       const id = (await getTask(client, task.id))?.leadRunId
       if (!id) return undefined
@@ -798,29 +818,76 @@ describe('the Checks’ sandbox', () => {
     },
   )
 
-  test('in a Bypass Factory the Checks run as before, outside any sandbox', async () => {
-    await commitToOrigin(scratch, {
-      '.gitignore': 'stub-*\n',
-      '.ted/workflow.yaml': [
-        'version: 1',
-        'permissions: bypass',
-        'order: [intake, work, validate]',
-        'stages:',
-        '  validate:',
-        '    checks:',
-        escapeCheck([path.join(scratch, 'out')]),
-        '',
-      ].join('\n'),
-    })
-    const client = await startTed()
-    const task = await startTask(
-      client,
-      steps({ run: ['sh', '-c', 'echo x > a.txt'] }, { run: ['ted', 'checks'] }, { endTurn: true }),
-    )
-    const [run] = await finishedRuns(client, task, 1)
-    expect(states(run)).toEqual([['Escape', 'passed']])
-    expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
-  })
+  test.each([false, true])(
+    'repo Bypass only removes the Checks’ sandbox with local consent: %s',
+    async (consent) => {
+      await commitToOrigin(scratch, {
+        '.gitignore': 'stub-*\n',
+        '.ted/workflow.yaml': [
+          'version: 1',
+          'permissions: bypass',
+          'order: [intake, work, validate]',
+          'stages:',
+          '  validate:',
+          '    checks:',
+          escapeCheck([path.join(scratch, 'out')]),
+          '',
+        ].join('\n'),
+      })
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        consent,
+      )
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([['Escape', 'passed']])
+      if (consent) expect(await readFile(path.join(scratch, 'out'), 'utf8')).toBe('')
+      else await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
+
+  test.runIf(process.platform === 'darwin')(
+    'revoking Bypass while a Check runs sandboxes the next Check in the batch',
+    async () => {
+      await workflow(
+        [
+          '      - { name: Hold, run: "touch stub-check-started; while [ ! -f stub-release ]; do sleep 0.02; done" }',
+          escapeCheck([path.join(scratch, 'out')]),
+        ].join('\n'),
+      )
+      const client = await startTed()
+      const task = await startTask(
+        client,
+        steps(
+          { run: ['sh', '-c', 'echo x > a.txt'] },
+          { run: ['ted', 'checks'] },
+          { endTurn: true },
+        ),
+        true,
+      )
+      const started = await worktreeFile(client, task, 'stub-check-started')
+      await waitUntil(
+        () =>
+          readFile(started)
+            .then(() => true)
+            .catch(() => false),
+        'first Check',
+      )
+      await client.ok('PUT', `/factories/${task.factoryId}/permissions`, { mode: 'auto' })
+      await writeFile(await worktreeFile(client, task, 'stub-release'), '')
+      const [run] = await finishedRuns(client, task, 1)
+      expect(states(run)).toEqual([
+        ['Hold', 'passed'],
+        ['Escape', 'passed'],
+      ])
+      await expect(readFile(path.join(scratch, 'out'))).rejects.toThrow()
+    },
+  )
 
   test('without a working sandbox, ted checks is refused and a banner says why', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')

@@ -4,7 +4,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
 import {
@@ -43,6 +45,8 @@ import views from './views.module.css'
 interface Dragging {
   task: Task
   from: StageId
+  grabY: number
+  height: number
 }
 
 interface Target {
@@ -81,6 +85,25 @@ function RefusedIcon() {
       <circle cx="5" cy="5" r="4" stroke="currentColor" />
       <path d="M2.2 7.8 7.8 2.2" stroke="currentColor" />
     </svg>
+  )
+}
+
+function RefusedDrop({ x, y, dragging }: { x: number; y: number; dragging: Dragging }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  useLayoutEffect(() => {
+    const hint = ref.current
+    if (!hint) return
+    const { width, height } = hint.getBoundingClientRect()
+    const above = y - dragging.grabY - height - 12
+    const below = y - dragging.grabY + dragging.height + 12
+    hint.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - width - 8))}px`
+    hint.style.top = `${Math.max(8, Math.min(above >= 8 ? above : below, window.innerHeight - height - 8))}px`
+  }, [x, y, dragging])
+  return (
+    <span ref={ref} className={styles.refused}>
+      <RefusedIcon />
+      Can’t drop here
+    </span>
   )
 }
 
@@ -298,7 +321,10 @@ export function Board({
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = 'move'
           event.dataTransfer.setData('text/plain', task.displayId)
-          setDragging({ task, from: column.stage })
+          const box = event.currentTarget.getBoundingClientRect()
+          const grabY = event.clientY - box.top
+          event.dataTransfer.setDragImage(event.currentTarget, event.clientX - box.left, grabY)
+          setDragging({ task, from: column.stage, grabY, height: box.height })
         }}
         onDragEnd={endDrag}
       >
@@ -537,12 +563,7 @@ export function Board({
           onClose={() => setArchivingDone(false)}
         />
       )}
-      {refused && (
-        <span className={styles.refused} style={{ left: refused.x + 12, top: refused.y + 12 }}>
-          <RefusedIcon />
-          Can’t drop here
-        </span>
-      )}
+      {refused && dragging && <RefusedDrop x={refused.x} y={refused.y} dragging={dragging} />}
     </section>
   )
 }

@@ -2,13 +2,13 @@ import { once } from 'node:events'
 import { createServer } from 'node:http'
 import { DaemonClient, DaemonRequestError } from '@ted/protocol'
 import { expect, test, vi } from 'vitest'
+import { getAutomation, taskBrief } from '../src/daemon-adapters.ts'
 import {
   daemonRequests,
   forwardDaemonRequest,
   forwardedRequests,
   isForwardedRequest,
 } from '../src/daemon-requests.ts'
-import { taskBrief } from '../src/task-brief.ts'
 
 const client = () => new DaemonClient({ port: 1, token: 'test', pid: 0, version: '0' })
 
@@ -26,6 +26,9 @@ test.each([
   'provesAppKey',
   'shutdown',
   'getReport',
+  'exportFactory',
+  'getAutomation',
+  'taskBrief',
   '',
   null,
   {},
@@ -103,6 +106,16 @@ test('transport failures are not swallowed by forwards or the missing-brief adap
   await expect(taskBrief(instance, 'NB-1')).rejects.toMatchObject({ status: 503 })
   getBrief.mockRejectedValue(failure)
   await expect(taskBrief(instance, 'NB-1')).rejects.toBe(failure)
+})
+
+test('missing Automation adapters preserve null and propagate other failures', async () => {
+  const instance = client()
+  const read = vi
+    .spyOn(instance, 'getAutomation')
+    .mockRejectedValue(new DaemonRequestError(404, 'missing'))
+  expect(await getAutomation(instance, 'a1')).toBeNull()
+  read.mockRejectedValue(new DaemonRequestError(503, 'not ready'))
+  await expect(getAutomation(instance, 'a1')).rejects.toMatchObject({ status: 503 })
 })
 
 test('invalid upload bytes are rejected before calling the client upload', () => {

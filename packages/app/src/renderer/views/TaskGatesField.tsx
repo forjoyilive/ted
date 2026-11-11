@@ -1,8 +1,10 @@
 import type { TaskGateOverrides, TaskGates } from '@ted/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
+import { Loading } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import { stageName } from '../list-view.ts'
+import { OvernightNotice } from '../overnight.tsx'
 import { ted } from '../ted.ts'
 import styles from './TaskGatesField.module.css'
 
@@ -90,15 +92,20 @@ export function TaskGatesField({ taskId }: { taskId: string }) {
   const count = Object.keys(data?.overrides ?? {}).length
   return (
     <div className={styles.field}>
-      <Button size="small" disabled={busy} onClick={() => void edit()}>
-        {busy
-          ? 'Loading…'
-          : data
-            ? `${count ? `${count} overridden` : 'Use Workflow'} · ${editable ? 'Edit' : 'View'}`
-            : 'Load Gates'}
+      <Button size="small" disabled={busy || (!data && !error)} onClick={() => void edit()}>
+        {busy ? (
+          <Loading compact label="Loading Gates…" />
+        ) : data ? (
+          `${count ? `${count} overridden` : 'Use Workflow'} · ${editable ? 'Edit' : 'View'}`
+        ) : error ? (
+          'Load Gates'
+        ) : (
+          <Loading compact label="Loading Gates…" />
+        )}
       </Button>
       {open && data && (
         <section className={styles.editor} aria-label="Gates for this Task">
+          <OvernightNotice />
           <p className={styles.note}>
             Choose where TED waits for your sign-off. Stage work stays the same.
           </p>

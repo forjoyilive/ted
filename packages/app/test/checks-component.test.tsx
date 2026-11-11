@@ -4,6 +4,7 @@ import { render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { CheckOutputDialog } from '../src/renderer/components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../src/renderer/components/ChecksRow.tsx'
+import { checkRunHeadline } from '../src/renderer/views/CheckEvents.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { createdAt, task } from './support/fixtures.ts'
@@ -41,6 +42,19 @@ test('Checks distinguish pass, failure, not-run and Review/Visual judgments', as
   expect(screen.queryByRole('button', { name: /Lint/ })).toBeNull()
   await user().click(screen.getByRole('button', { name: '✗Tests' }))
   expect(open).toHaveBeenCalledWith(1)
+})
+
+test('a Check run waiting for a place says so instead of Running Checks', () => {
+  const checks = run.checks.map((c) => ({ ...c, state: 'waiting' as const }))
+  expect(checkRunHeadline({ ...run, checks, waiting: true })).toEqual([
+    'run',
+    'Waiting to run Checks',
+  ])
+  expect(checkRunHeadline({ ...run, checks, trigger: 'agent', waiting: true })).toEqual([
+    'run',
+    'Validate is waiting to run Checks',
+  ])
+  expect(checkRunHeadline({ ...run, checks })).toEqual(['run', 'Running Checks'])
 })
 
 test('Check output opens the failed output and tabs switch to another Check', async () => {

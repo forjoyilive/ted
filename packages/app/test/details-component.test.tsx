@@ -14,6 +14,7 @@ function handlers() {
     simulators: () => ({ supported: false }),
     listTaskRuns: () => [],
     taskDescriptions: () => [],
+    taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],
     taskBrief: () => null,
   }

@@ -170,6 +170,36 @@ test('a pending create disables submission and an error preserves the draft', as
   )
 })
 
+test('files dropped while the draft loads are attached once it has loaded', async () => {
+  const draft = deferred<{ draft: null }>()
+  const uploaded = vi.fn((file: unknown) => ({
+    hash: 'abc',
+    name: (file as { name: string }).name,
+    mediaType: 'text/plain',
+    size: 5,
+  }))
+  bridge({
+    ...draftHandlers(),
+    taskDraft: () => draft.promise,
+    taskDefaults: () => ({ clarifyDepth: 'auto', lead: { agent: 'claude' } }),
+    uploadAttachment: uploaded,
+  })
+  render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
+  expect(screen.getByLabelText('Description').matches(':disabled')).toBe(true)
+  fireEvent.drop(screen.getByRole('group', { name: 'Attachments' }), {
+    dataTransfer: { files: [new File(['hello'], 'notes.txt', { type: 'text/plain' })] },
+  })
+  expect(await screen.findByText('Attaching…')).toBeTruthy()
+  expect(uploaded).not.toHaveBeenCalled()
+  await act(async () => draft.resolve({ draft: null }))
+  expect(await screen.findByRole('button', { name: 'Remove notes.txt' })).toBeTruthy()
+  expect(uploaded).toHaveBeenCalledWith(
+    { name: 'notes.txt', mediaType: 'text/plain' },
+    expect.any(Uint8Array),
+  )
+  expect(screen.queryByText('Attaching…')).toBeNull()
+})
+
 test('Model unavailable offers the default model and sends the human’s choice', async () => {
   const run: import('@ted/protocol').Run = {
     id: 'r1',
@@ -195,3 +225,76 @@ test('Model unavailable offers the default model and sends the human’s choice'
   await act(async () => api.emit({ type: 'run-updated', run }))
   expect(screen.queryByText('Model unavailable')).toBeNull()
 })
+
+test('following Stage effort survives a model edit and can be replaced with explicit CLI default', async () => {
+  const api = bridge({ setTaskLead: () => task() })
+  render(
+    <TaskLeadField
+      task={task({
+        lead: { agent: 'claude', model: 'opus', effort: 'medium', effortMode: 'stage' },
+        stageEffort: 'high',
+      })}
+    />,
+  )
+  expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
+  const u = user()
+  await u.clear(screen.getByLabelText('Model'))
+  await u.type(screen.getByLabelText('Model'), 'sonnet')
+  await u.click(screen.getByRole('button', { name: 'Save' }))
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
+    agent: 'claude',
+    model: 'sonnet',
+    effort: 'medium',
+    effortMode: 'stage',
+  })
+  await u.selectOptions(screen.getByLabelText('Effort'), '')
+  await u.click(screen.getByRole('button', { name: 'Save' }))
+  expect(api.request).toHaveBeenLastCalledWith('setTaskLead', expect.any(String), {
+    agent: 'claude',
+    model: 'sonnet',
+  })
+})
+
+test.each(['stage', 'high', ''] as const)(
+  'New Task fallback follows Stages unless effort is explicitly %s',
+  async (effort) => {
+    const created = vi.fn(() => task())
+    bridge({
+      ...draftHandlers(),
+      taskDefaults: () => ({
+        lead: { agent: 'claude', effort: 'medium', effortMode: 'stage' },
+        clarifyDepth: 'auto',
+      }),
+      checkAgentHealth: () => [
+        { agent: 'claude', state: 'not-installed' },
+        { agent: 'codex', state: 'ready', version: '2.0.0' },
+      ],
+      createTask: created,
+    })
+    render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={() => {}} />)
+    const u = user()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false),
+    )
+    await u.click(screen.getByRole('button', { name: /^More/ }))
+    await waitFor(() =>
+      expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex'),
+    )
+    if (effort === 'stage')
+      expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
+    else await u.selectOptions(screen.getByLabelText('Effort'), effort)
+    await u.type(
+      screen.getByLabelText('Description'),
+      'Use the configured Stage effort with the installed agent.',
+    )
+    await u.click(screen.getByRole('button', { name: 'Create' }))
+    expect(created).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lead: {
+          agent: 'codex',
+          ...(effort === 'stage' ? { effortMode: 'stage' } : effort !== '' ? { effort } : {}),
+        },
+      }),
+    )
+  },
+)

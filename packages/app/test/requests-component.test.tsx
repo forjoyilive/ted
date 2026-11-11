@@ -22,9 +22,48 @@ const round: Round = {
 
 function requestApi() {
   const answer = vi.fn(() => comment())
-  const api = bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  const api = bridge({
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listApps: () => [],
+    simulators: () => ({ supported: false }),
+    answerRequest: answer,
+  })
   return { ...api, answer }
 }
+
+test('rounds submit preselected recommendations with one submission action', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
+  )
+  expect(screen.queryByRole('button', { name: 'Accept all recommended' })).toBeNull()
+  await user().click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: 'Keep both' }, { answer: 'The edit wins.' }],
+  })
+})
+
+test('Submit answers preserves changed choices, written answers and added notes', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
+  )
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Clashes are rare.')
+  await u.clear(screen.getByLabelText('Answer 2'))
+  await u.type(screen.getByLabelText('Answer 2'), 'Keep both versions.')
+  await u.click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [
+      { answer: 'Keep latest', note: 'Clashes are rare.' },
+      { answer: 'Keep both versions.' },
+    ],
+  })
+})
 
 test('round recommendations, reset, Other validation and notes are sent as answers', async () => {
   const { answer } = requestApi()
@@ -142,6 +181,92 @@ test('answered and superseded cards expand read-only and never send again', asyn
   )
   expect(screen.getByText('Superseded by a newer question from the Task Lead')).toBeTruthy()
   expect(answer).not.toHaveBeenCalled()
+})
+
+test.each([
+  { kind: 'approved', at: createdAt, text: 'For this request' },
+  { kind: 'denied', at: createdAt, text: 'For this request' },
+  { kind: 'withdrawn', at: createdAt, runStopped: true },
+] as const)('resolved permissions retain their full request: $kind', (answer) => {
+  const api = requestApi()
+  const request = comment({
+    kind: 'permission',
+    title: 'Run a command',
+    body: 'Install the CRDT library',
+    permission: {
+      command: 'npm install --save yjs@13.6.27',
+      repo: 'ted',
+      details: 'Network access is required.\nWrites package.json and pnpm-lock.yaml.',
+    },
+  })
+  const view = render(<RequestCard task={task()} request={request} />)
+  expect(screen.getByText('Install the CRDT library')).toBeTruthy()
+  view.rerender(<AnsweredCard task={task()} request={{ ...request, answer }} />)
+  expect(screen.getByRole('heading', { name: 'Run a command' })).toBeTruthy()
+  expect(screen.getByText('Install the CRDT library')).toBeTruthy()
+  expect(screen.getAllByText(/npm install --save yjs@13\.6\.27/)).toHaveLength(1)
+  expect(screen.getByText('ted $')).toBeTruthy()
+  expect(screen.getByText(/Network access is required/).textContent).toBe(
+    request.permission?.details,
+  )
+  expect(screen.getAllByText('Permission')).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: /Show request|Hide request/ })).toBeNull()
+  expect(screen.queryByRole('textbox')).toBeNull()
+  expect(screen.queryByRole('button', { name: /Approve|Deny/ })).toBeNull()
+  expect(
+    screen.getByText(
+      answer.kind === 'approved'
+        ? 'You approved · this request only'
+        : answer.kind === 'denied'
+          ? 'You denied'
+          : /Run stopped before you answered/,
+    ),
+  ).toBeTruthy()
+  if (answer.kind !== 'withdrawn') expect(screen.getByText('“For this request”')).toBeTruthy()
+  view.rerender(<AnsweredCard task={task()} request={{ ...request, answer }} expanded />)
+  expect(screen.getAllByText(/npm install --save yjs@13\.6\.27/)).toHaveLength(1)
+  expect(api.answer).not.toHaveBeenCalled()
+})
+
+test.each([
+  [
+    'Finish the current Stage and move the Task on.',
+    'Finish the current Stage and move the Task on.',
+  ],
+  ['', 'The agent didn’t provide an explanation for this request.'],
+  [' \n\t ', 'The agent didn’t provide an explanation for this request.'],
+])('permission card explains a request with body %j', (body, explanation) => {
+  requestApi()
+  const view = render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'permission',
+        title: 'Run a command',
+        body,
+        permission: { command: '/tmp/ted-run-c58cea04.sh outcome advance', repo: 'ted' },
+      })}
+    />,
+  )
+  expect(screen.getByText(explanation)).toBeTruthy()
+  expect(screen.getByText(/\/tmp\/ted-run-c58cea04.sh outcome advance/).textContent).toBe(
+    'ted $ /tmp/ted-run-c58cea04.sh outcome advance',
+  )
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Deny' })).toBeTruthy()
+  view.rerender(
+    <AnsweredCard
+      task={task()}
+      request={comment({
+        kind: 'permission',
+        title: 'Run a command',
+        body,
+        permission: { command: '/tmp/ted-run-c58cea04.sh outcome advance', repo: 'ted' },
+        answer: { kind: 'approved', at: createdAt },
+      })}
+    />,
+  )
+  expect(screen.getByText(explanation)).toBeTruthy()
 })
 
 test.each(['approve', 'deny'] as const)(
@@ -273,4 +398,140 @@ test('empty Inbox opens New Task and Show answered opens the empty Answered view
   await a.emitTask(task())
   await user().click(within(inbox).getByRole('button', { name: 'Show answered' }))
   expect(within(inbox).getByText('Nothing answered in the last 30 days')).toBeTruthy()
+})
+
+test('Review keeps its brief and separates current files from changes since approval', async () => {
+  const { answer } = requestApi()
+  const open = vi.fn()
+  const all = vi.fn()
+  const changes = {
+    taskId: 'NB-1',
+    files: 1,
+    repos: [
+      {
+        name: 'widgets',
+        baseBranch: 'main',
+        added: 4,
+        removed: 1,
+        files: [{ path: 'src/sync.ts', added: 4, removed: 1, uncommitted: false }],
+      },
+    ],
+  }
+  render(
+    <RequestCard
+      task={task()}
+      taskChanges={changes}
+      onOpenFile={open}
+      onAllChanges={all}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        body: '## Goal\n\nKeep the review evidence.',
+        gate: {
+          approveLabel: 'Approve',
+          changes: {
+            since: 'previous',
+            summary: 'Fixed the conflict.',
+            repos: [
+              {
+                name: 'widgets',
+                files: [
+                  { path: 'src/sync.ts', added: 2, removed: 0 },
+                  { path: 'removed.ts', added: 0, removed: 1 },
+                ],
+              },
+            ],
+          },
+        },
+      })}
+    />,
+  )
+  expect(screen.getByText('Approval needed again', { exact: false })).toBeTruthy()
+  expect(screen.getByText('Keep the review evidence.')).toBeTruthy()
+  const current = within(screen.getByRole('region', { name: 'Current Task changes' }))
+  expect(current.getByText('1 file · +4 −1')).toBeTruthy()
+  expect(current.getByText('Changed since approval')).toBeTruthy()
+  expect(screen.getByText('Not in the current Task diff')).toBeTruthy()
+  const file = current.getByRole('button', { name: /sync.ts/ })
+  expect(file.hasAttribute('data-nav-item')).toBe(true)
+  await user().click(file)
+  expect(open).toHaveBeenCalledWith({
+    ...changes.repos[0]?.files[0],
+    repo: 'widgets',
+    baseBranch: 'main',
+  })
+  await user().click(current.getByRole('button', { name: 'View all changes' }))
+  expect(all).toHaveBeenCalledOnce()
+  expect(answer).not.toHaveBeenCalled()
+})
+
+test('Review shows loading, missing worktree, empty and unavailable repos without approval actions changing', () => {
+  requestApi()
+  const props = {
+    task: task(),
+    request: comment({ kind: 'signoff', stage: 'review', gate: { approveLabel: 'Approve' } }),
+    onOpenFile: vi.fn(),
+    onAllChanges: vi.fn(),
+  }
+  const view = render(<RequestCard {...props} />)
+  expect(screen.getByText('Loading changes…')).toBeTruthy()
+  view.rerender(<RequestCard {...props} taskChanges={{ taskId: 'NB-1', files: 0, repos: [] }} />)
+  expect(screen.getByText('No worktree is available for this Task.')).toBeTruthy()
+  const repo = { name: 'widgets', baseBranch: 'main', added: 0, removed: 0, files: [] }
+  view.rerender(
+    <RequestCard {...props} taskChanges={{ taskId: 'NB-1', files: 0, repos: [repo] }} />,
+  )
+  expect(screen.getByText('No current Task changes.')).toBeTruthy()
+  view.rerender(
+    <RequestCard
+      {...props}
+      taskChanges={{
+        taskId: 'NB-1',
+        files: 0,
+        repos: [repo, { ...repo, name: 'api', unavailable: 'Worktree unavailable' }],
+      }}
+    />,
+  )
+  expect(screen.getByText('Worktree unavailable')).toBeTruthy()
+  expect(screen.getByText('api')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'View all changes' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy()
+})
+
+test('previous review resolves the referenced approval rather than the first sign-off', async () => {
+  const api = requestApi()
+  const previous = comment({
+    id: 'second',
+    kind: 'signoff',
+    stage: 'review',
+    body: '## Goal\n\nThe latest approved evidence.',
+    gate: { approveLabel: 'Approve' },
+    answer: { kind: 'approved', at: createdAt },
+  })
+  api.handle('listComments', () => [
+    comment({
+      id: 'first',
+      kind: 'signoff',
+      stage: 'review',
+      body: 'The obsolete evidence.',
+      answer: { kind: 'approved', at: createdAt },
+    }),
+    previous,
+  ])
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({
+        kind: 'signoff',
+        stage: 'review',
+        gate: { approveLabel: 'Approve', changes: { since: 'second', repos: [] } },
+      })}
+    />,
+  )
+  await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
+  const old = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  expect(within(old).getByText('The latest approved evidence.')).toBeTruthy()
+  expect(within(old).queryByRole('textbox')).toBeNull()
+  expect(screen.queryByText('The obsolete evidence.')).toBeNull()
+  expect(screen.getByText(/^Approved /)).toBeTruthy()
 })

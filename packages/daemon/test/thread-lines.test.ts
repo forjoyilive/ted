@@ -112,3 +112,15 @@ describe('event lines', () => {
     ])
   })
 })
+
+test('snooze changes are recorded without embedding an unformatted time in the thread', () => {
+  expect(
+    lines([
+      entry('v1.TaskSnoozed', 1, { until: '2099-11-11T03:45:00.000Z' }),
+      entry('v1.TaskSnoozeCleared', 2),
+    ]),
+  ).toEqual([
+    { tone: 'edit', text: 'Task snoozed' },
+    { tone: 'edit', text: 'Snooze cleared' },
+  ])
+})

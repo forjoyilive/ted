@@ -1,10 +1,10 @@
 import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setTimeout as sleep } from 'node:timers/promises'
 import type { Comment, Factory, RunSlots, Task, ThreadEvent } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -16,6 +16,8 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { eventWait } from './support/event-wait.ts'
+import { ManualClock } from './support/manual-clock.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -58,13 +60,14 @@ None.
 Finish the API.
 `
 
-async function startTed(options: { nudgeAfterMs?: number } = {}) {
+async function startTed(options: { nudgeAfterMs?: number; clock?: Clock } = {}) {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
   })
   daemon = await startDaemon({
     home,
     version: '9.9.9',
+    ...(options.clock && { clock: options.clock }),
     claudeBin: stubClaudePath,
     nudgeAfterMs: options.nudgeAfterMs ?? 600_000,
   })
@@ -94,10 +97,14 @@ const getTask = async (client: Client, id: string) => {
 }
 
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
-  waitUntil(async () => {
-    const current = await getTask(client, task.id)
-    return check(current) ? current : undefined
-  }, `${task.displayId} ${what}`)
+  eventWait(
+    client.subscribe,
+    async () => {
+      const current = await getTask(client, task.id)
+      return check(current) ? current : undefined
+    },
+    `${task.displayId} ${what}`,
+  )
 
 const comments = (client: Client, task: Task) =>
   client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
@@ -260,7 +267,6 @@ describe('Stop', () => {
     )
 
     expect((await client.call('POST', `/tasks/${task.id}/stop`)).status).toBe(409)
-    await sleep(300)
     expect((await getTask(client, task.id)).status).toMatchObject({ kind: 'stopped' })
   })
 
@@ -389,7 +395,6 @@ describe('Resume', () => {
 
     await client.ok('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
 
-    await sleep(300)
     const after = await getTask(client, task.id)
     expect(after.status?.kind).toBe('stopped')
     expect(after.runs).toEqual([])
@@ -407,7 +412,8 @@ describe('Resume', () => {
 
 describe('the idle Task Lead', () => {
   test('is nudged once, then TED asks with its last message and Nudge again', async () => {
-    const client = await startTed({ nudgeAfterMs: 100 })
+    const clock = new ManualClock()
+    const client = await startTed({ nudgeAfterMs: 100, clock })
     const task = await create(
       client,
       steps(
@@ -417,10 +423,36 @@ describe('the idle Task Lead', () => {
       ),
       { start: true },
     )
-    const asked = await waitUntil(async () => {
-      const found = (await comments(client, task)).find((c) => c.kind === 'question')
-      return found
-    }, 'TED to ask')
+    await waitFor(client, task, (t) => t.runs[0]?.state === 'idle', 'to go idle')
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the first nudge timer to arm',
+    )
+    clock.advance(100)
+    await eventWait(
+      client.subscribe,
+      async () => {
+        const current = await getTask(client, task.id)
+        const messages = await userMessages(client, current.leadRunId ?? '')
+        return current.runs[0]?.state === 'idle' && messages.filter((m) => m === nudge).length === 1
+      },
+      'the nudged turn to finish',
+    )
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the second nudge timer to arm',
+    )
+    clock.advance(100)
+    const asked = await eventWait(
+      client.subscribe,
+      async () => {
+        const found = (await comments(client, task)).find((c) => c.kind === 'question')
+        return found
+      },
+      'TED to ask',
+    )
     const current = await getTask(client, task.id)
     const runId = current.leadRunId ?? ''
     const messages = await userMessages(client, runId)
@@ -436,7 +468,7 @@ describe('the idle Task Lead', () => {
     expect((await threadEvents(client, task)).map((e) => e.text)).toContain(
       `TED nudged the Task Lead: “${nudge}”`,
     )
-    await sleep(300)
+    clock.advance(300)
     expect((await comments(client, task)).filter((c) => c.kind === 'question')).toHaveLength(1)
 
     await client.ok('POST', `/comments/${asked.id}/answer`, {
@@ -451,7 +483,8 @@ describe('the idle Task Lead', () => {
   })
 
   test('isn’t nudged while it waits on the human', async () => {
-    const client = await startTed({ nudgeAfterMs: 100 })
+    const clock = new ManualClock()
+    const client = await startTed({ nudgeAfterMs: 100, clock })
     const task = await create(
       client,
       steps({ run: ['ted', 'outcome', 'ask', 'Which endpoint?'] }, { endTurn: true }),
@@ -459,7 +492,12 @@ describe('the idle Task Lead', () => {
     )
     const idle = await waitFor(client, task, (t) => t.runs[0]?.state === 'idle', 'to go idle')
 
-    await sleep(500)
+    await eventWait(
+      clock.subscribe,
+      () => clock.pending.includes(100),
+      'the idle timer to arm while waiting on the human',
+    )
+    clock.advance(500)
 
     expect(await userMessages(client, idle.leadRunId ?? '')).toHaveLength(1)
     expect((await comments(client, task)).map((c) => c.author.kind)).toEqual(['run'])
