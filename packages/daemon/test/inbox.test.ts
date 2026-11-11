@@ -23,18 +23,25 @@ const request = (
 const at = (answer: CommentAnswer) => ({ answer })
 
 describe('Inbox order', () => {
-  test('waiting requests sort by the Task’s Priority, Urgent first, then oldest first', () => {
+  test('waiting requests sort newest first regardless of Task Priority', () => {
     const tasks = [task('low', 'low'), task('urgent', 'urgent'), task('none', 'none')]
     const items = waiting(
       [
         request('a', 'low', '2026-11-01T10:00:00Z'),
         request('b', 'none', '2026-11-01T09:00:00Z'),
-        request('c', 'urgent', '2026-11-01T11:00:00Z'),
+        request('c', 'urgent', '2026-11-01T07:00:00Z'),
         request('d', 'low', '2026-11-01T08:00:00Z'),
       ],
       tasks,
     )
-    expect(items.map((i) => i.request.id)).toEqual(['c', 'd', 'a', 'b'])
+    expect(items.map((i) => i.request.id)).toEqual(['a', 'b', 'd', 'c'])
+  })
+
+  test('equal timestamps sort consistently by request ID, regardless of input order', () => {
+    const tasks = [task('t', 'none')]
+    const requests = ['b', 'a'].map((id) => request(id, 't', '2026-11-01T10:00:00Z'))
+    expect(waiting(requests, tasks).map((i) => i.request.id)).toEqual(['a', 'b'])
+    expect(waiting([...requests].reverse(), tasks).map((i) => i.request.id)).toEqual(['a', 'b'])
   })
 
   test('notes, answered requests and archived Tasks’ requests aren’t waiting', () => {

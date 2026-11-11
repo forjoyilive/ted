@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import type { FailureCase, Round } from '@ted/protocol'
+import type { AutomationRequest, FailureCase, PlanInboxItem, Round } from '@ted/protocol'
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
@@ -356,6 +356,7 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
 })
 
 function inboxProps() {
+  bridge({})
   return {
     items: [],
     answered: [],
@@ -397,6 +398,133 @@ test('resolving a selected request opens the next request and clears when none r
   expect(props.onOpen).toHaveBeenCalledWith(second)
   view.rerender(<Inbox {...props} items={[]} selected="c2" />)
   expect(props.onClear).toHaveBeenCalledOnce()
+})
+
+test('Inbox interleaves request types newest first, filters without reordering, and selects the next visible row', async () => {
+  const props = inboxProps()
+  const onOpenPlan = vi.fn()
+  const onOpenQuestion = vi.fn()
+  const old = {
+    task: task({ priority: 'urgent' }),
+    request: comment({ id: 'old', body: 'Old urgent request', createdAt: '2026-11-09T10:00:00Z' }),
+  }
+  const recent = {
+    task: task({ priority: 'low' }),
+    request: comment({ id: 'recent', body: 'Recent request', createdAt: '2026-11-09T13:00:00Z' }),
+  }
+  const plan: PlanInboxItem = {
+    plan: {
+      id: 'p1',
+      factoryId: 'f1',
+      factoryKey: 'NB',
+      title: 'Planning chat',
+      message: '',
+      agent: 'codex',
+      status: 'working',
+      createdTasks: 0,
+      createdAt,
+    },
+    request: {
+      id: 'plan',
+      planId: 'p1',
+      runId: 'r1',
+      kind: 'round',
+      author: 'run',
+      title: 'Plan request',
+      body: '',
+      createdAt: '2026-11-09T12:00:00Z',
+    },
+  }
+  const question: AutomationRequest = {
+    id: 'auto',
+    automationId: 'a1',
+    automationName: 'Automation',
+    factoryId: 'f2',
+    runId: 'r2',
+    kind: 'question',
+    body: 'Automation request',
+    createdAt: '2026-11-09T11:00:00Z',
+  }
+  const all = {
+    ...props,
+    items: [old, recent],
+    plans: [plan],
+    questions: [question],
+    factories: [factory(), factory({ id: 'f2', name: 'Other' })],
+    onOpenPlan,
+    onOpenQuestion,
+  }
+  const view = render(<Inbox {...all} selected="recent" />)
+  const headlines = () =>
+    [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+  expect(headlines()).toEqual([
+    'Recent request',
+    'Plan request',
+    'Automation request',
+    'Old urgent request',
+  ])
+  await user().click(screen.getByText('Plan request', { exact: true }))
+  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+  await user().click(screen.getByText('Automation request', { exact: true }))
+  expect(onOpenQuestion).toHaveBeenCalledWith(question)
+
+  view.rerender(<Inbox {...all} factoryId="f1" selected="recent" />)
+  expect(headlines()).toEqual(['Recent request', 'Plan request', 'Old urgent request'])
+  onOpenPlan.mockClear()
+  view.rerender(<Inbox {...all} factoryId="f1" items={[old]} selected="recent" />)
+  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+
+  const newest = {
+    ...recent,
+    request: comment({ id: 'new', body: 'New request', createdAt: '2026-11-09T14:00:00Z' }),
+  }
+  props.onOpen.mockClear()
+  onOpenPlan.mockClear()
+  view.rerender(<Inbox {...all} items={[old, newest]} selected="plan" />)
+  expect(headlines()).toEqual([
+    'New request',
+    'Plan request',
+    'Automation request',
+    'Old urgent request',
+  ])
+  expect(props.onOpen).not.toHaveBeenCalled()
+  expect(onOpenPlan).not.toHaveBeenCalled()
+  expect(screen.getByText('Plan request').closest('button')?.getAttribute('aria-current')).toBe(
+    'true',
+  )
+})
+
+test('Inbox equal timestamps keep a consistent order and Answered keeps answer-time order', () => {
+  const props = inboxProps()
+  const a = { task: task(), request: comment({ id: 'a', body: 'First', createdAt }) }
+  const b = { task: task(), request: comment({ id: 'b', body: 'Second', createdAt }) }
+  const view = render(<Inbox {...props} items={[b, a]} />)
+  const headlines = () =>
+    [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
+  expect(headlines()).toEqual(['First', 'Second'])
+  view.rerender(<Inbox {...props} items={[a, b]} />)
+  expect(headlines()).toEqual(['First', 'Second'])
+  view.rerender(
+    <Inbox
+      {...props}
+      showAnswered
+      answered={[
+        {
+          ...a,
+          request: { ...a.request, answer: { kind: 'answered', at: '2026-11-09T14:00:00Z' } },
+        },
+        {
+          ...b,
+          request: {
+            ...b.request,
+            createdAt: '2026-11-09T13:00:00Z',
+            answer: { kind: 'answered', at: '2026-11-09T13:30:00Z' },
+          },
+        },
+      ]}
+    />,
+  )
+  expect(headlines()).toEqual(['First', 'Second'])
 })
 
 test('answered rounds distinguish recommended and changed responses', () => {

@@ -1,5 +1,4 @@
 import type { Comment, CommentAnswer, InboxItem, Task } from '@ted/protocol'
-import { priorities } from '@ted/protocol'
 
 export const answeredDays = 30
 
@@ -19,12 +18,13 @@ function withTasks(requests: readonly Comment[], tasks: readonly Task[]): InboxI
 }
 
 export function waiting(requests: readonly Comment[], tasks: readonly Task[]): InboxItem[] {
-  const rank = (task: Task) => priorities.indexOf(task.priority)
   return withTasks(
     requests.filter((r) => r.kind !== 'note' && r.answer === undefined),
     tasks,
   ).sort(
-    (a, b) => rank(a.task) - rank(b.task) || a.request.createdAt.localeCompare(b.request.createdAt),
+    (a, b) =>
+      b.request.createdAt.localeCompare(a.request.createdAt) ||
+      a.request.id.localeCompare(b.request.id),
   )
 }
 
