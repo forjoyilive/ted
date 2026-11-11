@@ -1754,15 +1754,33 @@ export function createTasks(options: {
       .length
   }
 
+  const leftWork = (task: StoredTask) => task.stage !== 'work' || task.archived
+
+  const handOffHalted = (task: StoredTask, lead: string | undefined) =>
+    task.stopped || task.status?.kind === 'failed' || task.leadRunId !== lead
+
+  async function handOffUnused(task: StoredTask): Promise<void> {
+    const text = `# TED didn’t use the Checks’ result\n\nTED ran the Factory’s Checks to move ${task.displayId} to Validate, but the Task was stopped or its Task Lead changed before they finished, so TED didn’t use their result. The Task is still in Work. Report the outcome again with \`ted outcome advance\` when the work is finished.`
+    if (await deliver(task, text)) return
+    store.holdLeadMessage(task.id, text)
+    await store.persisted()
+  }
+
   async function handOffChecks(
     taskId: string,
-    heads: readonly (string | undefined)[],
-    begun?: { started: StartedChecks; coverage: string | undefined },
+    begun?: {
+      started: StartedChecks
+      coverage: string | undefined
+      heads: readonly (string | undefined)[]
+      lead: string
+    },
   ): Promise<void> {
     let handedOver = false
     const again = 'Report the outcome again with `ted outcome advance` when the work is finished.'
     try {
       if (!begun) await execution.local(taskId)
+      const lead = begun ? begun.lead : find(taskId).leadRunId
+      const heads = begun ? begun.heads : await liveHeads(find(taskId))
       const coverage = begun ? begun.coverage : await validation.coverage(find(taskId))
       const started =
         begun?.started ??
@@ -1777,12 +1795,18 @@ export function createTasks(options: {
           ? undefined
           : (store.getCheckRun(started.checkRun.id) ?? started.checkRun)
       const current = find(taskId)
-      if (result?.outcome === 'interrupted' || current.stage !== 'work' || current.archived) return
+      if (result?.outcome === 'interrupted' || leftWork(current)) return
+      if (handOffHalted(current, lead)) return await handOffUnused(current)
       if (checkRun === undefined || result?.outcome === 'passed') {
         await untilFree(taskId)
+        let halted = false
         const problem = await holding(current, async () => {
           const now = find(taskId)
-          if (now.stage !== 'work' || now.archived) return undefined
+          if (leftWork(now)) return undefined
+          if (handOffHalted(now, lead)) {
+            halted = true
+            return undefined
+          }
           const after = await liveHeads(now)
           if (after.length !== heads.length || after.some((commit, i) => commit !== heads[i])) {
             return 'the branch changed while the Checks ran'
@@ -1801,6 +1825,7 @@ export function createTasks(options: {
           handedOver = true
           return undefined
         }).catch((error: unknown) => messageOf(error))
+        if (halted) return await handOffUnused(find(taskId))
         if (problem !== undefined) {
           await deliver(
             find(taskId),
@@ -6895,14 +6920,18 @@ export function createTasks(options: {
     .filter((r) => r.finishedAt === undefined && r.trigger === 'hand-off')
     .flatMap((r) => {
       const task = store.getTask(r.taskId)
-      return task?.stage === 'work' && !task.archived ? [task] : []
+      return task && !leftWork(task) ? [task] : []
     })
   validation.recover()
   for (const task of interruptedHandOffs) {
+    if (handOffHalted(task, task.leadRunId)) {
+      inBackground(`tell ${task.displayId}’s Task Lead its Checks weren’t used`, () =>
+        handOffUnused(task),
+      )
+      continue
+    }
     setChecking(task.id, true)
-    inBackground(`run ${task.displayId}’s Checks again`, async () =>
-      handOffChecks(task.id, await liveHeads(task)),
-    )
+    inBackground(`run ${task.displayId}’s Checks again`, () => handOffChecks(task.id))
   }
 
   for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
@@ -8114,7 +8143,7 @@ export function createTasks(options: {
           if (started) {
             setChecking(task.id, true)
             inBackground(`run ${task.displayId}’s Checks`, () =>
-              handOffChecks(task.id, heads, { started, coverage }),
+              handOffChecks(task.id, { started, coverage, heads, lead: runId }),
             )
             return {
               task: publicTask(task.id),

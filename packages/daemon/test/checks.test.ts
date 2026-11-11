@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import type {
   Activity,
   Banner,
@@ -626,6 +627,64 @@ describe('Checks across restarts', () => {
       return all.some((m) => m.includes('None failed')) || undefined
     }, 'the Validate instructions')
   }, 90_000)
+})
+
+describe('Checks before a stopped Task leaves Work', () => {
+  test('a Task stopped while its Checks run stays in Work when they pass, and a restart doesn’t run them again', async () => {
+    const go = path.join(scratch, 'go')
+    await workflow(
+      `      - { name: Tests, run: "echo run >> stub-count; while [ ! -e '${go}' ]; do sleep 0.05; done" }`,
+    )
+    let client = await startTed()
+    const task = await startTask(
+      client,
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+        advance,
+      ),
+    )
+    const count = await worktreeFile(client, task, 'stub-count')
+    const started = (times: number) =>
+      waitUntil(
+        () =>
+          readFile(count, 'utf8').then(
+            (t) => t === 'run\n'.repeat(times) || undefined,
+            () => undefined,
+          ),
+        `Check run ${times} to start`,
+        40_000,
+      )
+    await started(1)
+
+    await client.ok('POST', `/tasks/${task.id}/stop`, {})
+    await writeFile(go, '')
+    expect((await finishedRuns(client, task, 1)).map((r) => r.outcome)).toEqual(['passed'])
+    await rm(go)
+    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    await started(2)
+    const resumed = await getTask(client, task.id)
+    expect(resumed?.stage).toBe('work')
+    expect(await leadMessages(client, task)).toEqual(
+      expect.arrayContaining([expect.stringContaining('# TED didn’t use the Checks’ result')]),
+    )
+
+    await client.ok('POST', `/tasks/${task.id}/stop`, {})
+    await daemon?.stop()
+    client = await startTed()
+    await waitUntil(
+      async () => (await checkRuns(client, task)).at(-1)?.outcome === 'interrupted' || undefined,
+      'the interrupted Check run',
+    )
+    await sleep(1_500)
+    expect((await checkRuns(client, task)).map((r) => r.outcome)).toEqual(['passed', 'interrupted'])
+    expect(await readFile(count, 'utf8')).toBe('run\nrun\n')
+    const stopped = await getTask(client, task.id)
+    expect(stopped?.stage).toBe('work')
+    expect(stopped?.status?.kind).toBe('stopped')
+    expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(0)
+  }, 120_000)
 })
 
 describe('the Checks’ environment', () => {
