@@ -199,7 +199,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
       <SettingsGroup label="Overnight mode">
         <SettingRow
           title="Overnight mode across all Factories"
-          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Gates set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you, and so do questions and permission prompts."
+          help="Start eligible Backlog Tasks when working slots are free, including in Factories with automatic starting off. Sign-offs set in the Workflow or on a Task are off, so Tasks move through their Stages and merge without your sign-off. Setup Tasks, Tasks that change a Factory’s settings and Clarify at grilling depth still wait for you, and so do questions and permission prompts."
           detail={
             overnight.problem ??
             'Stays on until you turn it off, on this computer only. Turning it off leaves started work running; Factory automatic starting still applies.'

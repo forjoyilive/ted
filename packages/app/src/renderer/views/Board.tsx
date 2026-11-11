@@ -511,7 +511,7 @@ export function Board({
                   {column.gate && (
                     <span className={styles.gate}>
                       <LockIcon />
-                      Gate
+                      Sign-off
                     </span>
                   )}
                   {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}

@@ -1044,8 +1044,8 @@ export function TaskDetails({
     <DetailsPane className={styles.detailsPane} aria-label="Task details" hidden={hidden}>
       {task.setup && (
         <p className={styles.setupNote}>
-          The Design and Review Gates are always on for a setup Task. Tasks started before it merges
-          use TED’s defaults.
+          The Design and Review sign-offs are always on for a setup Task. Tasks started before it
+          merges use TED’s defaults.
         </p>
       )}
       <dl className={styles.details}>
@@ -1098,7 +1098,7 @@ export function TaskDetails({
             </>
           )}
         </dd>
-        <dt>Gates</dt>
+        <dt>Sign-offs</dt>
         <dd className={styles.gatesValue}>
           <TaskGatesField key={task.id} taskId={task.id} />
         </dd>
