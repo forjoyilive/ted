@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -92,13 +92,70 @@ export interface SlotOptions {
 
 const slotFile = (dir: string, index: number) => path.join(dir, `${index}.lock`)
 
+// Runs take the locks in the order they asked: each waiting run holds a ticket in
+// <slot folder>/queue, and only the oldest live ticket may try for a lock.
+async function joinQueue(
+  dir: string,
+  pid: number,
+): Promise<{ ahead(): Promise<number | undefined>; leave(): Promise<void> } | undefined> {
+  const queue = path.join(dir, 'queue')
+  const ticket = `${String(Date.now()).padStart(15, '0')}-${pid}`
+  const written = await mkdir(queue, { recursive: true })
+    .then(() => writeFile(path.join(queue, ticket), ''))
+    .then(
+      () => true,
+      () => false,
+    )
+  if (!written) return undefined
+  return {
+    async ahead() {
+      const tickets = (await readdir(queue).catch(() => [])).sort()
+      for (const other of tickets) {
+        if (other >= ticket) return undefined
+        const holder = Number(other.split('-')[1])
+        if (holder === pid) continue
+        if (Number.isInteger(holder) && holder > 0 && pidAlive(holder)) return holder
+        await unlink(path.join(queue, other)).catch(() => undefined)
+      }
+      return undefined
+    },
+    leave: () => unlink(path.join(queue, ticket)).catch(() => undefined),
+  }
+}
+
+async function untilFirst(
+  queue: Awaited<ReturnType<typeof joinQueue>>,
+  pollMs: number,
+  onWait?: (holder: number) => void,
+): Promise<void> {
+  let reported: number | undefined
+  for (;;) {
+    const ahead = await queue?.ahead()
+    if (ahead === undefined) return
+    if (ahead !== reported) {
+      reported = ahead
+      onWait?.(ahead)
+    }
+    await sleep(pollMs)
+  }
+}
+
 export async function acquireFullRun(options: SlotOptions = {}): Promise<() => Promise<void>> {
   const dir = options.dir ?? slotDir
   const { pid, pollMs, onWait } = options
   const shared = { ...(pid && { pid }), ...(pollMs && { pollMs }), ...(onWait && { onWait }) }
-  const releases = [await acquireSuiteLock({ file: options.suiteLock ?? suiteLockFile, ...shared })]
-  for (let index = 0; index < (options.slots ?? testSlots); index++) {
-    releases.push(await acquireSuiteLock({ file: slotFile(dir, index), ...shared }))
+  const suiteLock = options.suiteLock ?? suiteLockFile
+  const me = pid ?? process.pid
+  const queue = (await holder(suiteLock)) === me ? undefined : await joinQueue(dir, me)
+  const releases: (() => Promise<void>)[] = []
+  try {
+    await untilFirst(queue, pollMs ?? 2_000, onWait)
+    releases.push(await acquireSuiteLock({ file: suiteLock, ...shared }))
+    for (let index = 0; index < (options.slots ?? testSlots); index++) {
+      releases.push(await acquireSuiteLock({ file: slotFile(dir, index), ...shared }))
+    }
+  } finally {
+    await queue?.leave()
   }
   return async () => {
     for (const release of releases.reverse()) await release()
@@ -124,22 +181,31 @@ export async function acquireSlot(
     if ((await holder(slotFile(dir, index))) === pid) return releaseOf(slotFile(dir, index))
   }
   let reported = false
-  for (;;) {
-    let waitsFor = await holder(suiteLock)
-    if (waitsFor === pid || (waitsFor !== undefined && !pidAlive(waitsFor))) waitsFor = undefined
-    for (let index = 0; waitsFor === undefined && index < slots; index++) {
-      const file = slotFile(dir, index)
-      let result = await tryTake(file, pid)
-      while (result === 'retry') result = await tryTake(file, pid)
-      if (result === 'unwritable') return undefined
-      if (result === 'taken') return releaseOf(file)
-      if (index === slots - 1) waitsFor = result
+  const queue = await joinQueue(dir, pid)
+  try {
+    for (;;) {
+      let waitsFor = await queue?.ahead()
+      if (waitsFor === undefined) {
+        waitsFor = await holder(suiteLock)
+        if (waitsFor === pid || (waitsFor !== undefined && !pidAlive(waitsFor)))
+          waitsFor = undefined
+      }
+      for (let index = 0; waitsFor === undefined && index < slots; index++) {
+        const file = slotFile(dir, index)
+        let result = await tryTake(file, pid)
+        while (result === 'retry') result = await tryTake(file, pid)
+        if (result === 'unwritable') return undefined
+        if (result === 'taken') return releaseOf(file)
+        if (index === slots - 1) waitsFor = result
+      }
+      if (waitsFor !== undefined && !reported) {
+        reported = true
+        options.onWait?.(waitsFor)
+      }
+      await sleep(options.pollMs ?? 500)
     }
-    if (waitsFor !== undefined && !reported) {
-      reported = true
-      options.onWait?.(waitsFor)
-    }
-    await sleep(options.pollMs ?? 500)
+  } finally {
+    await queue?.leave()
   }
 }
 
@@ -152,7 +218,14 @@ export async function lockRun(
   options: SlotOptions = {},
 ): Promise<(() => Promise<void>) | undefined> {
   const held = Number(process.env[heldLockEnv])
-  if (held && (await holder(options.suiteLock ?? suiteLockFile)) === held) return undefined
+  if (held) {
+    if ((await holder(options.suiteLock ?? suiteLockFile)) === held) return undefined
+    if (fileCount < smallRunFiles) {
+      for (let index = 0; index < (options.slots ?? testSlots); index++) {
+        if ((await holder(slotFile(options.dir ?? slotDir, index))) === held) return undefined
+      }
+    }
+  }
   const onWait = (pid: number) => console.log(waitingMessage(pid))
   if (fileCount >= smallRunFiles) return acquireFullRun({ onWait, ...options })
   const release = await acquireSlot({ onWait, ...options })

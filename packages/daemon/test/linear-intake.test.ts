@@ -62,6 +62,33 @@ test.each([
   ).rejects.toThrow('outside this Factory')
 })
 
+const teamScope: LinearIntakeScope = { ...scope, kind: 'team', id: 'team-NB', name: 'Widgets' }
+
+test.each([
+  { scope: teamScope, result: membership, accepted: true },
+  { scope: teamScope, result: { ...membership, projectId: 'project-two' }, accepted: true },
+  { scope: teamScope, result: { ...membership, projectId: null }, accepted: true },
+  { scope: teamScope, result: { ...membership, teamId: 'team-OT' }, accepted: false },
+  {
+    scope: teamScope,
+    result: { ...membership, teamId: 'team-OT', projectId: null },
+    accepted: false,
+  },
+  { scope: teamScope, result: { ...membership, workspaceId: 'different' }, accepted: false },
+  { scope, result: { ...membership, teamId: 'team-OT' }, accepted: true },
+  { scope, result: { ...membership, projectId: 'project-two' }, accepted: false },
+])('a team or project scope checks only its own kind of membership: %j', async (row) => {
+  const store = {
+    settings: () => ({ ...defaultMachineSettings, linearIntakeScopes: { f: row.scope } }),
+  }
+  const check = verifyLinearIntake(store, { intakeMembership: async () => row.result }, 'f', url)
+  if (row.accepted) expect(await check).toBeTypeOf('function')
+  else
+    await expect(check).rejects.toThrow(
+      `NB-1 is outside this Factory’s Linear intake scope (${row.scope.kind}: ${row.scope.name})`,
+    )
+})
+
 test('does not apply Linear scope to another source or to an unscoped Factory', async () => {
   const store = {
     settings: () => ({ ...defaultMachineSettings, linearIntakeScopes: { f: scope } }),

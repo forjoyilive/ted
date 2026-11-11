@@ -556,6 +556,12 @@ describe('invalid command input is rejected before connecting', () => {
     ],
     ['coordinator', 'resume', 'NB-1', '--operation', 'op'],
     ['peers', 'watch', '--timeout', '26'],
+    ['task', 'lead', 'DEV-1', 'gemini'],
+    ['task', 'lead', 'DEV-1', 'claude', '--effort', 'huge'],
+    ['dev', 'run', 'start', 'x'],
+    ['dev', 'factory', 'add', '/repos/origin', '--key', 'NB'],
+    ['comment', 'hello'],
+    ['status', 'Reading'],
   ])('usage error without connecting: %j', async (...args) => {
     let connections = 0
     let error = ''

@@ -252,6 +252,7 @@ export {
   parseCreateFactoryRequest,
   parseFactorySettingsChanges,
   parseLibraryChanges,
+  parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
@@ -291,6 +292,7 @@ export {
   type LibraryPreview,
   type LibraryStageRow,
   type LibraryView,
+  type MergeSettingsRequest,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -545,6 +547,18 @@ export {
 } from './side-chat.ts'
 export type { FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
 export { busyHold } from './slots.ts'
+export {
+  type ProfileRequest,
+  type ProfileResult,
+  profileSeconds,
+  type SlowMinute,
+  type SlowMoments,
+  type SlowRoute,
+  type SlowTotals,
+  type SlowWindow,
+  slowThresholds,
+} from './slow.ts'
+export { parseProfileRequest } from './slow-parsers.ts'
 export {
   diskFullHold,
   diskLimits,

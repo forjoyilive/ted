@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,13 +18,14 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 const appDir = fileURLToPath(new URL('..', import.meta.url))
 const cliPath = fileURLToPath(new URL('../../cli/src/main.ts', import.meta.url))
 const stubClaudePath = fileURLToPath(
   new URL('../../daemon/test/fixtures/stub-claude.ts', import.meta.url),
 )
-const electronPath = createRequire(import.meta.url)('electron') as string
+const electronPath = resolveElectron()
 const run = promisify(execFile)
 
 vi.setConfig({ testTimeout: 90_000 })
@@ -239,7 +239,7 @@ describe('Task shell', () => {
     await first.getByText('still=kept', { exact: true }).waitFor()
   })
 
-  test('layout changes retain terminal and Find state without stealing control focus', async () => {
+  test('layout changes retain terminal and Find state without stealing control focus; closing a pane confirms, keeps the other alive, and closing all stays empty', async () => {
     await startedTask()
     const window = await launchApp()
     await app?.evaluate(({ BrowserWindow }) =>
@@ -294,6 +294,53 @@ describe('Task shell', () => {
       .toBe(true)
     expect(await find.inputValue()).toBe('keptneedle')
     expect(await terminal.evaluate((element) => element.isConnected)).toBe(true)
+
+    await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
+    await window
+      .getByRole('dialog', { name: 'Close Shell 2?' })
+      .getByRole('button', { name: 'Close shell', exact: true })
+      .click()
+    await expect
+      .poll(() => shell.getByRole('region', { name: 'Shell 2', exact: true }).count())
+      .toBe(0)
+    await first.getByRole('button', { name: 'Split below' }).click()
+    await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
+    expect(await window.getByRole('dialog', { name: 'Close Shell 2?' }).textContent()).toContain(
+      'Programs that detached into separate sessions may keep running.',
+    )
+    await window
+      .getByRole('dialog', { name: 'Close Shell 2?' })
+      .getByRole('button', { name: 'Cancel' })
+      .click()
+    await shell
+      .getByRole('region', { name: 'Shell 2', exact: true })
+      .locator('.xterm-helper-textarea')
+      .waitFor()
+    await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
+    await window
+      .getByRole('dialog', { name: 'Close Shell 2?' })
+      .getByRole('button', { name: 'Close shell', exact: true })
+      .click()
+    await expect
+      .poll(() => shell.getByRole('region', { name: 'Shell 2', exact: true }).count())
+      .toBe(0)
+    await typeInShell(window, 'echo alive')
+    await first.getByText('alive', { exact: true }).waitFor()
+    await shell.getByRole('button', { name: 'Close Shell 1', exact: true }).click()
+    await window
+      .getByRole('dialog', { name: 'Close Shell 1?' })
+      .getByRole('button', { name: 'Close shell', exact: true })
+      .click()
+    await shell.getByRole('button', { name: 'Open Shell', exact: true }).waitFor()
+    await shell.getByRole('button', { name: '← Thread' }).click()
+    await window
+      .getByRole('complementary', { name: 'Task details' })
+      .getByRole('region', { name: 'Code' })
+      .getByRole('button', { name: 'Shell', exact: true })
+      .click()
+    await shell.getByRole('button', { name: 'Open Shell', exact: true }).click()
+    await first.locator('.xterm-helper-textarea').waitFor()
+    expect(await first.getByText('alive', { exact: true }).count()).toBe(0)
   })
 
   test('Find stays usable inside minimum-width panes on either side in both themes', async () => {
@@ -364,55 +411,9 @@ describe('Task shell', () => {
     }
   })
 
-  test('closing a pane confirms, keeps the other alive, and closing all stays empty', async () => {
-    await startedTask()
-    const window = await launchApp()
-    const code = await openTask(window)
-    await code.getByRole('button', { name: 'Shell' }).click()
-    const shell = window.getByRole('region', { name: 'Shell', exact: true })
-    const first = shell.getByRole('region', { name: 'Shell 1', exact: true })
-    await first.getByRole('button', { name: 'Split below' }).click()
-    await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
-    expect(await window.getByRole('dialog', { name: 'Close Shell 2?' }).textContent()).toContain(
-      'Programs that detached into separate sessions may keep running.',
-    )
-    await window
-      .getByRole('dialog', { name: 'Close Shell 2?' })
-      .getByRole('button', { name: 'Cancel' })
-      .click()
-    await shell
-      .getByRole('region', { name: 'Shell 2', exact: true })
-      .locator('.xterm-helper-textarea')
-      .waitFor()
-    await shell.getByRole('button', { name: 'Close Shell 2', exact: true }).click()
-    await window
-      .getByRole('dialog', { name: 'Close Shell 2?' })
-      .getByRole('button', { name: 'Close shell', exact: true })
-      .click()
-    await expect
-      .poll(() => shell.getByRole('region', { name: 'Shell 2', exact: true }).count())
-      .toBe(0)
-    await typeInShell(window, 'echo alive')
-    await first.getByText('alive', { exact: true }).waitFor()
-    await shell.getByRole('button', { name: 'Close Shell 1', exact: true }).click()
-    await window
-      .getByRole('dialog', { name: 'Close Shell 1?' })
-      .getByRole('button', { name: 'Close shell', exact: true })
-      .click()
-    await shell.getByRole('button', { name: 'Open Shell', exact: true }).waitFor()
-    await shell.getByRole('button', { name: '← Thread' }).click()
-    await window
-      .getByRole('complementary', { name: 'Task details' })
-      .getByRole('region', { name: 'Code' })
-      .getByRole('button', { name: 'Shell', exact: true })
-      .click()
-    await shell.getByRole('button', { name: 'Open Shell', exact: true }).click()
-    await first.locator('.xterm-helper-textarea').waitFor()
-    expect(await first.getByText('alive', { exact: true }).count()).toBe(0)
-  })
-
-  test('the first Open in editor asks which editor, and later ones open straight away', async () => {
+  test('the first Open in editor asks which editor, later ones open straight away, and Open in editor in a diff opens the file at its first changed line', async () => {
     const worktree = await startedTask()
+    await writeFile(path.join(worktree, 'README.md'), '# widgets\nsecond line\n')
     const window = await launchApp()
     const code = await openTask(window)
 
@@ -431,33 +432,6 @@ describe('Task shell', () => {
     expect(lines).toEqual([`code [${worktree}]`, `code [${worktree}]`])
     expect(await picker.count()).toBe(0)
 
-    await window
-      .getByRole('navigation', { name: 'Sidebar' })
-      .getByRole('button', { name: /^Settings/ })
-      .last()
-      .click()
-    const row = window.getByRole('group', { name: 'Editor and command line' })
-    expect(await row.getByLabel('Editor').inputValue()).toBe('code')
-    await row.getByLabel('Editor').selectOption('custom')
-    await row.getByLabel('Custom command').fill('my-editor --line {line} {path}')
-    await row.getByLabel('Custom command').press('Enter')
-    await waitUntil(async () => {
-      const info = await readDaemonInfo(home)
-      if (!info) return undefined
-      const settings = await appClient(info, process.env.TED_APP_TOKEN).getSettings()
-      return settings.editorCommand === 'my-editor --line {line} {path}' || undefined
-    }, 'the custom command to be saved')
-  })
-
-  test('Open in editor in a diff opens the file at its first changed line', async () => {
-    const worktree = await startedTask()
-    await writeFile(path.join(worktree, 'README.md'), '# widgets\nsecond line\n')
-    const info = await readDaemonInfo(home)
-    if (!info) throw new Error('no daemon')
-    await appClient(info, process.env.TED_APP_TOKEN).updateSettings({ editor: 'code' })
-    const window = await launchApp()
-    await openTask(window)
-
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
       .getByRole('region', { name: 'Changes' })
@@ -468,7 +442,7 @@ describe('Task shell', () => {
 
     const line = await waitUntil(async () => {
       const text = await readFile(editorLog(), 'utf8').catch(() => '')
-      return text.split('\n').find((l) => l !== '')
+      return text.split('\n').filter((l) => l !== '')[2]
     }, 'VS Code to open the file')
     expect(line).toBe(`code [${worktree}] [--goto] [${worktree}/README.md:2:1]`)
 
@@ -482,5 +456,24 @@ describe('Task shell', () => {
       .getByText(worktree, { exact: true })
       .waitFor()
     await diff.waitFor({ state: 'detached' })
+
+    await window
+      .getByRole('navigation', { name: 'Sidebar' })
+      .getByRole('button', { name: /^Settings/ })
+      .last()
+      .click()
+    const row = window.getByRole('group', { name: 'Editor and command line' })
+    await row.getByLabel('Editor', { exact: true }).waitFor()
+    await row.getByRole('status', { name: 'Finding editors…' }).waitFor({ state: 'detached' })
+    expect(await row.getByLabel('Editor').inputValue()).toBe('code')
+    await row.getByLabel('Editor').selectOption('custom')
+    await row.getByLabel('Custom command').fill('my-editor --line {line} {path}')
+    await row.getByLabel('Custom command').press('Enter')
+    await waitUntil(async () => {
+      const info = await readDaemonInfo(home)
+      if (!info) return undefined
+      const settings = await appClient(info, process.env.TED_APP_TOKEN).getSettings()
+      return settings.editorCommand === 'my-editor --line {line} {path}' || undefined
+    }, 'the custom command to be saved')
   })
 })

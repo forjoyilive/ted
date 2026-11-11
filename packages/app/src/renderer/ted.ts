@@ -26,15 +26,28 @@ declare global {
   }
 }
 
+export function readableError(failure: unknown): string {
+  const message = failure instanceof Error ? failure.message : String(failure)
+  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
+}
+
+async function invoke(name: string, ...args: unknown[]): Promise<unknown> {
+  try {
+    return await window.ted.request(name, ...args)
+  } catch (failure) {
+    throw new Error(readableError(failure), { cause: failure })
+  }
+}
+
 function request<K extends keyof CustomRequests>(
   name: K,
   ...args: Parameters<CustomRequests[K]>
 ): ReturnType<CustomRequests[K]> {
-  return customRequest((name, ...args) => window.ted.request(name, ...args), name, ...args)
+  return customRequest(invoke, name, ...args)
 }
 
 export const ted = {
-  ...daemonRequests((name, ...args) => window.ted.request(name, ...args)),
+  ...daemonRequests(invoke),
   getAutomation: (id: string) => request('getAutomation', id),
   exportFactory: (factoryId: string, format: ExportFormat) =>
     request('exportFactory', factoryId, format),
@@ -81,9 +94,4 @@ export const ted = {
   runFix: (input: RunFixRequest) => request('runFix', input),
   openLinearKeyPage: () => request('openLinearKeyPage'),
   onEvent: (listener: (event: TedEvent) => void) => window.ted.onEvent(listener),
-}
-
-export function readableError(failure: unknown): string {
-  const message = failure instanceof Error ? failure.message : String(failure)
-  return message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '')
 }
