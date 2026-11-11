@@ -1,4 +1,5 @@
 import type { RunChat } from './chat.ts'
+import { RequestValidationError } from './validation.ts'
 
 export interface SideChat {
   id: string
@@ -23,9 +24,9 @@ export function parseSideChatMessageRequest(input: unknown): SideChatMessageRequ
     !('text' in input) ||
     typeof input.text !== 'string'
   )
-    throw new Error('text is required')
+    throw new RequestValidationError(400, 'text is required')
   const text = input.text.trim()
   if (text.length === 0 || text.length > 10_000)
-    throw new Error('text must be between 1 and 10000 characters')
+    throw new RequestValidationError(400, 'text must be between 1 and 10000 characters')
   return { text }
 }

@@ -31,6 +31,7 @@ import {
   makeOriginRepo,
   makeTempHome,
   stubClaudePath,
+  stubCodexPath,
   waitUntil,
 } from './helpers.ts'
 
@@ -61,6 +62,7 @@ async function setup(
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
+    codexBin: stubCodexPath,
     ...(disk && { disk }),
     ...(nudgeAfterMs !== undefined && { nudgeAfterMs }),
   })
@@ -1480,6 +1482,7 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
     { everyMessage: [advance] },
     { run: ['sh', '-c', 'echo x > a.txt'] },
     advance,
+    { endTurn: true },
   )
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),

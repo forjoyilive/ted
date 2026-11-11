@@ -3,7 +3,6 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
-  type BannerActionInput,
   billings,
   checkLimits,
   createdByKinds,
@@ -16,6 +15,7 @@ import {
   listGroups,
   listSorts,
   type MachineSettings,
+  parseBannerActionInput,
   priorities,
   quitChoices,
   runOutputDayLimits,
@@ -30,7 +30,7 @@ import {
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
-import { type Route, readJson, readOptionalJson } from './route.ts'
+import { jsonRoute, type Route, readJson } from './route.ts'
 
 export const machineRoutes: Route[] = [
   {
@@ -76,16 +76,15 @@ export const machineRoutes: Route[] = [
     path: /^\/banners\/([^/]+)\/dismiss$/,
     handle: async ({ params: [id = ''] }, { banners }) => [200, banners.dismiss(id)],
   },
-  {
+  jsonRoute(parseBannerActionInput, {
+    optionalBody: true,
     method: 'POST',
     path: /^\/banners\/([^/]+)\/action$/,
-    async handle({ req, params: [id = ''] }, { banners }) {
-      const body = (await readOptionalJson(req)) as Partial<BannerActionInput> | null
-      const folder = typeof body?.folder === 'string' ? body.folder : undefined
-      await banners.act(id, folder === undefined ? {} : { folder })
+    async handle({ body, params: [id = ''] }, { banners }) {
+      await banners.act(id, body)
       return [200, {}]
     },
-  },
+  }),
   {
     method: 'GET',
     path: /^\/storage$/,

@@ -73,6 +73,8 @@ test.each(['claude', 'codex'] as const)(
     const route = `/runs/${source}/side-chat`
     const chat = await client.ok<SideChat>('POST', route)
     expect((await client.ok<SideChat>('POST', route)).id).toBe(chat.id)
+    expect((await client.call('POST', `${route}/messages`, { text: '  ' })).status).toBe(400)
+    expect((await client.ok<SideChat>('GET', route)).state).toBe('ready')
     const snapshot = await readFile(
       path.join(home, 'runs', chat.id, 'side-chat-context.txt'),
       'utf8',
