@@ -6420,13 +6420,19 @@ export function createTasks(options: {
     libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
     signal: stopping.signal,
     lowPriority: () => store.settings().lowPriorityWork,
-    takeCheckSlot: async (taskId) => {
+    takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
       try {
         return await options.checkSlots.take({
           taskId,
           signal: AbortSignal.any([stopping.signal, wait.signal]),
+          observe: (boundary, at) =>
+            store.checkSlotBoundary(
+              checkRunId,
+              boundary === 'canceled' && stopping.signal.aborted ? 'interrupted' : boundary,
+              at,
+            ),
         })
       } finally {
         checkWaits.delete(taskId)
