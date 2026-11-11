@@ -658,6 +658,7 @@ export interface TedStore extends TaskHistory {
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
   listComments(taskId: string): Comment[]
+  permissionComments(runId: string): Comment[]
   taskFiles(taskId: string): Attachment[]
   recordBrowserCapture(taskId: string, attachment: Attachment): void
   browserCaptures(taskId: string): Attachment[]
@@ -3475,6 +3476,19 @@ export async function openStore({
     },
     listComments: (taskId) =>
       store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    permissionComments(runId) {
+      const taskId = runRow(runId)?.taskId
+      if (taskId === undefined || taskId === null) return []
+      return store
+        .query(
+          queryDb(
+            comments
+              .where({ authorRunId: runId, authorKind: 'run', kind: 'permission', taskId })
+              .orderBy('createdAt', 'asc'),
+          ),
+        )
+        .map(toComment)
+    },
     getComment,
     answerComment(id, answer, sending) {
       commit(
