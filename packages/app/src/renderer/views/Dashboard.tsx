@@ -43,6 +43,8 @@ const timestamp = (at: string) =>
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    second: '2-digit',
+    fractionalSecondDigits: new Date(at).getUTCMilliseconds() === 0 ? undefined : 3,
     timeZoneName: 'short',
   })
 const shortDate = (at: string) => formatDate(at, { month: 'short', day: 'numeric' })
@@ -447,6 +449,7 @@ function Sample({
   return (
     <dialog
       ref={dialog}
+      data-nav-dialog
       className={styles.dialog}
       aria-labelledby={heading}
       onCancel={(event) => {

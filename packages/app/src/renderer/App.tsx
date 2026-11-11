@@ -472,7 +472,15 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     if (usageOpen && found.id !== 'close') return
     if (settingsOpen && !allowedInSettings.has(found.id)) return
     if (!commandKey && document.querySelector('[role="menu"]')) return
-    const anyDialog = dialogOpen || document.querySelector('dialog[open]') !== null
+    const openDialog = [...document.querySelectorAll('dialog[open]')].at(-1)
+    const anyDialog = dialogOpen || openDialog !== undefined
+    if (
+      openDialog?.hasAttribute('data-nav-dialog') &&
+      (found.id === 'next' || found.id === 'previous')
+    ) {
+      if (moveFocus(openDialog, found.id)) event.preventDefault()
+      return
+    }
     const factoryNumber = /^factory:(\d)$/.exec(found.id)?.[1]
     if (factoryNumber !== undefined) {
       const factory = factories[Number(factoryNumber) - 1]
