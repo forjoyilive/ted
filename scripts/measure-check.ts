@@ -63,6 +63,8 @@ export async function collect(args: string[]) {
   let check: ReturnType<typeof spawn> | undefined
   let interrupted: string | undefined
   let workloadFailed = false
+  let workloadExit: { code: number | null; signal: NodeJS.Signals | null } | undefined
+  let checkSignal: NodeJS.Signals | null = null
   let exitCode: number | null = null
   let error: string | undefined
   const stopCheck = () => {
@@ -90,6 +92,9 @@ export async function collect(args: string[]) {
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       workload.stderr?.on('data', (chunk) => log.write(chunk))
+      workload.once('exit', (code, signal) => {
+        workloadExit = { code, signal }
+      })
       await new Promise<void>((resolve, reject) => {
         workload?.once('error', reject)
         workload?.once('exit', () => reject(new Error('CPU workload exited before ready')))
@@ -118,7 +123,10 @@ export async function collect(args: string[]) {
     }
     exitCode = await new Promise<number | null>((resolve, reject) => {
       check?.once('error', reject)
-      check?.once('close', resolve)
+      check?.once('close', (code, signal) => {
+        checkSignal = signal
+        resolve(code)
+      })
     })
   } catch (thrown) {
     error = String(thrown)
@@ -126,6 +134,7 @@ export async function collect(args: string[]) {
     clearInterval(timer)
     sample()
     const loadWasAlive = !workload || (workload.exitCode === null && workload.signalCode === null)
+    const unexpectedWorkloadExit = workloadExit
     workload?.removeAllListeners('exit')
     if (workload?.pid && workload.exitCode === null && workload.signalCode === null) {
       const closed = new Promise<void>((resolve) => workload?.once('close', () => resolve()))
@@ -163,6 +172,8 @@ export async function collect(args: string[]) {
           workloadCommand,
           workers,
           workloadFailed: workloadFailed || !loadWasAlive,
+          unexpectedWorkloadExit,
+          checkSignal,
           interrupted,
           error,
           exitCode,

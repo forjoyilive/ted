@@ -80,6 +80,97 @@ test('snapshots while locked, keeps fresh identical retries and excludes stale t
   expect(result.testProcessEnvelopeMs).toBeGreaterThanOrEqual(0)
 })
 
+test.each(['code', 'signal', 'check-signal', 'cleanup'])(
+  'collector preserves exit diagnostics: %s',
+  (ending) => {
+    const { cache } = fixture()
+    const root = path.dirname(cache)
+    const scripts = path.join(root, 'scripts')
+    const bin = path.join(root, 'node_modules', 'bin')
+    mkdirSync(scripts)
+    mkdirSync(bin, { recursive: true })
+    for (const file of ['measure-check.ts', 'check-measurement.ts']) {
+      copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
+    }
+    writeFileSync(
+      path.join(scripts, 'check-load.ts'),
+      `import { existsSync, writeFileSync } from 'node:fs'
+      export const loadWorkerCount = () => 1
+      if (import.meta.main) {
+        writeFileSync('node_modules/workload-pid', String(process.pid))
+        console.log('READY')
+        setInterval(() => {
+          if (existsSync('node_modules/end-workload')) {
+            if (${JSON.stringify(ending)} === 'code') process.exit(7)
+            process.kill(process.pid, 'SIGKILL')
+          }
+        }, 10)
+      }`,
+    )
+    writeFileSync(
+      path.join(root, '.gitignore'),
+      'node_modules/\ncache/\nevidence/\n.suite-measurements/\n',
+    )
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, stdio: 'pipe' })
+    git('init')
+    git('add', '.')
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'fixture')
+    writeFileSync(
+      path.join(bin, 'pnpm'),
+      `#!${process.execPath}
+      const fs = require('node:fs')
+      if (process.argv[2] === '--version') { console.log('fixture'); process.exit(0) }
+      const ending = ${JSON.stringify(ending)}
+      if (ending === 'check-signal') process.kill(process.pid, 'SIGTERM')
+      else if (ending === 'cleanup') process.exit(0)
+      else {
+        fs.writeFileSync('node_modules/end-workload', '')
+        setInterval(() => {}, 1000)
+      }`,
+      { mode: 0o755 },
+    )
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+    }
+    for (const key of [
+      'TED_RUN',
+      'TED_RUN_TOKEN',
+      'TED_RUN_CAPABILITY',
+      'TED_TASK',
+      'TED_PLAN',
+      'CODEX_SANDBOX',
+    ])
+      delete env[key]
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(scripts, 'measure-check.ts'),
+        ending === 'check-signal' ? 'quiet' : 'loaded',
+        ending,
+      ],
+      { cwd: root, env, encoding: 'utf8', timeout: 10000, killSignal: 'SIGKILL' },
+    )
+    expect(result.error, result.stderr).toBeUndefined()
+    expect(result.status).toBe(1)
+    const run = JSON.parse(
+      readFileSync(path.join(root, '.suite-measurements', ending, 'run.json'), 'utf8'),
+    )
+    expect(run.checkSignal).toBe(ending === 'cleanup' ? null : 'SIGTERM')
+    if (ending === 'code' || ending === 'signal') {
+      expect(run.unexpectedWorkloadExit).toEqual(
+        ending === 'code' ? { code: 7, signal: null } : { code: null, signal: 'SIGKILL' },
+      )
+      expect(run.workloadFailed).toBe(true)
+    } else {
+      expect(run.unexpectedWorkloadExit).toBeUndefined()
+      expect(run.workloadFailed).toBe(false)
+    }
+    expect(run.interrupted).toBeUndefined()
+    expect(run.exitCode).toBe(ending === 'cleanup' ? 0 : null)
+  },
+)
+
 test('collects an isolated stub Check and refuses dirty trees and reused labels', () => {
   const { cache } = fixture()
   const root = path.dirname(cache)

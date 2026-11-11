@@ -1,14 +1,17 @@
 # Suite measurements (KRI-256, stage 5)
 
-Measurements are pending. This document provides the procedure; it is not evidence
-that the speed or reliability targets have passed. Agents must never run these
-full-suite commands. The human runs them in a normal terminal outside an agent
+The restarted series is pending. Earlier observations failed the speed and
+reliability criteria; this procedure is not evidence that those targets passed.
+Agents must never run these full-suite commands. The human runs them in a normal terminal outside an agent
 Run or TED Task shell. No GitHub workflow is needed.
 
 ## Accepted experiment
 
-The human accepted this adjustment in TED-46’s Clarify Round 1: three quiet
-Checks, then three Checks alongside a separate CPU workload on the same Mac.
+The human accepted three normal-background baseline Checks, then three Checks
+alongside a separate CPU workload on the same Mac. This replaces the earlier
+quiet-machine plan: ordinary work may continue, without peer holds or an idle
+window. The CLI argument `quiet` means no added CPU workload; it does not claim
+the machine was quiet. Original quiet-machine reliability remains unproven.
 The workload runs `ceil(logical CPUs / 2)` busy Node worker threads. Every worker
 signals readiness before the Check starts, and the workload stays running until
 the Check finishes. Its exact command, worker count, machine and one-second
@@ -31,14 +34,13 @@ the actual full tested commit from `run.json`; the starting commit is not the
 measurement commit. Do not switch branches or update code/dependencies between
 attempts. A code change needs a fresh six-run series.
 
-Arrange a quiet period: let other TED Checks and focused tests finish, pause
-new agent work using the app, and close other known CPU-heavy workloads. Do not
-kill another Task’s processes or remove its locks. Record any remaining apps,
-background workload, power source and thermal constraints alongside the results.
-Use AC power consistently. Keep the same preparation across quiet and loaded
-runs; let the Mac settle back to its quiet baseline between attempts. The first
-quiet Check is included, even if installation or caches make it slower. Keep
-all failures, interruptions and retries; do not select only fast passing runs.
+Record ordinary background work and any unusual workload, interruption, power
+source or thermal change alongside each result. Do not stop another Task’s
+processes or remove its locks. Keep conditions as consistent as practical;
+background variation prevents precise causal comparisons between baseline and
+added-load results. The first baseline Check is included, even if installation
+or caches make it slower. Keep all failures, interruptions and retries; do not
+select only fast passing runs.
 
 Do not set lock-owner variables, change worker counts, or run a second collector
 at the same time. Install runs before the suite lock, so concurrent collectors
@@ -51,12 +53,12 @@ context variables to defeat that refusal; use your own normal terminal.
 From this repo’s root, run each command separately and wait for it to finish:
 
 ```sh
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-1-retry
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-2
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet quiet-3
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-1
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-2
-TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded loaded-3
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet series-2-baseline-1
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet series-2-baseline-2
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts quiet series-2-baseline-3
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded series-2-loaded-1
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded series-2-loaded-2
+TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded series-2-loaded-3
 ```
 
 Each invocation starts exactly one `pnpm check` with `CI=true` so pnpm’s installation step can run without an interactive terminal. This environment override is recorded in `run.json`. Loaded mode starts its own
@@ -78,6 +80,11 @@ labels; the initial six attempts must remain in the report.
 - `run.json`: actual start/end commits and cleanliness, machine hostname/OS/CPU/
   memory, Node/pnpm versions, exact Check/workload commands, worker count, load
   samples, collector wall time, exit status, interruption and workload failure.
+  `unexpectedWorkloadExit` records `{ code, signal }` when the workload exits
+  before collector cleanup (including an exit during interruption); it is absent
+  when the workload survives until cleanup. `checkSignal` is the Check’s
+  terminating signal, or null when none was recorded (including when the Check
+  never started). Neither field identifies who sent a signal. A missing field in an older archive means it was not recorded.
 - `console.log`: complete Check output, including the recurring-failure report.
 - `check-measurement.json`: monotonic phase boundaries in milliseconds from the
   Check’s start, total duration, lock wait, work duration and combined test-process
@@ -129,13 +136,39 @@ The recorded Mac was an Apple M3 Pro with 12 logical CPUs and 36 GiB memory,
 Darwin 27.0.0 arm64, Node v24.7.0 and pnpm 10.28.0. Collector wall time was
 754.6 ms and installation ran for 234.8 ms. Lock wait and test execution are
 absent. The sampled 1-minute load was 58.44, so it also provides no quiet-machine
-baseline. All six valid runs remain pending on the corrected clean commit;
-start with `quiet-1-retry` using the commands above.
+baseline. That installation attempt did not count toward the subsequent series.
+
+## Preserved first series and restart decision
+
+The first series on `9a06f4754dcd916b858d6ffff16388ff10aeefa4` used the same
+Apple M3 Pro Mac (12 logical CPUs, 36 GiB, Darwin 27 arm64, Node 24.7.0,
+pnpm 10.28.0, `CI=true`). Its three normal-background baselines were
+FAIL/FAIL/PASS, with Check work durations 651.938, 639.381 and 617.040 seconds.
+All exceeded 180 seconds. Preserve raw archives `quiet-1-retry`, `baseline-2`
+and `baseline-3`, including their failure and retry reports.
+
+`loaded-1` ended before completion after 497.242 seconds of collector wall time,
+with `workloadFailed: true`, Check exit code null and no final Check timing or
+reports. That wall time is not completed Check work or test time. The user
+confirmed the attempt ended on its own; its cause remains unknown because exit
+code/signal details were not recorded. Partial output contains a failure in
+`failure-merge.test.ts` (“completed acceptance survives background reads, explicit
+queries and daemon restart”) and a retry in `app.test.ts` (“a Run opens in a
+Conversation tab with its chat, takes messages, and the tab persists”). Neither
+is resolved by the incomplete attempt. Do not borrow stale cache reports.
+
+The user authorized collector exit diagnostics and a fresh six-run series.
+Use the new clean commit and `series-2-*` labels above, keeping all earlier
+archives. Do not pool observations from different commits into a passing series.
+The loaded passing streak is zero. The three-minute, original quiet-machine
+and original simultaneous-suite criteria remain unmet or unproven. Existing
+scoped repairs are tracked in KRI-286–290 and KRI-293–295; these diagnostics
+supply evidence and do not claim to repair the unexpected workload exit.
 
 ## Results to post in KRI-256
 
 Include the acceptance adjustment, full commit, machine identity/configuration,
-Node/pnpm versions, exact workload and worker count, quiet/background conditions,
+Node/pnpm versions, exact workload and worker count, baseline/background conditions,
 and links to all attempt artifacts. Preserve `console.log` and the full rolling
 failure-history file to support the top-10 recurring-failure report, including
 passes on retry. Unexpected skips or missing Electron execution require an
@@ -143,12 +176,12 @@ explanation; a zero exit alone does not prove full coverage ran.
 
 | Attempt | Commit / Mac | Total s | Lock wait s | Check work s | Test-process envelope s | Exit / failures / retries | CPU load observations |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| quiet-1-retry | Pending | — | — | — | — | Pending | Pending |
-| quiet-2 | Pending | — | — | — | — | Pending | Pending |
-| quiet-3 | Pending | — | — | — | — | Pending | Pending |
-| loaded-1 | Pending | — | — | — | — | Pending | Pending |
-| loaded-2 | Pending | — | — | — | — | Pending | Pending |
-| loaded-3 | Pending | — | — | — | — | Pending | Pending |
+| series-2-baseline-1 | Pending | — | — | — | — | Pending | Pending |
+| series-2-baseline-2 | Pending | — | — | — | — | Pending | Pending |
+| series-2-baseline-3 | Pending | — | — | — | — | Pending | Pending |
+| series-2-loaded-1 | Pending | — | — | — | — | Pending | Pending |
+| series-2-loaded-2 | Pending | — | — | — | — | Pending | Pending |
+| series-2-loaded-3 | Pending | — | — | — | — | Pending | Pending |
 
 Report every attempt against 180 seconds, without averaging away a slow run.
 Require three consecutive loaded passes with complete evidence, no retry defects
