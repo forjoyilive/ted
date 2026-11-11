@@ -65,7 +65,8 @@ test('a full run puts projects with different worker limits in separate executio
     const workers = options?.maxWorkers ?? root.maxWorkers
     if (workersByGroup.has(group)) expect(workers).toBe(workersByGroup.get(group))
     workersByGroup.set(group, workers)
-    if (options?.name) names.push(options.name)
+    const name = options?.name
+    if (name) names.push(typeof name === 'string' ? name : name.label)
   }
   expect(names).toEqual(expect.arrayContaining(['electron', 'node']))
 })
