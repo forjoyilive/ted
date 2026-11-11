@@ -64,6 +64,8 @@ export interface StageSettingsInput {
   gate?: boolean
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
 }
 
 export interface FactorySettingsChanges {
@@ -90,6 +92,8 @@ export interface StageRowView {
   overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
   from: LayerKind
   factoryFile?: string
   inherited?: { layer: LayerKind; text: string }
@@ -231,7 +235,12 @@ export interface SaveSettingsRequest {
   confirmBypass?: boolean
 }
 
+export interface MergeSettingsRequest {
+  receipt: string
+}
+
 export interface SaveSettingsResult {
+  receipt?: string
   pullRequest: { number: number; url: string }
   merged: boolean
   reason?: string
@@ -290,6 +299,8 @@ export interface LibraryStageRow {
   overnight?: true
   maxBack?: number
   depth?: ClarifyDepth
+  p1OnlyFrom?: number | false
+  subAgents?: boolean
   from: LayerKind
   libraryFile?: string
   defaultText?: string

@@ -39,12 +39,17 @@ interface ValidationOptions {
   setChecking(id: string, on: boolean): void
   isChecking(id: string): boolean
   deliver(task: StoredTask, message: string): Promise<unknown>
-  instructions(resolution: WorkflowResolution): string
+  instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   apps(task: StoredTask): Promise<string | undefined>
   fix(task: StoredTask, value: FailureCase): Promise<void>
   checkFix(resolution: WorkflowResolution): void
   holding(task: Task, work: () => Promise<void>): Promise<void>
   background(what: string, work: () => Promise<void>): void
+}
+
+export interface HandOffChecks {
+  run: CheckRun
+  coverage: string | undefined
 }
 
 export function createValidation(options: ValidationOptions) {
@@ -405,18 +410,61 @@ export function createValidation(options: ValidationOptions) {
     await validateChecks(taskId)
   }
 
-  async function validateChecks(taskId: string, message?: string): Promise<void> {
+  async function adoptHandOff(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    { run: checked, coverage: tested }: HandOffChecks,
+  ): Promise<boolean> {
+    const plan = await options.plan(task, resolution)
+    const local = await coverage(task)
+    if (
+      checked.outcome !== 'passed' ||
+      !local ||
+      local !== tested ||
+      sameCheckPlan(checked.checks) !== sameCheckPlan(plan.map((p) => p.check)) ||
+      checked.checks.some((c, i) => c.state === 'skipped' && plan[i]?.check.state !== 'skipped')
+    )
+      return false
+    await failures.obligations(task).catch(() => undefined)
+    verifyPassed(task, checked)
+    store.failures.saveProgress({
+      taskId: task.id,
+      visit: visitStart(task),
+      coverage: local,
+      checks: checked.checks,
+      executions: [{ runId: checked.id, start: 0 }],
+      next: checked.checks.length,
+      pending: false,
+    })
+    await store.persisted()
+    return true
+  }
+
+  async function validateChecks(
+    taskId: string,
+    message?: string,
+    checked?: HandOffChecks,
+  ): Promise<void> {
     options.setChecking(taskId, true)
     try {
       const task = find(taskId)
       const resolution = await options.workflow(find(task.id))
-      const instructions = message ?? options.instructions(resolution)
-      const started = await beginChecks(task, resolution, 'validate')
+      const instructions = await options.instructions(task, resolution, message)
       const withApps = async (text: string) => {
         const current = find(taskId)
         const apps = current.setup ? await options.apps(current) : undefined
         return apps === undefined ? text : `${text}\n\n${apps}`
       }
+      if (checked && (await adoptHandOff(task, resolution, checked))) {
+        await options.deliver(
+          task,
+          await withApps(
+            `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
+          ),
+        )
+        return
+      }
+      const started = await beginChecks(task, resolution, 'validate')
       if (!started) {
         const progress = store.failures.progress(taskId)
         const report = progress
@@ -659,6 +707,7 @@ export function createValidation(options: ValidationOptions) {
 
   return {
     begin: beginChecks,
+    coverage,
     enter: validateChecks,
     resume: resumeValidation,
     fixes: validationFixes,

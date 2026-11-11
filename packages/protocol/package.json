@@ -22,6 +22,7 @@
     "./slots": "./src/slots.ts",
     "./slow": "./src/slow.ts",
     "./checks": "./src/checks.ts",
+    "./failures": "./src/failures.ts",
     "./changes": "./src/changes.ts",
     "./diff": "./src/diff.ts",
     "./search": "./src/search.ts",

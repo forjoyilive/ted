@@ -1,5 +1,4 @@
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises'
-import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -20,11 +19,12 @@ import {
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
+import { resolveElectron } from './support/electron-installation.ts'
 
 let home: string
 let app: ElectronApplication | undefined
 const appDir = fileURLToPath(new URL('..', import.meta.url))
-const executablePath = createRequire(import.meta.url)('electron') as string
+const executablePath = resolveElectron()
 beforeAll(async () => {
   await buildRenderer()
 })

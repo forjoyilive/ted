@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDialog.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
@@ -128,6 +128,103 @@ test('Workflow and notes stay staged while confirmed permissions save locally', 
     version: 'v1',
     mode: 'merge',
   })
+})
+
+test('repo settings explain saving and let the user retry merging without losing new edits', async () => {
+  const result = {
+    pullRequest: { number: 42, url: 'https://github.com/acme/widgets/pull/42' },
+    merged: false,
+    receipt: 'a'.repeat(32),
+  }
+  const merging = deferred<import('@ted/protocol').SaveSettingsResult>()
+  const merge = vi.fn(() => merging.promise)
+  const loaded = settingsView()
+  loaded.repos.push(
+    { was: 'api', repo: 'acme/api', name: 'api', primary: false, env: [], copy: [], apps: [] },
+    { was: 'web', repo: 'acme/web', name: 'web', primary: false, env: [], copy: [], apps: [] },
+  )
+  const api = open({
+    factorySettings: () => loaded,
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+    saveFactorySettings: () => result,
+    mergeFactorySettings: merge,
+    openOnGitHub: vi.fn(),
+  })
+  const u = user()
+  const gate = await screen.findByRole('switch', { name: 'Design Gate' })
+  expect(screen.getByText('How repo settings are saved')).toBeTruthy()
+  expect(screen.queryByText('Saved to the repo · pull request')).toBeNull()
+  const repos = within(screen.getByRole('region', { name: 'Repos' }))
+  const order = () => repos.getAllByRole('article').map((row) => row.getAttribute('aria-label'))
+  const drag = () => {
+    fireEvent.dragStart(
+      within(repos.getByRole('article', { name: 'acme/api' })).getByRole('img', {
+        name: 'Drag to reorder',
+      }),
+      { dataTransfer: { effectAllowed: '' } },
+    )
+    fireEvent.drop(repos.getByRole('article', { name: 'acme/web' }))
+  }
+  drag()
+  expect(order()).toEqual(['acme/widgets', 'acme/web', 'acme/api'])
+  await u.click(screen.getByRole('button', { name: 'Discard' }))
+  expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+
+  await u.click(gate)
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  expect(
+    within(dialog).getByText(/leaves it open for you to review and merge on GitHub/),
+  ).toBeTruthy()
+  await u.click(within(dialog).getByRole('radio', { name: 'Save as pull request' }))
+  await u.click(within(dialog).getByRole('button', { name: 'Save as pull request' }))
+  const button = await screen.findByRole('button', { name: 'Merge pull request' })
+  expect(api.request).toHaveBeenCalledWith(
+    'saveFactorySettings',
+    'f1',
+    expect.objectContaining({ mode: 'pull-request' }),
+  )
+  await u.click(gate)
+  expect(button.hasAttribute('disabled')).toBe(true)
+  expect(
+    screen.getByText('Save or discard your new edits before merging this pull request.'),
+  ).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Discard' }))
+  await u.click(screen.getByRole('button', { name: 'Open on GitHub' }))
+  expect(api.request).toHaveBeenCalledWith('openOnGitHub', result.pullRequest.url)
+  await u.click(button)
+  expect(screen.getByRole('button', { name: 'Merging…' }).hasAttribute('disabled')).toBe(true)
+  expect(gate.closest('fieldset')?.disabled).toBe(true)
+  drag()
+  expect(order()).toEqual(['acme/widgets', 'acme/api', 'acme/web'])
+  const command = screen.getByRole('textbox', { name: 'Typecheck command' })
+  const savedCommand = (command as HTMLInputElement).value
+  fireEvent.change(command, { target: { value: 'must not become a draft' } })
+  expect(command).toHaveProperty('value', savedCommand)
+  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+  for (const handle of repos.getAllByRole('img', { name: 'Drag to reorder' })) {
+    expect(handle.getAttribute('draggable')).toBe('false')
+  }
+
+  expect(api.request).toHaveBeenCalledWith('mergeFactorySettings', 'f1', {
+    receipt: result.receipt,
+  })
+  await act(async () => merging.resolve({ ...result, reason: 'GitHub needs an approving review.' }))
+  expect(await screen.findByText('GitHub needs an approving review.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Merge pull request' }).hasAttribute('disabled')).toBe(
+    false,
+  )
+  api.handle('mergeFactorySettings', () => {
+    throw new Error('Couldn’t reach GitHub')
+  })
+  await u.click(screen.getByRole('button', { name: 'Merge pull request' }))
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Couldn’t reach GitHub')
+  api.handle('mergeFactorySettings', () => ({ ...result, merged: true }))
+  await u.click(screen.getByRole('button', { name: 'Merge pull request' }))
+  expect(
+    await screen.findByText('Pull request #42 merged. Settings saved to the repo.'),
+  ).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Merge pull request' })).toBeNull()
 })
 
 test('Remove Factory requires the exact key and sends the pull-request choice', async () => {
@@ -439,7 +536,7 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     expect(id).toBe('f1')
     a.state.factories = a.state.factories.filter((f) => f.id !== id)
     a.state.tasks = a.state.tasks.filter((t) => t.factoryId !== id)
-    await act(async () => {
+    act(() => {
       a.emit({ type: 'task-deleted', taskId: 'NB-1' })
       a.emit({ type: 'factory-removed', factoryId: 'f1' })
     })
@@ -464,4 +561,107 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
     key: 'NB',
     closePullRequests: true,
   })
+})
+
+test('permission mode survives Check updates after enabling Bypass', async () => {
+  const api = open({ setFactoryPermissions: (_id, mode) => ({ mode }) })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Enable Bypass…' }))
+  const confirmation = screen.getByRole('dialog', { name: 'Enable Bypass on this computer?' })
+  await u.click(within(confirmation).getByRole('checkbox'))
+  await u.click(within(confirmation).getByRole('button', { name: 'Enable Bypass' }))
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await act(async () =>
+    api.emit({
+      type: 'check-try-updated',
+      checkTry: {
+        factoryId: 'f1',
+        name: 'Typecheck',
+        repo: 'widgets',
+        state: 'passed',
+        startedAt: '2026-11-10T00:00:00Z',
+      },
+    }),
+  )
+  expect(screen.getByText('Bypass is on.')).toBeTruthy()
+  await u.click(screen.getByRole('button', { name: 'Use Auto' }))
+  expect(api.request).toHaveBeenLastCalledWith('setFactoryPermissions', 'f1', 'auto', true)
+  expect(screen.getByText('Auto is on.')).toBeTruthy()
+})
+
+test('failed agent-default saves keep their error after refreshing the controls', async () => {
+  const { AgentDefaults } = await import('../src/renderer/settings/AgentDefaults.tsx')
+  let reads = 0
+  bridge({
+    library: () => ({
+      path: '/test/library',
+      version: `v${++reads}`,
+      stages: [],
+      problems: [],
+      agents: [
+        {
+          role: 'reviewer',
+          default: { agent: 'codex', model: reads === 1 ? 'original' : 'fresh' },
+          from: 'ted',
+        },
+      ],
+    }),
+    saveLibrary: () => {
+      throw new Error('The Library changed on disk. Try again.')
+    },
+  })
+  render(<AgentDefaults />)
+  await user().selectOptions(
+    await screen.findByRole('combobox', { name: 'Reviewer effort' }),
+    'high',
+  )
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('textbox', { name: 'Reviewer model' }) as HTMLInputElement).value,
+    ).toBe('fresh'),
+  )
+  expect(screen.getByText('The Library changed on disk. Try again.')).toBeTruthy()
+})
+
+test('a drift reload during save completion still resets the saved draft', async () => {
+  const saved = settingsView()
+  saved.version = 'v2'
+  saved.stages = saved.stages.map((stage) =>
+    stage.id === 'design' ? { ...stage, gate: false } : stage,
+  )
+  const afterSave = deferred<typeof saved>()
+  const drift = deferred<typeof saved>()
+  let reads = 0
+  const api = open({
+    factorySettings: () => {
+      reads++
+      if (reads === 1) return settingsView()
+      if (reads === 2) return afterSave.promise
+      if (reads === 3) return drift.promise
+      return saved
+    },
+    previewFactorySettings: () => ({ valid: true, sideEffects: [], problems: [], files: [] }),
+    saveFactorySettings: () => ({
+      merged: true,
+      pullRequest: { number: 42, url: 'https://github.com/acme/widgets/pull/42' },
+    }),
+  })
+  const u = user()
+  await u.click(await screen.findByRole('switch', { name: 'Design Gate' }))
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  await waitFor(() => expect(reads).toBe(2))
+  act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 1 }, library: 0 } }))
+  await waitFor(() => expect(reads).toBe(3))
+  await act(async () => afterSave.resolve(saved))
+  await act(async () => drift.resolve(saved))
+  await screen.findByText('Pull request #42 merged. Settings saved to the repo.')
+  await waitFor(() =>
+    expect(screen.queryByText('1 unsaved change to .ted/workflow.yaml')).toBeNull(),
+  )
+  expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
+  expect(screen.getByRole('switch', { name: 'Design Gate' }).getAttribute('aria-checked')).toBe(
+    'false',
+  )
 })

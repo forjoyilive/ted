@@ -19,6 +19,7 @@ import {
   type IntegrationsHealth,
   type InvalidSettings,
   type LayerKind,
+  type MergeSettingsRequest,
   type RepoSettingsInput,
   type RepoSettingsView,
   type SaveSettingsRequest,
@@ -78,6 +79,8 @@ export interface FactorySettings {
   view(factoryId: string): Promise<FactorySettingsView>
   preview(factoryId: string, changes: FactorySettingsChanges): Promise<SettingsPreview>
   save(factoryId: string, request: SaveSettingsRequest): Promise<SaveSettingsResult>
+  merge(factoryId: string, request: MergeSettingsRequest): Promise<SaveSettingsResult>
+  forget(factoryId: string): void
   mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task>
 }
 
@@ -118,6 +121,15 @@ export const settingsTitle = 'Update TED settings'
 export function createFactorySettings(options: FactorySettingsOptions): FactorySettings {
   const { store, gh, workflows, reposDir } = options
   const saving = new Set<string>()
+  const receipts = new Map<
+    string,
+    {
+      id: string
+      target: MergeTarget
+      pullRequest: SaveSettingsResult['pullRequest']
+      at: number
+    }
+  >()
 
   function find(factoryId: string): StoredFactory {
     const factory = store.getFactory(factoryId)
@@ -333,6 +345,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
         ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(id === 'validate' && {
+          p1OnlyFrom: stage?.p1_only_from ?? false,
+          subAgents: stage?.sub_agents === true,
+        }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&
@@ -408,7 +424,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   async function mergeNow(
     factory: StoredFactory,
     target: MergeTarget,
-  ): Promise<{ merged: boolean; reason?: string }> {
+  ): Promise<{ merged: boolean; reason?: string; terminal?: true }> {
     const tries = options.mergeTries ?? 10
     const where = `${factory.repo}’s ${target.base} branch`
     for (let attempt = 0; attempt < tries; attempt++) {
@@ -416,6 +432,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         await readPullRequests(gh, [{ key: target.name, repo: target.repo, number: target.number }])
       ).get(target.name)
       if (!pr) return { merged: false, reason: 'GitHub didn’t return the pull request.' }
+      if (pr.baseRefName !== target.base) {
+        return {
+          merged: false,
+          reason: 'The pull request’s target branch changed. Review it on GitHub.',
+          terminal: true,
+        }
+      }
       const step = nextStep(target, pr)
       switch (step.kind) {
         case 'merged':
@@ -465,11 +488,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             reason: `${target.base} changed after TED saved, so TED left the pull request open.`,
           }
         case 'closed':
-          return { merged: false, reason: 'The pull request was closed on GitHub.' }
+          return { merged: false, reason: 'The pull request was closed on GitHub.', terminal: true }
         case 'changed':
           return {
             merged: false,
-            reason: 'Someone pushed to the settings branch, so TED left the pull request open.',
+            reason:
+              'Someone pushed to the settings branch. Review the changes on GitHub before merging.',
+            terminal: true,
           }
         default:
           break
@@ -606,9 +631,8 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         const pullRequest = parsePullRequestUrl(out)
         if (!pullRequest) throw new RequestError(502, 'GitHub didn’t return the pull request.')
         options.factories.approveRepos(factory.id, added)
-        if (mode !== 'merge') return { pullRequest, merged: false }
         const method = base.settings?.repos?.[0]?.merge_method
-        const result = await mergeNow(factory, {
+        const target: MergeTarget = {
           name: 'settings',
           repo: factory.repo,
           number: pullRequest.number,
@@ -617,13 +641,66 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           expectedHead: commit,
           hasCi: false,
           method: method === 'merge' || method === 'rebase' ? method : 'squash',
-        })
+        }
+        if (!store.getFactory(factory.id)) throw new RequestError(404, 'no such Factory')
+        const receipt = randomBytes(16).toString('hex')
+        receipts.set(factory.id, { id: receipt, target, pullRequest, at: Date.now() })
+        if (mode !== 'merge') return { pullRequest, merged: false, receipt }
+        const { terminal, ...result } = await mergeNow(factory, target)
         if (result.merged) {
           await workflows.resolve(factory, { fetch: true }).catch((error: unknown) => {
             console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
           })
         }
-        return { pullRequest, ...result }
+        return { pullRequest, ...result, ...(terminal ? {} : { receipt }) }
+      } finally {
+        saving.delete(factory.id)
+      }
+    },
+
+    forget(factoryId) {
+      receipts.delete(factoryId)
+    },
+
+    async merge(factoryId, { receipt }) {
+      const factory = find(factoryId)
+      if (saving.has(factory.id)) {
+        throw new RequestError(409, 'TED is already saving or merging this Factory’s settings.')
+      }
+      saving.add(factory.id)
+      try {
+        const saved = receipts.get(factory.id)
+        if (!saved || saved.id !== receipt || Date.now() - saved.at > 24 * 60 * 60 * 1000) {
+          if (saved && Date.now() - saved.at > 24 * 60 * 60 * 1000) receipts.delete(factory.id)
+          throw new RequestError(
+            409,
+            'TED no longer has this settings save. Open the pull request on GitHub to review and merge it.',
+          )
+        }
+        if (saved.target.repo !== factory.repo || saved.target.base !== factory.defaultBranch) {
+          throw new RequestError(
+            409,
+            'The Factory’s repo or default branch changed. Review the pull request on GitHub.',
+          )
+        }
+        const account = await github()
+        if (!account.ready) throw new RequestError(409, account.problem ?? 'GitHub isn’t ready.')
+        const { terminal, ...result } = await mergeNow(factory, saved.target)
+        if (result.merged) {
+          await workflows.resolve(factory, { fetch: true }).catch((error: unknown) => {
+            console.error(
+              `couldn’t read ${factory.repo}’s Workflow:`,
+              redactSecrets(error instanceof Error ? error.message : String(error)),
+            )
+          })
+        }
+        return { pullRequest: saved.pullRequest, ...result, ...(terminal ? {} : { receipt }) }
+      } catch (error) {
+        if (error instanceof RequestError) throw error
+        throw new RequestError(
+          502,
+          redactSecrets(error instanceof Error ? error.message : String(error)),
+        )
       } finally {
         saving.delete(factory.id)
       }

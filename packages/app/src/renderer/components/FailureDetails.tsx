@@ -1,5 +1,5 @@
 import type { CheckRun, FailureCase, ValidationProgress, ValidationSnapshot } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol'
+import { validationExecution } from '@ted/protocol/failures'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useValidationObligations } from '../data.ts'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'

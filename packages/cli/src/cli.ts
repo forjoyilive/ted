@@ -16,13 +16,17 @@ import {
   type CoordinatorAction,
   DaemonClient,
   DaemonUnreachableError,
+  type DeclaredSendBackCause,
   type DesignFileInput,
   type DesignFileSpec,
   type DesignReviewInput,
+  declaredSendBackCauses,
   type Effort,
   efforts,
   type Factory,
+  type FindingSeverity,
   filterTedEnv,
+  findingSeverities,
   type IntegrationRemedy,
   type IntegrationsHealth,
   isShowing,
@@ -1030,12 +1034,22 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const findings = await readFile(path.resolve(options.findings), 'utf8')
       if (findings.trim() === '') throw new UsageError('the Findings file is empty')
       const judged = judgments()
+      const cause = options.cause
+      if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
+        throw new UsageError(`--cause takes ${declaredSendBackCauses.join(', ')}`)
+      }
+      const severity = options.severity?.toLowerCase()
+      if (severity !== undefined && !findingSeverities.includes(severity as FindingSeverity)) {
+        throw new UsageError(`--severity takes ${findingSeverities.join(', ')}`)
+      }
       const result = await withDaemon(home, (client) =>
         client.reportOutcome(ref, {
           outcome: 'back',
           to: to as AgentStageId,
           findings,
           ...(judged && { judged }),
+          ...(cause !== undefined && { cause: cause as DeclaredSendBackCause }),
+          ...(severity !== undefined && { severity: severity as FindingSeverity }),
         }),
       )
       console.log(result.message)

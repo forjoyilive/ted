@@ -10,6 +10,7 @@ import type { Banners } from './banners.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { Coordinators } from './coordinators/coordinators.ts'
 import { RequestError } from './errors.ts'
+import type { FactorySettings } from './factory-settings.ts'
 import type { Factories } from './factory-setup.ts'
 import type { Plans } from './plans/plans.ts'
 import type { SideChats } from './side-chats/side-chats.ts'
@@ -35,6 +36,7 @@ export function createFactoryRemovals(options: {
   factories: Pick<Factories, 'forget'>
   checkTries: Pick<CheckTries, 'forget'>
   workflows?: Pick<Workflows, 'forget'>
+  factorySettings: Pick<FactorySettings, 'forget'>
   storage: () => Pick<Storage, 'removeUnusedClones'> | undefined
 }): FactoryRemovals {
   const { store, banners } = options
@@ -98,6 +100,7 @@ export function createFactoryRemovals(options: {
         const repos = factory.repos.map((r) => r.repo)
         store.removeTaskDraft(factory.id)
         store.removeFactory(factory.id)
+        options.factorySettings.forget(factory.id)
         const settings = store.settings()
         const { [factory.id]: _, ...teams } = settings.linearSyncTeams
         const { [factory.id]: __, ...declined } = settings.linearSyncDeclined

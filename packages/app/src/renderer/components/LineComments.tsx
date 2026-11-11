@@ -2,7 +2,7 @@ import type { DiffRow, LineComment } from '@ted/protocol'
 import { lineLabel } from '@ted/protocol/changes'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
-import { useConnection } from '../data.ts'
+import { useEventValue } from '../data.ts'
 import { useProfile } from '../profile.tsx'
 import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
@@ -14,40 +14,21 @@ import styles from './LineComments.module.css'
 const settleMs = 1_500
 
 export function useLineComments(taskId: string): LineComment[] {
-  const [state, setState] = useState<{ taskId: string; comments: LineComment[] }>()
-  const { epoch } = useConnection()
-  useEffect(() => {
-    void epoch
-    let latest = 0
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const load = () => {
-      const call = ++latest
-      void ted.lineComments(taskId).then(
-        (comments) => {
-          if (call === latest) setState({ taskId, comments })
-        },
-        () => undefined,
+  return useEventValue<LineComment[]>({
+    initial: [],
+    key: taskId,
+    focus: true,
+    load: () => ted.lineComments(taskId),
+    event: (event) => {
+      if (event.type === 'line-comments-changed' && event.taskId === taskId) return 'reload'
+      if (
+        (event.type === 'task-updated' && event.task.id === taskId) ||
+        event.type === 'run-output'
       )
-    }
-    const later = () => {
-      clearTimeout(timer)
-      timer = setTimeout(load, settleMs)
-    }
-    const unsubscribe = ted.onEvent((event) => {
-      if (event.type === 'line-comments-changed' && event.taskId === taskId) load()
-      if (event.type === 'task-updated' && event.task.id === taskId) later()
-      if (event.type === 'run-output') later()
-    })
-    window.addEventListener('focus', load)
-    load()
-    return () => {
-      latest = -1
-      clearTimeout(timer)
-      unsubscribe()
-      window.removeEventListener('focus', load)
-    }
-  }, [taskId, epoch])
-  return state?.taskId === taskId ? state.comments : []
+        return settleMs
+      return undefined
+    },
+  }).value
 }
 
 export const isDraft = (comment: LineComment) => comment.sent === undefined

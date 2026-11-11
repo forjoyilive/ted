@@ -8,6 +8,7 @@ import type {
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
+import { failureChoices } from '@ted/protocol/failures'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
@@ -29,7 +30,7 @@ import {
   summary,
   useNow,
 } from '../requests.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { stageName } from '../views/TaskViews.tsx'
 import type { ShownApp } from './AppsSection.tsx'
@@ -471,7 +472,7 @@ export function RequestCard({
         onOpenPlan?.(answered.answer.planId)
       }
     } catch (failed) {
-      setError(failed instanceof Error ? failed.message : String(failed))
+      setError(readableError(failed))
     } finally {
       setSending(false)
     }
@@ -484,13 +485,20 @@ export function RequestCard({
       const talking = await ted.talkThrough(request.id)
       if (talking.talk) onOpenRun?.(talking.talk.runId)
     } catch (failed) {
-      setError(failed instanceof Error ? failed.message : String(failed))
+      setError(readableError(failed))
     } finally {
       setSending(false)
     }
   }
 
   const withText = typed ? { text } : {}
+  const reasonChoices: string[] =
+    request.author.kind === 'ted' &&
+    request.choices?.includes(failureChoices.fixed) &&
+    request.choices.includes(failureChoices['no-longer-applicable'])
+      ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+      : []
+  const needsReason = (choice: string) => !readOnly && !typed && reasonChoices.includes(choice)
   const actionChoice =
     request.author.kind === 'ted' && request.choices?.length === 1 ? request.choices[0] : undefined
 
@@ -619,8 +627,11 @@ export function RequestCard({
             <button
               key={choice}
               type="button"
-              className={styles.choice}
-              disabled={sending || readOnly}
+              className={
+                needsReason(choice) ? `${styles.choice} ${styles.needsReason}` : styles.choice
+              }
+              disabled={sending || readOnly || needsReason(choice)}
+              {...(needsReason(choice) && { title: 'Write your reason below first' })}
               onClick={() => void send({ action: 'answer', choice, ...withText })}
             >
               {choice}
@@ -638,17 +649,19 @@ export function RequestCard({
               placeholder={
                 request.simulator
                   ? 'Comment…'
-                  : request.permission
-                    ? 'Comment, or say why you’re denying…'
-                    : request.design
-                      ? 'Comment, or say what to change…'
-                      : request.failed
-                        ? 'Or tell the Task Lead what to change, then Retry…'
-                        : actionChoice !== undefined
-                          ? 'Comment, or tell the Task Lead what to do next…'
-                          : request.kind === 'question' && request.choices
-                            ? 'Or write your own answer…'
-                            : 'Comment to the Task Lead…'
+                  : reasonChoices.length > 0
+                    ? 'Your reason. Fixed and No longer applicable need one…'
+                    : request.permission
+                      ? 'Comment, or say why you’re denying…'
+                      : request.design
+                        ? 'Comment, or say what to change…'
+                        : request.failed
+                          ? 'Or tell the Task Lead what to change, then Retry…'
+                          : actionChoice !== undefined
+                            ? 'Comment, or tell the Task Lead what to do next…'
+                            : request.kind === 'question' && request.choices
+                              ? 'Or write your own answer…'
+                              : 'Comment to the Task Lead…'
               }
               value={text}
               onChange={(event) => setText(event.target.value)}

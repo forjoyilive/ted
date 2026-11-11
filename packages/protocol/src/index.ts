@@ -135,6 +135,7 @@ export type {
   SendRunMessageRequest,
 } from './chat.ts'
 export {
+  type BaseConflictFound,
   type CheckOutput,
   type CheckResult,
   type CheckRun,
@@ -144,8 +145,13 @@ export {
   type CheckState,
   checkFailed,
   checkLabel,
+  type DeclaredSendBackCause,
+  declaredSendBackCauses,
+  type FindingSeverity,
+  findingSeverities,
   type RunChecksRequest,
   type SendBack,
+  type SendBackCause,
 } from './checks.ts'
 export {
   DaemonClient,
@@ -252,6 +258,7 @@ export {
   parseCreateFactoryRequest,
   parseFactorySettingsChanges,
   parseLibraryChanges,
+  parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
@@ -291,6 +298,7 @@ export {
   type LibraryPreview,
   type LibraryStageRow,
   type LibraryView,
+  type MergeSettingsRequest,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -640,6 +648,7 @@ export {
   type ReportOutcomeRequest,
   type RepoSetupReport,
   type RepoToConfirm,
+  type RequestPurpose,
   type ResumeTaskRequest,
   type Round,
   type RoundAnswer,
@@ -662,6 +671,7 @@ export {
   type SizeCheck,
   type SizeCheckInput,
   type StageId,
+  type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
   type Task,
@@ -733,6 +743,7 @@ export {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSizeCheckInput,
+  parseStartTaskRequest,
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'

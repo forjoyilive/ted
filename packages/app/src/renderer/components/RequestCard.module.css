@@ -103,6 +103,10 @@
   text-align: left;
 }
 
+.needsReason {
+  color: var(--text-muted);
+}
+
 .choice:hover:not(:disabled) {
   border-color: var(--accent-default);
   background: var(--accent-subtle);

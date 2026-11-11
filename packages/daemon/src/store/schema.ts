@@ -93,6 +93,7 @@ export const tasks = State.SQLite.table({
     stoppedAt: State.SQLite.text({ nullable: true }),
     stoppedRuns: State.SQLite.integer({ nullable: true }),
     stoppedWhy: State.SQLite.text({ nullable: true }),
+    preparation: State.SQLite.text({ nullable: true }),
     failedAt: State.SQLite.text({ nullable: true }),
     followUpOf: State.SQLite.text({ nullable: true }),
     forcedGates: State.SQLite.text({ nullable: true }),
@@ -231,6 +232,7 @@ export const runs = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     usesDefaultModel: State.SQLite.boolean({ default: false }),
     problem: State.SQLite.text({ nullable: true }),
+    problemAt: State.SQLite.text({ nullable: true }),
     permissions: State.SQLite.text({ default: 'auto' }),
     manualPermissions: State.SQLite.boolean({ default: false }),
     prompt: State.SQLite.text(),
@@ -277,6 +279,62 @@ export const reviewers = State.SQLite.table({
     purpose: State.SQLite.text(),
     agent: State.SQLite.text(),
     unavailable: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const reviewScopes = State.SQLite.table({
+  name: 'reviewScopes',
+  indexes: [{ name: 'idx_reviewScopes_taskId', columns: ['taskId'] }],
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    scope: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    commits: State.SQLite.text(),
+    since: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const baseConflicts = State.SQLite.table({
+  name: 'baseConflicts',
+  indexes: [{ name: 'idx_baseConflicts_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    stage: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    base: State.SQLite.text(),
+    tip: State.SQLite.text(),
+    fileCount: State.SQLite.integer(),
+    files: State.SQLite.text(),
+    sendBackId: State.SQLite.text({ nullable: true }),
+    at: State.SQLite.text(),
+  },
+})
+
+export const p1OnlyReviews = State.SQLite.table({
+  name: 'p1OnlyReviews',
+  indexes: [{ name: 'idx_p1OnlyReviews_taskId', columns: ['taskId'] }],
+  columns: {
+    runId: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    from: State.SQLite.integer(),
+    at: State.SQLite.text(),
+  },
+})
+
+export const severityDeclarations = State.SQLite.table({
+  name: 'severityDeclarations',
+  indexes: [{ name: 'idx_severityDeclarations_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    round: State.SQLite.integer(),
+    severity: State.SQLite.text(),
     at: State.SQLite.text(),
   },
 })
@@ -382,6 +440,7 @@ export const comments = State.SQLite.table({
     design: State.SQLite.text({ nullable: true }),
     tutorial: State.SQLite.boolean({ default: false }),
     linearTeam: State.SQLite.text({ nullable: true }),
+    purpose: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -476,6 +535,7 @@ export const sendBacks = State.SQLite.table({
     round: State.SQLite.integer({ nullable: true }),
     limit: State.SQLite.integer({ nullable: true }),
     checkRunId: State.SQLite.text({ nullable: true }),
+    cause: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -1090,6 +1150,14 @@ export const events = {
     name: 'v1.TaskRequeuedAfterBlockers',
     schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
+  taskPreparationChanged: Events.synced({
+    name: 'v1.TaskPreparationChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      state: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskStopped: Events.synced({
     name: 'v1.TaskStopped',
     schema: Schema.Struct({
@@ -1098,6 +1166,10 @@ export const events = {
       why: Schema.String,
       at: Schema.String,
     }),
+  }),
+  taskResumedOvernight: Events.synced({
+    name: 'v1.TaskResumedOvernight',
+    schema: Schema.Struct({ taskId: Schema.String, rank: Schema.Number, at: Schema.String }),
   }),
   taskResumed: Events.synced({
     name: 'v1.TaskResumed',
@@ -1404,6 +1476,10 @@ export const events = {
   taskStageChanged: Events.synced({
     name: 'v1.TaskStageChanged',
     schema: Schema.Struct({ taskId: Schema.String, stage: Schema.String, at: Schema.String }),
+  }),
+  commentPurposeRecorded: Events.synced({
+    name: 'v1.CommentPurposeRecorded',
+    schema: Schema.Struct({ commentId: Schema.String, purpose: Schema.String }),
   }),
   commentPosted: Events.synced({
     name: 'v1.CommentPosted',
@@ -2370,6 +2446,65 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  reviewScopeRecorded: Events.synced({
+    name: 'v1.ReviewScopeRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      scope: Schema.String,
+      round: Schema.Number,
+      commits: Schema.Array(Schema.Struct({ name: Schema.String, commit: Schema.String })),
+      since: Schema.NullOr(
+        Schema.Array(Schema.Struct({ name: Schema.String, commit: Schema.String })),
+      ),
+      at: Schema.String,
+    }),
+  }),
+  sendBackCauseRecorded: Events.synced({
+    name: 'v1.SendBackCauseRecorded',
+    schema: Schema.Struct({
+      sendBackId: Schema.String,
+      taskId: Schema.String,
+      cause: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  baseConflictFound: Events.synced({
+    name: 'v1.BaseConflictFound',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      stage: Schema.String,
+      repo: Schema.String,
+      base: Schema.String,
+      tip: Schema.String,
+      fileCount: Schema.Number,
+      files: Schema.Array(Schema.String),
+      sendBackId: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  p1OnlyReviewRecorded: Events.synced({
+    name: 'v1.SeverityRuleReviewRecorded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      round: Schema.Number,
+      from: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  sendBackSeverityDeclared: Events.synced({
+    name: 'v1.SendBackSeverityDeclared',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      runId: Schema.String,
+      round: Schema.Number,
+      severity: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   validateJudged: Events.synced({
     name: 'v1.ValidateJudged',
     schema: Schema.Struct({
@@ -2742,8 +2877,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskBlockerRemoved': (args) => task(args, { blockerId: args.blockerId, runId: args.runId }),
   'v1.TaskWaitingForBlockers': (args) => task(args),
   'v1.TaskRequeuedAfterBlockers': (args) => task(args),
+  'v1.TaskPreparationChanged': (args) => task(args, { state: args.state }),
   'v1.TaskStopped': (args) => task(args, { runs: args.runs, why: args.why }),
   'v1.TaskResumed': (args) => task(args),
+  'v1.TaskResumedOvernight': (args) => task(args),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
@@ -2797,6 +2934,19 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       limit: args.limit,
       checkRunId: args.checkRunId,
     }),
+  'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
+  'v1.BaseConflictFound': (args) =>
+    task(args, {
+      stage: args.stage,
+      repo: args.repo,
+      base: args.base,
+      fileCount: args.fileCount,
+      sendBackId: args.sendBackId,
+    }),
+  'v1.SendBackSeverityDeclared': (args) =>
+    task(args, { runId: args.runId, round: args.round, severity: args.severity }),
+  'v1.SeverityRuleReviewRecorded': (args) =>
+    task(args, { runId: args.runId, round: args.round, from: args.from }),
   'v2.RunStarted': runStarted,
   'v3.RunStarted': runStarted,
   'v4.RunStarted': (args) => {
@@ -3025,6 +3175,8 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ waitsForBlockers: false }).where({ id: taskId }),
       ],
+      'v1.TaskPreparationChanged': ({ taskId, state, at }) =>
+        tasks.update({ preparation: state, changedAt: at }).where({ id: taskId }),
       'v1.TaskStopped': ({ taskId, runs, why, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks
@@ -3035,6 +3187,12 @@ const materializers = counted(
             waitsForBlockers: false,
             changedAt: at,
           })
+          .where({ id: taskId }),
+      ],
+      'v1.TaskResumedOvernight': ({ taskId, rank, at }) => [
+        taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
+        tasks
+          .update({ stoppedAt: null, stoppedRuns: null, stoppedWhy: null, changedAt: at })
           .where({ id: taskId }),
       ],
       'v1.TaskResumed': ({ taskId, rank, at }) => [
@@ -3196,6 +3354,10 @@ const materializers = counted(
         peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),
         sendBacks.delete().where({ taskId }),
+        reviewScopes.delete().where({ taskId }),
+        baseConflicts.delete().where({ taskId }),
+        p1OnlyReviews.delete().where({ taskId }),
+        severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
         checkRuns.delete().where({ taskId }),
         failureCases.delete().where({ taskId }),
@@ -3216,6 +3378,8 @@ const materializers = counted(
           ? []
           : [checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } })]),
       ],
+      'v1.CommentPurposeRecorded': ({ commentId, purpose }) =>
+        comments.update({ purpose }).where({ id: commentId }),
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
       'v2.CommentPosted': ({ choices, ...comment }) =>
         comments.insert({ ...comment, choices: choices === null ? null : JSON.stringify(choices) }),
@@ -3284,6 +3448,18 @@ const materializers = counted(
       'v1.SubAgentRequested': (request) => subAgentRequests.insert(request),
       'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
       'v1.ReviewerChosen': (row) => reviewers.insert(row),
+      'v1.ReviewScopeRecorded': ({ commits, since, ...row }) =>
+        reviewScopes.insert({
+          ...row,
+          commits: JSON.stringify(commits),
+          since: since === null ? null : JSON.stringify(since),
+        }),
+      'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
+        sendBacks.update({ cause }).where({ id: sendBackId }),
+      'v1.BaseConflictFound': ({ files, ...row }) =>
+        baseConflicts.insert({ ...row, files: JSON.stringify(files) }),
+      'v1.SeverityRuleReviewRecorded': (row) => p1OnlyReviews.insert(row),
+      'v1.SendBackSeverityDeclared': (row) => severityDeclarations.insert(row),
       'v1.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v2.ValidateJudged': ({ taskId, at }) =>
@@ -3301,8 +3477,8 @@ const materializers = counted(
           .where({ id: runId }),
       'v1.RunRetryingChanged': ({ runId, retrying }) =>
         runs.update({ retrying }).where({ id: runId }),
-      'v1.RunProblemFound': ({ runId, problem }) =>
-        runs.update({ problem, state: 'waiting' }).where({ id: runId }),
+      'v1.RunProblemFound': ({ runId, problem, at }) =>
+        runs.update({ problem, problemAt: at, state: 'waiting' }).where({ id: runId }),
       'v1.TaskLeadSet': ({ taskId, agent, model, effort }) =>
         tasks
           .update({ leadAgent: agent, leadModel: model, leadEffort: effort })
@@ -3765,6 +3941,10 @@ const state = State.SQLite.makeState({
     runs,
     subAgentRequests,
     reviewers,
+    reviewScopes,
+    baseConflicts,
+    p1OnlyReviews,
+    severityDeclarations,
     loopChecks,
     sendBackAsks,
     runMessages,

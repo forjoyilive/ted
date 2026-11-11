@@ -77,6 +77,15 @@ test('TSX component tests are discovered from the repo and app, and Electron imp
     ]),
   )
   expect(app.include).toContain('test/**/*.test.{ts,tsx}')
+  expect(launchesElectron(path.join(repo, 'packages/daemon/test/add-factory.test.ts'))).toBe(false)
+  expect(launchesElectron(path.join(repo, 'packages/daemon/src/command-env.ts'))).toBe(false)
+  expect(launchesElectron(path.join(repo, 'packages/app/test/electron-installation.test.ts'))).toBe(
+    false,
+  )
+  expect(
+    launchesElectron(path.join(repo, 'packages/app/test/daemon-client-transport.test.ts')),
+  ).toBe(true)
+  expect(launchesElectron(path.join(repo, 'packages/app/test/app-inbox.test.ts'))).toBe(true)
   const dir = await mkdtemp(path.join(tmpdir(), 'ted-test-discovery-'))
   try {
     const entry = path.join(dir, 'entry.test.tsx')
