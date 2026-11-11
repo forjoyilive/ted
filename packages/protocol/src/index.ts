@@ -348,8 +348,11 @@ export {
 export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
+  isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
+  type LinearIntakeChoices,
+  type LinearIntakeScope,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearKeyState,
@@ -362,11 +365,13 @@ export {
   linearKeyPage,
   parseLinearUrl,
   type SaveLinearKeyRequest,
+  type SetFactoryLinearIntakeRequest,
 } from './linear.ts'
 export {
   parseAllowLinearTeamRequest,
   parseLinearLookupRequest,
   parseSaveLinearKeyRequest,
+  parseSetFactoryLinearIntakeRequest,
 } from './linear-parsers.ts'
 export {
   type ArchivedFilter,

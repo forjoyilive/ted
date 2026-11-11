@@ -207,6 +207,7 @@ import {
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
+import { verifyLinearIntake } from './linear-intake.ts'
 import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
 import {
   chooseMethod,
@@ -506,7 +507,9 @@ export function createTasks(options: {
   agents: Agents
   health: AgentHealthMonitor
   attachmentFile: (attachment: Attachment) => string
-  linear?: Pick<Linear, 'issueFor'> & Partial<LinearSyncApi>
+  linear?: Pick<Linear, 'issueFor'> &
+    Partial<LinearSyncApi> &
+    Partial<Pick<Linear, 'intakeMembership'>>
   linearSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
@@ -5656,6 +5659,11 @@ export function createTasks(options: {
     const lead = original.lead ?? leadFrom(resolution?.workflow.settings)
     const text = input.description?.trim() ?? ''
     refuseOpen()
+    const intakeUnchanged = input.automation
+      ? await verifyLinearIntake(store, options.linear, original.factoryId, url)
+      : () => undefined
+    refuseOpen()
+    intakeUnchanged()
     const task = await store.createTask({
       title: input.title?.trim() || firstLine(text) || `Follow-up to ${original.displayId}`,
       description: text,
@@ -6732,6 +6740,15 @@ export function createTasks(options: {
         throw new RequestError(409, `${factory.name} is being removed`)
       }
       const held = automation !== undefined && (!resolution || runsInBypass(resolution))
+      const intakeUnchanged =
+        automation && factory
+          ? await verifyLinearIntake(store, options.linear, factory.id, sourceUrl)
+          : () => undefined
+      refuseTracked()
+      if (factory && removingFactories.has(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
+      intakeUnchanged()
       const task = await store.createTask({
         ...fields,
         ...(fields.description !== undefined && { description: fields.description.trim() }),

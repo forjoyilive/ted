@@ -10,6 +10,7 @@ import {
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryLinearIntakeRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,
   parseSetRepoFolderRequest,
@@ -49,6 +50,36 @@ export const factoryRoutes: Route[] = [
       } finally {
         release()
       }
+    },
+  }),
+  jsonRoute(parseSetFactoryLinearIntakeRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/linear-intake$/,
+    async handle({ body, params: [id = ''] }, { store, linear }) {
+      if (!store.listFactories().some((factory) => factory.id === id))
+        throw new HttpError(404, 'Factory not found')
+      let scope = body.scope
+      if (scope !== null) {
+        const choices = await linear.intakeChoices()
+        const targetId = scope.id
+        const target = (scope.kind === 'team' ? choices.teams : choices.projects).find(
+          (target) => target.id === targetId,
+        )
+        if (
+          scope.workspaceId !== choices.workspaceId ||
+          scope.workspace !== choices.workspace ||
+          !target
+        )
+          throw new HttpError(409, 'Choose a Team or Project from the connected Linear workspace')
+        scope = { ...scope, name: target.name }
+      }
+      if (!store.listFactories().some((factory) => factory.id === id))
+        throw new HttpError(404, 'Factory not found')
+      const { [id]: previous, ...scopes } = store.settings().linearIntakeScopes
+      return [
+        200,
+        store.updateSettings({ linearIntakeScopes: { ...scopes, ...(scope && { [id]: scope }) } }),
+      ]
     },
   }),
   jsonRoute(parseAutoStartBacklogRequest, {

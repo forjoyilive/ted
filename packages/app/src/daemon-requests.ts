@@ -159,6 +159,8 @@ export const forwardedRequests = [
   'fixAgent',
   'getIntegrations',
   'checkIntegrations',
+  'getLinearIntakeChoices',
+  'setFactoryLinearIntake',
   'getLinear',
   'saveLinearKey',
   'testLinear',

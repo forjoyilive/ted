@@ -1,6 +1,11 @@
-import type { AllowLinearTeamRequest, LinearLookupRequest, SaveLinearKeyRequest } from './linear.ts'
-import { isLinearTeamKey } from './linear.ts'
-import { RequestValidationError as HttpError } from './validation.ts'
+import type {
+  AllowLinearTeamRequest,
+  LinearLookupRequest,
+  SaveLinearKeyRequest,
+  SetFactoryLinearIntakeRequest,
+} from './linear.ts'
+import { isLinearIntakeScope, isLinearTeamKey } from './linear.ts'
+import { bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 export function parseSaveLinearKeyRequest(value: unknown): SaveLinearKeyRequest {
   const body = value as Partial<Record<'key' | 'inFile', unknown>> | null
@@ -24,4 +29,12 @@ export function parseAllowLinearTeamRequest(value: unknown): AllowLinearTeamRequ
     throw new HttpError(400, 'team must be a Linear team key like ENG')
   }
   return { factoryId: body.factoryId, team: body.team }
+}
+
+export function parseSetFactoryLinearIntakeRequest(value: unknown): SetFactoryLinearIntakeRequest {
+  const body = bodyObject(value)
+  if (body.scope !== null && !isLinearIntakeScope(body.scope)) {
+    throw new HttpError(400, 'Choose a valid Linear scope or null for Unscoped')
+  }
+  return { scope: body.scope }
 }

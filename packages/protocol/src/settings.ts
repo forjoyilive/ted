@@ -1,4 +1,5 @@
 import type { Billing } from './health.ts'
+import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
 import type { AgentKind, PermissionMode } from './run.ts'
 import type { EditorChoice } from './shell.ts'
@@ -52,6 +53,7 @@ export interface MachineSettings {
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
   editorCommand: string
+  linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
@@ -88,6 +90,7 @@ export const defaultMachineSettings: MachineSettings = {
   billing: { claude: 'subscription', codex: 'subscription' },
   editor: null,
   editorCommand: '',
+  linearIntakeScopes: {},
   linearSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
