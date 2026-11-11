@@ -421,14 +421,14 @@ describe('TED app', () => {
       .toBe(true)
     await window.keyboard.press('Escape')
 
-    const box = chat.getByRole('textbox', { name: 'Message to this Run' })
+    const box = chat.getByRole('textbox', { name: 'Message the Task Lead' })
     await box.fill('Keep pinned notes in the order they were pinned.')
     await box.press('Enter')
-    await chat.getByText(/to this Run only/).waitFor()
+    await chat.getByText(/to the Task Lead/).waitFor()
     await chat.getByText('Noted.').waitFor()
     expect(await client.listComments('NB-1')).toEqual([])
 
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
@@ -444,8 +444,8 @@ describe('TED app', () => {
       .getByRole('region', { name: 'Run chat' })
       .getByText('Pinned notes now sort first.')
       .waitFor()
-    await window.getByRole('button', { name: 'Close Task Lead' }).click()
-    await window.getByRole('tab', { name: 'Thread' }).waitFor({ state: 'detached' })
+    expect(await window.getByRole('tab', { name: 'Task Lead', exact: true }).count()).toBe(1)
+    expect(await window.getByRole('tab', { name: 'Thread', exact: true }).count()).toBe(0)
   }, 90_000)
 
   test('the thread opens at its newest messages, keeps its place across tabs, and never yanks a scrolled-up reader', async () => {
@@ -486,7 +486,7 @@ describe('TED app', () => {
       .getByRole('button', { name: /Task Lead/ })
       .click()
     await window.getByRole('region', { name: 'Run chat' }).waitFor()
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await scroller.getByText(/Detail 12\.5 of/).waitFor()
     await expect.poll(top).toBe(150)
 
@@ -499,7 +499,7 @@ describe('TED app', () => {
     await jump.waitFor({ state: 'detached' })
 
     await window.getByRole('tab', { name: /Task Lead/ }).click()
-    await window.getByRole('tab', { name: 'Thread' }).click()
+    await window.getByRole('tab', { name: 'Task Lead' }).click()
     await scroller.getByText('The newest note').waitFor()
     await expect.poll(gap).toBeLessThan(2)
   }, 90_000)

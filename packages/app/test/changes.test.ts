@@ -119,7 +119,7 @@ async function openTaskWithChanges(): Promise<Page> {
 }
 
 describe('Changes in Task details', () => {
-  test('lists files by repo with totals; a file opens its diff, previous and next walk the list, and ← Thread returns', async () => {
+  test('lists files by repo with totals; a file opens its diff, previous and next walk the list, and ← Task Lead returns', async () => {
     const window = await openTaskWithChanges()
     const changes = window
       .getByRole('complementary', { name: 'Task details' })
@@ -161,7 +161,7 @@ describe('Changes in Task details', () => {
     await diff.getByRole('button', { name: 'Previous file' }).click()
     await diff.getByText('1 of 3').waitFor()
 
-    await diff.getByRole('button', { name: '← Thread' }).click()
+    await diff.getByRole('button', { name: '← Task Lead' }).click()
     await thread.waitFor()
     await diff.waitFor({ state: 'detached' })
     expect(await thread.getByRole('textbox').first().inputValue()).toBe('Half-written note')

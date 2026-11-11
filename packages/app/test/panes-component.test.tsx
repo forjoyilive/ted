@@ -89,7 +89,7 @@ test('Full brief opens its five sections in the middle pane and returns to Threa
   expect(within(full).getByText('• Guard in SearchPanel.')).toBeTruthy()
   expect(within(full).getByText(/Updated by the Task Lead in Design · just now/)).toBeTruthy()
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
-  await user().click(within(full).getByRole('button', { name: '← Thread' }))
+  await user().click(within(full).getByRole('button', { name: '← Task Lead' }))
   expect(screen.getByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 

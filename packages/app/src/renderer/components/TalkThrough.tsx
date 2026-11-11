@@ -30,7 +30,7 @@ function TalkHeader({
     <header className={styles.header}>
       <div className={styles.crumbs}>
         <button type="button" className={styles.back} onClick={onBack}>
-          ← Thread
+          ← Task Lead
         </button>
         <span className={styles.task}>{`${task.displayId} · ${task.title}`}</span>
       </div>

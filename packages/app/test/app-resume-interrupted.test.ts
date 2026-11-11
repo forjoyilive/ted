@@ -58,18 +58,13 @@ describe('Resume after a full quit', () => {
       await client.openRunTab(first.id, first.leadRunId ?? '')
       await window.getByRole('tab', { name: /Task Lead/ }).click()
       const chat = window.getByRole('region', { name: 'Run chat' })
-      await chat
-        .getByText('This Run has ended and is read-only. Resume the Task to carry on.')
-        .waitFor()
-      expect(await chat.getByRole('textbox', { name: 'Message to this Run' }).isDisabled()).toBe(
-        true,
-      )
+      expect(await chat.getByRole('textbox', { name: 'Comment' }).isEnabled()).toBe(true)
       await header.getByRole('button', { name: 'Resume', exact: true }).waitFor()
 
       if (action === 'Resume') {
         await header.getByRole('button', { name: 'Resume', exact: true }).click()
       } else {
-        await window.getByRole('tab', { name: 'Thread', exact: true }).click()
+        await window.getByRole('tab', { name: 'Task Lead', exact: true }).click()
         await thread
           .getByRole('textbox', { name: 'Comment', exact: true })
           .fill('Keep the current work.')

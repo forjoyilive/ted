@@ -729,14 +729,17 @@ export function useRunChatState(runId: string) {
 }
 
 export function useTaskRuns(taskId: string): RunSummary[] {
-  return (
-    useReloading(
-      () => ted.listTaskRuns(taskId),
-      (event) =>
-        (event.type === 'run-updated' && event.run.taskId === taskId) ||
-        (event.type === 'task-updated' && event.task.id === taskId),
-      taskId,
-    ) ?? []
+  return useTaskRunsState(taskId).value ?? []
+}
+
+export function useTaskRunsState(taskId: string, enabled = true) {
+  return useReloadingState(
+    () => (enabled ? ted.listTaskRuns(taskId) : Promise.resolve([])),
+    (event) =>
+      enabled &&
+      ((event.type === 'run-updated' && event.run.taskId === taskId) ||
+        (event.type === 'task-updated' && event.task.id === taskId)),
+    `task-runs:${enabled ? taskId : 'none'}`,
   )
 }
 

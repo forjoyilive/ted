@@ -1,5 +1,5 @@
 import type { SideChat as Chat } from '@ted/protocol'
-import { useRef, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { useEventValue, useRunChatState } from '../data.ts'
 import { clockTime } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -7,17 +7,17 @@ import { Button } from './Button.tsx'
 import { type ChatOptions, ChatSection } from './RunChat.tsx'
 import styles from './SideChat.module.css'
 
-type Props = { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions
+type Props = {
+  runId: string
+  onStopTask?: (() => void) | undefined
+  renderSource?: (resource: ReturnType<typeof useRunChatState>) => ReactNode
+} & ChatOptions
 
 export function RunWithSideChat(props: Props) {
   return <RunSideChat key={props.runId} {...props} />
 }
 
-function RunSideChat({
-  runId,
-  onStopTask,
-  ...options
-}: { runId: string; onStopTask?: (() => void) | undefined } & ChatOptions) {
+function RunSideChat({ runId, onStopTask, renderSource, ...options }: Props) {
   const resource = useRunChatState(runId)
   const chat = resource.value
   const [open, setOpen] = useState(false)
@@ -83,20 +83,24 @@ function RunSideChat({
               </Button>
             </div>
           )}
-          <ChatSection
-            chat={chat}
-            error={resource.error}
-            retry={resource.retry}
-            onStopTask={onStopTask}
-            options={{
-              ...options,
-              headerAction: eligible && (
-                <Button size="small" disabled={busy} onClick={show}>
-                  {side ? 'Open side chat' : 'Side chat'}
-                </Button>
-              ),
-            }}
-          />
+          {renderSource ? (
+            renderSource(resource)
+          ) : (
+            <ChatSection
+              chat={chat}
+              error={resource.error}
+              retry={resource.retry}
+              onStopTask={onStopTask}
+              options={{
+                ...options,
+                headerAction: eligible && (
+                  <Button size="small" disabled={busy} onClick={show}>
+                    {side ? 'Open side chat' : 'Side chat'}
+                  </Button>
+                ),
+              }}
+            />
+          )}
         </div>
         {eligible && open && (
           <section className={styles.side} data-hidden={which !== 'side'} aria-label="Side chat">

@@ -160,3 +160,19 @@ test('PR changes retain their source while loading and restore the underlying th
   ).toMatchObject({ covered: false })
   expect(middlePane(state, { ...task, id: 'other' }, true).changes).toBeUndefined()
 })
+
+test('the current Task Lead and automatic sub-agent tabs need no stored opened tab', () => {
+  const liveTask = {
+    ...task,
+    tabs: [],
+    leadRunId: 'lead',
+    runs: [
+      { id: 'lead', agent: 'codex', name: 'Task Lead', role: 'lead', state: 'working' },
+      { id: 'review', agent: 'claude', name: 'Reviewer', role: 'sub-agent', state: 'waiting' },
+    ],
+  } satisfies Pick<Task, 'id' | 'tabs' | 'repos' | 'leadRunId' | 'runs'>
+  for (const runId of ['lead', 'review']) {
+    const state = middlePaneStep({}, task.id, { kind: 'run', runId })
+    expect(middlePane(state, liveTask, true).run).toBe(runId)
+  }
+})

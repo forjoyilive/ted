@@ -1,4 +1,4 @@
-import type { Attachment, CommentBox as BoxState, Task } from '@ted/protocol'
+import type { Attachment, CommentBox as BoxState, RunSummary, Task } from '@ted/protocol'
 import { type ClipboardEvent, type DragEvent, useRef, useState } from 'react'
 import { sendOnEnter } from '../composer-keys.ts'
 import { formatSize } from '../task-fields.ts'
@@ -6,7 +6,7 @@ import { readableError, ted } from '../ted.ts'
 import { Button } from './Button.tsx'
 import styles from './CommentBox.module.css'
 import { Help } from './Help.tsx'
-import { CloseIcon, PaperclipIcon } from './icons.tsx'
+import { CloseIcon, PaperclipIcon, StopIcon } from './icons.tsx'
 
 const maxAttachmentBytes = 25 * 1024 * 1024
 
@@ -25,18 +25,28 @@ const placeholders: Partial<Record<BoxState, string>> = {
 export function CommentBox({
   task,
   onFollowedUp,
+  run,
 }: {
   task: Task
+  run?: RunSummary | undefined
   onFollowedUp?: (followUp: Task) => void
 }) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const [files, setFiles] = useState<Attachment[]>([])
   const [uploading, setUploading] = useState(0)
   const [dragging, setDragging] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const state = task.commentBox
+  const direct =
+    state === 'live' &&
+    run !== undefined &&
+    run.id === task.leadRunId &&
+    run.current &&
+    run.state !== 'finished'
+  const working = direct && run?.state === 'working'
   const typed = text.trim() !== ''
   const ready = (typed || files.length > 0) && uploading === 0
   const note = task.canResume ? undefined : notes[state]
@@ -92,7 +102,7 @@ export function CommentBox({
     void attach(pasted)
   }
 
-  async function send(then?: 'resume' | 'follow-up') {
+  async function send(then?: 'resume' | 'follow-up', interrupting = false) {
     if (!ready || sending || (cancels && !typed)) return
     setSending(true)
     setError(undefined)
@@ -103,9 +113,20 @@ export function CommentBox({
         const created = await ted.followUpTask(task.id, text, refs)
         onFollowedUp?.(created)
       } else if (cancels) await ted.cancelMerge(task.id, text, refs)
-      else await ted.postComment(task.id, { body: text, attachments: refs })
+      else if (direct && run && refs.length === 0) {
+        await ted.sendRunMessage(run.id, text, { interrupt: interrupting && working })
+      } else {
+        await ted.postComment(task.id, { body: text, attachments: refs })
+      }
       setText('')
       setFiles([])
+      if (direct && run && refs.length > 0 && interrupting && working) {
+        try {
+          await ted.interruptRun(run.id)
+        } catch (failed) {
+          setError(`Message sent, but couldn’t interrupt: ${readableError(failed)}`)
+        }
+      }
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -141,13 +162,15 @@ export function CommentBox({
       <textarea
         className={styles.box}
         data-comment-box
-        aria-label="Comment"
-        placeholder={placeholders[state] ?? 'Comment to the Task Lead…'}
+        aria-label={direct ? 'Message the Task Lead' : 'Comment'}
+        placeholder={
+          direct ? 'Message the Task Lead…' : (placeholders[state] ?? 'Comment to the Task Lead…')
+        }
         value={text}
         onChange={(event) => setText(event.target.value)}
         onPaste={onPaste}
         onKeyDown={sendOnEnter(
-          () => void send(resumes ? 'resume' : done ? 'follow-up' : undefined),
+          (command) => void send(resumes ? 'resume' : done ? 'follow-up' : undefined, command),
           (typedText) => typedText.trim() !== '' || (files.length > 0 && !cancels),
         )}
       />
@@ -196,7 +219,37 @@ export function CommentBox({
             event.target.value = ''
           }}
         />
+        {direct && run && (
+          <Button
+            size="small"
+            aria-label="Stop the turn"
+            disabled={stopping || !working}
+            onClick={async () => {
+              setStopping(true)
+              setError(undefined)
+              try {
+                await ted.interruptRun(run.id)
+              } catch (failed) {
+                setError(readableError(failed))
+              } finally {
+                setStopping(false)
+              }
+            }}
+          >
+            <StopIcon />
+          </Button>
+        )}
         <span className={styles.spacer} />
+        {direct && (
+          <Button
+            size="small"
+            shortcut="⌘↵"
+            disabled={sending || !ready || !working}
+            onClick={() => void send(undefined, true)}
+          >
+            Interrupt and send
+          </Button>
+        )}
         {note !== undefined && <Help>{note}</Help>}
         <Button
           variant={cancels ? 'danger' : resumes || done ? 'secondary' : 'primary'}

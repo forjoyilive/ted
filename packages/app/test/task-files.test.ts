@@ -111,7 +111,7 @@ test('browse and quick open inspect unchanged files, open the editor and leave C
     })
   await quick.getByRole('combobox').press('Enter')
   await expect.poll(() => quick.count()).toBe(0)
-  await viewer.getByRole('button', { name: '← Thread' }).click()
+  await viewer.getByRole('button', { name: '← Task Lead' }).click()
   await window.getByRole('region', { name: 'Task thread' }).waitFor()
   const changes = window.getByRole('region', { name: 'Changes', exact: true })
   await changes.getByRole('button', { name: /^README.md/ }).click()
