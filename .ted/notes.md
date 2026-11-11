@@ -14,7 +14,7 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 ## Running it locally
 
 - GitHub CI runs Typecheck and Lint automatically on pull requests and pushes to `main`; the full suite also runs on `v*` release tags. Agents never start GitHub workflows. Local testing follows `AGENTS.md`.
-- `pnpm install`, then `pnpm typecheck`, `pnpm lint` and `pnpm test`.
+- `pnpm install`, then `pnpm typecheck` and `pnpm lint`. For tests, run only the test files your change touches, with `pnpm vitest run <files>`. Never run `pnpm test`, `pnpm check` or a whole test folder: TED refuses a Run’s test run of 10 or more files, because it takes the whole machine and every other Run waits.
 - `pnpm app` builds the renderer and opens TED Dev from source; `pnpm ted <args>` runs the CLI from source.
 - For isolated CLI trials, use `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>`. Keep TED’s Task-control commands in the normal Run environment.
 - In a Task, always set `TED_HOME` to the Task’s own folder, `node_modules/.cache/ted-home` in the worktree, which the TED Dev App already uses. Never use `~/.ted` (the installed TED that runs this Factory) or `~/.ted-dev`.
