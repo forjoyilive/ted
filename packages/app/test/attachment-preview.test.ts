@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto'
-import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vitest'
@@ -14,7 +24,7 @@ test('revealing an attachment validates its reference and reuses a protected, na
   const reveal = vi.fn()
   try {
     await showAttachmentInFolder(client, attachment, cache, reveal)
-    const target = path.join(cache, 'attachment-previews', hash, attachment.name)
+    const target = path.join(await realpath(cache), 'attachment-previews', hash, attachment.name)
     expect(reveal).toHaveBeenCalledWith(target)
     expect(await readFile(target)).toEqual(bytes)
     expect((await lstat(target)).mode & 0o777).toBe(0o400)
