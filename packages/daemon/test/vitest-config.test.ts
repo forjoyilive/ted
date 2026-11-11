@@ -51,7 +51,7 @@ test('TSX component tests are discovered from the repo and app, and Electron imp
       }),
     ]),
   )
-  expect(root.maxWorkers).toBe(6)
+  expect(root.maxWorkers).toBe(3)
   expect(root.projects).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
