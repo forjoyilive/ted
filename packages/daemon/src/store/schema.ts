@@ -106,6 +106,27 @@ export const tasks = State.SQLite.table({
   },
 })
 
+export const executionMachine = State.SQLite.table({
+  name: 'executionMachine',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    machineId: State.SQLite.text(),
+  },
+})
+
+export const executionAssignments = State.SQLite.table({
+  name: 'executionAssignments',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    machineId: State.SQLite.text(),
+    assignmentId: State.SQLite.text(),
+    generation: State.SQLite.integer(),
+    reservationId: State.SQLite.text(),
+    operationId: State.SQLite.text(),
+    assignedAt: State.SQLite.text(),
+  },
+})
+
 export const taskQueue = State.SQLite.table({
   name: 'taskQueue',
   columns: {
@@ -846,6 +867,26 @@ const gitHubNotice = Schema.Struct({
 })
 
 export const events = {
+  localMachineIdentified: Events.synced({
+    name: 'v1.LocalMachineIdentified',
+    schema: Schema.Struct({ machineId: Schema.String, at: Schema.String }),
+  }),
+  taskExecutionAssigned: Events.synced({
+    name: 'v1.TaskExecutionAssigned',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      machineId: Schema.String,
+      assignmentId: Schema.String,
+      generation: Schema.Number,
+      reservationId: Schema.String,
+      operationId: Schema.String,
+      assignedAt: Schema.String,
+    }),
+  }),
+  taskExecutionForgotten: Events.synced({
+    name: 'v1.TaskExecutionForgotten',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
   sideChatChanged: Events.synced({
     name: 'v1.SideChatChanged',
     schema: Schema.Struct({ sourceRunId: Schema.String, data: Schema.String }),
@@ -2882,6 +2923,11 @@ const materializers = counted(
       ],
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
+      'v1.LocalMachineIdentified': ({ machineId }) =>
+        executionMachine.insert({ id: 'local', machineId }).onConflict('id', 'ignore'),
+      'v1.TaskExecutionAssigned': (assignment) =>
+        executionAssignments.insert(assignment).onConflict('taskId', 'ignore'),
+      'v1.TaskExecutionForgotten': ({ taskId }) => executionAssignments.delete().where({ taskId }),
       'v1.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v2.TaskCreated': (task) => tasks.insert({ ...task, stage: 'backlog' }),
       'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
@@ -3653,6 +3699,8 @@ const state = State.SQLite.makeState({
     factoryOrder,
     tasks,
     taskQueue,
+    executionMachine,
+    executionAssignments,
     taskBlockers,
     deletedTasks,
     taskAttachments,

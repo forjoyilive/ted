@@ -189,6 +189,20 @@ export { type Edition, edition, type Identity, identity } from './edition.ts'
 export { filterTedEnv, tedEnv, tedEnvironment } from './env.ts'
 export type { DaemonEvent } from './events.ts'
 export {
+  type AssignmentId,
+  type AssignTaskExecution,
+  type ExecutionHandle,
+  type ExecutionHandleId,
+  type ExecutionOperationId,
+  type ExecutionOwnership,
+  type ExecutionRef,
+  executionHandle,
+  executionIds,
+  type MachineId,
+  type ReservationId,
+  type TaskAssignment,
+} from './execution.ts'
+export {
   type ExportFormat,
   type ExportRun,
   type ExportTask,
