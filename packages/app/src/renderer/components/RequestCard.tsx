@@ -8,7 +8,7 @@ import type {
   TaskChanges,
   ValidationProgress,
 } from '@ted/protocol'
-import { failureChoices } from '@ted/protocol'
+import { failureChoices } from '@ted/protocol/failures'
 import { useEffect, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter } from '../composer-keys.ts'
