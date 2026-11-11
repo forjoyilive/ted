@@ -336,10 +336,13 @@ test('a stale ask is still posted when no new context could be attached or read'
   s.worktree.readable = true
   s.endRun()
   const asked = await s.request(ended)
-  expect(s.comment(asked.decisions.at(-1)?.commentId)?.body).toContain(
-    'Accept this failure will be refused',
-  )
-  expect(s.comment(first.decisions.at(-1)?.commentId)?.body).not.toContain('will be refused')
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('This failure can’t be accepted'),
+  })
+  const unread = s.comment(first.decisions.at(-1)?.commentId)
+  expect(unread?.choices).toContain('Accept this failure')
+  expect(unread?.body).not.toContain('can’t be accepted')
   const refused = await refusalText(() => s.resolve(asked))
   expect(refused).toBe(acceptRefusals.changedForGood(false))
   expect(refused).toContain('choose Fixed or No longer applicable')

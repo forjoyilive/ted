@@ -875,7 +875,7 @@ export interface TedStore extends TaskHistory {
   coordinators: CoordinatorStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
-  postFailureDecision(value: FailureCase, body: string): FailureCase
+  postFailureDecision(value: FailureCase, body: string, canAccept?: boolean): FailureCase
   resolveFailure(
     value: FailureCase,
     commentId: string,
@@ -2481,7 +2481,7 @@ export async function openStore({
       emit({ type: 'comment-posted', comment: requireComment(id) })
       updatedTask(value.taskId)
     },
-    postFailureDecision(value, body) {
+    postFailureDecision(value, body, canAccept = true) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -2493,7 +2493,9 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? 'validation'} failure?`,
           }),
-          choices: Object.values(value.validation ? validateFailureChoices : failureChoices),
+          choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
+            (choice) => canAccept || choice !== failureChoices.accepted,
+          ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },

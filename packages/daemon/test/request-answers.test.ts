@@ -237,6 +237,10 @@ test.each([
     }
     await answer(comment, { action: 'answer', text: 'More context' }, false)
     expect(store.getComment(comment.id)?.answer).toBeUndefined()
+    const narrowed = post({ kind: 'failure' }, { choices: ['Fixed', 'No longer applicable'] })
+    await expect(answer(narrowed, { action: 'answer', choice }, false)).rejects.toThrow(
+      'isn’t one of the question’s choices',
+    )
     await answer(comment, { action: 'answer', choice }, false)
     expect(effects).toEqual(['follow-up:false', `resolved:${resolution}:false`])
   },
