@@ -130,6 +130,8 @@ test('local clone, create, copy and removal use handles and refuse a linked Task
 test('final cleanup refuses a linked sandbox root and leaves the sibling folder intact', async () => {
   const task = await store.createTask({ title: 'Confined cleanup' })
   const ref = await createTaskExecution(store).local(task.id)
+  await rm(path.join(home, 'worktrees'), { recursive: true })
+  await backend().cleanFolders(ref)
   const sibling = path.join(home, 'sibling')
   const victim = path.join(sibling, task.displayId, 'keep')
   await mkdir(path.dirname(victim), { recursive: true })

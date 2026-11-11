@@ -93,11 +93,23 @@ test('the process fixture carries copy, setup, stop and archive teardown through
     expect((await machine.client.listTasks()).some((t) => t.id === deleting.id)).toBe(false)
     await expect(stat(deletingRepo.worktree)).rejects.toThrow()
     await expect(stat(path.join(machine.home, 'sandbox', deleting.displayId))).rejects.toThrow()
+    const neverStarted = await machine.client.createTask({
+      factory: factory.key,
+      title: 'Never started cleanup',
+    })
+    const leftover = path.join(machine.home, 'worktrees', neverStarted.displayId)
+    const cache = path.join(machine.home, 'sandbox', neverStarted.displayId)
+    await mkdir(leftover, { recursive: true })
+    await mkdir(cache, { recursive: true })
+    await machine.client.deleteTask(neverStarted.id)
+    await expect(stat(leftover)).rejects.toThrow()
+    await expect(stat(cache)).rejects.toThrow()
     await observe('lifecycle-process', {
       copyBeforeSetupBeforeLead: true,
       stopRetainsWorktree: true,
       archiveTeardownBeforeRemoval: true,
       deleteRemovesWorktreeAndSandbox: true,
+      neverStartedCleanup: true,
     })
   } finally {
     await fixture.close()

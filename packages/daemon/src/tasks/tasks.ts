@@ -5197,6 +5197,7 @@ export function createTasks(options: {
       await clearing(task.id)
       await pullRequestQueue.get(task.id)
       const last = find(task.id)
+      await lifecycle.cleanFolders(await execution.local(task.id))
       const runIds = store.taskRunList(task.id).map((r) => r.id)
       const files = store.taskFiles(task.id)
       failures.forget(task.id)
@@ -5261,8 +5262,6 @@ export function createTasks(options: {
         ),
       ),
     )
-    await gone(worktreesDir, task.displayId)
-    await gone(sandboxDir, task.displayId)
     const stillUsed = store.filesInUse()
     await Promise.all(
       files

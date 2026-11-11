@@ -283,7 +283,17 @@ export function createLocalLifecycle(options: {
 
   async function cleanFolders(ref: ExecutionRef): Promise<void> {
     const task = await ready(ref)
-    await plain(options.worktreesDir, path.join(options.worktreesDir, task.displayId), false, true)
+    const worktrees = await lstat(options.worktreesDir).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      return undefined
+    })
+    if (worktrees)
+      await plain(
+        options.worktreesDir,
+        path.join(options.worktreesDir, task.displayId),
+        false,
+        true,
+      )
     const home = path.dirname(options.worktreesDir)
     const sandboxDir = path.join(home, 'sandbox')
     await plain(home, sandboxDir, false, true)
