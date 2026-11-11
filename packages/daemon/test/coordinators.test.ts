@@ -378,6 +378,27 @@ test('Factory removal deletes Coordinator history, pending work and managed file
   ).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+test('reset deletes the conversation and the next message starts a new one', async () => {
+  const s = await setup()
+  const { c, run } = await s.start()
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
+  expect((await s.client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
+  expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(false)
+  expect((await api(s.port, s.tokens.issue(c.runId)).call('POST', `${s.base}/reset`)).status).toBe(
+    403,
+  )
+
+  const next = await s.start([{ say: 'A fresh start' }, { endTurn: true }])
+  expect(next.c.runId).not.toBe(c.runId)
+  expect(next.c.runIds).toEqual([next.c.runId])
+  expect(next.c.receipts).toEqual([])
+  await s.ok('POST', `${s.base}/reset`)
+  await s.ok('POST', `${s.base}/reset`)
+  expect(await s.chat()).toBeNull()
+})
+
 test('agent health pauses queued responses and sending advice leaves Tasks unchanged', async () => {
   const s = await setup()
   const task = await s.task()
@@ -1341,15 +1362,17 @@ test.each(['general', 'Validate'])(
       await post('/outcome', { outcome: 'advance' })
       await post('/outcome', { outcome: 'advance' })
     }
-    const context = await post<{ id: string }>('/failure-contexts')
+    const context =
+      stage === 'Validate' ? await post<{ id: string }>('/failure-contexts') : undefined
     const failure = await post<{ id: string }>('/failures', {
       source: { kind: 'finding', runId: leadRunId, finding: 'A flaky test' },
       evidence: 'Fails on main too',
-      contextId: context.id,
+      ...(context && { contextId: context.id }),
     })
     await post(`/failures/${failure.id}/assessments`, {
       assessment: 'unrelated',
-      recommendation: 'Accept for this context',
+      recommendation:
+        stage === 'Validate' ? 'Accept for this context' : 'No longer applicable to this Task',
     })
     const asked = await post<{ decisions: { commentId: string }[] }>(
       `/failures/${failure.id}/decision`,
@@ -1371,15 +1394,16 @@ test.each(['general', 'Validate'])(
     expect(read.openRequests.find((r) => r.id === requestId)?.coordinatorMayAnswer).toBe(
       'with a choice',
     )
+    const choice = stage === 'Validate' ? 'Accept this failure' : 'No longer applicable'
     const answered = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-      operation: 'accept',
+      operation: 'resolve-failure',
       version: read.version,
       request: requestId,
-      choice: 'Accept this failure',
+      choice,
     })
     expect(answered.status, JSON.stringify(answered.body)).toBe(200)
     const comment = (await s.comments(task.id)).find((c) => c.id === requestId)
-    expect(comment?.answer).toMatchObject({ kind: 'answered', choice: 'Accept this failure' })
+    expect(comment?.answer).toMatchObject({ kind: 'answered', choice })
     expect(comment?.lineComments ?? []).toEqual([])
     expect(await unsent()).toHaveLength(1)
   },

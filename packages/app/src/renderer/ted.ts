@@ -167,6 +167,7 @@ export const ted = {
     window.ted.request('stopCoordinator', id) as Promise<Coordinator>,
   retryCoordinator: (id: string) =>
     window.ted.request('retryCoordinator', id) as Promise<Coordinator>,
+  resetCoordinator: (id: string) => window.ted.request('resetCoordinator', id) as Promise<null>,
   listPlans: (factory?: string) => window.ted.request('listPlans', factory) as Promise<Plan[]>,
   getPlan: (id: string) => window.ted.request('getPlan', id) as Promise<PlanDetail>,
   startPlan: (input: StartPlanRequest) => window.ted.request('startPlan', input) as Promise<Plan>,

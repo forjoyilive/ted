@@ -324,6 +324,10 @@ export class DaemonClient {
     return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
   }
 
+  resetCoordinator(factoryId: string): Promise<null> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  }
+
   coordinatorTasks(offset = 0): Promise<{ context: string }> {
     return this.#request('GET', `/coordinator/tasks?offset=${offset}`)
   }

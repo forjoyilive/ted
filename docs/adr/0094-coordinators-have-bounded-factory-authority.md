@@ -58,6 +58,10 @@ Tell and answer still left most of the Inbox to the human. A Task waiting at a M
 
 **What this costs.** The daemon cannot check that the human asked, and the Coordinator reads Task text that agents and GitHub wrote. Before this, a Coordinator misled by that text could not approve a Gate or merge: the daemon refused. Now only its instructions stand between misleading Task text and an approval or a merge the human did not ask for. The human accepted that for the sake of batch work. What the daemon still enforces: the Coordinator’s own Factory, a current Task version, one receipt per action with the before and after state, the three refused kinds, the fixed mark, and no path to the human’s drafts, files, settings or credentials.
 
+## Starting over
+
+A conversation could only be stopped, and the Run that replaces a stopped one is handed the earlier conversation as history. There was no way to drop a conversation that had gone wrong or to start one that carries nothing from before. **New conversation** (`POST /factories/:id/coordinator/reset`, app only) does what Factory removal does to the Coordinator and nothing else: `Coordinators.reset` holds saves and launches the way removal does while still answering reads, waits for launches and actions, stops the Run, and deletes the saved row, pending messages, Conversation history and managed folders. The Factory and its Tasks are untouched, and the receipts go with the conversation; what the Coordinator did stays in each Task’s thread. The next message creates a new conversation. A message sent while the reset runs is refused.
+
 ## What the Coordinator reads
 
 To group stuck Tasks it needs each Task’s open requests. `ted coordinator tasks` now returns, per Task, up to 5 open requests (ID, kind, who asked, Stage, title, the first 1,000 characters of the text, choices, when it was asked, and whether the Coordinator may answer it), a count of any more, and the current time, so it can tell how long each has waited. `ted coordinator task` returns up to 20 the same way, whatever page of Comments is asked for. Both stay inside the nonce-delimited untrusted context.

@@ -27,6 +27,39 @@ function requestApi() {
   return { ...api, answer }
 }
 
+test('rounds submit preselected recommendations with one submission action', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
+  )
+  expect(screen.queryByRole('button', { name: 'Accept all recommended' })).toBeNull()
+  await user().click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: 'Keep both' }, { answer: 'The edit wins.' }],
+  })
+})
+
+test('Submit answers preserves changed choices, written answers and added notes', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
+  )
+  const u = user()
+  await u.click(screen.getByRole('radio', { name: 'Keep latest' }))
+  await u.type(screen.getByLabelText('Add to answer 1'), 'Clashes are rare.')
+  await u.clear(screen.getByLabelText('Answer 2'))
+  await u.type(screen.getByLabelText('Answer 2'), 'Keep both versions.')
+  await u.click(screen.getByRole('button', { name: 'Submit answers' }))
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [
+      { answer: 'Keep latest', note: 'Clashes are rare.' },
+      { answer: 'Keep both versions.' },
+    ],
+  })
+})
+
 test('round recommendations, reset, Other validation and notes are sent as answers', async () => {
   const { answer } = requestApi()
   render(

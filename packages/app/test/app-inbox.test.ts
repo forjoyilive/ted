@@ -152,11 +152,8 @@ describe('Inbox and Gates', () => {
     await openTaskOutsideInbox(window)
     const thread = window.getByRole('region', { name: 'Task thread' })
     const card = thread.getByRole('region', { name: 'Clarify round', exact: true })
-    await expectActionsInsideCard(window, card, [
-      'Talk it through',
-      'Accept all recommended',
-      'Submit answers',
-    ])
+    await expectActionsInsideCard(window, card, ['Talk it through', 'Submit answers'])
+    expect(await card.getByRole('button', { name: 'Accept all recommended' }).count()).toBe(0)
     await card.getByRole('button', { name: 'Talk it through' }).click()
 
     await thread.getByRole('heading', { name: 'Talking through Round 1' }).waitFor()
