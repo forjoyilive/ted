@@ -35,7 +35,7 @@ export const automationUsage = `  ted automation list                        Lis
   ted automation show <id>                   Show an Automation: schedule, next firings, prompt
   ted automation history <id>                Show an Automation’s Runs, newest first
   ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>
-                [--template linear|sentry|github] [--agent claude|codex]
+                [--template linear|sentry|github|architecture] [--agent claude|codex]
                 [--model <name>] [--effort <level>] [--off]
                                              Create an Automation (a template fills in what you
                                              leave out)

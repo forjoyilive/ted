@@ -6,6 +6,7 @@ import type {
   Automation,
   AutomationDetail,
   AutomationRun,
+  AutomationTemplate,
   Banner,
   Factory,
   RunSlots,
@@ -292,6 +293,124 @@ describe('Automations', () => {
     const after = (await detail(client, automation.id)).automation
     expect(after.last?.result.kind).toBe('no-new-tasks')
     expect(after.nextFirings[0]).toBe('2026-11-10T09:00:00.000Z')
+  })
+
+  test('weekly architecture reviews queue and create distinct, deduplicated Backlog Tasks', async () => {
+    const client = await startTed()
+    const templates = await client.ok<AutomationTemplate[]>('GET', '/automations/templates')
+    const template = templates.find((t) => t.id === 'architecture')
+    if (!template) throw new Error('missing architecture template')
+    await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+    const blocker = await create(client, {
+      name: 'Holding the slot',
+      on: false,
+      prompt: steps(hold(), { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${blocker.id}/run`)
+    await waitUntil(
+      async () => (await detail(client, blocker.id)).automation.now?.kind === 'working',
+      'the slot holder',
+    )
+    const source = 'https://github.com/acme/widgets/tree/main/src/parser'
+    const other = 'https://github.com/acme/widgets/blob/main/src/queue.ts'
+    const automation = await create(client, {
+      template: template.id,
+      name: template.name,
+      schedule: template.schedule,
+      prompt: `${template.prompt}\n${steps(
+        {
+          run: [
+            'ted',
+            'task',
+            'create',
+            '--source',
+            source,
+            '--description',
+            'Evidence at abc123; verify through the parser API.',
+            'Deepen the parser boundary',
+          ],
+        },
+        {
+          run: [
+            'ted',
+            'task',
+            'create',
+            '--source',
+            `${source}?scan=2#finding`,
+            'Duplicate parser finding',
+          ],
+        },
+        { run: ['ted', 'task', 'create', '--source', other, 'Concentrate queue ownership'] },
+        { run: ['ted', 'task', 'create', '--factory', 'XX', '--source', other, 'Wrong Factory'] },
+        { endTurn: true },
+      )}`,
+    })
+    expect(automation).toMatchObject({
+      template: 'architecture',
+      nextFirings: [
+        '2026-11-09T09:00:00.000Z',
+        '2026-11-16T09:00:00.000Z',
+        '2026-11-23T09:00:00.000Z',
+      ],
+    })
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'queued',
+      'the architecture review to queue',
+    )
+    expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
+    await release()
+    const [row] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'created',
+      'the architecture review to finish',
+    )
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks).toHaveLength(2)
+    expect(tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          title: 'Deepen the parser boundary',
+          description: 'Evidence at abc123; verify through the parser API.',
+          source: expect.objectContaining({ url: source }),
+        }),
+        expect.objectContaining({
+          title: 'Concentrate queue ownership',
+          source: expect.objectContaining({ url: other }),
+        }),
+      ]),
+    )
+    for (const task of tasks) {
+      expect(task).toMatchObject({
+        stage: 'backlog',
+        createdBy: 'automation',
+        factoryId: automation.factoryId,
+      })
+      expect(task.leadRunId).toBeUndefined()
+    }
+    expect(row?.result).toMatchObject({ kind: 'created', tasks: expect.any(Array) })
+    expect(row?.created).toHaveLength(2)
+    const results = await commandResults(client, row?.runId ?? '')
+    expect(results.map((r) => r.code)).toEqual([0, 1, 0, 1])
+    expect(results[1]?.stderr).toContain('Already tracked as NB-1 · Backlog')
+    expect(results[3]?.stderr).toContain('only in NB, its own Factory')
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    expect(run.run.prompt).toContain(template.prompt)
+
+    clock = Date.parse('2026-11-16T09:00:05Z')
+    const [next] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows.length === 2 && rows[0]?.result.kind === 'no-new-tasks',
+      'the repeat review to skip existing sources',
+    )
+    expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(2)
+    const repeated = await client.ok<RunWithConversation>('GET', `/runs/${next?.runId}`)
+    expect(repeated.run.prompt).toContain(`source ${source}`)
+    expect(repeated.run.prompt).toContain(`source ${other}`)
   })
 
   test('an edit sending null for model or effort clears it back to the default', async () => {
