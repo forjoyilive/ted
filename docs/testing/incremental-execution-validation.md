@@ -53,16 +53,19 @@ remote Task execution, scheduling, failover or reconciliation implementation.
 Synthetic capability tests may use the store driver before the full remote lifecycle
 exists; no feature flag or route advertises this as support for ordinary user Tasks.
 
-The separate lab entry point requires explicit opt-in:
+The separate [two-Mac lab runner](two-mac-lab.md) requires explicit opt-in and
+external pinned host configuration:
 
 ```sh
 node scripts/validate-execution-lab.ts --opt-in \
-  --report-dir "$HOME/.cache/ted/execution-validation" --scenario two-mac
+  --config "$HOME/.config/ted-validation-lab/lab.json" \
+  --action acceptance --scenario lab-access
 ```
 
-It currently reports skipped and reads no machine inventory. Add production service
-and transport adapters in their owning Tasks, together with qualifying scenarios;
-the normal runner must never discover or contact real Macs.
+`lab-access` proves deployment, native sandbox probes and owned stub-process control
+on two actual Macs. It does not make the `two-mac` product-execution scenario pass.
+Production transport/service adapters and qualifying scenarios stay in their owning
+Tasks; the normal runner never discovers or contacts real Macs.
 
 ## Fixtures and extension points
 
