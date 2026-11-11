@@ -15,7 +15,7 @@ Make the change the Task asks for, on this Task’s branch.
 
 ## Done when
 
-The change is committed and the note is posted. Then report the outcome. When the Factory has Checks, the Task moves to Validate once they pass; wait for TED’s message.
+The change is committed and the note is posted. Then report the outcome. Do not run any checks or tests as those are for Validate.
 
 If Validate sent this Task back, repair the evidence-based Findings and preserve their original failure history. When a test failed there, fix it from the failure output in the Findings; Validate runs it again. Returning to Validate runs fresh verification; a retry or investigation is not a send-back. Do not count acceptance as a passing test or merge approval.
 
