@@ -96,10 +96,19 @@ export function useAppActions(task: Task, app: TaskApp) {
     dialog,
     preview: () => act(() => ted.openAppPreview(task.id, app.repo, app.name)),
     start: (shutDown?: string) =>
-      confirm(() => act(() => ted.startApp(task.id, app.repo, app.name, shutDown))),
-    show: () => act(() => ted.showApp(task.id, app.repo, app.name)),
-    stop: () => act(() => ted.stopApp(task.id, app.repo, app.name)),
-    restart: () => confirm(() => act(() => ted.restartApp(task.id, app.repo, app.name))),
+      confirm(() =>
+        act(() =>
+          ted.startApp(task.id, {
+            repo: app.repo,
+            name: app.name,
+            ...(shutDown !== undefined && { shutDown }),
+          }),
+        ),
+      ),
+    show: () => act(() => ted.showApp(task.id, { repo: app.repo, name: app.name })),
+    stop: () => act(() => ted.stopApp(task.id, { repo: app.repo, name: app.name })),
+    restart: () =>
+      confirm(() => act(() => ted.restartApp(task.id, { repo: app.repo, name: app.name }))),
   }
 }
 

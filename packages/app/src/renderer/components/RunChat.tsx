@@ -577,7 +577,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       interrupt={options.interrupt !== false}
       send={
         options.send ??
-        ((text, interrupt) => ted.sendRunMessage(run.id, text, interrupt && working))
+        ((text, interrupt) => ted.sendRunMessage(run.id, text, { interrupt: interrupt && working }))
       }
       stopTurn={options.stopTurn ?? (() => ted.interruptRun(run.id))}
     />

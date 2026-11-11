@@ -260,7 +260,7 @@ export function TaskBrowserView({
             size="small"
             onClick={() => {
               void ted
-                .postComment(task.id, 'Browser screenshot', [capture])
+                .postComment(task.id, { body: 'Browser screenshot', attachments: [capture] })
                 .then(() => {
                   setCapture(undefined)
                   setStatus('Screenshot posted to the Task')
