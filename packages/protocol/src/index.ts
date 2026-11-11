@@ -650,6 +650,7 @@ export {
   type SizeCheck,
   type SizeCheckInput,
   type StageId,
+  type StartTaskRequest,
   sizeChoices,
   type TalkedThrough,
   type Task,
@@ -721,6 +722,7 @@ export {
   parseSetTaskGatesRequest,
   parseSetTaskReposRequest,
   parseSizeCheckInput,
+  parseStartTaskRequest,
   parseTaskLead,
   parseWriteBriefRequest,
 } from './task-parsers.ts'

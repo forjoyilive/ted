@@ -385,7 +385,7 @@ export interface Tasks {
   setUpFactory(factoryId: string): Promise<Task | undefined>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
-  start(ref: string): Promise<Task>
+  start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -1271,6 +1271,23 @@ export function createTasks(options: {
 
   async function fill(): Promise<void> {
     if (closed || store.newWorkHold() !== undefined) return
+    for (const id of store.preparedTasks()) {
+      const task = store.getTask(id)
+      if (!task || task.archived || task.preparation !== 'ready') continue
+      if (task.runs.length > 0) {
+        stopPreparedLead(task)
+        continue
+      }
+      if (
+        store.settings().overnightMode &&
+        !stoppingByHand.has(task.id) &&
+        !advancing.has(task.id) &&
+        !holds.has(task.id) &&
+        unmergedBlockers(task.id).length === 0
+      ) {
+        store.resumeTask(task.id, { waitForBlockers: false, overnight: true })
+      }
+    }
     const version = backlogVersion
     const backlog = queueOrder<QueueEntry>(
       store
@@ -3852,6 +3869,7 @@ export function createTasks(options: {
         const now = find(task.id)
         const resolution = await gateWorkflow(now)
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
+        if (now.preparation === 'preparing') checkPreparationWorkflow(resolution.workflow)
         await requireObligations(now, undefined, next)
         const answered = answerRequest(task, comment, {
           kind: 'approved',
@@ -4320,6 +4338,45 @@ export function createTasks(options: {
     })
   }
 
+  function checkPreparationWorkflow(workflow: ResolvedWorkflow): void {
+    const work = workflow.order.indexOf('work')
+    if (
+      !workflow.stages.includes('work') ||
+      work < 0 ||
+      ['clarify', 'design'].some(
+        (stage) =>
+          workflow.stages.includes(stage as AgentStageId) &&
+          workflow.order.indexOf(stage as AgentStageId) > work,
+      )
+    )
+      throw new RequestError(
+        409,
+        'Prepare through Design needs Work enabled after Clarify and Design',
+      )
+  }
+
+  function stopPreparedLead(task: Task): void {
+    if (stoppingByHand.has(task.id)) return
+    stoppingByHand.add(task.id)
+    if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
+    subAgents.dropFor(task.id)
+    inBackground(`stop ${task.displayId} before Work`, async () => {
+      try {
+        await store.persisted()
+        await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
+      } finally {
+        stoppingByHand.delete(task.id)
+        void pump()
+      }
+    })
+  }
+
+  function holdBeforeWork(task: StoredTask, resolution: WorkflowResolution): Task {
+    const held = store.changeStage(task.id, 'work', entryFor(resolution, 'work'), { prepare: true })
+    stopPreparedLead(held)
+    return held
+  }
+
   async function move(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -4337,6 +4394,15 @@ export function createTasks(options: {
       to === 'done' && task.stage !== 'merge' && !resolution.workflow.stages.includes('merge')
     const next = mergeOff ? 'merge' : to
     const message = mergeOff ? mergeOffMessage : given
+    if (task.preparation === 'preparing') {
+      checkPreparationWorkflow(resolution.workflow)
+      if (next === 'work') return holdBeforeWork(task, resolution)
+      if (
+        next === 'done' ||
+        resolution.workflow.order.indexOf(next) > resolution.workflow.order.indexOf('work')
+      )
+        throw new RequestError(409, 'Preparation must stop before Work')
+    }
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
     if (task.stage === 'merge' && next !== 'done') {
       for (const repo of task.repos) {
@@ -5300,16 +5366,19 @@ export function createTasks(options: {
     })
   }
 
-  async function start(ref: string): Promise<Task> {
+  async function start(
+    ref: string,
+    request: import('@ted/protocol').StartTaskRequest = {},
+  ): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (!(await queueStart(task.id))) return publicTask(task.id)
+    if (!(await queueStart(task.id, undefined, request.prepare))) return publicTask(task.id)
     await pump()
     await beginning.get(task.id)
     return publicTask(task.id)
   }
 
-  async function queueStart(ref: string, version?: number): Promise<boolean> {
+  async function queueStart(ref: string, version?: number, prepare = false): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
     const factory = factoryOf(task)
@@ -5317,6 +5386,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${task.displayId} has already started`)
     }
     if (unmergedBlockers(task.id).length > 0) {
+      if (prepare) throw new RequestError(409, `${task.displayId} has unfinished blockers`)
       if (!automatic) store.setStartRequested(task.id, true)
       return false
     }
@@ -5326,6 +5396,10 @@ export function createTasks(options: {
       if (cloned(factory.id)) await ensureClone({ banners, reposDir }, factory)
       const resolution = await taskWorkflow(find(task.id), { fetch: false })
       const current = live(task.id)
+      if (prepare) {
+        if (current.setup) throw new RequestError(409, 'Factory setup Tasks cannot be prepared')
+        checkPreparationWorkflow(resolution.workflow)
+      }
       if (automatic) {
         const lead = current.lead ?? leadFrom(resolution.workflow.settings)
         if (
@@ -5370,9 +5444,11 @@ export function createTasks(options: {
       const stage = resolution.workflow.next('backlog')
       if (planned) {
         const again = resolution.workflow.stages.includes('clarify') ? 'clarify' : stage
-        store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId))
+        store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId), {
+          prepare,
+        })
       } else {
-        store.queueTask(task.id, stage)
+        store.queueTask(task.id, stage, { prepare })
       }
     } finally {
       starting.delete(task.id)
@@ -5505,6 +5581,12 @@ export function createTasks(options: {
       return fromTheBrief(task, {
         heading: 'Picking up after planning outside TED',
         why: afterPlanningWhy,
+      })
+    }
+    if (last?.kind === 'overnight') {
+      return fromTheBrief(task, {
+        heading: 'Picking up after preparation',
+        why: 'Preparation finished. Overnight mode resumed this Task before Work. Continue from the brief and the approved design.',
       })
     }
     if (last?.kind === 'resumed') {
@@ -5936,11 +6018,14 @@ export function createTasks(options: {
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
     const started =
       task.stage !== 'backlog' &&
-      (task.leadRunId !== undefined || task.repos.length > 0 || beginning.has(task.id))
+      (task.preparation === 'ready' ||
+        task.leadRunId !== undefined ||
+        task.repos.length > 0 ||
+        beginning.has(task.id))
     if (!started) {
       throw new RequestError(409, `${task.displayId} hasn’t started, so there’s nothing to stop`)
     }
-    if (task.stopped || stoppingByHand.has(task.id)) {
+    if ((task.stopped && task.preparation !== 'ready') || stoppingByHand.has(task.id)) {
       throw new RequestError(409, `${task.displayId} is already stopped`)
     }
     stoppingByHand.add(task.id)

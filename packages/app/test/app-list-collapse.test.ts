@@ -5,7 +5,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { expect, test } from 'vitest'
-import { daemonAsApp, makeOriginRepo, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
+import {
+  commitToOrigin,
+  daemonAsApp,
+  makeOriginRepo,
+  removeHome,
+  stopDaemonIn,
+} from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
@@ -16,10 +22,20 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
   let app: ElectronApplication | undefined
   try {
     const env = { ...process.env, TED_HOME: home, TED_HIDDEN_WINDOW: '1' }
-    const origin = await makeOriginRepo(path.join(home, 'origin'))
+    const originFolder = path.join(home, 'origin')
+    const origin = await makeOriginRepo(originFolder)
+    await commitToOrigin(originFolder, {
+      '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+    })
     const daemon = await daemonAsApp(home, env)
     await daemon.addFactory({ repo: origin, key: 'NB' })
-    await daemon.createTask({ factory: 'NB', title: 'Remember collapsed groups' })
+    const task = await daemon.createTask({
+      factory: 'NB',
+      title: 'Remember collapsed groups',
+      description: JSON.stringify({
+        steps: [{ run: ['ted', 'outcome', 'advance'] }, { endTurn: true }],
+      }),
+    })
     app = await electron.launch({
       executablePath: createRequire(import.meta.url)('electron') as string,
       args: [fileURLToPath(new URL('..', import.meta.url))],
@@ -42,6 +58,30 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     expect(await backlog().getAttribute('aria-expanded')).toBe('false')
     await backlog().click()
     await window.getByRole('row', { name: /Remember collapsed groups/ }).waitFor()
+    const groupSelection = window.getByRole('checkbox', { name: 'Select all Backlog Tasks' })
+    await allTasks().focus()
+    await window.mouse.move(0, 0)
+    expect(await groupSelection.evaluate((el) => getComputedStyle(el).opacity)).toBe('0')
+    await backlog().hover()
+    expect(await groupSelection.evaluate((el) => getComputedStyle(el).opacity)).toBe('1')
+    const captures = process.env.TED_PREPARATION_SCREENSHOT_DIR
+    if (captures) await window.screenshot({ path: path.join(captures, 'list-hover.png') })
+    await groupSelection.check()
+    const actions = window.getByRole('toolbar', { name: 'Selected Tasks' })
+    await actions.getByRole('button', { name: 'Archive', exact: true }).waitFor()
+    expect(await actions.getByRole('button', { name: 'Clear selection' }).count()).toBe(0)
+    if (captures) await window.screenshot({ path: path.join(captures, 'list-selection.png') })
+    await actions.getByRole('button', { name: 'Prepare through Design' }).click()
+    const notice = window.getByRole('dialog')
+    await notice.getByRole('heading', { name: 'Prepare through Design' }).waitFor()
+    if (captures) await window.screenshot({ path: path.join(captures, 'preparation-notice.png') })
+    await notice.getByRole('button', { name: 'Cancel' }).click()
+    await groupSelection.focus()
+    await window.keyboard.press('Escape')
+    expect(await actions.count()).toBe(0)
+    await daemon.startTask(task.id, { prepare: true })
+    await window.getByText('Ready for Work', { exact: true }).waitFor()
+    if (captures) await window.screenshot({ path: path.join(captures, 'ready-for-work.png') })
   } finally {
     await closeApp(app)
     await stopDaemonIn(home)

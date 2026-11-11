@@ -111,7 +111,7 @@ export type TaskStatus =
   | { kind: 'waiting-on-you' }
   | { kind: 'paused'; reason: string }
   | { kind: 'working' }
-  | { kind: 'stopped'; at?: string }
+  | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
   | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string }
@@ -123,6 +123,7 @@ export type TaskMarker =
   | { kind: 'blocked-by'; by: string; ended?: BlockerEnded }
   | { kind: 'snoozed'; until: string }
   | { kind: 'needs-planning' }
+  | { kind: 'preparing' }
 
 export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 
@@ -206,6 +207,7 @@ export interface Task {
   leadRunId?: string
   rank: number
   status?: TaskStatus
+  preparation?: 'preparing' | 'ready'
   statuses: TaskStatusKind[]
   markers: TaskMarker[]
   activity?: string
@@ -388,6 +390,10 @@ export interface TaskDraftState {
   draft: NewTaskDraft | null
   clearedRevision?: string
   clearedRevisions?: string[]
+}
+
+export interface StartTaskRequest {
+  prepare?: boolean
 }
 
 export interface CreateTaskRequest {

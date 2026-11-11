@@ -240,3 +240,10 @@ test('legacy defaults, normalization and unknown fields remain explicit', () => 
 })
 
 rejects(P.parseTaskLead, { agent: 'codex', effortMode: 'other' }, 'effortMode must be stage')
+
+test('start requests preserve the normal default and validate preparation intent', () => {
+  expect(P.parseStartTaskRequest(undefined)).toEqual({})
+  expect(P.parseStartTaskRequest({ prepare: true })).toEqual({ prepare: true })
+  expect(P.parseStartTaskRequest({ prepare: false })).toEqual({ prepare: false })
+  expect(() => P.parseStartTaskRequest({ prepare: 'yes' })).toThrow('prepare')
+})
