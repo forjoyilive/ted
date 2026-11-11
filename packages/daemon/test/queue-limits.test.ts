@@ -86,6 +86,22 @@ const waitForRunState = (client: Client, task: Task, state: string) =>
   }, `${task.displayId}’s Task Lead to be ${state}`)
 
 describe('the queue', () => {
+  test('slot holders follow edits and stops after the slot list has been read', async () => {
+    const client = await startWithStub()
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 0 })
+    const task = await startTask(client, workingUntil(path.join(scratch, 'never')))
+    await waitForRunState(client, task, 'working')
+    expect((await client.ok<RunSlots>('GET', '/slots')).holders).toMatchObject([
+      { taskId: task.id, title: task.title },
+    ])
+    await client.ok('PUT', `/tasks/${task.id}`, { title: 'Keep notebook choices close' })
+    expect((await client.ok<RunSlots>('GET', '/slots')).holders).toMatchObject([
+      { taskId: task.id, title: 'Keep notebook choices close' },
+    ])
+    await client.ok('POST', `/tasks/${task.id}/stop`)
+    expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 0, holders: [] })
+  })
+
   test('with the limit full, a started Task is Queued with its place and starts when a slot frees', async () => {
     const client = await startWithStub()
     await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })

@@ -17,7 +17,7 @@ stages:
     checks:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
-  review: { enabled: true, gate: false }
+  review: { enabled: true, gate: true }
   merge: { gate: false }
   clarify:
     enabled: true

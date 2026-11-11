@@ -48,3 +48,7 @@ The new source methods only report IDs already owned by the daemon’s queue sou
 ## Native captures
 
 The Task thread attaches `implemented-mixed.png`, `implemented-above-limit.png` and `implemented-quit.json` from the cache folder. The real sidebar was captured in a hidden Electron test window and visually checked; the above-limit count wraps cleanly within the existing sidebar. The Quit JSON is the production dialog model for that same real daemon state: two unfinished Runs and one queued item. No human screen, mouse or keyboard was used.
+
+## Required main integration
+
+After the user accepted the recorded timing uncertainty, TED refused the Work hand-off because main at `8a8ad3bbfe6649f1f9dff4e33e299b3d25ef48ef` conflicted with the branch. That exact main commit was merged. The sole conflict was the store schema import list: keep main’s `severityDeclarations`, and keep this Task’s removal of the unused `sideChats` table import. The reporting implementation and queue summary survived unchanged; main’s Check timing, request/review and Task history changes were retained. Typecheck and Lint passed on the merged tree. Fresh merged-tree verification is required/queued; the earlier counts above describe the pre-merge run. The earlier failure acceptance is historical and must not be treated as current after this merge.

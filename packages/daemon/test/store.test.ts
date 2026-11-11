@@ -30,10 +30,26 @@ describe('TedStore', () => {
       expect(first.displayId).toBe('DEV-1')
       expect(second.displayId).toBe('DEV-2')
       expect(first.id).not.toBe(second.id)
+      expect(store.getTask(first.displayId)).toEqual(store.getTask(first.id))
+      expect(store.getTask(second.displayId)).toEqual(store.getTask(second.id))
+      expect(store.getTask('DEV-01')).toBeUndefined()
+      expect(store.getTask('dev-1')).toBeUndefined()
+      expect(store.getTask('DEV-999')).toBeUndefined()
       expect(store.listTasks().map((t) => [t.displayId, t.title])).toEqual([
         ['DEV-1', 'Fix login'],
         ['DEV-2', 'Add dark mode'],
       ])
+      const factory = store.addFactory({
+        key: 'NB',
+        name: 'Notebooks',
+        repo: 'acme/notes',
+        cloneUrl: path.join(dir, 'notes.git'),
+        defaultBranch: 'main',
+      })
+      const other = await store.createTask({ title: 'Add export', factoryId: factory.id })
+      expect(other.displayId).toBe('NB-1')
+      expect(store.getTask('NB-1')).toEqual(store.getTask(other.id))
+      expect(store.getTask('DEV-1')).toEqual(store.getTask(first.id))
     } finally {
       await store.close()
     }
