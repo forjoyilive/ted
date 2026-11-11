@@ -83,15 +83,37 @@ export function focusFirst(scope: ParentNode, selector: string): boolean {
   return true
 }
 
+function requestScope(scope: ParentNode): ParentNode | undefined {
+  const requests = all(scope, '[data-request]')
+  const active = document.activeElement
+  const request =
+    active?.closest('[data-request]') ??
+    active?.closest('[data-chat-item]')?.querySelector('[data-request]')
+  if (request instanceof HTMLElement && requests.includes(request)) return request
+  return requests.length === 0 ? scope : requests.length === 1 ? requests[0] : undefined
+}
+
 export function armable(scope: ParentNode, action: ArmAction): HTMLButtonElement | undefined {
-  return all(scope, `button[data-arm="${action}"]`).find(
-    (button): button is HTMLButtonElement =>
-      button instanceof HTMLButtonElement && !button.disabled,
+  const target = requestScope(scope)
+  return (
+    target &&
+    all(target, `button[data-arm="${action}"]`).find(
+      (button): button is HTMLButtonElement =>
+        button instanceof HTMLButtonElement && !button.disabled,
+    )
   )
 }
 
+export function replyBox(scope: ParentNode): HTMLElement | undefined {
+  const target = requestScope(scope)
+  return target
+    ? (all(target, 'textarea[data-answer-box]')[0] ?? all(target, 'textarea[data-comment-box]')[0])
+    : undefined
+}
+
 export function requestChangesBox(scope: ParentNode): HTMLElement | undefined {
-  const button = all(scope, 'button[data-request-changes]')[0]
+  const target = requestScope(scope)
+  const button = target && all(target, 'button[data-request-changes]')[0]
   const card = button?.closest('section')
   return card ? (all(card, 'textarea[data-answer-box]')[0] ?? undefined) : undefined
 }

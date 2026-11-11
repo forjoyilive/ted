@@ -132,7 +132,6 @@ import type {
   NewWorktree,
   RecordedSetup,
   RepoCommit,
-  RunFlags,
   StoredFactory,
   StoredTask,
   TedStore,
@@ -198,14 +197,7 @@ import {
   leadClosesFailures,
   leadClosesRefusal,
 } from './failure-cases.ts'
-import {
-  endingReason,
-  failedAsk,
-  freshAfterFailure,
-  retryChoice,
-  revivedMessage,
-  silentReason,
-} from './failures.ts'
+import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
 import {
   activityMessage,
@@ -223,6 +215,14 @@ import {
 } from './github-activity.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import { answered as answeredItems, waiting as waitingItems } from './inbox.ts'
+import {
+  continueMessage,
+  createLeadLifecycle,
+  effectiveLead,
+  liveLeadOf,
+  type SetupStep,
+  sameChoice,
+} from './lead-lifecycle.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
 import { verifyLinearIntake } from './linear-intake.ts'
 import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
@@ -541,6 +541,12 @@ function withoutRepeats(files: readonly Attachment[]): Attachment[] {
 }
 
 export function createTasks(options: {
+  testReportingEnv?: (
+    task: Task,
+    checkRunId: string,
+    position: number,
+    supported: boolean,
+  ) => Promise<Record<string, string>>
   steering: Steering
   store: TedStore
   runs: RunManager
@@ -612,15 +618,10 @@ export function createTasks(options: {
   const starting = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
-  const interrupted = new Set<string>()
   const pullRequestChangeReads = new Map<string, Promise<PullRequestChanges>>()
-  const signedOutAt = new Map<string, string>()
-  const turnEnding = new Set<string>()
-  const readyMidTurn = new Set<string>()
   const advancing = new Set<string>()
   const released = new Map<string, Promise<void>>()
   const humanWaitMs = 15_000
-  const applying = new Set<string>()
   const stoppingForBlockers = new Set<string>()
   const runUploads = new Set<string>()
   const checkOwnFiles = (task: StoredTask, files: readonly Attachment[]) => {
@@ -657,13 +658,9 @@ export function createTasks(options: {
   const nudgeTimers = new Map<string, Timer>()
   const nudgeAfterMs = options.nudgeAfterMs ?? 60_000
   const stallAfterMs = options.stallAfterMs ?? 30 * 60_000
-  const silent = new Map<string, string>()
-  const pausedAt = new Map<string, number>()
-  const recovering = new Set<string>()
   const overnightSeen = new Map<string, boolean>()
   const mergeGuards = new Map<string, { key: string; guard: OvernightGuard | undefined }>()
   let overnightChangedAt = new Date().toISOString()
-  const awaitingRevive = new Set<string>()
   const background = new Set<Promise<void>>()
   const stopping = new AbortController()
   const holds = new Map<string, number>()
@@ -1282,15 +1279,13 @@ export function createTasks(options: {
 
   function revivesReady(): QueueEntry[] {
     const paused = store.agentPauses()
-    return [...awaitingRevive].flatMap((taskId) => {
-      const pending = pendingRevive(taskId)
-      if (!pending) {
-        awaitingRevive.delete(taskId)
-        return []
-      }
-      if (paused[pending.run.agent] !== undefined || holds.has(taskId)) return []
-      return [{ id: taskId, kind: 'task' as const, rank: -1, factoryId: pending.task.factoryId }]
-    })
+    return leadLifecycle
+      .reviveCandidates()
+      .flatMap(({ taskId, factoryId, agent }) =>
+        paused[agent] !== undefined || holds.has(taskId)
+          ? []
+          : [{ id: taskId, kind: 'task' as const, rank: -1, factoryId }],
+      )
   }
 
   function backlogEligible(task: StoredTask, preparing = false): boolean {
@@ -1391,8 +1386,7 @@ export function createTasks(options: {
     )
     for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
       if (reviveIds.has(entry.id)) {
-        awaitingRevive.delete(entry.id)
-        inBackground('resume a Task Lead session', () => reviveLead(entry.id))
+        inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
       } else if (heldIds.has(entry.id)) relaunch(entry.id)
       else if (entry.kind === 'sub-agent') subAgents.begin(entry.id)
       else if (sourceOf.has(entry.id)) sourceOf.get(entry.id)?.begin(entry.id)
@@ -1452,7 +1446,7 @@ export function createTasks(options: {
       if (!queuedRuns.has(request.id)) startingRuns.add(request.id)
     }
     store.setQueueActivity({
-      queuedTasks: [...awaitingRevive].filter((id) => pendingRevive(id) !== undefined),
+      queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
       queuedRuns: [...queuedRuns],
       startingRuns: [...startingRuns],
       startingTasks: [...holds.keys()],
@@ -2744,12 +2738,6 @@ export function createTasks(options: {
     return { lead: { agent, ...tuned }, ...(agent !== other && { unavailable: other }) }
   }
 
-  const sameChoice = (lead: TaskLead, run: Run) =>
-    lead.agent === run.agent && lead.model === run.model && lead.effort === run.effort
-
-  const atIdlePoint = (run: Run) =>
-    run.state === 'idle' || (run.problem !== undefined && run.state === 'waiting')
-
   async function setRepos(
     ref: string,
     caller: Caller,
@@ -2935,7 +2923,14 @@ export function createTasks(options: {
     return lines.join('\n')
   }
 
-  async function setUpAdded(taskId: string, step: SetupStep, tellLead: boolean): Promise<void> {
+  function setUpAdded(taskId: string, step: SetupStep, tellLead: boolean): Promise<void> {
+    return leadLifecycle.prepare(taskId, { kind: 'added', step, tellLead })
+  }
+
+  async function performAddedSetup(
+    taskId: string,
+    step: SetupStep,
+  ): Promise<{ report?: string } | undefined> {
     const key = `${taskId}:${step.repo.name}`
     if (repoSetups.has(key)) return
     const cancel = new AbortController()
@@ -2944,15 +2939,7 @@ export function createTasks(options: {
       const task = find(taskId)
       const signal = AbortSignal.any([stopping.signal, cancel.signal])
       store.worktreeSetupStarted(task.id, step.repo.name, step.setup)
-      const finished = await runSetup(task, step.repo, step.setup, signal, { untilStopped: false })
-      if (!finished || !tellLead) return
-      const run = liveLead(find(taskId))
-      if (!run) return
-      await runs.send(
-        run.id,
-        finished.report ??
-          `TED finished setting up the ${step.repo.name} worktree: \`${step.setup.command}\` passed.`,
-      )
+      return await runSetup(task, step.repo, step.setup, signal, { untilStopped: false })
     } finally {
       repoSetups.delete(key)
     }
@@ -2974,120 +2961,47 @@ export function createTasks(options: {
     }
   }
 
-  function liveLead(task: StoredTask): Run | undefined {
-    if (!task.leadRunId || task.stage === 'backlog' || task.stage === 'done') return undefined
-    const run = store.getRun(task.leadRunId)
-    return run && run.state !== 'finished' ? run : undefined
-  }
-
-  function effectiveLead(task: StoredTask, fallback?: TaskLead): TaskLead | undefined {
-    const lead = task.lead ?? fallback
-    if (lead?.effortMode !== 'stage' || task.stageEffort === undefined) return lead
-    return { ...lead, effort: task.stageEffort }
-  }
-
-  function acknowledgeLeadMessages(run: Run): void {
-    if (run.taskId === undefined) return
-    const task = store.getTask(run.taskId)
-    if (task?.leadRunId !== run.id || task.pendingLeadMessages.length === 0) return
-    store.deliveredLeadMessages(run.taskId, runs.acceptedInputs(run.id))
-  }
-
-  async function applyLead(taskId: string): Promise<void> {
-    if (applying.has(taskId)) return
-    const previous = store.getTask(taskId)
-    const run = previous && liveLead(previous)
-    if (run) acknowledgeLeadMessages(run)
-    const task = store.getTask(taskId)
-    const lead = task && effectiveLead(task)
-    if (!task || !lead || !run || !atIdlePoint(run) || task.stopped || task.archived) return
-    applying.add(taskId)
-    try {
-      if (!sameChoice(lead, run) || task.leadRestartPending) {
-        if (lead.agent !== run.agent) {
-          if (store.newWorkHold() !== undefined) return
-          await freshLead(task, run)
-          return
-        }
-        store.setLeadRestartPending(taskId, true)
-        await store.persisted()
-        await restartLead(run, {
-          ...(lead.model !== undefined && { model: lead.model }),
-          ...(lead.effort !== undefined && { effort: lead.effort }),
-          usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
-        })
-        store.setLeadRestartPending(taskId, false)
-        await store.persisted()
+  const leadLifecycle = createLeadLifecycle({
+    store,
+    runs,
+    clock,
+    health,
+    agents,
+    stallAfterMs,
+    local: (id) => execution.local(id),
+    workflow: (task) => taskWorkflow(task, { fetch: false }),
+    entries: (task, resolution) => factoryRepos(resolution.workflow, factoryOf(task)),
+    defaultLead: leadFrom,
+    context: leadContext,
+    appEnv: (id) => apps.envFor(id),
+    protectComments(comments, on) {
+      for (const comment of comments) {
+        if (on) promptComments.add(comment.id)
+        else promptComments.delete(comment.id)
       }
-      const current = find(taskId)
-      const live = liveLead(current)
-      const choice = effectiveLead(current)
-      if (!live || !choice) return
-      if (current.pendingLeadMessages.length > 0 && sameChoice(choice, live)) {
-        const accepted = await runs
-          .dispatch(live.id, current.pendingLeadMessages, false, () => {
-            const now = find(taskId)
-            return (
-              now.leadRunId === live.id &&
-              !now.stopped &&
-              !now.archived &&
-              store.getRun(live.id)?.state !== 'finished'
-            )
-          })
-          .catch((error: unknown) => {
-            const remaining = find(taskId).pendingLeadMessages
-            if (
-              current.pendingLeadMessages.every(
-                (message) => !remaining.some((held) => held.id === message.id),
-              )
-            )
-              return false
-            throw error
-          })
-        if (accepted) {
-          store.deliveredLeadMessages(
-            taskId,
-            current.pendingLeadMessages.map((m) => m.id),
-          )
-          await store.persisted()
-        }
-      }
-    } finally {
-      applying.delete(taskId)
-    }
-    const after = find(taskId)
-    const live = liveLead(after)
-    const choice = effectiveLead(after)
-    if (live && choice && (!sameChoice(choice, live) || after.pendingLeadMessages.length > 0))
-      await applyLead(taskId)
-    await options.steering.refresh(run.id)
-  }
+    },
+    launched: (run, mode) => {
+      overnightSeen.set(run.id, mode)
+    },
+    deliver: sendWaiting,
+    editedSince,
+    freshRunNote,
+    failedSetupReports,
+    setUp: runSetups,
+    setUpAdded: performAddedSetup,
+    hold,
+    stopRequested: (id) => stoppingByHand.has(id) || stoppingForBlockers.has(id),
+    wake: () => {
+      void pump()
+    },
+    background: inBackground,
+    hasAnswerText: (comment) => answerText(comment) !== undefined,
+    refreshSteering: (id) => options.steering.refresh(id),
+  })
 
-  async function restartLead(run: Run, flags: RunFlags): Promise<void> {
-    await runs.restart(run.id, flags)
-    if (run.problem === 'model-unavailable') {
-      const now = flags.usesDefaultModel ? 'the CLI’s default model' : `the model ${flags.model}`
-      await runs.send(
-        run.id,
-        `TED restarted you on ${now} because ${run.model} isn’t available. Your last message got no answer; carry on from where you were.`,
-      )
-    }
-  }
-
-  async function freshLead(task: StoredTask, run: Run): Promise<void> {
-    const factory = factoryOf(task)
-    if (!task.repos.some((r) => !r.removed)) throw new Error(`${task.displayId} has no worktree`)
-    const resolution = await taskWorkflow(find(task.id), { fetch: false })
-    const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
-    await runs.stop(run.id)
-    await launch(task, resolution, env)
-  }
-
-  function leadEnv(task: StoredTask, entries: readonly FactoryRepoEntry[]): Record<string, string> {
-    const repo = task.repos.find((r) => !r.removed)
-    if (!repo) return {}
-    return store.recordedSetup(task.id, repo.name)?.env ?? repoEntry(entries, repo)?.env ?? {}
-  }
+  const liveLead = (task: StoredTask) => liveLeadOf(store, task)
+  const acknowledgeLeadMessages = (run: Run) => leadLifecycle.acknowledgeLeadMessages(run)
+  const applyLead = (taskId: string) => leadLifecycle.applyLead(taskId)
 
   async function askAboutModel(updated: Run): Promise<void> {
     if (updated.taskId === undefined) return
@@ -3128,20 +3042,7 @@ export function createTasks(options: {
 
   async function useDefaultModel(ref: string): Promise<Task> {
     const task = find(ref)
-    const run = liveLead(task)
-    if (run?.problem !== 'model-unavailable' || applying.has(task.id)) {
-      throw new RequestError(409, `${task.displayId}’s Task Lead isn’t waiting on its model`)
-    }
-    applying.add(task.id)
-    try {
-      await restartLead(run, {
-        ...(run.model !== undefined && { model: run.model }),
-        ...(run.effort !== undefined && { effort: run.effort }),
-        usesDefaultModel: true,
-      })
-    } finally {
-      applying.delete(task.id)
-    }
+    await leadLifecycle.useDefaultModel(task)
     return publicTask(task.id)
   }
 
@@ -3376,24 +3277,7 @@ export function createTasks(options: {
     return { ...made, worktree: lifecycle.localPath(handle) }
   }
 
-  function setupSteps(task: StoredTask, entries: readonly FactoryRepoEntry[]): SetupStep[] {
-    return entries.flatMap((entry) => {
-      const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, entry.repo))
-      const setup = entry.setup
-      return repo && setup
-        ? [{ repo, setup: { command: setup.run, timeoutMs: setup.timeoutMs, env: entry.env } }]
-        : []
-    })
-  }
-
-  function interruptedSetups(task: StoredTask): SetupStep[] {
-    return task.repos.flatMap((repo) => {
-      const recorded = store.recordedSetup(task.id, repo.name)
-      return !repo.removed && recorded && repo.setup?.state === 'running'
-        ? [{ repo, setup: recorded }]
-        : []
-    })
-  }
+  const interruptedSetups = (task: StoredTask) => leadLifecycle.interruptedSetups(task)
 
   function failedSetupReports(task: StoredTask): Promise<string[]> {
     return Promise.all(
@@ -3418,31 +3302,15 @@ export function createTasks(options: {
     )
   }
 
-  async function launch(
+  async function leadContext(
     task: StoredTask,
+    current: StoredTask,
     resolution: WorkflowResolution,
-    env: Record<string, string>,
-    setupReport?: string,
-    { resumeSession, pickUp }: { resumeSession?: string; pickUp?: string } = {},
-  ): Promise<void> {
-    const previous = find(task.id)
-    const old = previous.leadRunId && store.getRun(previous.leadRunId)
-    if (old) acknowledgeLeadMessages(old)
-    const current = find(task.id)
-    if (current.archived || current.stopped) return
-    await execution.local(task.id)
-    const lead = effectiveLead(current, leadFrom(resolution.workflow.settings)) as TaskLead
-    const agent = lead.agent
+    setupReport: string | undefined,
+    { resumeSession, pickUp }: { resumeSession?: string | undefined; pickUp?: string | undefined },
+  ) {
     const note = pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined)
     const followUp = resumeSession === undefined ? followUpNote(current) : undefined
-    if (!(await health.ready(agent))) {
-      store.holdTaskRun({
-        taskId: task.id,
-        agent,
-        ...(resumeSession !== undefined && { sessionId: resumeSession }),
-      })
-      return
-    }
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
     const entries = factoryRepos(resolution.workflow, factoryOf(current))
@@ -3483,36 +3351,7 @@ export function createTasks(options: {
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
         : []),
     ].join('\n\n')
-    let run: Run
-    for (const comment of waiting.comments) promptComments.add(comment.id)
-    try {
-      run = await runs.start({
-        agent,
-        prompt,
-        cwd,
-        messageIds: pending.map((message) => message.id),
-        taskId: task.id,
-        env: { ...env, ...(await apps.envFor(task.id)), TED_TASK: task.displayId },
-        permissions: resolution.workflow.settings.permissions === 'bypass' ? 'bypass' : 'auto',
-        ...(resumeSession !== undefined && { resume: resumeSession }),
-        ...(lead.model !== undefined && { model: lead.model }),
-        ...(lead.effort !== undefined && { effort: lead.effort }),
-      })
-      overnightSeen.set(run.id, overnightMode)
-      if (current.leadRestartPending) store.setLeadRestartPending(task.id, false)
-      store.commentsDelivered(
-        waiting.comments.map((c) => c.id),
-        run.id,
-      )
-    } finally {
-      for (const comment of waiting.comments) promptComments.delete(comment.id)
-    }
-    store.answersDelivered(
-      waiting.answers.map((c) => c.id),
-      run.id,
-    )
-    store.releaseTaskRun(task.id)
-    await sendWaiting(task.id)
+    return { prompt, cwd, waiting, overnight: overnightMode }
   }
 
   function withOriginal(task: StoredTask, current: StoredTask): StoredTask & { original?: string } {
@@ -4000,28 +3839,10 @@ export function createTasks(options: {
     store.commentsRead(read.map((c) => c.id))
   }
 
-  async function setUpAndLaunch(
+  async function runSetups(
     task: StoredTask,
-    resolution: WorkflowResolution,
     steps: readonly SetupStep[],
-    env: Record<string, string>,
-    pickUp?: string,
-  ): Promise<void> {
-    const release = hold(task.id)
-    try {
-      await setUpThenLaunch(task, resolution, steps, env, pickUp)
-    } finally {
-      release()
-    }
-  }
-
-  async function setUpThenLaunch(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-    steps: readonly SetupStep[],
-    env: Record<string, string>,
-    pickUp?: string,
-  ): Promise<void> {
+  ): Promise<string[] | undefined> {
     const before = find(task.id)
     if (before.stopped || before.archived) return
     await execution.local(task.id)
@@ -4040,13 +3861,7 @@ export function createTasks(options: {
     } finally {
       settingUp.delete(task.id)
     }
-    await launch(
-      find(task.id),
-      resolution,
-      env,
-      reports.length > 0 ? reports.join('\n\n') : undefined,
-      { ...(pickUp !== undefined && { pickUp }) },
-    )
+    return reports
   }
 
   async function runSetup(
@@ -4076,44 +3891,7 @@ export function createTasks(options: {
     return { result, report: setupFailure(setup.command, result, await outputTail(log)) }
   }
 
-  async function resume(taskId: string): Promise<void> {
-    const release = hold(taskId)
-    try {
-      await resumeTask(taskId)
-    } finally {
-      release()
-    }
-  }
-
-  async function resumeTask(taskId: string): Promise<void> {
-    const task = find(taskId)
-    const repo = task.repos.find((r) => !r.removed)
-    const held = store.heldRuns().find((h) => h.taskId === taskId)
-    const leadLive = task.runs.some((r) => r.id === task.leadRunId)
-    if (
-      !repo ||
-      task.archived ||
-      task.stopped ||
-      task.stage === 'backlog' ||
-      task.stage === 'done'
-    ) {
-      if (held) store.releaseTaskRun(taskId)
-      return
-    }
-    if (held ? leadLive : task.leadRunId) return
-    if (held?.sessionId !== undefined && (task.lead?.agent ?? held.agent) === held.agent) {
-      const resolution = await taskWorkflow(find(task.id), { fetch: false })
-      const env = store.recordedSetup(task.id, repo.name)?.env ?? {}
-      return launch(task, resolution, env, undefined, { resumeSession: held.sessionId })
-    }
-    const factory = factoryOf(task)
-    const resolution = await taskWorkflow(find(task.id), { fetch: false })
-    const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
-    const interrupted = interruptedSetups(task)
-    if (interrupted.length > 0) return setUpAndLaunch(task, resolution, interrupted, env)
-    const reports = await failedSetupReports(task)
-    await launch(task, resolution, env, reports.length > 0 ? reports.join('\n\n') : undefined)
-  }
+  const resume = (taskId: string) => leadLifecycle.resume(taskId)
 
   function entryFor({ workflow, layers }: WorkflowResolution, stage: AgentStageId | 'done') {
     const file = stage === 'done' ? undefined : workflow.stageFile(stage)
@@ -4180,7 +3958,7 @@ export function createTasks(options: {
     if (
       lead &&
       (!sameChoice(lead, run) ||
-        applying.has(task.id) ||
+        leadLifecycle.applying(task.id) ||
         current.leadRestartPending ||
         current.pendingLeadMessages.length > 0)
     ) {
@@ -5526,15 +5304,7 @@ export function createTasks(options: {
     const task = find(taskId)
     const factory = factoryOf(task)
     if (task.repos.some((r) => !r.removed)) {
-      const resolution = await taskWorkflow(find(task.id), { fetch: false })
-      const env = leadEnv(task, factoryRepos(resolution.workflow, factory))
-      const pickUp = freshRunNote(task)
-      const interrupted = interruptedSetups(task)
-      if (interrupted.length > 0) {
-        await setUpAndLaunch(find(task.id), resolution, interrupted, env, pickUp)
-      } else {
-        await launch(find(task.id), resolution, env, undefined, { pickUp })
-      }
+      await leadLifecycle.prepare(task.id, { kind: 'existing' })
       store.dequeue(task.id)
       if (store.freshRunRequest(task.id)?.kind === 'github') {
         watch?.kick()
@@ -5578,14 +5348,12 @@ export function createTasks(options: {
     })
     for (const made of rest) store.worktreeCreated(task.id, made)
     const started = find(task.id)
-    const env = chosen[0]?.env ?? {}
-    const steps = setupSteps(started, chosen)
-    if (steps.length > 0) {
+    if (chosen.some((entry) => entry.setup !== undefined)) {
       inBackground(`set up ${task.displayId}’s worktree`, () =>
-        setUpAndLaunch(started, resolution, steps, env),
+        leadLifecycle.prepare(started.id, { kind: 'created', resolution, entries: chosen }),
       )
     } else {
-      await launch(started, resolution, env)
+      await leadLifecycle.prepare(started.id, { kind: 'created', resolution, entries: chosen })
     }
   }
 
@@ -5604,15 +5372,12 @@ export function createTasks(options: {
     }
     store.dequeue(task.id)
     const started = find(task.id)
-    const pickUp = freshRunNote(started)
-    const env = chosen[0]?.env ?? {}
-    const steps = setupSteps(started, chosen)
-    if (steps.length > 0) {
+    if (chosen.some((entry) => entry.setup !== undefined)) {
       inBackground(`set up ${task.displayId}’s worktree`, () =>
-        setUpAndLaunch(started, resolution, steps, env, pickUp),
+        leadLifecycle.prepare(started.id, { kind: 'restored', resolution, entries: chosen }),
       )
     } else {
-      await launch(started, resolution, env, undefined, { pickUp })
+      await leadLifecycle.prepare(started.id, { kind: 'restored', resolution, entries: chosen })
     }
   }
 
@@ -5902,187 +5667,6 @@ export function createTasks(options: {
     )
   }
 
-  async function leadStopped(run: Run, signedOut?: string): Promise<void> {
-    if (run.taskId === undefined) return
-    const silence = silent.get(run.id)
-    silent.delete(run.id)
-    pausedAt.delete(run.id)
-    const task = store.getTask(run.taskId)
-    if (!task || task.leadRunId !== run.id || task.stage === 'backlog' || task.stage === 'done') {
-      return
-    }
-    const [checked] = await health.check([run.agent])
-    if (checked?.state === 'ready' && signedOut === undefined) {
-      const ended = store.getRun(run.id)?.ended
-      if (silence !== undefined || (ended !== undefined && ended.how !== 'stopped')) {
-        await leadFailed(run.id, silence)
-      }
-      return
-    }
-    const now = store.getTask(task.id)
-    if (!now || now.leadRunId !== run.id || now.stage === 'done') return
-    if (now.waitsForBlockers || now.stopped) return
-    if (signedOut !== undefined) {
-      const held = new Set(store.heldAnswers(task.id).map((c) => c.id))
-      for (const comment of store.listComments(task.id)) {
-        const at = comment.answer?.at
-        const unread = at !== undefined && at >= signedOut && answerText(comment) !== undefined
-        if (unread && !held.has(comment.id)) store.holdAnswer(comment.id)
-      }
-    }
-    store.holdTaskRun({
-      taskId: task.id,
-      agent: run.agent,
-      ...(run.sessionId !== undefined && { sessionId: run.sessionId }),
-    })
-    void pump()
-  }
-
-  async function leadFailed(runId: string, silence?: string): Promise<void> {
-    if (recovering.has(runId)) return
-    recovering.add(runId)
-    try {
-      await recover(runId, silence)
-    } finally {
-      recovering.delete(runId)
-    }
-  }
-
-  async function recover(runId: string, silence?: string): Promise<void> {
-    const run = store.getRun(runId)
-    if (!run?.taskId || run.state !== 'finished') return
-    const task = store.getTask(run.taskId)
-    if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
-    if (task.stage === 'backlog' || task.stage === 'done' || task.waitsForBlockers) return
-    if (task.status?.kind === 'failed' || stoppingByHand.has(task.id)) return
-    if (stoppingForBlockers.has(task.id) || store.queue().some((q) => q.id === task.id)) return
-    if (store.heldRuns().some((h) => h.taskId === task.id)) return
-    if (store.alreadyFailed(task.id, run.id, run.revivedAt ?? run.startedAt)) return
-    const ended = run.ended
-    const reason = silence ?? endingReason(ended)
-    const resumeFailed = silence === undefined && ended?.resumeFailed === true
-    const now = clock.now()
-    const history = store.failureHistory(task.id, now)
-    const earlier = history.recent
-    const canResume =
-      run.sessionId !== undefined &&
-      (task.lead?.agent ?? run.agent) === run.agent &&
-      store.newWorkHold() === undefined
-    const recovery = resumeFailed
-      ? 'fresh'
-      : earlier.length > 0
-        ? 'failed'
-        : canResume
-          ? 'resume'
-          : 'fresh'
-    store.leadFailed({
-      taskId: task.id,
-      runId: run.id,
-      reason,
-      recovery,
-      resumeFailed,
-      ...(recovery === 'failed' && {
-        ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
-      }),
-    })
-    if (recovery === 'resume') awaitingRevive.add(task.id)
-    void pump()
-  }
-
-  function pendingRevive(
-    taskId: string,
-  ): { task: StoredTask; run: Run; reason: string } | undefined {
-    const task = store.getTask(taskId)
-    if (!task || task.archived || task.stopped || task.waitsForBlockers) return undefined
-    if (task.stage === 'backlog' || task.stage === 'done') return undefined
-    const last = store.latestLeadFailure(taskId)
-    if (last?.recovery !== 'resume') return undefined
-    const run = store.getRun(last.runId)
-    if (run?.state !== 'finished' || task.leadRunId !== run.id) return undefined
-    if (run.revivedAt !== undefined && run.revivedAt >= last.at) return undefined
-    return { task, run, reason: last.reason }
-  }
-
-  async function reviveLead(taskId: string): Promise<void> {
-    const release = hold(taskId)
-    const pending = pendingRevive(taskId)
-    if (!pending) return release()
-    const { task, run, reason } = pending
-    try {
-      await execution.local(taskId)
-      const repo = task.repos.find((r) => !r.removed)
-      const env = (repo && store.recordedSetup(task.id, repo.name)?.env) ?? {}
-      acknowledgeLeadMessages(run)
-      const current = find(taskId)
-      const lead = effectiveLead(current)
-      const messages = current.pendingLeadMessages
-      await runs.revive(run.id, {
-        prompt: [
-          overnightGuidance(store.settings().overnightMode),
-          revivedMessage(reason),
-          ...editedSince(task),
-          ...messages.map((message) => message.text),
-        ].join('\n\n'),
-        messageIds: messages.map((message) => message.id),
-        ...(lead && {
-          flags: {
-            ...(lead.model !== undefined && { model: lead.model }),
-            ...(lead.effort !== undefined && { effort: lead.effort }),
-            usesDefaultModel: run.usesDefaultModel === true && run.model === lead.model,
-          },
-        }),
-        env: { ...env, TED_TASK: task.displayId },
-      })
-      if (current.leadRestartPending) {
-        store.setLeadRestartPending(taskId, false)
-        await store.persisted()
-      }
-      await sendWaiting(task.id)
-    } catch (error) {
-      console.error(`couldn’t resume ${task.displayId}’s Task Lead session:`, error)
-      const now = store.getTask(task.id)
-      if (now && !now.stopped && !now.archived && store.getRun(run.id)?.state === 'finished') {
-        store.leadFailed({
-          taskId: task.id,
-          runId: run.id,
-          reason,
-          recovery: 'fresh',
-          resumeFailed: true,
-        })
-      }
-    } finally {
-      release()
-    }
-  }
-
-  function checkSilence(): void {
-    if (closed) return
-    const paused = store.agentPauses()
-    const now = clock.now()
-    const live = store.liveRuns()
-    const working = new Set(live.filter((run) => run.state === 'working').map((run) => run.id))
-    for (const id of pausedAt.keys()) if (!working.has(id)) pausedAt.delete(id)
-    for (const run of live) {
-      if (run.state !== 'working' || run.taskId === undefined || silent.has(run.id)) {
-        if (run.state === 'waiting') pausedAt.set(run.id, now)
-        continue
-      }
-      if (run.parentRunId !== undefined) continue
-      const lead = store.taskRunList(run.taskId).find((r) => r.parentRunId === undefined)
-      if (lead?.id !== run.id) continue
-      if (paused[run.agent] !== undefined) {
-        pausedAt.set(run.id, now)
-        continue
-      }
-      const heard = [store.lastOutputAt(run.id), run.revivedAt, run.startedAt]
-        .flatMap((at) => (at === undefined ? [] : [Date.parse(at)]))
-        .concat(pausedAt.get(run.id) ?? [], runs.lastHeard(run.id) ?? [])
-      if (now - Math.max(...heard) < stallAfterMs) continue
-      silent.set(run.id, silentReason(stallAfterMs))
-      inBackground('stop a silent Task Lead', () => runs.stop(run.id))
-    }
-  }
-
   async function stopByHand(ref: string): Promise<Task> {
     const task = live(ref)
     if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
@@ -6129,8 +5713,8 @@ export function createTasks(options: {
       task.canResume &&
       canStartFresh(task) &&
       !advancing.has(task.id) &&
-      !pendingRevive(task.id) &&
-      !recovering.has(task.leadRunId ?? '')
+      !leadLifecycle.pendingRevive(task.id) &&
+      !leadLifecycle.recovering(task.leadRunId ?? '')
     if (!task.stopped && task.status?.kind !== 'failed' && !interrupted) {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
     }
@@ -6244,11 +5828,6 @@ export function createTasks(options: {
     }
   }
 
-  const stoppedMidTurn = (runId: string) => {
-    interrupted.add(runId)
-    turnEnding.add(runId)
-  }
-
   options.steering.addSource({
     pending(run) {
       if (run.state !== 'working' || run.taskId === undefined) return []
@@ -6300,8 +5879,7 @@ export function createTasks(options: {
 
   runs.observe({
     authFailed(run) {
-      if (!signedOutAt.has(run.id)) signedOutAt.set(run.id, new Date().toISOString())
-      if (run.state !== 'finished') stoppedMidTurn(run.id)
+      leadLifecycle.authFailed(run)
       health.authFailed(run.agent)
     },
     usage(run, signal) {
@@ -6309,12 +5887,12 @@ export function createTasks(options: {
         if (store.agentPauses()[run.agent] !== undefined) health.usable(run.agent)
         return
       }
-      if (run.state !== 'finished') stoppedMidTurn(run.id)
+      if (run.state !== 'finished') leadLifecycle.stoppedMidTurn(run.id)
       health.limited(run.agent, signal.resetsAt)
     },
     credential(run, report) {
       if (!health.credentialReported(run.agent, report) || run.state === 'finished') return
-      stoppedMidTurn(run.id)
+      leadLifecycle.stoppedMidTurn(run.id)
       runs.interrupt(run.id).catch((error: unknown) => console.error(error))
     },
     planUsage(run, windows) {
@@ -6325,13 +5903,7 @@ export function createTasks(options: {
       if (!task || run.permissions !== 'auto') return
       reportAutoMode(task.factoryId, signal)
     },
-    settled(run) {
-      if (!interrupted.has(run.id)) signedOutAt.delete(run.id)
-      turnEnding.delete(run.id)
-      if (!readyMidTurn.delete(run.id) || store.agentPauses()[run.agent] !== undefined) return
-      if (!interrupted.delete(run.id)) return
-      runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
-    },
+    settled: leadLifecycle.settled,
     accepted(run, texts) {
       acknowledgeLeadMessages(run)
       markAccepted(run, texts)
@@ -6344,48 +5916,14 @@ export function createTasks(options: {
         if (now) watchIdle(now)
       })
     },
-    finished(run) {
-      interrupted.delete(run.id)
-      turnEnding.delete(run.id)
-      readyMidTurn.delete(run.id)
-      const signedOut = signedOutAt.get(run.id)
-      signedOutAt.delete(run.id)
-      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run, signedOut))
-    },
+    finished: leadLifecycle.finished,
   })
 
-  health.onReady((agent) => {
-    void pump()
-    for (const runId of [...interrupted]) {
-      const run = store.getRun(runId)
-      if (run && run.state !== 'finished' && run.agent !== agent) continue
-      if (run?.state === 'working' && turnEnding.has(runId)) {
-        readyMidTurn.add(runId)
-        continue
-      }
-      interrupted.delete(runId)
-      if (run && run.state !== 'finished' && run.state !== 'working') {
-        runs.send(runId, continueMessage).catch((error: unknown) => console.error(error))
-      }
-    }
-  })
-
+  health.onReady(leadLifecycle.ready)
   health.onPaused((agent, state) => {
-    if (state !== 'offline') return
-    for (const run of store.listRuns()) {
-      if (run.agent === agent && run.state === 'working') interrupted.add(run.id)
-    }
+    if (state === 'offline') leadLifecycle.offline(agent)
   })
-
-  health.onProbe((agent) => {
-    const run = [...interrupted]
-      .map((id) => store.getRun(id))
-      .find((r) => r !== undefined && r.agent === agent && r.state !== 'finished')
-    if (!run) return false
-    interrupted.delete(run.id)
-    runs.send(run.id, continueMessage).catch((error: unknown) => console.error(error))
-    return true
-  })
+  health.onProbe(leadLifecycle.probe)
 
   const failures = createFailureCases({
     store,
@@ -6435,6 +5973,7 @@ export function createTasks(options: {
   })
 
   const validation = createValidation({
+    ...(options.testReportingEnv && { reportingEnv: options.testReportingEnv }),
     store,
     failures,
     find,
@@ -6489,20 +6028,7 @@ export function createTasks(options: {
     background: inBackground,
   })
 
-  const paused = store.agentPauses()
-  for (const run of store.listRuns()) {
-    if (run.state === 'finished') continue
-    const agent = agents.get(run.agent)
-    const recent = runs.output.last(run.id, 5)
-    const limit = recent.map(({ line }) => agent.usageFrom(line)).findLast((u) => u !== undefined)
-    if (limit?.limited) {
-      interrupted.add(run.id)
-      health.limited(run.agent, limit.resetsAt)
-      continue
-    }
-    if (paused[run.agent] === undefined) continue
-    if (recent.some(({ line }) => agent.authErrorFrom(line))) interrupted.add(run.id)
-  }
+  leadLifecycle.restoreHealth()
 
   for (const task of store.listTasks()) {
     if (watched(store.getTask(task.id))) watchMerge(task.id)
@@ -6540,22 +6066,7 @@ export function createTasks(options: {
     if (run.state === 'idle' && run.taskId !== undefined) watchIdle(run)
   }
 
-  for (const task of store.listTasks()) {
-    if (pendingRevive(task.id)) {
-      awaitingRevive.add(task.id)
-      continue
-    }
-    const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
-    if (run?.state === 'finished' && run.ended && run.ended.how !== 'stopped') {
-      inBackground(`check why Run ${run.id} stopped`, () => leadStopped(run))
-    }
-  }
-
-  const silenceTimer = clock.interval(
-    checkSilence,
-    Math.min(60_000, Math.max(50, stallAfterMs / 4)),
-  )
-  silenceTimer.unref()
+  leadLifecycle.recoverStartup()
 
   const interruptedHandOffs = store
     .listCheckRuns()
@@ -6939,7 +6450,7 @@ export function createTasks(options: {
       if (!run || !task || task.leadRunId !== runId) return true
       const lead = effectiveLead(task)
       return (
-        !applying.has(task.id) &&
+        !leadLifecycle.applying(task.id) &&
         !task.leadRestartPending &&
         task.pendingLeadMessages.length === 0 &&
         (!lead || sameChoice(lead, run))
@@ -8153,7 +7664,7 @@ export function createTasks(options: {
       browser.close()
       browserApps.clear()
       subAgents.close()
-      silenceTimer.cancel()
+      leadLifecycle.close()
       snoozeTimer?.cancel()
       releaseSnoozeIdle?.()
       stopLoadTimer()
@@ -8446,9 +7957,6 @@ function briefGoal(text: string): string | undefined {
   return firstLine(lines.slice(goal.line + 1, end).join('\n')) || undefined
 }
 
-const continueMessage =
-  'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
-
 function editMessage(
   task: Task,
   edited: Task,
@@ -8518,8 +8026,6 @@ function oneLine(text: string, max = 200): string {
   const line = text.replace(/\s+/g, ' ').trim()
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
-
-type SetupStep = { repo: TaskRepo; setup: RecordedSetup }
 
 function setupFailure(command: string, result: CommandResult, output: string): string {
   const how =

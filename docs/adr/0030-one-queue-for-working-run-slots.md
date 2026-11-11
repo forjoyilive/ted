@@ -21,3 +21,5 @@ Starting a Task now only queues it. `Tasks.start` (and so `ted task start`, Star
 - A new kind of queued work (sub-agent requests, Planning or Automation Runs) adds entries of its class to the pump’s queue and holders to the slot count; the order is already in place.
 - Paused Runs and Paused Queued Tasks aren’t shown yet: agent pauses don’t exist, so the popover has no Paused group.
 - Reordering the queue by hand (rank) waits for the List (KRI-98) and the Board (KRI-97). Until then, rank is the order Tasks were started.
+
+Task Lead recovery decisions live in `tasks/lead-lifecycle.ts`; slot allocation stays in Tasks. The lifecycle offers pending revival candidates, which the pump filters for agent pauses and Task holds and selects ahead of queued Tasks. Only that selection calls `beginRevive`. Held-session and worktree setup preparation use the same lifecycle entry point while their execution and slot holds remain with Tasks. The lifecycle wakes the pump after a failure decision or health recovery; it never allocates a slot itself.
