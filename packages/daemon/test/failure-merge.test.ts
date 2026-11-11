@@ -440,55 +440,66 @@ test('completed acceptance survives background reads, explicit queries and daemo
   expect((await restarted.call('GET', `/tasks/${task.id}/failures`)).body).toEqual(history)
 })
 
-test.each(['changed', 'unavailable'])(
-  'final %s acceptance observation invalidates other cases durably',
-  async (observation) => {
-    const client = await start({ mergePollMs: 60000 })
-    const { task } = await toSignoff(client)
-    await writeFile(client.mergingFile, '')
-    const current = await getTask(client, task.id)
-    const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
-    const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
-    const root = `/tasks/${task.id}`
-    const post = async <T>(suffix: string, body: unknown = {}) => {
-      const r = await lead.call('POST', `${root}${suffix}`, body)
-      expect(r.status, JSON.stringify(r.body)).toBeLessThan(300)
-      return r.body as T
-    }
-    const context = await post<FailureContext>('/failure-contexts')
-    const ask = async () => {
-      const value = await post<FailureCase>('/failures', {
-        source: { kind: 'finding', runId: current.leadRunId, finding: 'Known failure' },
-        evidence: 'Observed',
-        contextId: context.id,
-      })
-      await post(`/failures/${value.id}/assessments`, {
-        assessment: 'unrelated',
-        recommendation: 'Accept context',
-      })
-      return post<FailureCase>(`/failures/${value.id}/decision`)
-    }
-    const resolve = (v: FailureCase) =>
-      client.call('POST', `${root}/failures/${v.id}/resolve`, {
-        requestId: v.decisions.at(-1)?.commentId,
-        resolution: 'accepted',
-      })
-    const a = await ask()
-    expect((await resolve(a)).status).toBe(200)
-    const b = await ask()
-    const entered = path.join(ctx.scratch, 'entered'),
-      release = path.join(ctx.scratch, 'release')
+test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {
+  const client = await start({ mergePollMs: 60000 })
+  const { task } = await toSignoff(client)
+  await writeFile(client.mergingFile, '')
+  const current = await getTask(client, task.id)
+  const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+  const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
+  const root = `/tasks/${task.id}`
+  const post = async <T>(suffix: string, body: unknown = {}) => {
+    const r = await lead.call('POST', `${root}${suffix}`, body)
+    expect(r.status, JSON.stringify(r.body)).toBeLessThan(300)
+    return r.body as T
+  }
+  const context = await post<FailureContext>('/failure-contexts')
+  const assess = async (id: string) => {
+    await post(`/failures/${id}/assessments`, {
+      assessment: 'unrelated',
+      recommendation: 'Accept context',
+    })
+    return post<FailureCase>(`/failures/${id}/decision`)
+  }
+  const ask = async () => {
+    const value = await post<FailureCase>('/failures', {
+      source: { kind: 'finding', runId: current.leadRunId, finding: 'Known failure' },
+      evidence: 'Observed',
+      contextId: context.id,
+    })
+    return assess(value.id)
+  }
+  const resolve = (v: FailureCase) =>
+    client.call('POST', `${root}/failures/${v.id}/resolve`, {
+      requestId: v.decisions.at(-1)?.commentId,
+      resolution: 'accepted',
+    })
+  const a = await ask()
+  expect((await resolve(a)).status, 'first acceptance of the other case').toBe(200)
+  const b = await ask()
+  const worktree = current.repos[0]?.worktree ?? '',
+    file = path.join(worktree, 'changed.bin'),
+    moved = `${worktree}-unavailable`
+  let saved: FailureCase[] = []
+  for (const [round, observation] of (['changed', 'unavailable'] as const).entries()) {
+    if (round > 0)
+      expect(
+        (await resolve(await assess(a.id))).status,
+        `${observation}: the other case is accepted again`,
+      ).toBe(200)
+    const entered = path.join(ctx.scratch, `entered-${observation}`),
+      release = path.join(ctx.scratch, `release-${observation}`)
     await writeFile(
       ctx.ghState,
       JSON.stringify({ ...(await readGh()), graphqlGate: { entered, release, after: 1 } }),
     )
     const pending = resolve(b)
-    const worktree = current.repos[0]?.worktree ?? '',
-      file = path.join(worktree, 'changed.bin'),
-      moved = `${worktree}-unavailable`
     let altered = false
     try {
-      await waitUntil(() => readFile(entered, 'utf8').catch(() => undefined), 'final snapshot wait')
+      await waitUntil(
+        () => readFile(entered, 'utf8').catch(() => undefined),
+        `${observation}: final snapshot wait`,
+      )
       if (observation === 'changed') await writeFile(file, new Uint8Array([0, 1, 255]))
       else await rename(worktree, moved)
       altered = true
@@ -496,40 +507,47 @@ test.each(['changed', 'unavailable'])(
       await writeFile(release, '')
     }
     try {
-      expect((await pending).status).toBe(409)
+      expect((await pending).status, observation).toBe(409)
     } finally {
       if (altered) {
         if (observation === 'changed') await rm(file)
         else await rename(moved, worktree)
       }
     }
-    const saved = await client.ok<FailureCase[]>('GET', `${root}/failures`)
-    expect(saved.find((c) => c.id === a.id)?.invalidations).toHaveLength(1)
-    expect(saved.find((c) => c.id === a.id)?.resolutions).toHaveLength(1)
-    expect(saved.find((c) => c.id === b.id)?.resolutions).toHaveLength(0)
-    expect(saved.find((c) => c.id === a.id)?.evidence).toBe(a.evidence)
-    await client.ok('POST', `${root}/stop`)
-    await ctx.daemon?.stop()
-    const directory = path.join(tedPaths(ctx.home).store, 'ted')
-    for (const file of await readdir(directory))
-      if (file.startsWith('state')) await rm(path.join(directory, file), { force: true })
-    ctx.daemon = await startDaemon({
-      home: ctx.home,
-      version: '9.9.9',
-      claudeBin: stubClaudePath,
-      mergePollMs: 60000,
-    })
-    const replay = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
-    expect(await replay.call('GET', `${root}/failures`)).toMatchObject({ body: saved })
-    const response = await replay.call('GET', `${root}/validation-obligations`)
-    expect(response.status).toBe(200)
-    const result = response.body as {
-      cases: { id: string; disposition: string; context: string }[]
-    }
-    expect(result.cases.find((c) => c.id === a.id)).toMatchObject({
-      disposition: 'invalidated',
-      context: 'current',
-    })
-  },
-  60000,
-)
+    saved = await client.ok<FailureCase[]>('GET', `${root}/failures`)
+    const other = saved.find((c) => c.id === a.id)
+    expect(other?.invalidations, `${observation}: invalidations`).toHaveLength(round + 1)
+    expect(other?.resolutions, `${observation}: resolutions`).toHaveLength(round + 1)
+    expect(
+      other?.resolutions.map((r) => r.requestId),
+      `${observation}: every acceptance is invalidated`,
+    ).toEqual(other?.invalidations.map((i) => i.requestId))
+    expect(
+      saved.find((c) => c.id === b.id)?.resolutions,
+      `${observation}: the pending case stays unresolved`,
+    ).toHaveLength(0)
+    expect(other?.evidence, `${observation}: evidence`).toBe(a.evidence)
+  }
+  await client.ok('POST', `${root}/stop`)
+  await ctx.daemon?.stop()
+  const directory = path.join(tedPaths(ctx.home).store, 'ted')
+  for (const file of await readdir(directory))
+    if (file.startsWith('state')) await rm(path.join(directory, file), { force: true })
+  ctx.daemon = await startDaemon({
+    home: ctx.home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    mergePollMs: 60000,
+  })
+  const replay = api(ctx.daemon.port, { appKey: ctx.daemon.appToken })
+  expect(await replay.call('GET', `${root}/failures`), 'replay').toMatchObject({ body: saved })
+  const response = await replay.call('GET', `${root}/validation-obligations`)
+  expect(response.status).toBe(200)
+  const result = response.body as {
+    cases: { id: string; disposition: string; context: string }[]
+  }
+  expect(result.cases.find((c) => c.id === a.id)).toMatchObject({
+    disposition: 'invalidated',
+    context: 'current',
+  })
+}, 60000)
