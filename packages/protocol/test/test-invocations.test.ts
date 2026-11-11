@@ -40,6 +40,11 @@ test('registration and reports keep all fields and reject unknown or unbounded p
       { at: -1 },
       { at: 8_640_000_000_000_001 },
       { kind: 'stdout' },
+      { kind: ['finished'] },
+      { kind: ['wait-start'] },
+      { kind: {} },
+      { kind: true },
+      { kind: null },
       { text: 'secret' },
     ])
       expect(() => parseTestInvocationReport({ ...report, ...change })).toThrow()

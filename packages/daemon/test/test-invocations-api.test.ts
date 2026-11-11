@@ -38,12 +38,20 @@ test('reporting credentials only record their invocation, Run callers own their 
     })
     expect(created.status).toBe(201)
     const task = created.body as Task
-    const other = (await app.call('POST', '/tasks', { title: 'Other', factory: 'NB' })).body as Task
+    const other = (
+      await app.call('POST', '/tasks', {
+        title: JSON.stringify({
+          steps: [{ waitFor: path.join(scratch, 'hold-other') }, { endTurn: true }],
+        }),
+        factory: 'NB',
+      })
+    ).body as Task
     const runId = await waitUntil(async () => {
       const current = (await app.call('GET', '/tasks')).body as Task[]
       return current.find((t) => t.id === task.id)?.leadRunId
     }, 'Task Lead starts')
-    const token = (await loadRunTokens(tedPaths(home).runTokenKey)).issue(runId)
+    const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
+    const token = tokens.issue(runId)
     const lead = api(daemon.port, token)
     const input = { id: randomUUID(), supported: true, label: 'Tests' }
     const root = `/tasks/${task.id}/test-invocations`
@@ -75,6 +83,18 @@ test('reporting credentials only record their invocation, Run callers own their 
     const reportPath = `/test-invocations/${input.id}/reports`
     const report = { sequence: 0, kind: 'wait-start', at: invocation.registeredAt }
     expect((await lead.call('POST', reportPath, report)).status).toBe(403)
+    expect(
+      (
+        await api(daemon.port, tokens.issue(`test-report:${input.id}`)).call(
+          'POST',
+          reportPath,
+          report,
+        )
+      ).status,
+    ).toBe(403)
+    for (const kind of [['wait-start'], ['wait-end'], ['finished'], {}, true, null]) {
+      expect((await reporter.call('POST', reportPath, { ...report, kind })).status).toBe(400)
+    }
     expect((await reporter.call('POST', reportPath, report)).status).toBe(200)
     expect((await reporter.call('POST', reportPath, report)).status).toBe(200)
     expect((await reporter.call('POST', reportPath, { ...report, sequence: 2 })).status).toBe(409)
@@ -139,6 +159,30 @@ test('reporting credentials only record their invocation, Run callers own their 
         at: invocation.registeredAt + 10,
       }),
     ).toBe(true)
+    expect((await app.call('POST', `/tasks/${task.id}/delete`, {})).status).toBe(200)
+    expect((await app.call('POST', `/tasks/${other.id}/start`, {})).status).toBe(200)
+    const replacementRun = await waitUntil(async () => {
+      const tasks = (await app.call('GET', '/tasks')).body as Task[]
+      return tasks.find((t) => t.id === other.id)?.leadRunId
+    }, 'replacement Task Lead starts')
+    const replacementLead = api(daemon.port, tokens.issue(replacementRun))
+    const replacement = await replacementLead.call(
+      'POST',
+      `/tasks/${other.id}/test-invocations`,
+      input,
+    )
+    expect(replacement.status).toBe(200)
+    expect(replacement.body.token).not.toBe(reportingToken)
+    const replacementReport = {
+      sequence: 0,
+      kind: 'finished',
+      at: replacement.body.invocation.registeredAt,
+    }
+    expect((await reporter.call('POST', reportPath, replacementReport)).status).toBe(403)
+    expect(
+      (await api(daemon.port, replacement.body.token).call('POST', reportPath, replacementReport))
+        .status,
+    ).toBe(200)
   } finally {
     await daemon.stop()
     await killRunHosts(home, { waitForStart: true })

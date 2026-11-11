@@ -247,7 +247,7 @@ async function handle(
   const request = signed ? replay(req, await readSignedBody(req, url)) : req
 
   if (caller.kind === 'run' && caller.runId.startsWith(testReporterPrefix)) {
-    const id = caller.runId.slice(testReporterPrefix.length)
+    const id = caller.runId.slice(testReporterPrefix.length).split(':')[0]
     if (req.method !== 'POST' || url !== `/test-invocations/${id}/reports`)
       throw new HttpError(403, 'test reporters may only report their own invocation')
   } else if (caller.kind === 'run') {

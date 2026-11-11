@@ -27,6 +27,10 @@ export interface TestInvocation extends RegisterTestInvocation {
   reports: TestInvocationReport[]
 }
 
+export function testReporterSubject(invocation: Pick<TestInvocation, 'id' | 'taskId'>): string {
+  return `${testReporterPrefix}${invocation.id}:${invocation.taskId}`
+}
+
 export interface TestInvocationRegistration {
   invocation: TestInvocation
   token: string
@@ -103,7 +107,8 @@ export function parseTestInvocationReport(value: unknown): TestInvocationReport 
   )
     invalid('sequence is outside the reporting limit')
   if (
-    !['wait-start', 'wait-end', 'finished', 'canceled', 'interrupted'].includes(String(body.kind))
+    typeof body.kind !== 'string' ||
+    !['wait-start', 'wait-end', 'finished', 'canceled', 'interrupted'].includes(body.kind)
   )
     invalid('unknown test report kind')
   if (

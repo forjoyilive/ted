@@ -2,7 +2,7 @@ import {
   parseRegisterTestInvocation,
   parseTestInvocationReport,
   testInvocationId,
-  testReporterPrefix,
+  testReporterSubject,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { TedStore } from '../store/index.ts'
@@ -28,7 +28,7 @@ export const testInvocationRoutes: Route[] = [
         { taskId: task.id, ...(caller.kind === 'run' && { runId: caller.runId }) },
         body,
       )
-      return [200, { invocation, token: runTokens.issue(`${testReporterPrefix}${invocation.id}`) }]
+      return [200, { invocation, token: runTokens.issue(testReporterSubject(invocation)) }]
     },
   }),
   jsonRoute(parseTestInvocationReport, {
@@ -37,7 +37,8 @@ export const testInvocationRoutes: Route[] = [
     runToken: true,
     async handle({ params: [ref = ''], body, caller }, { store }) {
       const id = testInvocationId(ref)
-      if (caller.kind !== 'run' || caller.runId !== `${testReporterPrefix}${id}`)
+      const invocation = store.testInvocations.get(id)
+      if (!invocation || caller.kind !== 'run' || caller.runId !== testReporterSubject(invocation))
         throw new RequestError(403, 'an invocation reporting credential is required')
       store.testInvocations.report(id, body)
       return [200, { recorded: true }]

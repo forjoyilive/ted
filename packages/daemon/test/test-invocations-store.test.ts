@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { testReporterSubject } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { openStore } from '../src/store/index.ts'
 
@@ -134,6 +135,32 @@ test('bounded invocation history enforces ownership, transitions and timestamps 
     store = await openStore({ directory })
     expect(store.testInvocations.summary(task.id)).toEqual(summary)
     expect(store.testInvocations.summary(other.id).invocations).toEqual([])
+    const oldSubject = testReporterSubject(value)
+    store.deleteTask(task.id)
+    expect(store.testInvocations.get(value.id)).toBeUndefined()
+    const replacementRun = store.startRun({
+      id: randomUUID(),
+      taskId: other.id,
+      agent: 'codex',
+      prompt: 'replacement',
+      cwd: directory,
+    })
+    const reused = store.testInvocations.register(
+      { taskId: other.id, runId: replacementRun.id },
+      input,
+    )
+    const newSubject = testReporterSubject(reused)
+    expect(newSubject).not.toBe(oldSubject)
+    await store.persisted()
+    await store.close()
+    for (const name of await readdir(path.join(directory, 'ted')))
+      if (name.startsWith('state')) await rm(path.join(directory, 'ted', name), { force: true })
+    store = await openStore({ directory })
+    const replayed = store.testInvocations.get(value.id)
+    expect(replayed).toMatchObject({ taskId: other.id, runId: replacementRun.id })
+    if (!replayed) throw new Error('missing replacement invocation')
+    expect(testReporterSubject(replayed)).toBe(newSubject)
+    expect(testReporterSubject(replayed)).not.toBe(oldSubject)
   } finally {
     await store.close()
     await rm(directory, { recursive: true, force: true })
