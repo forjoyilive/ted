@@ -2,6 +2,10 @@ import { type ReactNode, type RefObject, useLayoutEffect, useRef, useState } fro
 import { Button } from './Button.tsx'
 import styles from './ScrollMemory.module.css'
 
+export interface ScrollReveal {
+  id: string
+}
+
 interface Spot {
   top: number
   atBottom: boolean
@@ -28,7 +32,7 @@ export function ScrollMemory({
   spot: string
   count: number
   grows?: unknown
-  reveal?: string | undefined
+  reveal?: string | ScrollReveal | undefined
   active?: boolean
   list?: boolean
   className?: string | undefined
@@ -61,24 +65,37 @@ export function ScrollMemory({
     const added = count > seen.current
     seen.current = count
     if (restoring.current !== undefined) restoring.current = scrollTo(element, restoring.current)
-    else if (atBottom.current) element.scrollTop = element.scrollHeight
+    else if (
+      atBottom.current &&
+      !(
+        element.contains(document.activeElement) &&
+        document.activeElement?.closest('input, textarea, select, [contenteditable="true"]')
+      )
+    )
+      element.scrollTop = element.scrollHeight
     else if (added) setNewBelow(true)
   }, [count, grows, active])
 
-  const revealed = useRef<string | undefined>(undefined)
+  const revealed = useRef<{ spot: string; reveal: typeof reveal } | undefined>(undefined)
   useLayoutEffect(() => {
     const element = scroller.current
-    const key = `${spot}:${reveal}`
-    if (!active || count === 0 || !element || reveal === undefined || revealed.current === key)
+    if (
+      !active ||
+      count === 0 ||
+      !element ||
+      reveal === undefined ||
+      (revealed.current?.spot === spot && revealed.current.reveal === reveal)
+    )
       return
+    const id = typeof reveal === 'string' ? reveal : reveal.id
     const target = [...element.querySelectorAll<HTMLElement>('[data-chat-item]')].find(
-      (item) => item.dataset.chatItem === reveal,
+      (item) => item.dataset.chatItem === id,
     )
     if (!target) return
-    revealed.current = key
+    revealed.current = { spot, reveal }
     restoring.current = undefined
     atBottom.current = false
-    target.scrollIntoView({ block: 'center' })
+    target.scrollIntoView({ block: typeof reveal === 'string' ? 'center' : 'start' })
     target.focus({ preventScroll: true })
     spots.set(spot, { top: element.scrollTop, atBottom: false })
   }, [spot, reveal, count, active])
