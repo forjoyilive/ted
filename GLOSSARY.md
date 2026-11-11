@@ -158,6 +158,10 @@ _Avoid_: Planning session, epic, map
 A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s Comments.
 _Avoid_: Transcript, chat log
 
+**Side chat**:
+A separate conversation for asking questions about a Task Lead Run, using the Conversation as it was when the side chat started, while the Run continues its work. Its answers stay in the side chat.
+_Avoid_: Fork, sub-agent, steering thread
+
 **Task brief**:
 The Task Lead’s own summary of where a Task stands, kept with the Task, so a fresh Run can pick up the work.
 _Avoid_: Handoff, context file

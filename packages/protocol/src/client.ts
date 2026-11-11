@@ -122,6 +122,7 @@ import type {
   ShellSize,
   TaskShell,
 } from './shell.ts'
+import type { SideChat } from './side-chat.ts'
 import type { RunSlots } from './slots.ts'
 import type { RemoveClonesResult, StorageSummary } from './storage.ts'
 import type {
@@ -1135,6 +1136,22 @@ export class DaemonClient {
 
   getRun(id: string): Promise<RunWithConversation> {
     return this.#request('GET', `/runs/${encodeURIComponent(id)}`)
+  }
+
+  getSideChat(id: string): Promise<SideChat | null> {
+    return this.#request('GET', `/runs/${encodeURIComponent(id)}/side-chat`)
+  }
+  openSideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat`)
+  }
+  sendSideChat(id: string, text: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/messages`, { text })
+  }
+  stopSideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/stop`)
+  }
+  retrySideChat(id: string): Promise<SideChat> {
+    return this.#request('POST', `/runs/${encodeURIComponent(id)}/side-chat/retry`)
   }
 
   getRunChat(id: string): Promise<RunChat> {

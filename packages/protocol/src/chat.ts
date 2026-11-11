@@ -45,7 +45,7 @@ export type ChatItem =
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
   | { kind: 'permission'; id: string; request: Comment; at: string }
 
-export type RunRole = 'lead' | 'sub-agent' | 'run'
+export type RunRole = 'lead' | 'sub-agent' | 'run' | 'side-chat'
 
 export interface RunSummary {
   id: string

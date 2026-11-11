@@ -54,9 +54,10 @@ import {
   WaitingRow,
 } from '../components/RequestCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
-import { Diff, RunChat } from '../components/RunChat.tsx'
+import { Diff } from '../components/RunChat.tsx'
 import { RunsSection } from '../components/RunsSection.tsx'
 import { ScrollMemory } from '../components/ScrollMemory.tsx'
+import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
 import { pickBlockerEvent, TaskActionsMenu } from '../components/TaskActions.tsx'
@@ -748,7 +749,7 @@ export function TaskThread({
           onBack={() => onCloseApp?.()}
         />
       ) : shownRun !== undefined ? (
-        <RunChat
+        <RunWithSideChat
           key={shownRun}
           runId={shownRun}
           bar={shownRun !== task.leadRunId}

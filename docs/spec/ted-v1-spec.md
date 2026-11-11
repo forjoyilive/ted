@@ -737,6 +737,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 
 - A Run is one agent conversation: on a Task (Task Lead or sub-agent), for an Automation, or for planning. (glossary)
 - **Live chat** is the only view of a Run in v1: streaming messages, collapsible tool-call rows, edits expandable to diffs, and the composer (10.6). Port agent-orchestrator’s chat host (`adapters/chatdriver/`) and React chat components. No TUI; switching is later (KRI-24). (KRI-20)
+- **Side chat** opens beside a Task Lead Run’s chat, with a switch between the two in narrow panes. One persistent side chat belongs to each Task Lead Run, including historical Runs while their output is kept. It uses a fixed Conversation snapshot, the source Run’s agent/model/effort, and answers only from supplied text, with no tools or Task authority. Closing the panel keeps the exchange. Each turn queues under normal Run limits; Stop reply affects only the side chat. Snapshot omissions are shown; a missing snapshot makes the chat read-only. (KRI-29)
 - **Transport:** Codex through `codex app-server`. Claude Code with a subscription through the CLI (an interactive PTY or `claude -p --output-format stream-json`); the Agent SDK only with an API key. (KRI-21, ADR 0004)
 - Agent hooks for Claude Code and Codex tell TED whether a Run is working, idle, waiting or finished. They are set through per-Run flags. (KRI-20, KRI-53)
 - **Per-Run flags only.** TED passes everything as flags on each Run (`--settings`, `--mcp-config`, `-c key=value`, …) and never writes to `~/.claude` or `~/.codex`. The `ted mcp` server is passed the same way. (KRI-53, KRI-59)
@@ -887,7 +888,10 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 
 - Validate `max_back: 5`. At the third send-back (`loop_check: 3`; `false` turns it off), TED itself starts a sub-agent with the `reviewer` agent, model and effort. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. (KRI-16, KRI-53)
 - Converging: back to Work with the verdict added. Looping: ask the human now. (KRI-16)
-- The ask (a `question`, at a looping verdict or over 5) lists each round’s blocking Findings and offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. (KRI-16, KRI-55)
+- At the send-back limit, TED runs a fresh Loop check before asking, unless `loop_check` is `false`. This assessment includes the pending Findings as well as the earlier rounds; even a converging verdict waits for the human’s decision. A failed or unavailable assessment is shown as unknown. (KRI-269)
+- The ask (a `question`, at a looping verdict or over 5) gives a short progress assessment and recommends an existing next step. It offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. Moving on explicitly leaves the Findings open. Full Findings stay in the Task’s history, including the pending send-back; asking does not count as sending back. (KRI-16, KRI-55, KRI-269)
+
+Human-facing Task messages across Stages lead with the current result, risk or needed decision, followed by its consequence and next step. Shared Task Lead guidance keeps routine updates brief and sign-offs clear about what is being approved. Validation summarizes relevant coverage and review outcomes while keeping remaining concerns prominent; detailed logs, review identifiers and test inventories belong in linked or attached evidence. Briefs retain the context a replacement Task Lead needs. Existing messages are not rewritten or automatically shortened. (KRI-269)
 
 ### 8.6 Confirmation row
 
@@ -1382,7 +1386,7 @@ From the map (KRI-8) and every issue labelled `later`:
 - Built-in Linear connector with two-way sync: [KRI-26](https://linear.app/kriyadesign/issue/KRI-26)
 - Auto-delete archived Tasks: [KRI-27](https://linear.app/kriyadesign/issue/KRI-27)
 - Several subscription accounts per agent: [KRI-28](https://linear.app/kriyadesign/issue/KRI-28)
-- Side chats: [KRI-29](https://linear.app/kriyadesign/issue/KRI-29)
+- Side chats for other Run types, multiple side chats per Run and a CLI entry point (the Task Lead Run version is in 7.3): [KRI-29](https://linear.app/kriyadesign/issue/KRI-29)
 - Cues: [KRI-30](https://linear.app/kriyadesign/issue/KRI-30)
 - GitLab: [KRI-31](https://linear.app/kriyadesign/issue/KRI-31)
 - Terminal split panes: [KRI-32](https://linear.app/kriyadesign/issue/KRI-32)

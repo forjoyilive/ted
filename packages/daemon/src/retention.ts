@@ -59,6 +59,7 @@ type EndStore = Pick<
   | 'getTask'
   | 'listStageEntries'
   | 'coordinators'
+  | 'sideChats'
   | 'automationDrafts'
   | 'plans'
   | 'automations'
@@ -66,6 +67,20 @@ type EndStore = Pick<
 
 export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
   const run = store.getRun(runId)
+  const side = store.sideChats.forRun(runId)
+  if (side) {
+    if (side.state === 'queued' || side.state === 'working') return 'keep'
+    const source = store.getRun(side.sourceRunId)
+    if (source && source.state !== 'finished') return 'keep'
+    if (run && run.state !== 'finished') return 'keep'
+    const task = store.getTask(side.taskId)
+    if (task) {
+      const end = [task.archived?.at, task.stage === 'done' ? doneAt(store, task) : undefined]
+        .filter((at) => at !== undefined)
+        .sort()[0]
+      return end === undefined ? 'keep' : { at: end }
+    }
+  }
   if (!run) return 'unknown'
   if (run.state !== 'finished') return 'keep'
   const stopped = run.ended?.at ?? run.revivedAt ?? run.startedAt
