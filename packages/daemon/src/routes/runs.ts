@@ -52,6 +52,7 @@ export const runRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/sub-agents\/([^/?]+)\/wait(?:\?timeoutMs=(\d+))?$/,
+    waits: true,
     runToken: true,
     async handle({ params: [id = '', timeout = ''], caller }, { tasks }) {
       const timeoutMs = timeout === '' ? defaultWaitMs : Math.min(Number(timeout), maxWaitMs)

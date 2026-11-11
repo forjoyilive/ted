@@ -11,6 +11,7 @@ import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
 import { type CommandLineOptions, createCommandLine } from './command-line.ts'
 import { type Coordinators, createCoordinators } from './coordinators/coordinators.ts'
+import { createCpuProfiler } from './cpu-profile.ts'
 import { createData, type DataOptions } from './data.ts'
 import { createDiskWatch, excludeFromTimeMachine, freeBytesAt, volumeName } from './disk.ts'
 import { createEditors, type LaunchEditor } from './editors.ts'
@@ -39,6 +40,7 @@ import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
 import { createShells } from './shells.ts'
 import { createSideChats } from './side-chats/side-chats.ts'
+import { createSlowMonitor } from './slow-moments.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory } from './store/index.ts'
@@ -86,6 +88,7 @@ export interface DaemonOptions {
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
+  slow?: { requestMs?: number; stallMs?: number }
 }
 
 export interface DaemonEditorsOptions {
@@ -609,6 +612,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     .catch((error: unknown) => console.error('rewriting the ted command failed:', error))
   const token = randomBytes(32).toString('hex')
   const appToken = options.appToken ?? randomBytes(32).toString('hex')
+  const slow = createSlowMonitor(options.slow)
+  const profiler = createCpuProfiler(paths.home)
   const { server, port } = await listen({
     version: options.version,
     token,
@@ -625,6 +630,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     onShutdown: options.onShutdown ?? (() => undefined),
     home: paths.home,
     commandLine,
+    slow,
+    profiler,
     ...(idle && { idle }),
   })
   const info: DaemonInfo = { port, token, pid: process.pid, version: options.version }
@@ -638,6 +645,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     appToken,
     async stop() {
       idle?.cancel()
+      slow.close()
+      profiler.close()
       await rm(paths.daemonInfo, { force: true })
       await new Promise<void>((resolve) => {
         server.close(() => resolve())

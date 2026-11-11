@@ -2,11 +2,13 @@ import type http from 'node:http'
 import type { Agents } from '../agents/index.ts'
 import type { Attachments } from '../attachments.ts'
 import type { CommandLine } from '../command-line.ts'
+import type { CpuProfiler } from '../cpu-profile.ts'
 import type { Data, Services } from '../data.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { Linear } from '../linear/linear.ts'
 import type { RunTokens } from '../run-token.ts'
+import type { SlowMonitor } from '../slow-moments.ts'
 import type { Caller } from '../tasks/tasks.ts'
 
 export interface BaseOptions {
@@ -26,6 +28,8 @@ export interface BaseOptions {
   onShutdown: () => void
   home: string
   commandLine: CommandLine
+  slow: SlowMonitor
+  profiler: CpuProfiler
 }
 
 export type ServerOptions = BaseOptions & Services
@@ -42,7 +46,24 @@ export interface Route<O = ServerOptions> {
   path: RegExp
   runToken?: true
   fileToken?: true
+  waits?: true
   handle(context: RequestContext, options: O): Promise<[number, unknown] | undefined>
+}
+
+const patterns = new WeakMap<RegExp, string>()
+
+export function routePattern(path: RegExp): string {
+  const known = patterns.get(path)
+  if (known !== undefined) return known
+  const source = path.source.replace(/^\^/, '').replace(/\$$/, '')
+  const query = source.search(/\(\?:\\\?|\(\\\?|\\\?/)
+  const pattern = (query === -1 ? source : source.slice(0, query))
+    .replaceAll('\\/', '/')
+    .replace(/\(\?:(\/[^()]*(?:\([^()]*\)[^()]*)*)\)\?/g, '$1')
+    .replace(/\((?!\?)[a-z-]+(?:\|[a-z-]+)+\)/g, ':action')
+    .replace(/\((?!\?)[^()]*\)/g, ':id')
+  patterns.set(path, pattern)
+  return pattern
 }
 
 export const maxBodyBytes = 1024 * 1024

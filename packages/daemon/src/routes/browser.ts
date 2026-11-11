@@ -24,6 +24,7 @@ export const browserRoutes: Route[] = [
   jsonRoute(parseBrowserRequest, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/browser$/,
+    waits: true,
     runToken: true,
     async handle({ body, params: [ref = ''], caller }, { tasks }) {
       return [200, await tasks.browserCommand(ref, caller, body)]
@@ -32,6 +33,7 @@ export const browserRoutes: Route[] = [
   jsonRoute(parseBrowserPollRequest, {
     method: 'POST',
     path: /^\/browser\/poll$/,
+    waits: true,
     async handle({ body }, { tasks }) {
       return [200, await tasks.browserPoll(body.session)]
     },
