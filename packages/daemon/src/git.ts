@@ -325,8 +325,37 @@ export async function fetchBranch(
   }
 }
 
+async function inScratch<T>(
+  worktree: string,
+  prefix: string,
+  work: (run: (args: string[]) => Promise<{ stdout: string }>) => Promise<T>,
+): Promise<T> {
+  const common = await git(
+    worktree,
+    '--no-replace-objects',
+    ...noHooks,
+    'rev-parse',
+    '--git-common-dir',
+  )
+  const objects = path.join(path.resolve(worktree, common), 'objects')
+  const scratch = await mkdtemp(path.join(tmpdir(), prefix))
+  const gitDir = path.join(scratch, 'repo.git')
+  const env = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_NO_REPLACE_OBJECTS: '1' })
+  try {
+    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], { cwd: scratch, env })
+    await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
+    return await work((args) =>
+      execFileAsync('git', args, { cwd: scratch, env, maxBuffer: 16 * 1024 * 1024 }),
+    )
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
 export async function isAncestor(repo: string, ancestor: string, commit: string): Promise<boolean> {
-  return git(repo, ...noHooks, 'merge-base', '--is-ancestor', ancestor, commit).then(
+  return inScratch(repo, 'ted-ancestor-', (run) =>
+    run(['merge-base', '--is-ancestor', ancestor, commit]),
+  ).then(
     () => true,
     () => false,
   )
@@ -342,17 +371,19 @@ export async function ownCommits(
   input: { from: string; to: string },
 ): Promise<OwnCommit[] | undefined> {
   if (input.from === input.to) return []
-  const out = await git(
-    repo,
-    '--no-replace-objects',
-    ...noHooks,
-    'rev-list',
-    '--first-parent',
-    '--parents',
-    '--reverse',
-    `${input.from}..${input.to}`,
-    '--',
-  ).catch(() => undefined)
+  const out = await inScratch(repo, 'ted-commits-', (run) =>
+    run([
+      'rev-list',
+      '--first-parent',
+      '--parents',
+      '--reverse',
+      `${input.from}..${input.to}`,
+      '--',
+    ]),
+  ).then(
+    ({ stdout }) => stdout.trim(),
+    () => undefined,
+  )
   if (out === undefined) return undefined
   const commits = out
     .split('\n')
@@ -408,18 +439,9 @@ export async function mergeConflicts(
   worktree: string,
   input: { ours: string; theirs: string },
 ): Promise<string[] | undefined> {
-  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
-  const objects = path.join(path.resolve(worktree, common), 'objects')
-  const scratch = await mkdtemp(path.join(tmpdir(), 'ted-conflicts-'))
-  const gitDir = path.join(scratch, 'repo.git')
   try {
-    await execFileAsync('git', ['init', '--bare', '--quiet', gitDir], {
-      cwd: scratch,
-      env: worktreeCommandEnv({}, { GIT_DIR: gitDir }),
-    })
-    const { stdout } = await execFileAsync(
-      'git',
-      [
+    const { stdout } = await inScratch(worktree, 'ted-conflicts-', (run) =>
+      run([
         'merge-tree',
         '--write-tree',
         '--name-only',
@@ -428,12 +450,7 @@ export async function mergeConflicts(
         '--end-of-options',
         input.ours,
         input.theirs,
-      ],
-      {
-        cwd: scratch,
-        env: worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects }),
-        maxBuffer: 16 * 1024 * 1024,
-      },
+      ]),
     )
     return merged(stdout) ? [] : undefined
   } catch (error) {
@@ -441,8 +458,6 @@ export async function mergeConflicts(
     if (code !== 1 || typeof stdout !== 'string' || !merged(stdout)) return undefined
     const files = stdout.split('\0').slice(1)
     return [...new Set(files.filter((file) => file !== ''))]
-  } finally {
-    await rm(scratch, { recursive: true, force: true })
   }
 }
 
@@ -462,7 +477,10 @@ export async function changesBetween(
   const base = input.baseTip
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-changes-'))
   const gitDir = path.join(scratch, 'repo.git')
-  const bareEnv = worktreeCommandEnv({}, { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects })
+  const bareEnv = worktreeCommandEnv(
+    {},
+    { GIT_DIR: gitDir, GIT_OBJECT_DIRECTORY: objects, GIT_NO_REPLACE_OBJECTS: '1' },
+  )
   const bare = async (args: string[], allowConflicts = false) => {
     try {
       const { stdout } = await execFileAsync('git', args, {
@@ -700,7 +718,7 @@ function parsePatch(patch: string): { hunks: DiffHunk[]; truncated?: true } {
 }
 
 export async function headCommit(worktree: string): Promise<string> {
-  return git(worktree, ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
+  return git(worktree, '--no-replace-objects', ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
 }
 
 export async function moveBranchTo(worktree: string, commit: string): Promise<void> {

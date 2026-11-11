@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { mergeConflicts, ownCommits, workingChanges } from '../src/git.ts'
+import { headCommit, isAncestor, mergeConflicts, ownCommits, workingChanges } from '../src/git.ts'
 
 const run = promisify(execFile)
 let dir: string
@@ -278,12 +278,14 @@ test('a test-merge names the files that conflict and leaves the repo as it was',
   await git('checkout', '-q', 'task')
   const head = await commit({ 'docs/a b.md': 'task\n' }, 'task added the same file')
   const refs = await git('for-each-ref')
+  const objects = await git('count-objects', '-v')
 
   expect(await mergeConflicts(repo, { ours: head, theirs: moved })).toEqual([
     'docs/a b.md',
     'src/search/SearchPanel.tsx',
   ])
   expect(await mergeConflicts(repo, { ours: head, theirs: 'no-such-commit' })).toBeUndefined()
+  expect(await git('count-objects', '-v')).toBe(objects)
   expect(await git('for-each-ref')).toBe(refs)
   expect(await git('status', '--porcelain')).toBe('')
 })
@@ -311,4 +313,39 @@ test('a branch’s own commits since a reviewed commit are its first-parent chai
     { commit: merge, parents: [reviewed, moved] },
     { commit: fix, parents: [merge] },
   ])
+})
+
+test('replace refs, grafts and a shallow file in the repo don’t change what TED reads', async () => {
+  await taskBranch()
+  const reviewed = await git('rev-parse', 'task')
+  const main = await git('rev-parse', 'main')
+  const hidden = await commit({ 'src/hidden.ts': 'hidden\n' }, 'hidden')
+  const head = await commit({ 'docs/fix.md': 'fix\n' }, 'a fix')
+  const chain = [
+    { commit: hidden, parents: [reviewed] },
+    { commit: head, parents: [hidden] },
+  ]
+  const reads = async () => ({
+    head: await headCommit(repo),
+    reviewed: await isAncestor(repo, reviewed, head),
+    main: await isAncestor(repo, main, head),
+    own: await ownCommits(repo, { from: reviewed, to: head }),
+    conflicts: await mergeConflicts(repo, { ours: head, theirs: main }),
+  })
+  const plain = { head, reviewed: true, main: false, own: chain, conflicts: [] }
+  expect(await reads()).toEqual(plain)
+
+  await git('replace', '--graft', head, main)
+  expect(await git('merge-base', '--is-ancestor', main, head).then(() => true)).toBe(true)
+  expect(await reads()).toEqual(plain)
+  await git('replace', '-d', head)
+
+  await writeFile(path.join(repo, '.git', 'info', 'grafts'), `${head} ${reviewed}\n`)
+  expect(await git('rev-list', `${reviewed}..${head}`)).toBe(head)
+  expect(await reads()).toEqual(plain)
+  await rm(path.join(repo, '.git', 'info', 'grafts'))
+
+  await writeFile(path.join(repo, '.git', 'shallow'), `${head}\n`)
+  expect(await git('rev-list', `${reviewed}..${head}`)).toBe(head)
+  expect(await reads()).toEqual(plain)
 })
